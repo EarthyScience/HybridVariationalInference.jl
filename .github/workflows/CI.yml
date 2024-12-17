@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 jobs:
   test:
-    name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }}
+    name: Julia ${{ matrix.group }} - ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ github.event_name }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     permissions: # needed to allow julia-actions/cache to proactively delete old caches that it has created
@@ -22,9 +22,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # https://youtu.be/fQJrEQIRPZU?list=PLP8iPy9hna6Tze1CReUAQweWHyNdXaPNb&t=967
+        group:
+          - Basic
+          - Aqua
         version:
+          - '1'
           - '1.10'
-          - '1.6'
         os:
           - ubuntu-latest
         arch:
@@ -38,6 +42,8 @@ jobs:
       - uses: julia-actions/cache@v2
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
+        env:
+          GROUP: ${{ matrix.group }}
       - uses: julia-actions/julia-processcoverage@v1
       - uses: codecov/codecov-action@v4
         with:
