@@ -1,0 +1,7 @@
+name = "HybridVariationalInference"
+uuid = "a108c475-a4e2-4021-9a84-cfa7df242f64"
+authors = ["Thomas Wutzler <twutz@bgc-jena.mpg.de> and contributors"]
+version = "1.0.0-DEV"
+
+[compat]
+julia = "1.6.7"
