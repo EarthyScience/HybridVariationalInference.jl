@@ -1,27 +1,78 @@
-function applyf(f, θMs::AbstractMatrix, θP::AbstractVector)
-    # predict several sites with same physical parameters
-    yv = map(eachcol(θMs)) do θM
-        f(vcat(θP, θM))
-    end
-    y = reduce(hcat, yv)
+"""
+Type to dispatch constructing data and network structures
+for different cases of hybrid problem setups
+"""
+abstract type AbstractHybridCase end;
+
+function get_case_sizes end
+
+"""
+Determine the FloatType for given Case and scenario, defaults to Float32
+"""
+function get_case_FloatType(::AbstractHybridCase; scenario)
+    return Float32
 end
-function applyf(f, θMs::AbstractMatrix, θPs::AbstractMatrix)
-    # do not call f with matrix θ, because .* with vectors S1 would go wrong
-    yv = map(eachcol(θMs), eachcol(θPs)) do θM, θP
-        f(vcat(θP, θM))
+
+function gen_cov_pred end
+    
+"""
+    gen_g(::AbstractHybridCase, MLEngine, n_covar, n_out; scenario::NTuple=())
+
+Construct the machine learning model fro given problem case and ML-Framework and 
+scenario.
+
+The MLEngine is a value type of a Symbol, usually the name of the module, e.g. 
+`const MLengine = Val(nameof(SimpleChains))`.
+
+returns a Tuple of
+- AbstractModelApplicator
+- initial parameter vector
+"""
+function gen_g end    
+
+"""
+    gen_f(::AbstractHybridCase; scenario::NTuple=())
+
+Construct the process-based model function 
+`f(θP::AbstractVector, θMs::AbstractMatrix, x) -> (AbstractVector, AbstractMatrix)`
+with
+- θP: calibrated parameters that are constant across site
+- θMs: calibrated parameters that vary across sites, with a  column for each site
+- x: drivers, indexed by site
+
+returns a tuple of predictions with components
+- first, those that are constant across sites
+- second, those that vary across sites, with a column for each site
+"""
+function gen_f end
+
+
+function applyf(f, θMs::AbstractMatrix, θP::AbstractVector, x)
+    # predict several sites with same physical parameters
+    yv = map(eachcol(θMs), x) do θM, x_site
+        f(vcat(θP, θM), x_site)
     end
-    y = reduce(hcat, yv)
+    y = stack(yv)
+    return(y)
+end
+function applyf(f, θMs::AbstractMatrix, θPs::AbstractMatrix, xP)
+    # do not call f with matrix θ, because .* with vectors S1 would go wrong
+    yv = map(eachcol(θMs), eachcol(θPs), xP) do θM, θP, xP_site
+        f(vcat(θP, θM), xP_site)
+    end
+    y = stack(yv)
+    return(y)
 end
 #applyf(f_double, θMs_true, stack(Iterators.repeated(CA.getdata(θP_true), size(θMs_true,2))))
 
 """
 composition f ∘ g: mechanistic model after machine learning parameter prediction
 """
-function gf(g, f, x, ϕg, θP)
+function gf(g, f, x, xP, ϕg, θP)
     ζMs = g(x, ϕg) # predict the log of the parameters
     θMs = exp.(ζMs)
-    y_pred = applyf(f, θMs, θP)
-    return y_pred, θMs
+    y_pred_global, y_pred = f(θP, θMs, xP)
+    return y_pred_global, y_pred, θMs
 end
 
 """
@@ -32,13 +83,14 @@ Create a loss function for parameter vector p, given
 - y_o: matrix of observations, sites in columns
 - int_ϕθP: interpreter attachin axis with compponents ϕg and pc.θP
 """
-function get_loss_gf(g, f, x_o, y_o, int_ϕθP::AbstractComponentArrayInterpreter)
-    let g = g, f = f, x_o = x_o, y_o = y_o, int_ϕθP
-        function loss_gf(p)
+function get_loss_gf(g, f, y_o_global, int_ϕθP::AbstractComponentArrayInterpreter)
+    let g = g, f = f, int_ϕθP = int_ϕθP
+        function loss_gf(p, x_o, xP, y_o)
             pc = int_ϕθP(p)
-            y_pred, θMs = gf(g, f, x_o, pc.ϕg, pc.θP)
-            loss = sum(abs2, y_pred .- y_o)
-            return loss, y_pred, θMs
+            y_pred_global, y_pred, θMs = gf(g, f, x_o, xP, pc.ϕg, pc.θP)
+            #Main.@infiltrate_main
+            loss = sum(abs2, y_pred .- y_o) + sum(abs2, y_pred_global .- y_o_global)
+            return loss, y_pred_global, y_pred, θMs
         end
     end
 end
