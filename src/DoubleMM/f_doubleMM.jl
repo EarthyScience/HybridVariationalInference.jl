@@ -16,7 +16,21 @@ function f_doubleMM(θ::AbstractVector)
     return (y)
 end
 
-function HybridVariationalInference.gen_f(::DoubleMMCase; scenario::NTuple = ())
+function HybridVariationalInference.get_hybridcase_par_templates(::DoubleMMCase; scenario::NTuple = ())
+    (; θP, θM)
+end
+
+function HybridVariationalInference.get_hybridcase_sizes(::DoubleMMCase; scenario = ())
+    n_covar_pc = 2
+    n_covar = n_covar_pc + 3 # linear dependent
+    n_site = 10^n_covar_pc
+    n_batch = 10
+    n_θM = length(θM)
+    n_θP = length(θP)
+    (; n_covar, n_site, n_batch, n_θM, n_θP)
+end
+
+function HybridVariationalInference.gen_hybridcase_PBmodel(::DoubleMMCase; scenario::NTuple = ())
     fsite = (θ, x_site) -> f_doubleMM(θ)  # omit x_site drivers
     function f_doubleMM_with_global(θP::AbstractVector, θMs::AbstractMatrix, x)
         pred_sites = applyf(fsite, θMs, θP, x)
@@ -25,24 +39,35 @@ function HybridVariationalInference.gen_f(::DoubleMMCase; scenario::NTuple = ())
     end
 end
 
-function HybridVariationalInference.get_case_sizes(::DoubleMMCase; scenario = ())
-    n_covar_pc = 2
-    n_covar = n_covar_pc + 3 # linear dependent
-    n_site = 10^n_covar_pc
-    n_batch = 10
-    n_θM = length(θM)
-    n_θP = length(θP)
-    (; n_covar_pc, n_covar, n_site, n_batch, n_θM, n_θP)
-end
-
-function HybridVariationalInference.get_case_FloatType(::DoubleMMCase; scenario)
+function HybridVariationalInference.get_hybridcase_FloatType(::DoubleMMCase; scenario)
     return Float32
 end
 
-function HybridVariationalInference.gen_cov_pred(case::DoubleMMCase, rng::AbstractRNG;
+function HybridVariationalInference.gen_hybridcase_synthetic(case::DoubleMMCase, rng::AbstractRNG;
         scenario = ())
-    (; n_covar_pc, n_covar, n_site, n_batch, n_θM, n_θP) = get_case_sizes(case; scenario)
-    FloatType = get_case_FloatType(case; scenario)
-    gen_cov_pred(rng, FloatType, n_covar_pc, n_covar, n_site, n_θM;
+    n_covar_pc = 2
+    (; n_covar, n_site, n_batch, n_θM, n_θP) = get_hybridcase_sizes(case; scenario)
+    FloatType = get_hybridcase_FloatType(case; scenario)
+    xM, θMs_true0 = gen_cov_pred(rng, FloatType, n_covar_pc, n_covar, n_site, n_θM;
         rhodec = 8, is_using_dropout = false)
+    int_θMs_sites = ComponentArrayInterpreter(θM, (n_site,))
+    # normalize to be distributed around the prescribed true values
+    θMs_true = int_θMs_sites(scale_centered_at(θMs_true0, θM, 0.1))
+    f = gen_hybridcase_PBmodel(case; scenario)
+    xP = fill((), n_site)
+    y_global_true, y_true = f(θP, θMs_true, zip())
+    σ_o = 0.01
+    #σ_o = 0.002
+    y_global_o = y_global_true .+ randn(rng, size(y_global_true)) .* σ_o
+    y_o = y_true .+ randn(rng, size(y_true)) .* σ_o
+    (;
+        xM,
+        θP_true = θP,
+        θMs_true,
+        xP,
+        y_global_true,
+        y_true,
+        y_global_o,
+        y_o,
+    )
 end

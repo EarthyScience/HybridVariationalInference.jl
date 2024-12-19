@@ -3,7 +3,7 @@ module HybridVariationalInference
 using ComponentArrays: ComponentArrays as CA
 using Random
 using StatsBase # fit ZScoreTransform
-using Combinatorics # gen_cov_pred/combinations
+using Combinatorics # gen_hybridcase_synthetic/combinations
 
 export ComponentArrayInterpreter, flatten1
 include("ComponentArrayInterpreter.jl")
@@ -12,7 +12,10 @@ export AbstractModelApplicator, construct_SimpleChainsApplicator, construct_Flux
        construct_LuxApplicator
 include("ModelApplicator.jl")
 
-export AbstractHybridCase, gen_g, gen_f, get_case_sizes, get_case_FloatType, gen_cov_pred
+export AbstractHybridCase, gen_hybridcase_MLapplicator, gen_hybridcase_PBmodel, get_hybridcase_sizes, get_hybridcase_FloatType, gen_hybridcase_synthetic,
+       get_hybridcase_par_templates, gen_cov_pred
+include("hybrid_case.jl")
+
 export applyf, gf, get_loss_gf
 include("gf.jl")
 
