@@ -1,4 +1,12 @@
 [deps]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
+CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
+Flux = "587475ba-b771-5e3f-ad9e-33799f191a9c"
+GPUArraysCore = "46192b85-c4d5-4398-a991-12ede77f4527"
+Lux = "b2108857-7c20-44ae-9111-449ecde12c47"
 SafeTestsets = "1bc83da4-3b8d-516f-aca4-4fe02f6d838f"
+SimpleChains = "de6bee2f-e2f4-4ec7-b6ed-219cc6f6e9e5"
+StableRNGs = "860ef19b-820b-49d6-a774-d7a799459cd3"
+StatsFuns = "4c63d2b9-4356-54db-8cca-17b64c39e42c"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+cuDNN = "02a925ec-e4fe-4b08-9a7e-0d78e3d38ccd"
