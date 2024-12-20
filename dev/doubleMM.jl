@@ -1,14 +1,3 @@
-() -> begin
-    using SimpleChains, BenchmarkTools, Static, OptimizationOptimisers
-    import Zygote
-    using StatsFuns: logistic
-    using UnicodePlots
-    using Distributions
-    using StableRNGs
-    using LinearAlgebra, StatsBase, Combinatorics
-    using Random
-end
-
 using Test
 using HybridVariationalInference
 using StableRNGs

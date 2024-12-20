@@ -16,7 +16,7 @@ function HVI.construct_LuxApplicator(m::Chain; device = gpu_device())
     st = st |> device
     stateful_layer = StatefulLuxLayer{true}(m, nothing, st)
     #stateful_layer(x_o_gpu[:, 1:n_site_batch], ps_ca)
-    int_ϕ = ComponentArrayInterpreter(ps_ca)
+    int_ϕ = get_concrete(ComponentArrayInterpreter(ps_ca))
     LuxApplicator(stateful_layer, int_ϕ)
 end
 
