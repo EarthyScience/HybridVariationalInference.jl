@@ -1,5 +1,5 @@
 """
-create a funciton (state, l) -> false that prints iter and loss each moditer
+create a function (state, l) -> false that prints iter and loss each moditer
 """
 callback_loss = (moditer) -> let iter = 1, moditer = moditer
     function (state, l)

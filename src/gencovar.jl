@@ -3,7 +3,7 @@ Generate correlated covariates and synthetic true parameters that
 are a linear combination of the uncorrelated underlying principal 
 factors and their binary combinations.
 
-In addtion provide a SimpleChains model of adequate complexity to
+In addition provide a SimpleChains model of adequate complexity to
 fit this realationship θMs_true = f(x_o)
 """
 function gen_cov_pred(rng::AbstractRNG, T::DataType,

@@ -9,7 +9,7 @@ For a specific case, provide functions that specify details
 - gen_hybridcase_PBmodel
 optionally
 - gen_hybridcase_synthetic
-- get_hybridcase_FloatType (if it shoudl differ from Float32)
+- get_hybridcase_FloatType (if it should differ from Float32)
 """
 abstract type AbstractHybridCase end;
 
