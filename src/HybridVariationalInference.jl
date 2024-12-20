@@ -5,7 +5,7 @@ using Random
 using StatsBase # fit ZScoreTransform
 using Combinatorics # gen_hybridcase_synthetic/combinations
 
-export ComponentArrayInterpreter, flatten1
+export ComponentArrayInterpreter, flatten1, get_concrete
 include("ComponentArrayInterpreter.jl")
 
 export AbstractModelApplicator, construct_SimpleChainsApplicator, construct_FluxApplicator,

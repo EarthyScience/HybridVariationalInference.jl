@@ -137,6 +137,13 @@ function ComponentArrayInterpreter(
     ComponentArrayInterpreter(axes_ext)
 end
 
+# ambuiguity with two empty Tuples (edge case that does not make sense)
+# Empty ComponentVector with no other array dimenstions -> empty componentVector
+function ComponentArrayInterpreter(n_dims1::Tuple{}, n_dims2::Tuple{})
+    ComponentArrayInterpreter(CA.ComponentVector())
+end
+
+
 
 
 # not exported, but required for testing

@@ -50,7 +50,8 @@ end
     optf = Optimization.OptimizationFunction((ϕg, p) -> loss_g(ϕg, xM, g)[1],
         Optimization.AutoZygote())
     optprob = Optimization.OptimizationProblem(optf, ϕg0);
-    res = Optimization.solve(optprob, Adam(0.02), callback = callback_loss(100), maxiters = 600);
+    #res = Optimization.solve(optprob, Adam(0.02), callback = callback_loss(100), maxiters = 600);
+    res = Optimization.solve(optprob, Adam(0.02), maxiters = 600);
 
     ϕg_opt1 = res.u;
     pred = loss_g(ϕg_opt1, xM, g)
@@ -79,7 +80,8 @@ end
     optprob = OptimizationProblem(optf, p0, train_loader)
 
     res = Optimization.solve(
-        optprob, Adam(0.02), callback = callback_loss(100), maxiters = 1000);
+#        optprob, Adam(0.02), callback = callback_loss(100), maxiters = 1000);
+        optprob, Adam(0.02), maxiters = 1000);
 
     l1, y_pred_global, y_pred, θMs_pred = loss_gf(res.u, train_loader.data...)
     @test isapprox(par_templates.θP, int_ϕθP(res.u).θP, rtol = 0.11)
