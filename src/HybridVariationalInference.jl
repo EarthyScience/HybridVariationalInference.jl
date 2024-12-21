@@ -4,6 +4,10 @@ using ComponentArrays: ComponentArrays as CA
 using Random
 using StatsBase # fit ZScoreTransform
 using Combinatorics # gen_hybridcase_synthetic/combinations
+using GPUArraysCore
+using LinearAlgebra
+using CUDA
+using ChainRulesCore
 
 export ComponentArrayInterpreter, flatten1, get_concrete
 include("ComponentArrayInterpreter.jl")
@@ -24,6 +28,9 @@ include("gencovar.jl")
 
 export callback_loss
 include("util_opt.jl")
+
+#export - all internal
+include("cholesky.jl")
 
 export DoubleMM
 include("DoubleMM/DoubleMM.jl")

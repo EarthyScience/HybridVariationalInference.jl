@@ -11,6 +11,8 @@ const GROUP = get(ENV, "GROUP", "All") # defined in in CI.yml
         @time @safetestset "test_SimpleChains" include("test_SimpleChains.jl")
         #@safetestset "test" include("test/test_doubleMM.jl")
         @time @safetestset "test_doubleMM" include("test_doubleMM.jl")
+        #@safetestset "test" include("test/test_cholesky_structure.jl")
+        @time @safetestset "test_cholesky_structure" include("test_cholesky_structure.jl")
         #
         #@safetestset "test" include("test/test_Flux.jl")
         @time @safetestset "test_Flux" include("test_Flux.jl")
