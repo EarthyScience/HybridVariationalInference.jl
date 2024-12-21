@@ -4,7 +4,7 @@ are a linear combination of the uncorrelated underlying principal
 factors and their binary combinations.
 
 In addition provide a SimpleChains model of adequate complexity to
-fit this realationship θMs_true = f(x_o)
+fit this relationship θMs_true = f(x_o)
 """
 function gen_cov_pred(rng::AbstractRNG, T::DataType,
     n_covar_pc, n_covar, n_site, n_θM::Integer;
