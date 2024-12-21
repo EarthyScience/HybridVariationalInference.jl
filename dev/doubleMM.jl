@@ -95,7 +95,7 @@ tmpf = () -> begin
 end
 
 #---------- HADVI
-# TODO think about good gneral initializations
+# TODO think about good general initializations
 coef_logσ2_logMs = [-5.769 -3.501; -0.01791 0.007951]
 logσ2_logP = CA.ComponentVector(r0=-8.997, K2=-5.893)
 mean_σ_o_MC = 0.006042

@@ -41,7 +41,7 @@ end;
          B' Z Z C]
     LX = cholesky(X).L
     LX[4:6, 4:6] ≈ LX[7:9, 7:9]
-    # but non-zero off-diagnoals at Z positions and different edge entries 
+    # but non-zero off-diagonals at Z positions and different edge entries 
     @test_broken LX[7:9, 4:6] ≈ Z
     @test_broken LX[9:12, 4:6] ≈ LX[9:12, 7:9]
 end;
@@ -136,7 +136,7 @@ end;
 () -> begin
     #setup for fitting of interactive blocks below
     _X = rand(3, 3)
-    S = _X * _X' # kno that this is Hermitian
+    S = _X * _X' # know that this is Hermitian
     stdS = sqrt.(diag(S))
     C = Diagonal(1 ./ stdS) * S * Diagonal(1 ./ stdS)
     @test Diagonal(stdS) * C * Diagonal(stdS) ≈ S
@@ -192,9 +192,9 @@ end
         y_pred = xs' * U
         sum(abs2, ys .- y_pred)
     end
-    # cannot infer true Uscaled any more
-    Uscaled0 = CU ./ diag(CU)
-    Us1vec0 = uutri2vec(Uscaled0)
+    # cannot infer true U_scaled any more
+    Unscaled0 = CU ./ diag(CU)
+    Us1vec0 = uutri2vec(Unscaled0)
     fcost(Us1vec0)
 
     optf = Optimization.OptimizationFunction((x, p) -> fcost(x), Optimization.AutoZygote())
@@ -227,9 +227,9 @@ end
         y_pred = (xs' * U) * Dσ
         sum(abs2, ys .- y_pred)
     end
-    # cannot infer true Uscaled any more
-    Uscaled0 = S ./ diag(S)
-    Us1vec0 = CP.uutri2vec(Uscaled0)
+    # cannot infer true U_scaled any more
+    Unscaled0 = S ./ diag(S)
+    Us1vec0 = CP.uutri2vec(Unscaled0)
     fcost(Us1vec0)
     #fcostS(resCT.u)  # cost of u optimized by Covar should yield small result if same x
 
@@ -244,7 +244,7 @@ end
     SUpred = Upred * Dσ
     #hcat(SUpred, SU)  
     @test SUpred≈SU atol=1e-1
-    Spred = Dσ' * Upred' * Upred * Dσ
-    @test Spred≈S atol=1e-1
+    S_pred = Dσ' * Upred' * Upred * Dσ
+    @test S_pred≈S atol=1e-1
 end
 

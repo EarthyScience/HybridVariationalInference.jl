@@ -79,7 +79,7 @@ end
 # """
 # Convert vector v columnwise entries of upper diagonal matrix to UnitUppterTriangular
 
-# Avoid using this repeatetly on GPU arrays, because it only works on CPU (scalar indexing).
+# Avoid using this repeatedly on GPU arrays, because it only works on CPU (scalar indexing).
 # There is a fallback that pulls `v` to the CPU, applies, and pushes back to GPU.
 # """
 function _vec2uutri(v::AbstractVector{T}; n=invsumn(length(v)) + one(T), diag=one(T)) where {T}
@@ -178,7 +178,7 @@ function ChainRulesCore.rrule(::typeof(uutri2vec), X::AbstractMatrix{T}) where T
 end
 
 #function uutri2vec(X::GPUArraysCore.AbstractGPUMatrix; kwargs...)
-#TODO remove internal coersion to CuArray to extend to other AbstractGPUMatrix
+#TODO remove internal coercion to CuArray to extend to other AbstractGPUMatrix
 # function uutri2vec(X::CuArray; kwargs...)
 #     n = size(X, 1) - 1
 #     lv = sumn(n)
@@ -223,37 +223,37 @@ end
 
 """
 Takes a vector of entries of a lower UnitUpperTriangular matrix
-and transformes it to an UpperTriangular that satisfies 
+and transforms it to an UpperTriangular that satisfies 
 diag(U' * U) = 1.
 
 This can be used to fit parameters that yield an upper Cholesky-Factor
 of a Covariance matrix.
 
 It uses the upper triangular matrix rather than the lower because it
-involes a sum across columns, wheras the alternative of a lower triangular
+involes a sum across columns, whereas the alternative of a lower triangular
 uses sum across rows. 
 Sum across columns is often faster, because entries of columns are contiguous.
 """
 function transformU_cholesky1(v::AbstractVector; 
     n=invsumn(length(v)) + 1
     )
-    Uscaled = vec2uutri(v; n)
-    #Sc_inv = sqrt.(sum(abs2, Uscaled, dims=1))
-    #Uscaled * Diagonal(1 ./ vec(Sc_inv))
-    #U = Uscaled ./ Sc_inv
-    U = Uscaled ./ sqrt.(sum(abs2, Uscaled, dims=1))
+    U_scaled = vec2uutri(v; n)
+    #Sc_inv = sqrt.(sum(abs2, U_scaled, dims=1))
+    #U_scaled * Diagonal(1 ./ vec(Sc_inv))
+    #U = U_scaled ./ Sc_inv
+    U = U_scaled ./ sqrt.(sum(abs2, U_scaled, dims=1))
     return (UpperTriangular(U))
 end
 function transformU_cholesky1(v::GPUArraysCore.AbstractGPUVector; n=invsumn(length(v)) + 1)
-    Uscaled = vec2uutri(v; n)
-    U = Uscaled ./ sqrt.(sum(abs2, Uscaled, dims=1))
+    U_scaled = vec2uutri(v; n)
+    U = U_scaled ./ sqrt.(sum(abs2, U_scaled, dims=1))
     # do not convert to UpperTrinangular on GPU, but full matrix
     #return (UpperTriangular(U))
     return U
 end
 
 () -> begin
-    tmp = sqrt.(sum(abs2, Uscaled, dims=1))
-    tmp2 = sum(abs2, Uscaled, dims=1) .^ (-1 / 2)
-    Uscaled * tmp'
+    tmp = sqrt.(sum(abs2, U_scaled, dims=1))
+    tmp2 = sum(abs2, U_scaled, dims=1) .^ (-1 / 2)
+    U_scaled * tmp'
 end
