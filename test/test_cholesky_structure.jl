@@ -97,25 +97,27 @@ end;
 end
 
 @testset "vec2uutri gpu" begin
-    v_orig = 1.0f0:6.0f0
-    v = CuArray(collect(v_orig))
-    U1v = CP.vec2uutri(v)
-    @test !(U1v isa UnitUpperTriangular) # on CUDA work with normal matrix
-    @test U1v isa GPUArraysCore.AbstractGPUMatrix
-    @test size(U1v, 1) == 4
-    @test Array(U1v) == CP.vec2uutri(v_orig)
-    gr = Zygote.gradient(v -> sum(abs2.(CP.vec2uutri(v))), v)[1] # works nice
-    @test gr isa GPUArraysCore.AbstractGPUArray
-    @test Array(gr) == (1:6) .* 2.0
-    #
-    v2 = CP.uutri2vec(U1v)
-    @test v2 isa GPUArraysCore.AbstractGPUVector
-    @test eltype(v2) == eltype(U1v)
-    @test Array(v2) == v_orig
-    gr = Zygote.gradient(U1v -> sum(CP.uutri2vec(U1v .* 2)), U1v)[1] # works nice
-    @test gr isa GPUArraysCore.AbstractGPUArray
-    @test all(diag(gr) .== 0)
-    @test Array(CP.uutri2vec(gr)) == fill(2.0f0, length(v_orig))
+    if CUDA.functional() # only run the test, if CUDA is working (not on Github ci)
+        v_orig = 1.0f0:6.0f0
+        v = CuArray(collect(v_orig))
+        U1v = CP.vec2uutri(v)
+        @test !(U1v isa UnitUpperTriangular) # on CUDA work with normal matrix
+        @test U1v isa GPUArraysCore.AbstractGPUMatrix
+        @test size(U1v, 1) == 4
+        @test Array(U1v) == CP.vec2uutri(v_orig)
+        gr = Zygote.gradient(v -> sum(abs2.(CP.vec2uutri(v))), v)[1] # works nice
+        @test gr isa GPUArraysCore.AbstractGPUArray
+        @test Array(gr) == (1:6) .* 2.0
+        #
+        v2 = CP.uutri2vec(U1v)
+        @test v2 isa GPUArraysCore.AbstractGPUVector
+        @test eltype(v2) == eltype(U1v)
+        @test Array(v2) == v_orig
+        gr = Zygote.gradient(U1v -> sum(CP.uutri2vec(U1v .* 2)), U1v)[1] # works nice
+        @test gr isa GPUArraysCore.AbstractGPUArray
+        @test all(diag(gr) .== 0)
+        @test Array(CP.uutri2vec(gr)) == fill(2.0f0, length(v_orig))
+    end
 end;
 
 @testset "transformU_cholesky1 gpu" begin
@@ -124,13 +126,15 @@ end;
     ch = CP.transformU_cholesky1(vcpu)
     gr1 = Zygote.gradient(v -> sum(CP.transformU_cholesky1(v)), vcpu)[1] # works nice
     @test all(diag(ch' * ch) .≈ 1)
-    v = CuArray(collect(v_orig))
-    U1v = CP.transformU_cholesky1(v)
-    @test !(U1v isa UnitUpperTriangular) # on CUDA work with normal matrix
-    @test U1v isa GPUArraysCore.AbstractGPUMatrix
-    @test Array(U1v) ≈ ch
-    gr2 = Zygote.gradient(v -> sum(CP.transformU_cholesky1(v)), v)[1] # works nice
-    @test Array(gr2) == gr1
+    if CUDA.functional() # only run the test, if CUDA is working (not on Github ci)
+        v = CuArray(collect(v_orig))
+        U1v = CP.transformU_cholesky1(v)
+        @test !(U1v isa UnitUpperTriangular) # on CUDA work with normal matrix
+        @test U1v isa GPUArraysCore.AbstractGPUMatrix
+        @test Array(U1v) ≈ ch
+        gr2 = Zygote.gradient(v -> sum(CP.transformU_cholesky1(v)), v)[1] # works nice
+        @test Array(gr2) == gr1
+    end
 end;
 
 () -> begin
