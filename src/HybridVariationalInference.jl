@@ -8,6 +8,12 @@ using GPUArraysCore
 using LinearAlgebra
 using CUDA
 using ChainRulesCore
+using TransformVariables
+using Zygote  # Zygote.@ignore CUDA.randn
+using BlockDiagonals
+
+export inverse_ca
+include("util._transformvariablesjl")
 
 export ComponentArrayInterpreter, flatten1, get_concrete
 include("ComponentArrayInterpreter.jl")
@@ -31,6 +37,8 @@ include("util_opt.jl")
 
 #export - all internal
 include("cholesky.jl")
+
+include("elbo.jl")
 
 export DoubleMM
 include("DoubleMM/DoubleMM.jl")
