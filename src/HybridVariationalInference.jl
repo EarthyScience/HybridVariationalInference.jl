@@ -44,8 +44,11 @@ include("logden_normal.jl")
 #export - all internal
 include("cholesky.jl")
 
-export neg_elbo_transnorm_gf
+export neg_elbo_transnorm_gf, predict_gf
 include("elbo.jl")
+
+export init_hybrid_params
+include("init_hybrid_params.jl")
 
 export DoubleMM
 include("DoubleMM/DoubleMM.jl")

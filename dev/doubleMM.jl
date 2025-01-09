@@ -53,8 +53,8 @@ scatterplot(vec(θMs_true), vec(loss_g(ϕg_opt1, xM, g)[2]))
 
 f = gen_hybridcase_PBmodel(case; scenario)
 
+#----------- fit g and θP to y_o
 () -> begin
-    #----------- fit g and θP to y_o
     # end2end inversion
 
     int_ϕθP = ComponentArrayInterpreter(CA.ComponentVector(
@@ -82,67 +82,78 @@ f = gen_hybridcase_PBmodel(case; scenario)
 end
 
 #---------- HVI
-# TODO think about good general initializations
-coef_logσ2_logMs = [-5.769 -3.501; -0.01791 0.007951]
-logσ2_logP = CA.ComponentVector(r0 = -8.997, K2 = -5.893)
-mean_σ_o_MC = 0.006042
-
-# correlation matrices
-ρsP = zeros(sum(1:(n_θP - 1)))
-ρsM = zeros(sum(1:(n_θM - 1)))
-
-ϕunc = CA.ComponentVector(;
-    logσ2_logP = logσ2_logP,
-    coef_logσ2_logMs = coef_logσ2_logMs,
-    ρsP,
-    ρsM)
-int_unc = ComponentArrayInterpreter(ϕunc)
-
-# for a conservative uncertainty assume σ2=1e-10 and no relationship with magnitude
-ϕunc0 = CA.ComponentVector(;
-    logσ2_logP = fill(-10.0, n_θP),
-    coef_logσ2_logMs = reduce(hcat, ([-10.0, 0.0] for _ in 1:n_θM)),
-    ρsP,
-    ρsM)
-
 logσ2y = 2 .* log.(σ_o)
 n_MC = 3
+(; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
+    θP_true, θMs_true[:, 1], ϕg_opt1, n_batch; transP = asℝ₊, transM = asℝ₊);
+ϕ_true = ϕ
 
-transPMs_batch = as(
-    (P = as(Array, asℝ₊, n_θP),
-    Ms = as(Array, asℝ₊, n_θM, n_batch)))
-transPMs_all = as(
-    (P = as(Array, asℝ₊, n_θP),
-    Ms = as(Array, asℝ₊, n_θM, n_site)))
+() -> begin
+    coef_logσ2_logMs = [-5.769 -3.501; -0.01791 0.007951]
+    logσ2_logP = CA.ComponentVector(r0 = -8.997, K2 = -5.893)
+    mean_σ_o_MC = 0.006042
 
-n_ϕg = length(ϕg_opt1)
-ϕt_true = θ = CA.ComponentVector(;
-    μP = θP_true,
-    ϕg = ϕg_opt1,
-    unc = ϕunc);
-trans_gu = as(
-    (μP = as(Array, asℝ₊, n_θP),
-    ϕg = as(Array, n_ϕg),
-    unc = as(Array, length(ϕunc))))
-trans_g = as(
-    (μP = as(Array, asℝ₊, n_θP),
-    ϕg = as(Array, n_ϕg)))
+    # correlation matrices
+    ρsP = zeros(sum(1:(n_θP - 1)))
+    ρsM = zeros(sum(1:(n_θM - 1)))
 
-#const 
-int_PMs_batch = ComponentArrayInterpreter(CA.ComponentVector(; θP = θP_true,
-    θMs = CA.ComponentMatrix(
-        zeros(n_θM, n_batch), first(CA.getaxes(θMs_true)), CA.Axis(i = 1:n_batch))))
+    ϕunc = CA.ComponentVector(;
+        logσ2_logP = logσ2_logP,
+        coef_logσ2_logMs = coef_logσ2_logMs,
+        ρsP,
+        ρsM)
+    int_unc = ComponentArrayInterpreter(ϕunc)
 
-interpreters = interpreters_g = map(get_concrete,
-    (;
-        μP_ϕg_unc = ComponentArrayInterpreter(ϕt_true),
-        PMs = int_PMs_batch,
-        unc = ComponentArrayInterpreter(ϕunc)
-    ))
+    # for a conservative uncertainty assume σ2=1e-10 and no relationship with magnitude
+    ϕunc0 = CA.ComponentVector(;
+        logσ2_logP = fill(-10.0, n_θP),
+        coef_logσ2_logMs = reduce(hcat, ([-10.0, 0.0] for _ in 1:n_θM)),
+        ρsP,
+        ρsM)
 
-ϕ_true = inverse_ca(trans_gu, ϕt_true)
+    transPMs_batch = as(
+        (P = as(Array, asℝ₊, n_θP),
+        Ms = as(Array, asℝ₊, n_θM, n_batch)))
+    transPMs_allsites = as(
+        (P = as(Array, asℝ₊, n_θP),
+        Ms = as(Array, asℝ₊, n_θM, n_site)))
+
+    n_ϕg = length(ϕg_opt1)
+    ϕt_true = θ = CA.ComponentVector(;
+        μP = θP_true,
+        ϕg = ϕg_opt1,
+        unc = ϕunc)
+    trans_gu = as(
+        (μP = as(Array, asℝ₊, n_θP),
+        ϕg = as(Array, n_ϕg),
+        unc = as(Array, length(ϕunc))))
+    trans_g = as(
+        (μP = as(Array, asℝ₊, n_θP),
+        ϕg = as(Array, n_ϕg)))
+
+    #const 
+    int_PMs_batch = ComponentArrayInterpreter(CA.ComponentVector(; θP = θP_true,
+        θMs = CA.ComponentMatrix(
+            zeros(n_θM, n_batch), first(CA.getaxes(θMs_true)), CA.Axis(i = 1:n_batch))))
+
+    interpreters = interpreters_g = map(get_concrete,
+        (;
+            μP_ϕg_unc = ComponentArrayInterpreter(ϕt_true),
+            PMs = int_PMs_batch,
+            unc = ComponentArrayInterpreter(ϕunc)
+        ))
+
+    ϕ_true = inverse_ca(trans_gu, ϕt_true)
+end
+
+ϕ_ini0 = ζ = vcat(ϕ_true[:μP] .* 0.0, ϕg0, ϕ_true[[:unc]]); # scratch
+#
+# true values
 ϕ_ini = ζ = vcat(ϕ_true[[:μP, :ϕg]] .* 1.2, ϕ_true[[:unc]]); # slight disturbance
-ϕ_ini0 = ζ = vcat(ϕ_true[:μP] .* 0.0, ϕg0, ϕunc0); # scratch
+# hardcoded from HMC inversion
+ϕ_ini.unc.coef_logσ2_logMs = [-5.769 -3.501; -0.01791 0.007951]
+ϕ_ini.unc.logσ2_logP = CA.ComponentVector(r0 = -8.997, K2 = -5.893)
+mean_σ_o_MC = 0.006042
 
 # test cost function and gradient
 () -> begin
@@ -161,10 +172,10 @@ end
     train_loader = MLUtils.DataLoader((xM, y_o), batchsize = n_batch)
 
     optf = Optimization.OptimizationFunction(
-        (ζg, data) -> begin
+        (ϕ, data) -> begin
             xM, y_o = data
             neg_elbo_transnorm_gf(
-                rng, g, f, ζg, y_o, xM, transPMs_batch,
+                rng, g, f, ϕ, y_o, xM, transPMs_batch,
                 map(get_concrete, interpreters_g); n_MC = 5, logσ2y)
         end,
         Optimization.AutoZygote())
@@ -181,7 +192,7 @@ g_flux, ϕg0_flux_cpu = gen_hybridcase_MLapplicator(case, FluxMLengine; scenario
 
 # otpimize using LUX
 () -> begin
-    using Lux
+    #using Lux
     g_lux = Lux.Chain(
         # dense layer with bias that maps to 8 outputs and applies `tanh` activation
         Lux.Dense(n_covar => n_covar * 4, tanh),
@@ -208,18 +219,19 @@ function fcost(ϕ)
         n_MC = 8, logσ2y = logσ2y)
 end
 fcost(ϕ)
-Zygote.gradient(fcost, ϕ) |> cpu;
+#Zygote.gradient(fcost, ϕ) |> cpu;
 gr = Zygote.gradient(fcost, CA.getdata(ϕ));
-gr_c = CA.ComponentArray(gr[1], CA.getaxes(ϕ)...)
+gr_c = CA.ComponentArray(gr[1] |> Flux.cpu, CA.getaxes(ϕ)...)
 
 train_loader = MLUtils.DataLoader((xM_gpu, y_o), batchsize = n_batch)
 
 optf = Optimization.OptimizationFunction(
-    (ζg, data) -> begin
+    (ϕ, data) -> begin
         xM, y_o = data
-        neg_elbo_transnorm_gf(
-            rng, g_flux, f, ζg, y_o, xM, transPMs_batch,
-            map(get_concrete, interpreters_g); n_MC = 5, logσ2y)
+        fcost(ϕ)
+        # neg_elbo_transnorm_gf(
+        #     rng, g_flux, f, ϕ, y_o, xM, transPMs_batch,
+        #     map(get_concrete, interpreters); n_MC = 5, logσ2y)
     end,
     Optimization.AutoZygote())
 optprob = Optimization.OptimizationProblem(
@@ -230,40 +242,31 @@ res = res_gpu = Optimization.solve(
 # start from zero 
 () -> begin
     optprob = Optimization.OptimizationProblem(
-        optf, CA.getdata(ϕ_ini0) |> Flux.gpu, train_loader);
+        optf, CA.getdata(ϕ_ini0) |> Flux.gpu, train_loader)
     res = res_gpu = Optimization.solve(
-            optprob, Optimisers.Adam(0.02), callback = callback_loss(50), maxiters = 4_000);
+        optprob, Optimisers.Adam(0.02), callback = callback_loss(50), maxiters = 4_000)
 end
 
-ζ_VIc = interpreters_g.μP_ϕg_unc(res.u |> Flux.cpu)
-ζMs_VI = g(xM, ζ_VIc.ϕg)
-ϕunc_VI = int_unc(ζ_VIc.unc)
+ζ_VIc = interpreters.μP_ϕg_unc(res.u |> Flux.cpu)
+ζMs_VI = g_flux(xM_gpu, ζ_VIc.ϕg |> Flux.gpu) |> Flux.cpu
+ϕunc_VI = interpreters.unc(ζ_VIc.unc)
 
 hcat(θP_true, exp.(ζ_VIc.μP))
 plt = scatterplot(vec(θMs_true), vec(exp.(ζMs_VI)))
 #lineplot!(plt, 0.0, 1.1, identity)
 # 
-hcat(ϕunc, ϕunc_VI) # need to compare to MC sample
+hcat(ϕ_ini.unc, ϕunc_VI) # need to compare to MC sample
 # hard to estimate for original very small theta's but otherwise good
 
 # test predicting correct obs-uncertainty of predictive posterior
 # TODO reuse g_flux rather than g
 n_sample_pred = 200
-intm_PMs_gen = ComponentArrayInterpreter(CA.ComponentVector(; θP = θP_true,
-    θMs = CA.ComponentMatrix(
-        zeros(n_θM, n_site), first(CA.getaxes(θMs_true)), CA.Axis(i = 1:n_sample_pred))))
+y_pred = predict_gf(rng, g_flux, f, res.u, xM_gpu, interpreters;
+    get_transPMs, get_ca_int_PMs, n_sample_pred);
+size(y_pred) # n_obs x n_site, n_sample_pred
 
-ζs, _ = HVI.generate_ζ(rng, g, f, res.u |> Flux.cpu, xM,
-    (; interpreters..., PMs = intm_PMs_gen); n_MC = n_sample_pred)
-# ζ = ζs[:,1]   
-θsc = stack(
-    ζ -> CA.getdata(CA.ComponentVector(
-        TransformVariables.transform(transPMs_all, ζ))),
-    eachcol(ζs));
-y_pred = stack(map(ζ -> first(HVI.predict_y(ζ, f, transPMs_all)), eachcol(ζs)));
+σ_o_post = dropdims(std(y_pred; dims = 3), dims=3)
 
-size(y_pred)
-σ_o_post = mapslices(std, y_pred; dims = 3)[:, :, 1];
 #describe(σ_o_post)
 hcat(σ_o, fill(mean_σ_o_MC, length(σ_o)),
     mean(σ_o_post, dims = 2), sqrt.(mean(abs2, σ_o_post, dims = 2)))

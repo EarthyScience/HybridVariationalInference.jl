@@ -21,34 +21,37 @@ expected value of the likelihood of observations.
 function neg_elbo_transnorm_gf(rng, g, f, ϕ::AbstractVector, y_ob, x::AbstractMatrix,
     transPMs, interpreters::NamedTuple; 
     n_MC=3, logσ2y, gpu_data_handler = get_default_GPUHandler())
-    ζ, logdetΣ = generate_ζ(rng, g, f, ϕ, x, interpreters; n_MC)
-    ζ_cpu = gpu_data_handler(ζ) # differentiable fetch to CPU in Flux package extension
-    #ζi = first(eachcol(ζ_cpu))
-    nLy = reduce(+, map(eachcol(ζ_cpu)) do ζi
+    ζs, logdetΣ = generate_ζ(rng, g, f, ϕ, x, interpreters; n_MC)
+    ζs_cpu = gpu_data_handler(ζs) # differentiable fetch to CPU in Flux package extension
+    #ζi = first(eachcol(ζs_cpu))
+    nLy = reduce(+, map(eachcol(ζs_cpu)) do ζi
         y_pred_i, logjac = predict_y(ζi, f, transPMs)
         nLy1 = neg_logden_indep_normal(y_ob, y_pred_i, logσ2y)
         nLy1 - logjac
     end) / n_MC
-    ent = entropy_MvNormal(size(ζ, 1), logdetΣ)  # defined in logden_normal
+    ent = entropy_MvNormal(size(ζs, 1), logdetΣ)  # defined in logden_normal
     nLy - ent
 end
 
-function predict_gf(rng, g, f, ϕ::AbstractVector, x::AbstractMatrix,
-    transPMs, interpreters::NamedTuple; 
-    n_MC=3, logσ2y, gpu_data_handler = get_default_GPUHandler())
-    ζ, logdetΣ = generate_ζ(rng, g, f, ϕ, x, interpreters; n_MC)
-    ζ_cpu = gpu_data_handler(ζ) # differentiable fetch to CPU in Flux package extension
-    #ζi = first(eachcol(ζ_cpu))
-    nLy = reduce(+, map(eachcol(ζ_cpu)) do ζi
-        y_pred_i, logjac = predict_y(ζi, f, transPMs)
-        nLy1 = neg_logden_indep_normal(y_ob, y_pred_i, logσ2y)
-        nLy1 - logjac
-    end) / n_MC
-    ent = entropy_MvNormal(size(ζ, 1), logdetΣ)  # defined in logden_normal
-    nLy - ent
+"""
+    predict_gf(rng, g, f, ϕ::AbstractVector, xM::AbstractMatrix, interpreters;
+        get_transPMs, get_ca_int_PMs, n_sample_pred=200, 
+        gpu_data_handler=get_default_GPUHandler())
+
+Prediction function for hybrid model. Retuns an Array `(n_obs, n_site, n_sample_pred)`.
+"""
+function predict_gf(rng, g, f, ϕ::AbstractVector, xM::AbstractMatrix, interpreters;
+    get_transPMs, get_ca_int_PMs, n_sample_pred=200, 
+    gpu_data_handler=get_default_GPUHandler())
+    n_site = size(xM, 2)
+    intm_PMs_gen = get_ca_int_PMs(n_site)
+    tans_PMs_gen = get_transPMs(n_site)
+    ζs, _ = generate_ζ(rng, g, f, CA.getdata(ϕ), CA.getdata(xM),
+    (; interpreters..., PMs = intm_PMs_gen); n_MC = n_sample_pred)
+    ζs_cpu = gpu_data_handler(ζs) #
+    y_pred = stack(map(ζ -> first(predict_y(ζ, f, tans_PMs_gen)), eachcol(ζs_cpu)));
+    y_pred
 end
-
-
 
 """
 Generate samples of (inv-transformed) model parameters, ζ, and Log-Determinant
@@ -144,7 +147,7 @@ function _create_random(rng, ::GPUArraysCore.AbstractGPUVector{T}, dims...) wher
     # ignores rng
     # https://discourse.julialang.org/t/help-using-cuda-zygote-and-random-numbers/123458/4?u=bgctw
     # Zygote.@ignore CUDA.randn(rng, dims...)
-    Zygote.@ignore CUDA.randn(dims...)
+    ChainRulesCore.@ignore_derivatives CUDA.randn(dims...)
 end
 
 """ 

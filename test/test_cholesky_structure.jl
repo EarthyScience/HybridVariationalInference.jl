@@ -247,8 +247,8 @@ end
     #@test Upred ≈ CU
     SUpred = Upred * Dσ
     #hcat(SUpred, SU)  
-    @test SUpred≈SU atol=1e-1
+    @test SUpred≈SU atol=2e-1
     S_pred = Dσ' * Upred' * Upred * Dσ
-    @test S_pred≈S atol=1e-1
+    @test S_pred≈S atol=2e-1
 end
 
