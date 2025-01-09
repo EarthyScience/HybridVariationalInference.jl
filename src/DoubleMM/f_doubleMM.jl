@@ -69,5 +69,6 @@ function HybridVariationalInference.gen_hybridcase_synthetic(case::DoubleMMCase,
         y_true,
         y_global_o,
         y_o,
+        σ_o = fill(σ_o, size(y_true,1)),
     )
 end

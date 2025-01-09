@@ -13,7 +13,7 @@ using Zygote  # Zygote.@ignore CUDA.randn
 using BlockDiagonals
 
 export inverse_ca
-include("util._transformvariablesjl")
+include("util_transformvariables.jl")
 
 export ComponentArrayInterpreter, flatten1, get_concrete
 include("ComponentArrayInterpreter.jl")
@@ -21,6 +21,9 @@ include("ComponentArrayInterpreter.jl")
 export AbstractModelApplicator, construct_SimpleChainsApplicator, construct_FluxApplicator,
        construct_LuxApplicator
 include("ModelApplicator.jl")
+
+export AbstractGPUDataHandler, NullGPUDataHandler, get_default_GPUHandler
+include("GPUDataHandler.jl")
 
 export AbstractHybridCase, gen_hybridcase_MLapplicator, gen_hybridcase_PBmodel, get_hybridcase_sizes, get_hybridcase_FloatType, gen_hybridcase_synthetic,
        get_hybridcase_par_templates, gen_cov_pred
@@ -35,9 +38,13 @@ include("gencovar.jl")
 export callback_loss
 include("util_opt.jl")
 
+export neg_logden_indep_normal, entropy_MvNormal
+include("logden_normal.jl")
+
 #export - all internal
 include("cholesky.jl")
 
+export neg_elbo_transnorm_gf
 include("elbo.jl")
 
 export DoubleMM

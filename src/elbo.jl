@@ -1,4 +1,56 @@
 """
+Cost function (ELBO) for hybrid model with batched sites.
+
+It generates n_MC samples for each site, and uses these to compute the
+expected value of the likelihood of observations.
+
+## Arguments
+- rng: random number generator (ignored on CUDA, if ϕ is a AbstactGPUArray)
+- g: machine learnig model
+- f: mechanistic model
+- ϕ: flat vector of parameters 
+  including parameter of f (ϕ_P), of g (ϕ_Ms), and of VI (ϕ_unc),
+  interpreted by interpreters.μP_ϕg_unc and interpreters.PMs
+- y_ob: matrix of observations (n_obs x n_site_batch)
+- x: matrix of covariates (n_cov x n_site_batch)
+- transPMs: Transformations with componets P, Ms, similar to interpreters
+- n_MC: number of MonteCarlo samples from the distribution of parameters to simulate
+  using the mechanistic model f.
+- logσ2y: observation uncertainty (log of the variance)
+"""
+function neg_elbo_transnorm_gf(rng, g, f, ϕ::AbstractVector, y_ob, x::AbstractMatrix,
+    transPMs, interpreters::NamedTuple; 
+    n_MC=3, logσ2y, gpu_data_handler = get_default_GPUHandler())
+    ζ, logdetΣ = generate_ζ(rng, g, f, ϕ, x, interpreters; n_MC)
+    ζ_cpu = gpu_data_handler(ζ) # differentiable fetch to CPU in Flux package extension
+    #ζi = first(eachcol(ζ_cpu))
+    nLy = reduce(+, map(eachcol(ζ_cpu)) do ζi
+        y_pred_i, logjac = predict_y(ζi, f, transPMs)
+        nLy1 = neg_logden_indep_normal(y_ob, y_pred_i, logσ2y)
+        nLy1 - logjac
+    end) / n_MC
+    ent = entropy_MvNormal(size(ζ, 1), logdetΣ)  # defined in logden_normal
+    nLy - ent
+end
+
+function predict_gf(rng, g, f, ϕ::AbstractVector, x::AbstractMatrix,
+    transPMs, interpreters::NamedTuple; 
+    n_MC=3, logσ2y, gpu_data_handler = get_default_GPUHandler())
+    ζ, logdetΣ = generate_ζ(rng, g, f, ϕ, x, interpreters; n_MC)
+    ζ_cpu = gpu_data_handler(ζ) # differentiable fetch to CPU in Flux package extension
+    #ζi = first(eachcol(ζ_cpu))
+    nLy = reduce(+, map(eachcol(ζ_cpu)) do ζi
+        y_pred_i, logjac = predict_y(ζi, f, transPMs)
+        nLy1 = neg_logden_indep_normal(y_ob, y_pred_i, logσ2y)
+        nLy1 - logjac
+    end) / n_MC
+    ent = entropy_MvNormal(size(ζ, 1), logdetΣ)  # defined in logden_normal
+    nLy - ent
+end
+
+
+
+"""
 Generate samples of (inv-transformed) model parameters, ζ, and Log-Determinant
 of their distribution.
 
@@ -93,4 +145,25 @@ function _create_random(rng, ::GPUArraysCore.AbstractGPUVector{T}, dims...) wher
     # https://discourse.julialang.org/t/help-using-cuda-zygote-and-random-numbers/123458/4?u=bgctw
     # Zygote.@ignore CUDA.randn(rng, dims...)
     Zygote.@ignore CUDA.randn(dims...)
+end
+
+""" 
+Compute predictions and log-Determinant of the transformation at given
+transformed parameters for each site. 
+
+The number of sites is given by the number of columns in `Ms`, which is determined
+by the transformation, `transPMs`.
+
+Steps:
+- transform the parameters to original constrained space
+- Applies the mechanistic model for each site
+"""
+function predict_y(ζi, f, transPMs)
+    θtup, logjac = transform_and_logjac(transPMs, ζi) # both allocating
+    θc = CA.ComponentVector(θtup)
+    # TODO provide xP
+    xP = fill((), size(θc.Ms,2))
+    y_pred_global, y_pred = f(θc.P, θc.Ms, xP) # TODO parallelize on CPU
+    # TODO take care of y_pred_global
+    y_pred, logjac
 end
