@@ -5,7 +5,7 @@ It generates n_MC samples for each site, and uses these to compute the
 expected value of the likelihood of observations.
 
 ## Arguments
-- rng: random number generator (ignored on CUDA, if ϕ is a AbstactGPUArray)
+- rng: random number generator (ignored on CUDA, if ϕ is a AbstractGPUArray)
 - g: machine learnig model
 - f: mechanistic model
 - ϕ: flat vector of parameters 
@@ -13,7 +13,7 @@ expected value of the likelihood of observations.
   interpreted by interpreters.μP_ϕg_unc and interpreters.PMs
 - y_ob: matrix of observations (n_obs x n_site_batch)
 - x: matrix of covariates (n_cov x n_site_batch)
-- transPMs: Transformations with componets P, Ms, similar to interpreters
+- transPMs: Transformations with components P, Ms, similar to interpreters
 - n_MC: number of MonteCarlo samples from the distribution of parameters to simulate
   using the mechanistic model f.
 - logσ2y: observation uncertainty (log of the variance)
@@ -38,7 +38,7 @@ end
         get_transPMs, get_ca_int_PMs, n_sample_pred=200, 
         gpu_data_handler=get_default_GPUHandler())
 
-Prediction function for hybrid model. Retuns an Array `(n_obs, n_site, n_sample_pred)`.
+Prediction function for hybrid model. Returns an Array `(n_obs, n_site, n_sample_pred)`.
 """
 function predict_gf(rng, g, f, ϕ::AbstractVector, xM::AbstractMatrix, interpreters;
     get_transPMs, get_ca_int_PMs, n_sample_pred=200, 
@@ -81,7 +81,7 @@ function generate_ζ(rng, g, f, ϕ::AbstractVector, x::AbstractMatrix,
 end
 
 """
-Extract relevant parameters from θ and return n_MC generted draws
+Extract relevant parameters from θ and return n_MC generated draws
 together with the logdet of the transformation.
 
 Necessary typestable information on number of compponents are provided with 

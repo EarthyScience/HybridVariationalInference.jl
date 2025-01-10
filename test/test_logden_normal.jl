@@ -12,7 +12,7 @@ using LinearAlgebra
     logden_norm_l(y, μ, logσ) = -1 / 2 .* (2 .* logσ .+ abs2.(y .- μ) ./ abs2.(exp.(logσ)))
     neg_logden_norm_l2(y, μ, logσ2) = (logσ2 .+ abs2.(y .- μ) .* exp.(-logσ2)) ./ 2
 
-    # first test that neg_logden_norm_l2 retuns values of logpdf(Normal) up to an additive 
+    # first test that neg_logden_norm_l2 returns values of logpdf(Normal) up to an additive 
     μ = [1.0, 1.0]
     σ = [1.1, 2.0]
     logσ2 = log.(abs2.(σ))
