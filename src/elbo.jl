@@ -6,7 +6,7 @@ expected value of the likelihood of observations.
 
 ## Arguments
 - rng: random number generator (ignored on CUDA, if ϕ is a AbstractGPUArray)
-- g: machine learnig model
+- g: machine learning model
 - f: mechanistic model
 - ϕ: flat vector of parameters 
   including parameter of f (ϕ_P), of g (ϕ_Ms), and of VI (ϕ_unc),
