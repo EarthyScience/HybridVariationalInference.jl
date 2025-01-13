@@ -115,20 +115,22 @@ using Flux
 FluxMLengine = Val(nameof(Flux))
 g_flux, ϕg0_flux_cpu = gen_hybridcase_MLapplicator(case, FluxMLengine; scenario)
 
-@testset "generate_ζ gpu" begin
-    ϕ = CuArray(CA.getdata(ϕ_ini))
-    xMg_batch = CuArray(xM[:, 1:n_batch])
-    ζ, logdetΣ = CP.generate_ζ(
-        rng, g_flux, f, ϕ, xMg_batch, map(get_concrete, interpreters);
-        n_MC = 8)
-    @test ζ isa CuMatrix
-    gr = Zygote.gradient(
-        ϕ -> sum(CP.generate_ζ(
+if CUDA.functional()
+    @testset "generate_ζ gpu" begin
+        ϕ = CuArray(CA.getdata(ϕ_ini))
+        xMg_batch = CuArray(xM[:, 1:n_batch])
+        ζ, logdetΣ = CP.generate_ζ(
             rng, g_flux, f, ϕ, xMg_batch, map(get_concrete, interpreters);
-            n_MC = 8)[1]),
-        ϕ)
-    @test gr[1] isa CuVector
-end;
+            n_MC = 8)
+        @test ζ isa CuMatrix
+        gr = Zygote.gradient(
+            ϕ -> sum(CP.generate_ζ(
+                rng, g_flux, f, ϕ, xMg_batch, map(get_concrete, interpreters);
+                n_MC = 8)[1]),
+            ϕ)
+        @test gr[1] isa CuVector
+    end
+end
 
 @testset "neg_elbo_transnorm_gf cpu" begin
     cost = neg_elbo_transnorm_gf(rng, g, f, ϕ_ini, y_o[:, 1:n_batch], xM[:, 1:n_batch],
@@ -143,20 +145,22 @@ end;
     @test gr[1] isa Vector
 end;
 
-@testset "neg_elbo_transnorm_gf gpu" begin
-    ϕ = CuArray(CA.getdata(ϕ_ini))
-    xMg_batch = CuArray(xM[:, 1:n_batch])
-    cost = neg_elbo_transnorm_gf(rng, g_flux, f, ϕ, y_o[:, 1:n_batch], xMg_batch,
-        transPMs_batch, map(get_concrete, interpreters);
-        n_MC = 8, logσ2y)
-    @test cost isa Float64
-    gr = Zygote.gradient(
-        ϕ -> neg_elbo_transnorm_gf(
-            rng, g_flux, f, ϕ, y_o[:, 1:n_batch], xMg_batch,
-            transPMs_batch, interpreters; n_MC = 8, logσ2y),
-        ϕ)
-    @test gr[1] isa CuVector
-end;
+if CUDA.functional()
+    @testset "neg_elbo_transnorm_gf gpu" begin
+        ϕ = CuArray(CA.getdata(ϕ_ini))
+        xMg_batch = CuArray(xM[:, 1:n_batch])
+        cost = neg_elbo_transnorm_gf(rng, g_flux, f, ϕ, y_o[:, 1:n_batch], xMg_batch,
+            transPMs_batch, map(get_concrete, interpreters);
+            n_MC = 8, logσ2y)
+        @test cost isa Float64
+        gr = Zygote.gradient(
+            ϕ -> neg_elbo_transnorm_gf(
+                rng, g_flux, f, ϕ, y_o[:, 1:n_batch], xMg_batch,
+                transPMs_batch, interpreters; n_MC = 8, logσ2y),
+            ϕ)
+        @test gr[1] isa CuVector
+    end
+end
 
 @testset "predict_gf cpu" begin
     n_sample_pred = 200
@@ -166,13 +170,14 @@ end;
     @test size(y_pred) == (size(y_o)..., n_sample_pred)
 end
 
-@testset "predict_gf gpu" begin
-    n_sample_pred = 200
-    ϕ = CuArray(CA.getdata(ϕ_ini))
-    xMg = CuArray(xM)
-    y_pred = predict_gf(rng, g_flux, f, ϕ, xMg, map(get_concrete, interpreters);
-        get_transPMs, get_ca_int_PMs, n_sample_pred)
-    @test y_pred isa Array
-    @test size(y_pred) == (size(y_o)..., n_sample_pred)
+if CUDA.functional()
+    @testset "predict_gf gpu" begin
+        n_sample_pred = 200
+        ϕ = CuArray(CA.getdata(ϕ_ini))
+        xMg = CuArray(xM)
+        y_pred = predict_gf(rng, g_flux, f, ϕ, xMg, map(get_concrete, interpreters);
+            get_transPMs, get_ca_int_PMs, n_sample_pred)
+        @test y_pred isa Array
+        @test size(y_pred) == (size(y_o)..., n_sample_pred)
+    end
 end
-
