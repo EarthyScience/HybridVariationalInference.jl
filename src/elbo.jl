@@ -20,8 +20,10 @@ expected value of the likelihood of observations.
 """
 function neg_elbo_transnorm_gf(rng, g, f, ϕ::AbstractVector, y_ob, x::AbstractMatrix,
     transPMs, interpreters::NamedTuple; 
-    n_MC=3, logσ2y, gpu_data_handler = get_default_GPUHandler())
-    ζs, logdetΣ = generate_ζ(rng, g, f, ϕ, x, interpreters; n_MC)
+    n_MC=3, logσ2y, gpu_data_handler = get_default_GPUHandler(),
+    entropyN = 0.0,
+    )
+    ζs, σ = generate_ζ(rng, g, f, ϕ, x, interpreters; n_MC)
     ζs_cpu = gpu_data_handler(ζs) # differentiable fetch to CPU in Flux package extension
     #ζi = first(eachcol(ζs_cpu))
     nLy = reduce(+, map(eachcol(ζs_cpu)) do ζi
@@ -29,8 +31,11 @@ function neg_elbo_transnorm_gf(rng, g, f, ϕ::AbstractVector, y_ob, x::AbstractM
         nLy1 = neg_logden_indep_normal(y_ob, y_pred_i, logσ2y)
         nLy1 - logjac
     end) / n_MC
-    ent = entropy_MvNormal(size(ζs, 1), logdetΣ)  # defined in logden_normal
-    nLy - ent
+    logdet_jacT2 = sum_log_σ = sum(log.(σ))
+    # logdet_jacT2 = -sum_log_σ # log Prod(1/σ_i) = -sum log σ_i 
+    # logdetΣ = 2 * sum_log_σ   #  log Prod(σ_i²) = 2* sum log σ_i
+    # ent = entropy_MvNormal(size(ζs, 1), logdetΣ)  # defined in logden_normal
+    nLy - logdet_jacT2 - entropyN
 end
 
 """
@@ -45,17 +50,17 @@ function predict_gf(rng, g, f, ϕ::AbstractVector, xM::AbstractMatrix, interpret
     gpu_data_handler=get_default_GPUHandler())
     n_site = size(xM, 2)
     intm_PMs_gen = get_ca_int_PMs(n_site)
-    tans_PMs_gen = get_transPMs(n_site)
+    trans_PMs_gen = get_transPMs(n_site)
     ζs, _ = generate_ζ(rng, g, f, CA.getdata(ϕ), CA.getdata(xM),
     (; interpreters..., PMs = intm_PMs_gen); n_MC = n_sample_pred)
     ζs_cpu = gpu_data_handler(ζs) #
-    y_pred = stack(map(ζ -> first(predict_y(ζ, f, tans_PMs_gen)), eachcol(ζs_cpu)));
+    y_pred = stack(map(ζ -> first(predict_y(ζ, f, trans_PMs_gen)), eachcol(ζs_cpu)));
     y_pred
 end
 
 """
-Generate samples of (inv-transformed) model parameters, ζ, and Log-Determinant
-of their distribution.
+Generate samples of (inv-transformed) model parameters, ζ, 
+and the vector of standard deviations, σ, i.e. the diagonal of the cholesky-factor.
 
 Adds the MV-normally distributed residuals, retrieved by `sample_ζ_norm0`
 to the means extracted from parameters and predicted by the machine learning
@@ -68,8 +73,8 @@ function generate_ζ(rng, g, f, ϕ::AbstractVector, x::AbstractMatrix,
     μ_ζP = ϕc.μP
     ϕg = ϕc.ϕg
     μ_ζMs0 = g(x, ϕg) # TODO provide μ_ζP to g
-    ζ_resid, logdetΣ = sample_ζ_norm0(rng, μ_ζP, μ_ζMs0, ϕc.unc; n_MC)
-    #ζ_resid, logdetΣ = sample_ζ_norm0(rng, ϕ[1:2], reshape(ϕ[2 .+ (1:20)],2,:), ϕ[(end-length(interpreters.unc)+1):end], interpreters.unc; n_MC)
+    ζ_resid, σ = sample_ζ_norm0(rng, μ_ζP, μ_ζMs0, ϕc.unc; n_MC)
+    #ζ_resid, σ = sample_ζ_norm0(rng, ϕ[1:2], reshape(ϕ[2 .+ (1:20)],2,:), ϕ[(end-length(interpreters.unc)+1):end], interpreters.unc; n_MC)
     ζ = stack(map(eachcol(ζ_resid)) do r
         rc = interpreters.PMs(r)
         ζP = μ_ζP .+ rc.θP
@@ -77,12 +82,12 @@ function generate_ζ(rng, g, f, ϕ::AbstractVector, x::AbstractMatrix,
         ζMs = μ_ζMs .+ rc.θMs
         vcat(ζP, vec(ζMs))
     end)
-    ζ, logdetΣ
+    ζ, σ
 end
 
 """
 Extract relevant parameters from θ and return n_MC generated draws
-together with the logdet of the transformation.
+together with the vector of standard deviations, σ.
 
 Necessary typestable information on number of compponents are provided with 
 ComponentMarshellers
@@ -115,9 +120,9 @@ function sample_ζ_norm0(urand::AbstractMatrix, ζP::AbstractVector{T}, ζMs::Ab
     # need to construct full matrix for CUDA
     Uσ = _create_blockdiag(UP, UM, σP, σMs, n_batch) 
     ζ_resid = Uσ' * urand
-    logdetΣ = 2 .* sum(log.(diag(Uσ)))
+    σ = diag(Uσ)   # elements of the diagonal: standard deviations
     # returns CuArrays to either continue on GPU or need to transfer to CPU
-    ζ_resid, logdetΣ
+    ζ_resid, σ
 end
 
 function _create_blockdiag(UP::AbstractMatrix{T}, UM, σP, σMs, n_batch) where {T}

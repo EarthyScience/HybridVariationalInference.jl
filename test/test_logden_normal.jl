@@ -33,7 +33,7 @@ end;
 @testset "entropy_MvNormal" begin
     S = Diagonal([4,5]) .+ rand(2,2)
     S2 = Symmetric(S*S)
-    @test entropy_MvNormal(S2) == entropy(MvNormal(S2))
+    @test entropy_MvNormal(S2) ≈ entropy(MvNormal(S2))
 end;
 
 

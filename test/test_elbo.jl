@@ -98,7 +98,7 @@ n_MC = 3
 end
 
 @testset "generate_ζ" begin
-    ζ, logdetΣ = CP.generate_ζ(
+    ζ, σ = CP.generate_ζ(
         rng, g, f, ϕ_ini, xM[:, 1:n_batch], map(get_concrete, interpreters);
         n_MC = 8)
     @test ζ isa Matrix
@@ -119,7 +119,7 @@ if CUDA.functional()
     @testset "generate_ζ gpu" begin
         ϕ = CuArray(CA.getdata(ϕ_ini))
         xMg_batch = CuArray(xM[:, 1:n_batch])
-        ζ, logdetΣ = CP.generate_ζ(
+        ζ, σ = CP.generate_ζ(
             rng, g_flux, f, ϕ, xMg_batch, map(get_concrete, interpreters);
             n_MC = 8)
         @test ζ isa CuMatrix

@@ -186,7 +186,7 @@ end
     #res = Optimization.solve(optprob, Adam(0.02), callback=callback_loss(50), maxiters=1_400);
 end
 
-ϕ = ϕ_true |> Flux.gpu;
+ϕ = ϕ_ini |> Flux.gpu;
 xM_gpu = xM |> Flux.gpu;
 g_flux, ϕg0_flux_cpu = gen_hybridcase_MLapplicator(case, FluxMLengine; scenario);
 
@@ -213,14 +213,15 @@ g_flux, ϕg0_flux_cpu = gen_hybridcase_MLapplicator(case, FluxMLengine; scenario
     g_flux = g_luxs
 end
 
-function fcost(ϕ)
-    neg_elbo_transnorm_gf(rng, g_flux, f, CA.getdata(ϕ), y_o[:, 1:n_batch],
-        xM_gpu[:, 1:n_batch], transPMs_batch, map(get_concrete, interpreters);
+function fcost(ϕ, xM, y_o)
+    neg_elbo_transnorm_gf(rng, g_flux, f, CA.getdata(ϕ), y_o,
+        xM, transPMs_batch, map(get_concrete, interpreters);
         n_MC = 8, logσ2y = logσ2y)
 end
-fcost(ϕ)
+fcost(ϕ, xM_gpu[:, 1:n_batch], y_o[:, 1:n_batch])
 #Zygote.gradient(fcost, ϕ) |> cpu;
-gr = Zygote.gradient(fcost, CA.getdata(ϕ));
+gr = Zygote.gradient(fcost,
+    CA.getdata(ϕ), CA.getdata(xM_gpu[:, 1:n_batch]), CA.getdata(y_o[:, 1:n_batch]));
 gr_c = CA.ComponentArray(gr[1] |> Flux.cpu, CA.getaxes(ϕ)...)
 
 train_loader = MLUtils.DataLoader((xM_gpu, y_o), batchsize = n_batch)
@@ -228,7 +229,7 @@ train_loader = MLUtils.DataLoader((xM_gpu, y_o), batchsize = n_batch)
 optf = Optimization.OptimizationFunction(
     (ϕ, data) -> begin
         xM, y_o = data
-        fcost(ϕ)
+        fcost(ϕ, xM, y_o)
         # neg_elbo_transnorm_gf(
         #     rng, g_flux, f, ϕ, y_o, xM, transPMs_batch,
         #     map(get_concrete, interpreters); n_MC = 5, logσ2y)
@@ -259,22 +260,27 @@ hcat(ϕ_ini.unc, ϕunc_VI) # need to compare to MC sample
 # hard to estimate for original very small theta's but otherwise good
 
 # test predicting correct obs-uncertainty of predictive posterior
-# TODO reuse g_flux rather than g
 n_sample_pred = 200
+
 y_pred = predict_gf(rng, g_flux, f, res.u, xM_gpu, interpreters;
     get_transPMs, get_ca_int_PMs, n_sample_pred);
 size(y_pred) # n_obs x n_site, n_sample_pred
 
-σ_o_post = dropdims(std(y_pred; dims = 3), dims=3)
+σ_o_post = dropdims(std(y_pred; dims = 3), dims = 3);
 
 #describe(σ_o_post)
 hcat(σ_o, fill(mean_σ_o_MC, length(σ_o)),
     mean(σ_o_post, dims = 2), sqrt.(mean(abs2, σ_o_post, dims = 2)))
+# VI predicted uncertainty is smaller than HMC predicted one
 mean_y_pred = map(mean, eachslice(y_pred; dims = (1, 2)))
 #describe(mean_y_pred - y_o)
 histogram(vec(mean_y_pred - y_true)) # predictions centered around y_o (or y_true)
 
 # look at θP, θM1 of first site
+intm_PMs_gen = get_ca_int_PMs(n_site)
+ζs, _σ = HVI.generate_ζ(rng, g_flux, f, res.u, xM_gpu,
+    (; interpreters..., PMs = intm_PMs_gen); n_MC = n_sample_pred);
+ζs = ζs |> Flux.cpu;
 θPM = vcat(θP_true, θMs_true[:, 1])
 intm = ComponentArrayInterpreter(θPM, (n_sample_pred,))
 ζs1c = intm(ζs[1:length(θPM), :])
