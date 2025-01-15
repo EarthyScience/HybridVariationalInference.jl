@@ -241,7 +241,7 @@ end
     optprob = Optimization.OptimizationProblem(optf, Us1vec0)
     res = Optimization.solve(optprob, OptimizationOptimisers.Adam(0.02),
         #callback=callback_loss(50), 
-        maxiters = 800)
+        maxiters = 1_000)
 
     Upred = CP.transformU_cholesky1(res.u; n = n_U)
     #@test Upred ≈ CU

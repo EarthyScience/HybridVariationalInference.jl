@@ -59,7 +59,7 @@ scenario = (:default,)
     @testset "sample_ζ_norm0 cpu" begin
         ϕ = CA.getdata(ϕ_cpu)
         ϕc = interpreters.pmu(ϕ)
-        ζ_resid, logdetΣ = CP.sample_ζ_norm0(rng, ϕc.P, ϕc.Ms, ϕc.unc; n_MC)
+        ζ_resid, σ = CP.sample_ζ_norm0(rng, ϕc.P, ϕc.Ms, ϕc.unc; n_MC)
         @test size(ζ_resid) == (length(ϕc.P) + n_θM * n_site, n_MC)
         gr = Zygote.gradient(ϕc -> sum(CP.sample_ζ_norm0(rng, ϕc.P, ϕc.Ms, ϕc.unc)[1]), ϕc)[1]
         @test length(gr) == length(ϕ)
@@ -76,9 +76,9 @@ scenario = (:default,)
             #ζP, ζMs, ϕunc = ϕc.P, ϕc.Ms, ϕc.unc
             #urand = CUDA.randn(length(ϕc.P) + length(ϕc.Ms), n_MC) |> gpu
             #include(joinpath(@__DIR__, "uncNN", "elbo.jl")) # callback_loss
-            #ζ_resid, logdetΣ = sample_ζ_norm0(urand, ϕc.P, ϕc.Ms, ϕc.unc; n_MC)
+            #ζ_resid, σ = sample_ζ_norm0(urand, ϕc.P, ϕc.Ms, ϕc.unc; n_MC)
             #Zygote.gradient(ϕc -> sum(sample_ζ_norm0(urand, ϕc.P, ϕc.Ms, ϕc.unc; n_MC)[1]), ϕc)[1]; 
-            ζ_resid, logdetΣ = CP.sample_ζ_norm0(rng, ϕc.P, ϕc.Ms, ϕc.unc; n_MC)
+            ζ_resid, σ = CP.sample_ζ_norm0(rng, ϕc.P, ϕc.Ms, ϕc.unc; n_MC)
             @test ζ_resid isa GPUArraysCore.AbstractGPUArray
             @test size(ζ_resid) == (length(ϕc.P) + n_θM * n_site, n_MC)
             gr = Zygote.gradient(
