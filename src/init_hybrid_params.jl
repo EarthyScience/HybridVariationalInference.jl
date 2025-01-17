@@ -24,7 +24,7 @@ function init_hybrid_params(θP, θM, ϕg, n_batch;
     n_θP = length(θP)
     n_θM = length(θM)
     n_ϕg = length(ϕg)
-    # check translating parameters - can match lenght?
+    # check translating parameters - can match length?
     _ = Bijectors.inverse(transP)(θP)
     _ = Bijectors.inverse(transM)(θM)
     # zero correlation matrices
