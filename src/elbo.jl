@@ -31,11 +31,11 @@ function neg_elbo_transnorm_gf(rng, g, f, ϕ::AbstractVector, y_ob, x::AbstractM
         nLy1 = neg_logden_indep_normal(y_ob, y_pred_i, logσ2y)
         nLy1 - logjac
     end) / n_MC
-    logdet_jacT2 = sum_log_σ = sum(log.(σ))
+    #sum_log_σ = sum(log.(σ))
     # logdet_jacT2 = -sum_log_σ # log Prod(1/σ_i) = -sum log σ_i 
-    # logdetΣ = 2 * sum_log_σ   #  log Prod(σ_i²) = 2* sum log σ_i
-    # ent = entropy_MvNormal(size(ζs, 1), logdetΣ)  # defined in logden_normal
-    nLy - logdet_jacT2 - entropyN
+    logdetΣ = 2 * sum(log.(σ))
+    entropy_ζ = entropy_MvNormal(size(ζs, 1), logdetΣ)  # defined in logden_normal
+    nLy - entropy_ζ
 end
 
 """
