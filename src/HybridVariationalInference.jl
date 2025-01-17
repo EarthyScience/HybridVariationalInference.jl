@@ -8,12 +8,9 @@ using GPUArraysCore
 using LinearAlgebra
 using CUDA
 using ChainRulesCore
-using TransformVariables
+using Bijectors
 using Zygote  # Zygote.@ignore CUDA.randn
 using BlockDiagonals
-
-export inverse_ca
-include("util_transformvariables.jl")
 
 export ComponentArrayInterpreter, flatten1, get_concrete
 include("ComponentArrayInterpreter.jl")

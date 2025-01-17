@@ -10,7 +10,7 @@ using GPUArraysCore: GPUArraysCore
 using Random
 #using SimpleChains
 using ComponentArrays: ComponentArrays as CA
-using TransformVariables
+using Bijectors
 
 #CUDA.device!(4)
 rng = StableRNG(111)
@@ -23,7 +23,7 @@ scenario = (:default,)
 
 @testset "test_sample_zeta" begin
     (; xM, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o
-) = gen_hybridcase_synthetic(case, rng; scenario)
+    ) = gen_hybridcase_synthetic(case, rng; scenario)
 
     # n_site = 2
     # n_θP, n_θM = length(θ_true.θP), length(θ_true.θM)
@@ -31,29 +31,24 @@ scenario = (:default,)
     # θMs_true = θ_true.θM .+ randn(n_θM, n_site) .* σ_θM 
 
     # set to 0.02 rather than zero for debugging non-zero correlations
-    ρsP = zeros(sum(1:(n_θP - 1))) .+ 0.02
-    ρsM = zeros(sum(1:(n_θM - 1))) .+ 0.02
+    ρsP = zeros(sum(1:(n_θP-1))) .+ 0.02
+    ρsM = zeros(sum(1:(n_θM-1))) .+ 0.02
 
     ϕunc = CA.ComponentVector(;
-        logσ2_logP = fill(-10.0, n_θP),
-        coef_logσ2_logMs = reduce(hcat, ([-10.0, 0.0] for _ in 1:n_θM)),
+        logσ2_logP=fill(-10.0, n_θP),
+        coef_logσ2_logMs=reduce(hcat, ([-10.0, 0.0] for _ in 1:n_θM)),
         ρsP,
         ρsM)
 
-    transPMs = as(
-        (P = as(Array, asℝ₊, n_θP),
-        Ms = as(Array, asℝ₊, n_θM, n_site)))
     θ_true = θ = CA.ComponentVector(;
-        P = θP_true,
-        Ms = θMs_true)
-    transPMs = as((
-        P = as(Array, asℝ₊, n_θP),
-        Ms = as(Array, asℝ₊, n_θM, n_site)))
-    ζ_true = inverse_ca(transPMs, θ_true)
-    ϕ_true = vcat(ζ_true, CA.ComponentVector(unc = ϕunc))
-    ϕ_cpu = vcat(ζ_true .+ 0.01, CA.ComponentVector(unc = ϕunc))
+        P=θP_true,
+        Ms=θMs_true)
+    transPMs = elementwise(exp) # all parameters on LogNormal scale
+    ζ_true = inverse(transPMs)(θ_true)
+    ϕ_true = vcat(ζ_true, CA.ComponentVector(unc=ϕunc))
+    ϕ_cpu = vcat(ζ_true .+ 0.01, CA.ComponentVector(unc=ϕunc))
 
-    interpreters = (; pmu = ComponentArrayInterpreter(ϕ_true)) #, M=int_θM, PMs=int_θPMs)
+    interpreters = (; pmu=ComponentArrayInterpreter(ϕ_true)) #, M=int_θM, PMs=int_θPMs)
 
     n_MC = 3
     @testset "sample_ζ_norm0 cpu" begin

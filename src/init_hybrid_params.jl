@@ -14,12 +14,19 @@ Returns a NamedTuple of
 - `θP`, `θM`: Template ComponentVectors of global parameters and ML-predicted parameters
 - `ϕg`: vector of parameters to optimize, as returned by `gen_hybridcase_MLapplicator`
 - `n_batch`: the number of sites to predicted in each mini-batch
-- `transP`, `transM`: the Transformations for the global and site-dependent parameters
+- `transP`, `transM`: the Bijector.Transformations for the global and site-dependent 
+    parameters, e.g. `Stacked(elementwise(identity), elementwise(exp), elementwise(exp))`.
+    Its the transformation froing from unconstrained to constrained space: θ = Tinv(ζ),
+    because this direction is used much more often.
 """
-function init_hybrid_params(θP, θM, ϕg, n_batch; transP=asℝ, transM=asℝ)
+function init_hybrid_params(θP, θM, ϕg, n_batch; 
+    transP=elementwise(identity), transM=elementwise(identity))
     n_θP = length(θP)
     n_θM = length(θM)
     n_ϕg = length(ϕg)
+    # check translating parameters - can match length?
+    _ = Bijectors.inverse(transP)(θP)
+    _ = Bijectors.inverse(transM)(θM)
     # zero correlation matrices
     ρsP = zeros(sum(1:(n_θP - 1)))
     ρsM = zeros(sum(1:(n_θM - 1)))
@@ -28,39 +35,35 @@ function init_hybrid_params(θP, θM, ϕg, n_batch; transP=asℝ, transM=asℝ)
         coef_logσ2_logMs = reduce(hcat, ([-10.0, 0.0] for _ in 1:n_θM)),
         ρsP,
         ρsM)
-    ϕt = CA.ComponentVector(;
-        μP = θP,
+    ϕ = CA.ComponentVector(;
+        μP = inverse(transP)(θP),
         ϕg = ϕg,
         unc = ϕunc0);
     #
     get_transPMs = let transP=transP, transM=transM, n_θP=n_θP, n_θM=n_θM 
         function get_transPMs_inner(n_site)
-            transPMs = as(
-                (P = as(Array, transP, n_θP),
-                Ms = as(Array, transM, n_θM, n_site)))
+            transMs = ntuple(i -> transM, n_site)
+            ranges = vcat([1:n_θP], [(n_θP + i0*n_θM) .+ (1:n_θM) for i0 in 0:(n_site-1)])
+            transPMs = Stacked((transP, transMs...), ranges)
+            transPMs
         end
     end
     transPMs_batch = get_transPMs(n_batch)
-    trans_gu = as(
-        (μP = as(Array, asℝ₊, n_θP),
-        ϕg = as(Array, n_ϕg),
-        unc = as(Array, length(ϕunc0))))
-    ϕ = inverse_ca(trans_gu, ϕt)        
-    # trans_g = as(
-    #     (μP = as(Array, asℝ₊, n_θP),
-    #     ϕg = as(Array, n_ϕg)))       
-    #
+    # ranges = (P = 1:n_θP, ϕg = n_θP .+ (1:n_ϕg), unc = (n_θP + n_ϕg) .+ (1:length(ϕunc0)))
+    # inv_trans_gu = Stacked(
+    #     (inverse(transP), elementwise(identity), elementwise(identity)), values(ranges))
+    # ϕ = inv_trans_gu(CA.getdata(ϕt))        
     get_ca_int_PMs = let 
         function get_ca_int_PMs_inner(n_site)
-            ComponentArrayInterpreter(CA.ComponentVector(; θP,
-            θMs = CA.ComponentMatrix(
+            ComponentArrayInterpreter(CA.ComponentVector(; P=θP,
+            Ms = CA.ComponentMatrix(
                 zeros(n_θM, n_site), first(CA.getaxes(θM)), CA.Axis(i = 1:n_site))))
         end
         
     end
     interpreters = map(get_concrete,
     (;
-        μP_ϕg_unc = ComponentArrayInterpreter(ϕt),
+        μP_ϕg_unc = ComponentArrayInterpreter(ϕ),
         PMs = get_ca_int_PMs(n_batch),
         unc = ComponentArrayInterpreter(ϕunc0)
     ))

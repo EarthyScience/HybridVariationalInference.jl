@@ -7,7 +7,8 @@ using StableRNGs
 using Random
 using SimpleChains
 using ComponentArrays: ComponentArrays as CA
-using TransformVariables
+#using TransformVariables
+using Bijectors
 using Zygote
 using CUDA
 using GPUArraysCore: GPUArraysCore
@@ -30,8 +31,11 @@ f = gen_hybridcase_PBmodel(case; scenario)
 
 logσ2y = 2 .* log.(σ_o)
 n_MC = 3
+transP = elementwise(exp)
+transM = Stacked(elementwise(identity), elementwise(exp))
+#transM = Stacked(elementwise(identity), elementwise(exp), elementwise(exp)) # test mismatch
 (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
-    θP_true, θMs_true[:, 1], ϕg0, n_batch; transP = asℝ₊, transM = asℝ₊);
+    θP_true, θMs_true[:, 1], ϕg0, n_batch; transP, transM);
 ϕ_ini = ϕ
 
 () -> begin
@@ -163,7 +167,11 @@ if CUDA.functional()
 end
 
 @testset "predict_gf cpu" begin
-    n_sample_pred = 200
+    n_sample_pred = n_site = 200
+    intm_PMs_gen = get_ca_int_PMs(n_site)
+    trans_PMs_gen = get_transPMs(n_site)
+    @test length(intm_PMs_gen) == 402
+    @test trans_PMs_gen.length_in == 402
     y_pred = predict_gf(rng, g, f, ϕ_ini, xM, map(get_concrete, interpreters);
         get_transPMs, get_ca_int_PMs, n_sample_pred)
     @test y_pred isa Array
