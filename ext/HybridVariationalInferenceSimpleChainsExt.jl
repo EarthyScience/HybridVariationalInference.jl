@@ -12,7 +12,7 @@ HVI.construct_SimpleChainsApplicator(m::SimpleChain) = SimpleChainsApplicator(m)
 
 HVI.apply_model(app::SimpleChainsApplicator, x, ϕ) = app.m(x, ϕ)
 
-function HVI.gen_hybridcase_MLapplicator(case::HVI.DoubleMM.DoubleMMCase, ::Val{:SimpleChains};
+function HVI.get_hybridcase_MLapplicator(case::HVI.DoubleMM.DoubleMMCase, ::Val{:SimpleChains};
         scenario::NTuple=())
     (;n_covar, n_θM) = get_hybridcase_sizes(case; scenario)
     FloatType = get_hybridcase_FloatType(case; scenario)

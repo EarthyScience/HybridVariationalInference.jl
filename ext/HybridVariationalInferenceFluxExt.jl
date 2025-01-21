@@ -25,7 +25,7 @@ function __init__()
     HVI.set_default_GPUHandler(FluxGPUDataHandler())
 end
 
-function HVI.gen_hybridcase_MLapplicator(case::HVI.DoubleMM.DoubleMMCase, ::Val{:Flux};
+function HVI.get_hybridcase_MLapplicator(case::HVI.DoubleMM.DoubleMMCase, ::Val{:Flux};
         scenario::NTuple = ())
     (; n_covar, n_θM) = get_hybridcase_sizes(case; scenario)
     FloatType = get_hybridcase_FloatType(case; scenario)

@@ -12,8 +12,8 @@ using MLUtils
 import Zygote
 
 using CUDA
-using TransformVariables
 using OptimizationOptimisers
+using Bijectors
 using UnicodePlots
 
 const case = DoubleMM.DoubleMMCase()
@@ -24,13 +24,13 @@ rng = StableRNG(111)
 
 par_templates = get_hybridcase_par_templates(case; scenario)
 
-(; n_covar, n_site, n_batch, n_θM, n_θP) = get_hybridcase_sizes(case; scenario)
+(; n_covar, n_batch, n_θM, n_θP) = get_hybridcase_sizes(case; scenario)
 
-(; xM, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, σ_o
+(; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, σ_o
 ) = gen_hybridcase_synthetic(case, rng; scenario);
 
 #----- fit g to θMs_true
-g, ϕg0 = gen_hybridcase_MLapplicator(case, MLengine; scenario);
+g, ϕg0 = get_hybridcase_MLapplicator(case, MLengine; scenario);
 
 function loss_g(ϕg, x, g)
     ζMs = g(x, ϕg) # predict the log of the parameters
@@ -51,7 +51,7 @@ loss_g(ϕg_opt1, xM, g)
 scatterplot(vec(θMs_true), vec(loss_g(ϕg_opt1, xM, g)[2]))
 @test cor(vec(θMs_true), vec(loss_g(ϕg_opt1, xM, g)[2])) > 0.9
 
-f = gen_hybridcase_PBmodel(case; scenario)
+f = get_hybridcase_PBmodel(case; scenario)
 
 #----------- fit g and θP to y_o
 () -> begin
@@ -84,6 +84,9 @@ end
 #---------- HVI
 logσ2y = 2 .* log.(σ_o)
 n_MC = 3
+transP = elementwise(exp)
+transM = Stacked(elementwise(identity), elementwise(exp))
+
 (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
     θP_true, θMs_true[:, 1], ϕg_opt1, n_batch; transP = asℝ₊, transM = asℝ₊);
 ϕ_true = ϕ
@@ -188,7 +191,7 @@ end
 
 ϕ = ϕ_ini |> Flux.gpu;
 xM_gpu = xM |> Flux.gpu;
-g_flux, ϕg0_flux_cpu = gen_hybridcase_MLapplicator(case, FluxMLengine; scenario);
+g_flux, ϕg0_flux_cpu = get_hybridcase_MLapplicator(case, FluxMLengine; scenario);
 
 # otpimize using LUX
 () -> begin

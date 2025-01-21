@@ -4,6 +4,7 @@ using StableRNGs
 using Random
 using Statistics
 using ComponentArrays: ComponentArrays as CA
+using Bijectors
 
 using SimpleChains
 using MLUtils
@@ -12,31 +13,59 @@ import Zygote
 using OptimizationOptimisers
 
 const MLengine = Val(nameof(SimpleChains))
-const case = DoubleMM.DoubleMMCase()
+
+
+construct_problem = () -> begin
+    S1 = [1.0, 1.0, 1.0, 1.0, 0.4, 0.3, 0.1]
+    S2 = [1.0, 3.0, 4.0, 5.0, 5.0, 5.0, 5.0]
+    θP = CA.ComponentVector{Float32}(r0 = 0.3, K2 = 2.0)
+    θM = CA.ComponentVector{Float32}(r1 = 0.5, K1 = 0.2)    
+    transP = elementwise(exp)
+    transM = Stacked(elementwise(identity), elementwise(exp))
+    n_covar = 5
+    n_batch = 10
+    int_θdoubleMM = get_concrete(ComponentArrayInterpreter(
+        flatten1(CA.ComponentVector(; θP, θM))))
+    function f_doubleMM(θ::AbstractVector)
+        # extract parameters not depending on order, i.e whether they are in θP or θM
+        θc = int_θdoubleMM(θ)
+        r0, r1, K1, K2 = θc[(:r0, :r1, :K1, :K2)]
+        y = r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
+        return (y)
+    end
+    fsite = (θ, x_site) -> f_doubleMM(θ)  # omit x_site drivers
+    function f_doubleMM_with_global(θP::AbstractVector, θMs::AbstractMatrix, x)
+        pred_sites = applyf(fsite, θMs, θP, x)
+        pred_global = eltype(pred_sites)[]
+        return pred_global, pred_sites
+    end    
+    n_out = length(θM)
+    g_chain = SimpleChain(
+            static(n_covar), # input dimension (optional)
+            # dense layer with bias that maps to 8 outputs and applies `tanh` activation
+            TurboDense{true}(tanh, n_covar * 4),
+            TurboDense{true}(tanh, n_covar * 4),
+            # dense layer without bias that maps to n outputs and `identity` activation
+            TurboDense{false}(identity, n_out),
+        )
+    g = construct_SimpleChainsApplicator(g_chain)
+    ϕg = SimpleChains.init_params(g_chain, eltype(θM));
+    HybridProblem(θP, θM, transM, transP, n_covar, n_batch, f_doubleMM_with_global, g, ϕg)
+end
+prob = construct_problem();
+case_syn = DoubleMM.DoubleMMCase()
 scenario = (:default,)
 
-par_templates = get_hybridcase_par_templates(case; scenario)
+par_templates = get_hybridcase_par_templates(prob; scenario)
 
-(; n_covar, n_batch, n_θM, n_θP) = get_hybridcase_sizes(case; scenario)
+(; n_covar, n_batch, n_θM, n_θP) = get_hybridcase_sizes(prob; scenario)
 
 rng = StableRNG(111)
 (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o
-) = gen_hybridcase_synthetic(case, rng; scenario);
-
-@testset "gen_hybridcase_synthetic" begin
-    @test isapprox(
-        vec(mean(CA.getdata(θMs_true); dims = 2)), CA.getdata(par_templates.θM), rtol = 0.02)
-    @test isapprox(vec(std(CA.getdata(θMs_true); dims = 2)),
-        CA.getdata(par_templates.θM) .* 0.1, rtol = 0.02)
-
-    # test same results for same rng
-    rng2 = StableRNG(111)
-    gen2 = gen_hybridcase_synthetic(case, rng2; scenario);
-    @test gen2.y_o == y_o
-end
+) = gen_hybridcase_synthetic(case_syn, rng; scenario);
 
 @testset "loss_g" begin
-    g, ϕg0 = get_hybridcase_MLapplicator(case, MLengine; scenario);
+    g, ϕg0 = get_hybridcase_MLapplicator(prob, MLengine; scenario);
 
     function loss_g(ϕg, x, g)
         ζMs = g(x, ϕg) # predict the log of the parameters
@@ -62,8 +91,8 @@ end
 
 @testset "loss_gf" begin
     #----------- fit g and θP to y_o
-    g, ϕg0 = get_hybridcase_MLapplicator(case, MLengine; scenario);
-    f = get_hybridcase_PBmodel(case; scenario)
+    g, ϕg0 = get_hybridcase_MLapplicator(prob, MLengine; scenario);
+    f = get_hybridcase_PBmodel(prob; scenario)
 
     int_ϕθP = ComponentArrayInterpreter(CA.ComponentVector(
         ϕg = 1:length(ϕg0), θP = par_templates.θP))

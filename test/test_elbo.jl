@@ -21,16 +21,17 @@ const MLengine = Val(nameof(SimpleChains))
 scenario = (:default,)
 
 #θsite_true = get_hybridcase_par_templates(case; scenario)
-g, ϕg0 = gen_hybridcase_MLapplicator(case, MLengine; scenario);
-f = gen_hybridcase_PBmodel(case; scenario)
+g, ϕg0 = get_hybridcase_MLapplicator(case, MLengine; scenario);
+f = get_hybridcase_PBmodel(case; scenario)
 
-(; n_covar, n_site, n_batch, n_θM, n_θP) = get_hybridcase_sizes(case; scenario)
+(; n_covar, n_batch, n_θM, n_θP) = get_hybridcase_sizes(case; scenario)
 
-(; xM, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, σ_o
+(; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, σ_o
 ) = gen_hybridcase_synthetic(case, rng; scenario);
 
 logσ2y = 2 .* log.(σ_o)
 n_MC = 3
+(; transP, transM ) = get_hybridcase_transforms(case; scenario)
 transP = elementwise(exp)
 transM = Stacked(elementwise(identity), elementwise(exp))
 #transM = Stacked(elementwise(identity), elementwise(exp), elementwise(exp)) # test mismatch
@@ -117,7 +118,7 @@ end;
 # setup g as FluxNN on gpu
 using Flux
 FluxMLengine = Val(nameof(Flux))
-g_flux, ϕg0_flux_cpu = gen_hybridcase_MLapplicator(case, FluxMLengine; scenario)
+g_flux, ϕg0_flux_cpu = get_hybridcase_MLapplicator(case, FluxMLengine; scenario)
 
 if CUDA.functional()
     @testset "generate_ζ gpu" begin

@@ -22,9 +22,12 @@ include("ModelApplicator.jl")
 export AbstractGPUDataHandler, NullGPUDataHandler, get_default_GPUHandler
 include("GPUDataHandler.jl")
 
-export AbstractHybridCase, gen_hybridcase_MLapplicator, gen_hybridcase_PBmodel, get_hybridcase_sizes, get_hybridcase_FloatType, gen_hybridcase_synthetic,
-       get_hybridcase_par_templates, gen_cov_pred
+export AbstractHybridCase, get_hybridcase_MLapplicator, get_hybridcase_PBmodel, get_hybridcase_sizes, get_hybridcase_FloatType, gen_hybridcase_synthetic,
+       get_hybridcase_par_templates, get_hybridcase_transforms, gen_cov_pred
 include("hybrid_case.jl")
+
+export HybridProblem
+include("HybridProblem.jl")
 
 export applyf, gf, get_loss_gf
 include("gf.jl")
