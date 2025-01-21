@@ -44,19 +44,20 @@ construct_problem = () -> begin
         # dense layer without bias that maps to n outputs and `identity` activation
         TurboDense{false}(identity, n_out)
     )
-    g = construct_SimpleChainsApplicator(g_chain)
-    ϕg = SimpleChains.init_params(g_chain, eltype(θM))
+    # g = construct_SimpleChainsApplicator(g_chain)
+    # ϕg = SimpleChains.init_params(g_chain, eltype(θM))
     #
     rng = StableRNG(111)
     (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o
-    ) = gen_hybridcase_synthetic(DoubleMM.DoubleMMCase(), rng;);
+) = gen_hybridcase_synthetic(DoubleMM.DoubleMMCase(), rng;)
     train_loader = MLUtils.DataLoader((xM, xP, y_o), batchsize = n_batch)
-    HybridProblem(θP, θM, transM, transP, n_covar, n_batch, f_doubleMM_with_global, 
-        g, ϕg, train_loader)
+    # HybridProblem(θP, θM, transM, transP, n_covar, n_batch, f_doubleMM_with_global, 
+    #     g, ϕg, train_loader)
+    HybridProblem(θP, θM, g_chain, f_doubleMM_with_global, 
+        transM, transP, n_covar, n_batch, train_loader)
 end
 prob = construct_problem();
 scenario = (:default,)
-
 
 #(; n_covar, n_batch, n_θM, n_θP) = get_hybridcase_sizes(prob; scenario)
 

@@ -12,10 +12,12 @@ struct HybridProblem <: AbstractHybridCase
     # inner constructor to constrain the types
     function HybridProblem(
         θP::CA.ComponentVector, θM::CA.ComponentVector, 
+        g::AbstractModelApplicator, ϕg, 
+        f::Function, 
         transM::Union{Function, Bijectors.Transform}, 
         transP::Union{Function, Bijectors.Transform}, 
         n_covar::Integer, n_batch::Integer, 
-        f::Function, g::AbstractModelApplicator, ϕg, train_loader::DataLoader)
+        train_loader::DataLoader)
         new(θP, θM, transM, transP, n_covar, n_batch, f, g, ϕg, train_loader)
     end
 end

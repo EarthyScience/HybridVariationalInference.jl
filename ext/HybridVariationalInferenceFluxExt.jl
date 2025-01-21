@@ -2,6 +2,7 @@ module HybridVariationalInferenceFluxExt
 
 using HybridVariationalInference, Flux
 using HybridVariationalInference: HybridVariationalInference as HVI
+using ComponentArrays: ComponentArrays as CA
 
 struct FluxApplicator{RT} <: AbstractModelApplicator
     rebuild::RT
@@ -25,6 +26,14 @@ function __init__()
     HVI.set_default_GPUHandler(FluxGPUDataHandler())
 end
 
+function HVI.HybridProblem(θP::CA.ComponentVector, θM::CA.ComponentVector, g_chain::Flux.Chain, 
+    args...; kwargs...)
+    # constructor with Flux.Chain
+    ϕ, _ = destructure(g_chain)
+    g = construct_FluxApplicator(g_chain), ϕ
+    HybridProblem(θP, θM, g, ϕg, args...; kwargs...)
+end
+
 function HVI.get_hybridcase_MLapplicator(case::HVI.DoubleMM.DoubleMMCase, ::Val{:Flux};
         scenario::NTuple = ())
     (; n_covar, n_θM) = get_hybridcase_sizes(case; scenario)
@@ -42,5 +51,7 @@ function HVI.get_hybridcase_MLapplicator(case::HVI.DoubleMM.DoubleMMCase, ::Val{
     ϕ, _ = destructure(g_chain)
     construct_FluxApplicator(g_chain), ϕ
 end
+
+
 
 end # module

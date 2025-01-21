@@ -25,4 +25,13 @@ function HVI.apply_model(app::LuxApplicator, x, ϕ)
     app.stateful_layer(x, ϕc)
 end
 
+function HVI.HybridProblem(θP::CA.ComponentVector, θM::CA.ComponentVector, g_chain::Chain, 
+    args...; kwargs...)
+    # constructor with SimpleChain
+    g = construct_LuxApplicator(g_chain)
+    FT = eltype(θM)
+    ϕg = randn(FT, length(g.int_ϕ))
+    HybridProblem(θP, θM, g, ϕg, args...; kwargs...)
+end
+
 end # module

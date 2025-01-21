@@ -3,6 +3,9 @@ module HybridVariationalInferenceSimpleChainsExt
 using HybridVariationalInference, SimpleChains
 using HybridVariationalInference: HybridVariationalInference as HVI
 using StatsFuns: logistic
+using ComponentArrays: ComponentArrays as CA
+
+
 
 struct SimpleChainsApplicator{MT} <: AbstractModelApplicator
     m::MT
@@ -11,6 +14,14 @@ end
 HVI.construct_SimpleChainsApplicator(m::SimpleChain) = SimpleChainsApplicator(m)
 
 HVI.apply_model(app::SimpleChainsApplicator, x, ϕ) = app.m(x, ϕ)
+
+function HVI.HybridProblem(θP::CA.ComponentVector, θM::CA.ComponentVector, g_chain::SimpleChain, 
+    args...; kwargs...)
+    # constructor with SimpleChain
+    g = construct_SimpleChainsApplicator(g_chain)
+    ϕg = SimpleChains.init_params(g_chain, eltype(θM))
+    HybridProblem(θP, θM, g, ϕg, args...; kwargs...)
+end
 
 function HVI.get_hybridcase_MLapplicator(case::HVI.DoubleMM.DoubleMMCase, ::Val{:SimpleChains};
         scenario::NTuple=())
