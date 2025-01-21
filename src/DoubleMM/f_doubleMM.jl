@@ -1,10 +1,8 @@
 struct DoubleMMCase <: AbstractHybridCase end
 
-const S1 = [1.0, 1.0, 1.0, 1.0, 0.4, 0.3, 0.1]
-const S2 = [1.0, 3.0, 4.0, 5.0, 5.0, 5.0, 5.0]
 
-θP = CA.ComponentVector(r0 = 0.3, K2 = 2.0)
-θM = CA.ComponentVector(r1 = 0.5, K1 = 0.2)
+θP = CA.ComponentVector{Float32}(r0 = 0.3, K2 = 2.0)
+θM = CA.ComponentVector{Float32}(r1 = 0.5, K1 = 0.2)
 
 transP = elementwise(exp)
 transM = Stacked(elementwise(identity), elementwise(exp))
@@ -12,11 +10,11 @@ transM = Stacked(elementwise(identity), elementwise(exp))
 
 const int_θdoubleMM = ComponentArrayInterpreter(flatten1(CA.ComponentVector(; θP, θM)))
 
-function f_doubleMM(θ::AbstractVector)
+function f_doubleMM(θ::AbstractVector, x)
     # extract parameters not depending on order, i.e whether they are in θP or θM
     θc = int_θdoubleMM(θ)
     r0, r1, K1, K2 = θc[(:r0, :r1, :K1, :K2)]
-    y = r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
+    y = r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
     return (y)
 end
 
@@ -40,17 +38,20 @@ function HVI.get_hybridcase_sizes(::DoubleMMCase; scenario = ())
 end
 
 function HVI.get_hybridcase_PBmodel(::DoubleMMCase; scenario::NTuple = ())
-    fsite = (θ, x_site) -> f_doubleMM(θ)  # omit x_site drivers
+    #fsite = (θ, x_site) -> f_doubleMM(θ)  # omit x_site drivers
     function f_doubleMM_with_global(θP::AbstractVector, θMs::AbstractMatrix, x)
-        pred_sites = applyf(fsite, θMs, θP, x)
+        pred_sites = applyf(f_doubleMM, θMs, θP, x)
         pred_global = eltype(pred_sites)[]
         return pred_global, pred_sites
     end
 end
 
-function HVI.get_hybridcase_FloatType(::DoubleMMCase; scenario)
-    return Float32
-end
+# function HVI.get_hybridcase_FloatType(::DoubleMMCase; scenario)
+#     return Float32
+# end
+
+const xP_S1 = Float32[1.0, 1.0, 1.0, 1.0, 0.4, 0.3, 0.1]
+const xP_S2 = Float32[1.0, 3.0, 4.0, 5.0, 5.0, 5.0, 5.0]
 
 function HVI.gen_hybridcase_synthetic(case::DoubleMMCase, rng::AbstractRNG;
         scenario = ())
@@ -62,14 +63,14 @@ function HVI.gen_hybridcase_synthetic(case::DoubleMMCase, rng::AbstractRNG;
         rhodec = 8, is_using_dropout = false)
     int_θMs_sites = ComponentArrayInterpreter(θM, (n_site,))
     # normalize to be distributed around the prescribed true values
-    θMs_true = int_θMs_sites(scale_centered_at(θMs_true0, θM, 0.1))
+    θMs_true = int_θMs_sites(scale_centered_at(θMs_true0, θM, FloatType(0.1)))
     f = get_hybridcase_PBmodel(case; scenario)
-    xP = fill((), n_site)
-    y_global_true, y_true = f(θP, θMs_true, zip())
-    σ_o = 0.01
+    xP = fill((;S1=xP_S1, S2=xP_S2), n_site)
+    y_global_true, y_true = f(θP, θMs_true, xP)
+    σ_o = FloatType(0.01)
     #σ_o = 0.002
-    y_global_o = y_global_true .+ randn(rng, size(y_global_true)) .* σ_o
-    y_o = y_true .+ randn(rng, size(y_true)) .* σ_o
+    y_global_o = y_global_true .+ randn(rng, FloatType, size(y_global_true)) .* σ_o
+    y_o = y_true .+ randn(rng, FloatType, size(y_true)) .* σ_o
     (;
         xM,
         n_site,
@@ -83,3 +84,4 @@ function HVI.gen_hybridcase_synthetic(case::DoubleMMCase, rng::AbstractRNG;
         σ_o = fill(σ_o, size(y_true,1)),
     )
 end
+

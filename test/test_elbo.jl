@@ -19,6 +19,7 @@ rng = StableRNG(111)
 const case = DoubleMM.DoubleMMCase()
 const MLengine = Val(nameof(SimpleChains))
 scenario = (:default,)
+FT = get_hybridcase_FloatType(case; scenario)
 
 #θsite_true = get_hybridcase_par_templates(case; scenario)
 g, ϕg0 = get_hybridcase_MLapplicator(case, MLengine; scenario);
@@ -29,11 +30,11 @@ f = get_hybridcase_PBmodel(case; scenario)
 (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, σ_o
 ) = gen_hybridcase_synthetic(case, rng; scenario);
 
-logσ2y = 2 .* log.(σ_o)
+logσ2y = FT(2) .* log.(σ_o)
 n_MC = 3
-(; transP, transM ) = get_hybridcase_transforms(case; scenario)
-transP = elementwise(exp)
-transM = Stacked(elementwise(identity), elementwise(exp))
+(; transP, transM) = get_hybridcase_transforms(case; scenario)
+# transP = elementwise(exp)
+# transM = Stacked(elementwise(identity), elementwise(exp))
 #transM = Stacked(elementwise(identity), elementwise(exp), elementwise(exp)) # test mismatch
 (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
     θP_true, θMs_true[:, 1], ϕg0, n_batch; transP, transM);
@@ -128,6 +129,7 @@ if CUDA.functional()
             rng, g_flux, f, ϕ, xMg_batch, map(get_concrete, interpreters);
             n_MC = 8)
         @test ζ isa CuMatrix
+        @test eltype(ζ) == FT
         gr = Zygote.gradient(
             ϕ -> sum(CP.generate_ζ(
                 rng, g_flux, f, ϕ, xMg_batch, map(get_concrete, interpreters);
@@ -138,13 +140,14 @@ if CUDA.functional()
 end
 
 @testset "neg_elbo_transnorm_gf cpu" begin
-    cost = neg_elbo_transnorm_gf(rng, g, f, ϕ_ini, y_o[:, 1:n_batch], xM[:, 1:n_batch],
-        transPMs_batch, map(get_concrete, interpreters);
+    cost = neg_elbo_transnorm_gf(rng, g, f, ϕ_ini, y_o[:, 1:n_batch],
+        xM[:, 1:n_batch], xP[1:n_batch], transPMs_batch, map(get_concrete, interpreters);
         n_MC = 8, logσ2y)
     @test cost isa Float64
     gr = Zygote.gradient(
         ϕ -> neg_elbo_transnorm_gf(
-            rng, g, f, ϕ, y_o[:, 1:n_batch], xM[:, 1:n_batch],
+            rng, g, f, ϕ, y_o[:, 1:n_batch],
+            xM[:, 1:n_batch], xP[1:n_batch],
             transPMs_batch, interpreters; n_MC = 8, logσ2y),
         CA.getdata(ϕ_ini))
     @test gr[1] isa Vector
@@ -154,16 +157,20 @@ if CUDA.functional()
     @testset "neg_elbo_transnorm_gf gpu" begin
         ϕ = CuArray(CA.getdata(ϕ_ini))
         xMg_batch = CuArray(xM[:, 1:n_batch])
-        cost = neg_elbo_transnorm_gf(rng, g_flux, f, ϕ, y_o[:, 1:n_batch], xMg_batch,
+        xP_batch = xP[1:n_batch] # used in f which runs on CPU
+        cost = neg_elbo_transnorm_gf(rng, g_flux, f, ϕ, y_o[:, 1:n_batch], 
+            xMg_batch, xP_batch,
             transPMs_batch, map(get_concrete, interpreters);
             n_MC = 8, logσ2y)
         @test cost isa Float64
         gr = Zygote.gradient(
             ϕ -> neg_elbo_transnorm_gf(
-                rng, g_flux, f, ϕ, y_o[:, 1:n_batch], xMg_batch,
+                rng, g_flux, f, ϕ, y_o[:, 1:n_batch], 
+                xMg_batch, xP_batch,
                 transPMs_batch, interpreters; n_MC = 8, logσ2y),
             ϕ)
         @test gr[1] isa CuVector
+        @test eltype(gr[1]) == FT
     end
 end
 
@@ -173,7 +180,7 @@ end
     trans_PMs_gen = get_transPMs(n_site)
     @test length(intm_PMs_gen) == 402
     @test trans_PMs_gen.length_in == 402
-    y_pred = predict_gf(rng, g, f, ϕ_ini, xM, map(get_concrete, interpreters);
+    y_pred = predict_gf(rng, g, f, ϕ_ini, xM, xP, map(get_concrete, interpreters);
         get_transPMs, get_ca_int_PMs, n_sample_pred)
     @test y_pred isa Array
     @test size(y_pred) == (size(y_o)..., n_sample_pred)
@@ -184,7 +191,7 @@ if CUDA.functional()
         n_sample_pred = 200
         ϕ = CuArray(CA.getdata(ϕ_ini))
         xMg = CuArray(xM)
-        y_pred = predict_gf(rng, g_flux, f, ϕ, xMg, map(get_concrete, interpreters);
+        y_pred = predict_gf(rng, g_flux, f, ϕ, xMg, xP, map(get_concrete, interpreters);
             get_transPMs, get_ca_int_PMs, n_sample_pred)
         @test y_pred isa Array
         @test size(y_pred) == (size(y_o)..., n_sample_pred)

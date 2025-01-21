@@ -9,8 +9,8 @@ using StatsFuns: logistic
 using Bijectors
 
 
+export f_doubleMM, xP_S1, xP_S2
 include("f_doubleMM.jl")
 
-export f_doubleMM, S1, S2
 
 end

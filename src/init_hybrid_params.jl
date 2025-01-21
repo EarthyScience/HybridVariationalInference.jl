@@ -27,12 +27,13 @@ function init_hybrid_params(θP, θM, ϕg, n_batch;
     # check translating parameters - can match length?
     _ = Bijectors.inverse(transP)(θP)
     _ = Bijectors.inverse(transM)(θM)
+    FT = eltype(θM)
     # zero correlation matrices
-    ρsP = zeros(sum(1:(n_θP - 1)))
-    ρsM = zeros(sum(1:(n_θM - 1)))
+    ρsP = zeros(FT, sum(1:(n_θP - 1)))
+    ρsM = zeros(FT, sum(1:(n_θM - 1)))
     ϕunc0 = CA.ComponentVector(;
-        logσ2_logP = fill(-10.0, n_θP),
-        coef_logσ2_logMs = reduce(hcat, ([-10.0, 0.0] for _ in 1:n_θM)),
+        logσ2_logP = fill(FT(-10.0), n_θP),
+        coef_logσ2_logMs = reduce(hcat, (FT[-10.0, 0.0] for _ in 1:n_θM)),
         ρsP,
         ρsM)
     ϕ = CA.ComponentVector(;

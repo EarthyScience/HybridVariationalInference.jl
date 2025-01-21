@@ -37,9 +37,9 @@ function get_hybridcase_MLapplicator(prob::HybridProblem, ml_engine; scenario::N
     prob.g, prob.ϕg
 end
 
-function get_hybridcase_FloatType(prob::HybridProblem; scenario::NTuple = ()) 
-    eltype(prob.θM)
-end
+# function get_hybridcase_FloatType(prob::HybridProblem; scenario::NTuple = ()) 
+#     eltype(prob.θM)
+# end
 
 
 

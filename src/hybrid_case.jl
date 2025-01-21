@@ -10,7 +10,7 @@ For a specific case, provide functions that specify details
 - get_hybridcase_PBmodel
 optionally
 - gen_hybridcase_synthetic
-- get_hybridcase_FloatType (if it should differ from Float32)
+- get_hybridcase_FloatType (defaults to eltype(θM))
 """
 abstract type AbstractHybridCase end;
 
@@ -92,8 +92,8 @@ function gen_hybridcase_synthetic end
 
 Determine the FloatType for given Case and scenario, defaults to Float32
 """
-function get_hybridcase_FloatType(::AbstractHybridCase; scenario)
-    return Float32
+function get_hybridcase_FloatType(case::AbstractHybridCase; scenario)
+    return eltype(get_hybridcase_par_templates(case; scenario).θM)
 end
 
 

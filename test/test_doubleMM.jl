@@ -61,7 +61,7 @@ end
 end
 
 @testset "loss_gf" begin
-    #----------- fit g and θP to y_o
+    #----------- fit g and θP to y_o  (without transformations)
     g, ϕg0 = get_hybridcase_MLapplicator(case, MLengine; scenario);
     f = get_hybridcase_PBmodel(case; scenario)
 
