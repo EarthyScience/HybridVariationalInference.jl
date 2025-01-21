@@ -227,7 +227,8 @@ gr = Zygote.gradient(fcost,
     CA.getdata(ϕ), CA.getdata(xM_gpu[:, 1:n_batch]), CA.getdata(y_o[:, 1:n_batch]));
 gr_c = CA.ComponentArray(gr[1] |> Flux.cpu, CA.getaxes(ϕ)...)
 
-train_loader = MLUtils.DataLoader((xM_gpu, y_o), batchsize = n_batch)
+train_loader = MLUtils.DataLoader((xM_gpu, xP, y_o), batchsize = n_batch)
+train_loader = get_hybridcase_train_dataloader(case, rng; scenario = (scenario..., :use_flux))
 
 optf = Optimization.OptimizationFunction(
     (ϕ, data) -> begin

@@ -70,7 +70,8 @@ end
     p = p0 = vcat(ϕg0, par_templates.θP .* 0.8);  # slightly disturb θP_true
 
     # Pass the site-data for the batches as separate vectors wrapped in a tuple
-    train_loader = MLUtils.DataLoader((xM, xP, y_o), batchsize = n_batch)
+    #train_loader = MLUtils.DataLoader((xM, xP, y_o), batchsize = n_batch)
+    train_loader = get_hybridcase_train_dataloader(case, rng; scenario)
 
     loss_gf = get_loss_gf(g, f, y_global_o, int_ϕθP)
     l1 = loss_gf(p0, train_loader.data...)[1]

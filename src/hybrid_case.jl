@@ -3,14 +3,15 @@ Type to dispatch constructing data and network structures
 for different cases of hybrid problem setups
 
 For a specific case, provide functions that specify details
-- get_hybridcase_par_templates
-- get_hybridcase_transforms
-- get_hybridcase_sizes
-- get_hybridcase_MLapplicator
-- get_hybridcase_PBmodel
+- `get_hybridcase_par_templates`
+- `get_hybridcase_transforms`
+- `get_hybridcase_sizes`
+- `get_hybridcase_MLapplicator`
+- `get_hybridcase_PBmodel`
+- `get_hybridcase_train_dataloader` (default depends on `gen_hybridcase_synthetic`)
 optionally
-- gen_hybridcase_synthetic
-- get_hybridcase_FloatType (defaults to eltype(θM))
+- `gen_hybridcase_synthetic`
+- `get_hybridcase_FloatType` (defaults to eltype(θM))
 """
 abstract type AbstractHybridCase end;
 
@@ -95,5 +96,23 @@ Determine the FloatType for given Case and scenario, defaults to Float32
 function get_hybridcase_FloatType(case::AbstractHybridCase; scenario)
     return eltype(get_hybridcase_par_templates(case; scenario).θM)
 end
+
+"""
+    get_hybridcase_train_dataloader(::AbstractHybridCase, rng; scenario)
+
+Return a DataLoader that provides a tuple of
+- `xM`: matrix of covariates, with one column per site
+- `xP`: Iterator of process-model drivers, with one element per site
+- `y_o`: matrix of observations with added noise, with one column per site
+"""
+function get_hybridcase_train_dataloader(case::AbstractHybridCase, rng::AbstractRNG; 
+    scenario = ())
+    (; xM, xP, y_o) = gen_hybridcase_synthetic(case, rng; scenario)
+    (; n_batch) = get_hybridcase_sizes(case; scenario)
+    xM_gpu = :use_flux ∈ scenario ? CuArray(xM) : xM
+    train_loader = MLUtils.DataLoader((xM_gpu, xP, y_o), batchsize = n_batch)
+    return(train_loader)
+end
+
 
 
