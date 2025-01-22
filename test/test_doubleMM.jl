@@ -11,16 +11,16 @@ import Zygote
 
 using OptimizationOptimisers
 
-const case = DoubleMM.DoubleMMCase()
 const MLengine = Val(nameof(SimpleChains))
+const case = DoubleMM.DoubleMMCase()
 scenario = (:default,)
 
 par_templates = get_hybridcase_par_templates(case; scenario)
 
-(; n_covar, n_site, n_batch, n_θM, n_θP) = get_hybridcase_sizes(case; scenario)
+(; n_covar, n_batch, n_θM, n_θP) = get_hybridcase_sizes(case; scenario)
 
 rng = StableRNG(111)
-(; xM, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o
+(; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o
 ) = gen_hybridcase_synthetic(case, rng; scenario);
 
 @testset "gen_hybridcase_synthetic" begin
@@ -36,7 +36,7 @@ rng = StableRNG(111)
 end
 
 @testset "loss_g" begin
-    g, ϕg0 = gen_hybridcase_MLapplicator(case, MLengine; scenario);
+    g, ϕg0 = get_hybridcase_MLapplicator(case, MLengine; scenario);
 
     function loss_g(ϕg, x, g)
         ζMs = g(x, ϕg) # predict the log of the parameters
@@ -61,16 +61,17 @@ end
 end
 
 @testset "loss_gf" begin
-    #----------- fit g and θP to y_o
-    g, ϕg0 = gen_hybridcase_MLapplicator(case, MLengine; scenario);
-    f = gen_hybridcase_PBmodel(case; scenario)
+    #----------- fit g and θP to y_o  (without transformations)
+    g, ϕg0 = get_hybridcase_MLapplicator(case, MLengine; scenario);
+    f = get_hybridcase_PBmodel(case; scenario)
 
     int_ϕθP = ComponentArrayInterpreter(CA.ComponentVector(
         ϕg = 1:length(ϕg0), θP = par_templates.θP))
     p = p0 = vcat(ϕg0, par_templates.θP .* 0.8);  # slightly disturb θP_true
 
     # Pass the site-data for the batches as separate vectors wrapped in a tuple
-    train_loader = MLUtils.DataLoader((xM, xP, y_o), batchsize = n_batch)
+    #train_loader = MLUtils.DataLoader((xM, xP, y_o), batchsize = n_batch)
+    train_loader = get_hybridcase_train_dataloader(case, rng; scenario)
 
     loss_gf = get_loss_gf(g, f, y_global_o, int_ϕθP)
     l1 = loss_gf(p0, train_loader.data...)[1]

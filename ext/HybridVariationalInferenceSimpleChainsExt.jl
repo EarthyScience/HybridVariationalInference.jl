@@ -3,16 +3,29 @@ module HybridVariationalInferenceSimpleChainsExt
 using HybridVariationalInference, SimpleChains
 using HybridVariationalInference: HybridVariationalInference as HVI
 using StatsFuns: logistic
+using ComponentArrays: ComponentArrays as CA
+
+
 
 struct SimpleChainsApplicator{MT} <: AbstractModelApplicator
     m::MT
 end
 
-HVI.construct_SimpleChainsApplicator(m::SimpleChain) = SimpleChainsApplicator(m)
+function HVI.construct_SimpleChainsApplicator(m::SimpleChain, FloatType=Float32) 
+    ϕ = SimpleChains.init_params(m, FloatType);
+    SimpleChainsApplicator(m), ϕ
+end
 
 HVI.apply_model(app::SimpleChainsApplicator, x, ϕ) = app.m(x, ϕ)
 
-function HVI.gen_hybridcase_MLapplicator(case::HVI.DoubleMM.DoubleMMCase, ::Val{:SimpleChains};
+function HVI.HybridProblem(θP::CA.ComponentVector, θM::CA.ComponentVector, g_chain::SimpleChain, 
+    args...; kwargs...)
+    # constructor with SimpleChain
+    g, ϕg = construct_SimpleChainsApplicator(g_chain)
+    HybridProblem(θP, θM, g, ϕg, args...; kwargs...)
+end
+
+function HVI.get_hybridcase_MLapplicator(case::HVI.DoubleMM.DoubleMMCase, ::Val{:SimpleChains};
         scenario::NTuple=())
     (;n_covar, n_θM) = get_hybridcase_sizes(case; scenario)
     FloatType = get_hybridcase_FloatType(case; scenario)
@@ -39,8 +52,7 @@ function HVI.gen_hybridcase_MLapplicator(case::HVI.DoubleMM.DoubleMMCase, ::Val{
             TurboDense{false}(identity, n_out)
         )
     end
-    ϕ = SimpleChains.init_params(g_chain, FloatType);
-    SimpleChainsApplicator(g_chain), ϕ
+    construct_SimpleChainsApplicator(g_chain, FloatType)
 end
 
 end # module

@@ -1,8 +1,8 @@
 using HybridVariationalInference
 using Test
+using CUDA, GPUArraysCore
 using Lux
 using StatsFuns: logistic
-using CUDA, GPUArraysCore
 
 
 @testset "LuxModelApplicator" begin
@@ -13,18 +13,20 @@ using CUDA, GPUArraysCore
         Dense(n_covar * 4 => n_covar * 4, tanh),
         Dense(n_covar * 4 => n_out, logistic, use_bias=false),
     );
-    g = construct_LuxApplicator(g_chain; device = cpu_device());
+    g, ϕ = construct_LuxApplicator(g_chain, Float64; device = cpu_device());
+    @test eltype(ϕ) == Float64
+    g, ϕ = construct_LuxApplicator(g_chain; device = cpu_device());
+    @test eltype(ϕ) == Float32
     n_site = 3
     x = rand(Float32, n_covar, n_site)
-    ϕ = randn(Float32, Lux.parameterlength(g_chain))
+    #ϕ = randn(Float32, Lux.parameterlength(g_chain))
     y = g(x, ϕ)
     @test size(y) == (n_out, n_site)
     #
-    g = construct_LuxApplicator(g_chain; device = gpu_device());
-    n_site = 3
     x = rand(Float32, n_covar, n_site) |> gpu_device()
-    ϕ = randn(Float32, Lux.parameterlength(g_chain)) |> gpu_device()
-    y = g(x, ϕ)
+    ϕ_gpu = ϕ |> gpu_device()
+    #ϕ = randn(Float32, Lux.parameterlength(g_chain)) |> gpu_device()
+    y = g(x, ϕ_gpu)
     #@test ϕ isa GPUArraysCore.AbstractGPUArray
     @test size(y) == (n_out, n_site)
 end;

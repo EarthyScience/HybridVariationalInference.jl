@@ -13,6 +13,8 @@ const GROUP = get(ENV, "GROUP", "All") # defined in in CI.yml
         @time @safetestset "test_logden_normal" include("test_logden_normal.jl")
         #@safetestset "test" include("test/test_doubleMM.jl")
         @time @safetestset "test_doubleMM" include("test_doubleMM.jl")
+        #@safetestset "test" include("test/test_HybridProblem.jl")
+        @time @safetestset "test_HybridProblem" include("test_HybridProblem.jl")
         #@safetestset "test" include("test/test_cholesky_structure.jl")
         @time @safetestset "test_cholesky_structure" include("test_cholesky_structure.jl")
         #@safetestset "test" include("test/test_sample_zeta.jl")
@@ -31,6 +33,7 @@ end
     if GROUP == "All" || GROUP == "Aqua"
         #@safetestset "test" include("test/test_aqua.jl")
         if VERSION >= VersionNumber("1.11.2")
+            #@safetestset "test" include("test/test_aqua.jl")
             @time @safetestset "test_aqua" include("test_aqua.jl")
         end
     end

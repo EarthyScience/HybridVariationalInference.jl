@@ -3,13 +3,15 @@ Type to dispatch constructing data and network structures
 for different cases of hybrid problem setups
 
 For a specific case, provide functions that specify details
-- get_hybridcase_par_templates
-- get_hybridcase_sizes
-- gen_hybridcase_MLapplicator
-- gen_hybridcase_PBmodel
+- `get_hybridcase_par_templates`
+- `get_hybridcase_transforms`
+- `get_hybridcase_sizes`
+- `get_hybridcase_MLapplicator`
+- `get_hybridcase_PBmodel`
+- `get_hybridcase_train_dataloader` (default depends on `gen_hybridcase_synthetic`)
 optionally
-- gen_hybridcase_synthetic
-- get_hybridcase_FloatType (if it should differ from Float32)
+- `gen_hybridcase_synthetic`
+- `get_hybridcase_FloatType` (defaults to eltype(θM))
 """
 abstract type AbstractHybridCase end;
 
@@ -19,6 +21,16 @@ abstract type AbstractHybridCase end;
 Provide tuple of templates of ComponentVectors `θP` and `θM`.
 """
 function get_hybridcase_par_templates end    
+
+
+"""
+    get_hybridcase_transforms(::AbstractHybridCase; scenario)
+
+Return a NamedTupe of
+- `transP`: Bijectors.Transform for the global PBM parameters, θP
+- `transM`: Bijectors.Transform for the single-site PBM parameters, θM
+"""
+function get_hybridcase_transforms end
 
 """
     get_hybridcase_par_templates(::AbstractHybridCase; scenario)
@@ -32,7 +44,7 @@ Provide a NamedTuple of number of
 function get_hybridcase_sizes end
 
 """
-    gen_hybridcase_MLapplicator(::AbstractHybridCase, MLEngine, n_covar, n_out; scenario=())
+    get_hybridcase_MLapplicator(::AbstractHybridCase, MLEngine, n_covar, n_out; scenario=())
 
 Construct the machine learning model fro given problem case and ML-Framework and 
 scenario.
@@ -44,10 +56,10 @@ returns a Tuple of
 - AbstractModelApplicator
 - initial parameter vector
 """
-function gen_hybridcase_MLapplicator end    
+function get_hybridcase_MLapplicator end    
 
 """
-    gen_hybridcase_PBmodel(::AbstractHybridCase; scenario::NTuple=())
+    get_hybridcase_PBmodel(::AbstractHybridCase; scenario::NTuple=())
 
 Construct the process-based model function 
 `f(θP::AbstractVector, θMs::AbstractMatrix, x) -> (AbstractVector, AbstractMatrix)`
@@ -60,7 +72,7 @@ returns a tuple of predictions with components
 - first, those that are constant across sites
 - second, those that vary across sites, with a column for each site
 """
-function gen_hybridcase_PBmodel end
+function get_hybridcase_PBmodel end
 
 """
     gen_hybridcase_synthetic(::AbstractHybridCase, rng; scenario)
@@ -81,6 +93,26 @@ function gen_hybridcase_synthetic end
 
 Determine the FloatType for given Case and scenario, defaults to Float32
 """
-function get_hybridcase_FloatType(::AbstractHybridCase; scenario)
-    return Float32
+function get_hybridcase_FloatType(case::AbstractHybridCase; scenario)
+    return eltype(get_hybridcase_par_templates(case; scenario).θM)
 end
+
+"""
+    get_hybridcase_train_dataloader(::AbstractHybridCase, rng; scenario)
+
+Return a DataLoader that provides a tuple of
+- `xM`: matrix of covariates, with one column per site
+- `xP`: Iterator of process-model drivers, with one element per site
+- `y_o`: matrix of observations with added noise, with one column per site
+"""
+function get_hybridcase_train_dataloader(case::AbstractHybridCase, rng::AbstractRNG; 
+    scenario = ())
+    (; xM, xP, y_o) = gen_hybridcase_synthetic(case, rng; scenario)
+    (; n_batch) = get_hybridcase_sizes(case; scenario)
+    xM_gpu = :use_flux ∈ scenario ? CuArray(xM) : xM
+    train_loader = MLUtils.DataLoader((xM_gpu, xP, y_o), batchsize = n_batch)
+    return(train_loader)
+end
+
+
+

@@ -19,10 +19,10 @@ const case = DoubleMM.DoubleMMCase()
 #const MLengine = Val(nameof(SimpleChains))
 scenario = (:default,)
 
-(; n_covar, n_site, n_batch, n_θM, n_θP) = get_hybridcase_sizes(case; scenario)
+(; n_covar, n_batch, n_θM, n_θP) = get_hybridcase_sizes(case; scenario)
 
 @testset "test_sample_zeta" begin
-    (; xM, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o
+    (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o
     ) = gen_hybridcase_synthetic(case, rng; scenario)
 
     # n_site = 2

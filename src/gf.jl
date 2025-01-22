@@ -1,5 +1,5 @@
 function applyf(f, θMs::AbstractMatrix, θP::AbstractVector, x)
-    # predict several sites with same physical parameters
+    # predict several sites with same global parameters θP
     yv = map(eachcol(θMs), x) do θM, x_site
         f(vcat(θP, θM), x_site)
     end
