@@ -44,8 +44,7 @@ construct_problem = () -> begin
         # dense layer without bias that maps to n outputs and `identity` activation
         TurboDense{false}(identity, n_out)
     )
-    # g = construct_SimpleChainsApplicator(g_chain)
-    # ϕg = SimpleChains.init_params(g_chain, eltype(θM))
+    # g, ϕg = construct_SimpleChainsApplicator(g_chain)
     #
     rng = StableRNG(111)
     (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o

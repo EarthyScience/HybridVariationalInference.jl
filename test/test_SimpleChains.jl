@@ -12,10 +12,10 @@ using StatsFuns: logistic
         TurboDense{true}(tanh, n_covar * 4),
         TurboDense{false}(logistic, n_out)
     )
-    g = construct_SimpleChainsApplicator(g_chain)
+    g, ϕg = construct_SimpleChainsApplicator(g_chain)
     n_site = 3
     x = rand(n_covar, n_site)
-    ϕ = SimpleChains.init_params(g_chain);
-    y = g(x, ϕ)
+    #ϕg = SimpleChains.init_params(g_chain);
+    y = g(x, ϕg)
     @test size(y) == (n_out, n_site)
 end;

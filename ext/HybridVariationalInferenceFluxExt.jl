@@ -9,8 +9,8 @@ struct FluxApplicator{RT} <: AbstractModelApplicator
 end
 
 function HVI.construct_FluxApplicator(m::Chain)
-    _, rebuild = destructure(m)
-    FluxApplicator(rebuild)
+    ϕ, rebuild = destructure(m)
+    FluxApplicator(rebuild), ϕ
 end
 
 function HVI.apply_model(app::FluxApplicator, x, ϕ)
@@ -29,8 +29,7 @@ end
 function HVI.HybridProblem(θP::CA.ComponentVector, θM::CA.ComponentVector, g_chain::Flux.Chain, 
     args...; kwargs...)
     # constructor with Flux.Chain
-    ϕ, _ = destructure(g_chain)
-    g = construct_FluxApplicator(g_chain), ϕ
+    g, ϕg = construct_FluxApplicator(g_chain)
     HybridProblem(θP, θM, g, ϕg, args...; kwargs...)
 end
 
@@ -48,8 +47,7 @@ function HVI.get_hybridcase_MLapplicator(case::HVI.DoubleMM.DoubleMMCase, ::Val{
         # dense layer without bias that maps to n outputs and `identity` activation
         Flux.Dense(n_covar * 4 => n_out, identity, bias = false)
     )
-    ϕ, _ = destructure(g_chain)
-    construct_FluxApplicator(g_chain), ϕ
+    construct_FluxApplicator(g_chain)
 end
 
 

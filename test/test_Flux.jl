@@ -35,16 +35,19 @@ end;
         Dense(n_covar * 4 => n_covar * 4, tanh),
         Dense(n_covar * 4 => n_out, identity, bias=false),
     )
-    g = construct_FluxApplicator(g_chain)
+    g, ϕg = construct_FluxApplicator(g_chain |> f64)
+    @test eltype(ϕg) == Float64
+    g, ϕg = construct_FluxApplicator(g_chain)
+    @test eltype(ϕg) == Float32
     n_site = 3
     x = rand(Float32, n_covar, n_site)
-    ϕ, _rebuild = destructure(g_chain)
-    y = g(x, ϕ)
+    #ϕ, _rebuild = destructure(g_chain)
+    y = g(x, ϕg)
     @test size(y) == (n_out, n_site)
     #
     n_site = 3
     x = rand(Float32, n_covar, n_site) |> gpu
-    ϕ = ϕ |> gpu
+    ϕ = ϕg |> gpu
     y = g(x, ϕ)
     #@test ϕ isa GPUArraysCore.AbstractGPUArray
     @test size(y) == (n_out, n_site)

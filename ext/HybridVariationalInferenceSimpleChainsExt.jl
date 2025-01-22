@@ -11,15 +11,17 @@ struct SimpleChainsApplicator{MT} <: AbstractModelApplicator
     m::MT
 end
 
-HVI.construct_SimpleChainsApplicator(m::SimpleChain) = SimpleChainsApplicator(m)
+function HVI.construct_SimpleChainsApplicator(m::SimpleChain, FloatType=Float32) 
+    ϕ = SimpleChains.init_params(m, FloatType);
+    SimpleChainsApplicator(m), ϕ
+end
 
 HVI.apply_model(app::SimpleChainsApplicator, x, ϕ) = app.m(x, ϕ)
 
 function HVI.HybridProblem(θP::CA.ComponentVector, θM::CA.ComponentVector, g_chain::SimpleChain, 
     args...; kwargs...)
     # constructor with SimpleChain
-    g = construct_SimpleChainsApplicator(g_chain)
-    ϕg = SimpleChains.init_params(g_chain, eltype(θM))
+    g, ϕg = construct_SimpleChainsApplicator(g_chain)
     HybridProblem(θP, θM, g, ϕg, args...; kwargs...)
 end
 
@@ -50,8 +52,7 @@ function HVI.get_hybridcase_MLapplicator(case::HVI.DoubleMM.DoubleMMCase, ::Val{
             TurboDense{false}(identity, n_out)
         )
     end
-    ϕ = SimpleChains.init_params(g_chain, FloatType);
-    SimpleChainsApplicator(g_chain), ϕ
+    construct_SimpleChainsApplicator(g_chain, FloatType)
 end
 
 end # module
