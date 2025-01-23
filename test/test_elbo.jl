@@ -105,12 +105,12 @@ end
 
 @testset "generate_ζ" begin
     ζ, σ = CP.generate_ζ(
-        rng, g, f, ϕ_ini, xM[:, 1:n_batch], map(get_concrete, interpreters);
+        rng, g, ϕ_ini, xM[:, 1:n_batch], map(get_concrete, interpreters);
         n_MC = 8)
     @test ζ isa Matrix
     gr = Zygote.gradient(
         ϕ -> sum(CP.generate_ζ(
-            rng, g, f, ϕ, xM[:, 1:n_batch], map(get_concrete, interpreters);
+            rng, g, ϕ, xM[:, 1:n_batch], map(get_concrete, interpreters);
             n_MC = 8)[1]),
         CA.getdata(ϕ_ini))
     @test gr[1] isa Vector
@@ -126,13 +126,13 @@ if CUDA.functional()
         ϕ = CuArray(CA.getdata(ϕ_ini))
         xMg_batch = CuArray(xM[:, 1:n_batch])
         ζ, σ = CP.generate_ζ(
-            rng, g_flux, f, ϕ, xMg_batch, map(get_concrete, interpreters);
+            rng, g_flux, ϕ, xMg_batch, map(get_concrete, interpreters);
             n_MC = 8)
         @test ζ isa CuMatrix
         @test eltype(ζ) == FT
         gr = Zygote.gradient(
             ϕ -> sum(CP.generate_ζ(
-                rng, g_flux, f, ϕ, xMg_batch, map(get_concrete, interpreters);
+                rng, g_flux, ϕ, xMg_batch, map(get_concrete, interpreters);
                 n_MC = 8)[1]),
             ϕ)
         @test gr[1] isa CuVector

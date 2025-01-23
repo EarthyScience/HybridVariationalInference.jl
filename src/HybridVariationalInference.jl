@@ -43,7 +43,7 @@ include("util_opt.jl")
 export neg_logden_indep_normal, entropy_MvNormal
 include("logden_normal.jl")
 
-#export - all internal
+export get_ca_starts
 include("cholesky.jl")
 
 export neg_elbo_transnorm_gf, predict_gf

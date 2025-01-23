@@ -22,9 +22,9 @@ expected value of the likelihood of observations.
 function neg_elbo_transnorm_gf(rng, g, f, ϕ::AbstractVector, y_ob, xM::AbstractMatrix,
     xP, transPMs, interpreters::NamedTuple; 
     n_MC=3, logσ2y, gpu_data_handler = get_default_GPUHandler(),
-    entropyN = 0.0,
+    cor_starts=(P=(1,),M=(1,))
     )
-    ζs, σ = generate_ζ(rng, g, f, ϕ, xM, interpreters; n_MC)
+    ζs, σ = generate_ζ(rng, g, ϕ, xM, interpreters; n_MC, cor_starts)
     ζs_cpu = gpu_data_handler(ζs) # differentiable fetch to CPU in Flux package extension
     #ζi = first(eachcol(ζs_cpu))
     nLy = reduce(+, map(eachcol(ζs_cpu)) do ζi
@@ -48,13 +48,14 @@ Prediction function for hybrid model. Returns an Array `(n_obs, n_site, n_sample
 """
 function predict_gf(rng, g, f, ϕ::AbstractVector, xM::AbstractMatrix, xP, interpreters;
     get_transPMs, get_ca_int_PMs, n_sample_pred=200, 
-    gpu_data_handler=get_default_GPUHandler())
+    gpu_data_handler=get_default_GPUHandler(),
+    cor_starts=(P=(1,),M=(1,)))
     n_site = size(xM, 2)
     intm_PMs_gen = get_ca_int_PMs(n_site)
     trans_PMs_gen = get_transPMs(n_site)
     interpreters_gen = (; interpreters..., PMs = intm_PMs_gen)
-    ζs, _ = generate_ζ(rng, g, f, CA.getdata(ϕ), CA.getdata(xM),
-    interpreters_gen; n_MC = n_sample_pred)
+    ζs, _ = generate_ζ(rng, g, CA.getdata(ϕ), CA.getdata(xM),
+    interpreters_gen; n_MC = n_sample_pred, cor_starts)
     ζs_cpu = gpu_data_handler(ζs) #
     y_pred = stack(map(ζ -> first(predict_y(
         ζ, xP, f, trans_PMs_gen, interpreters_gen.PMs)), eachcol(ζs_cpu)));
@@ -69,14 +70,14 @@ Adds the MV-normally distributed residuals, retrieved by `sample_ζ_norm0`
 to the means extracted from parameters and predicted by the machine learning
 model. 
 """
-function generate_ζ(rng, g, f, ϕ::AbstractVector, xM::AbstractMatrix,
-    interpreters::NamedTuple; n_MC=3)
+function generate_ζ(rng, g, ϕ::AbstractVector, xM::AbstractMatrix,
+    interpreters::NamedTuple; n_MC=3, cor_starts=(P=(1,),M=(1,)))
     # see documentation of neg_elbo_transnorm_gf
     ϕc = interpreters.μP_ϕg_unc(CA.getdata(ϕ))
     μ_ζP = ϕc.μP
     ϕg = ϕc.ϕg
     μ_ζMs0 = g(xM, ϕg) # TODO provide μ_ζP to g
-    ζ_resid, σ = sample_ζ_norm0(rng, μ_ζP, μ_ζMs0, ϕc.unc; n_MC)
+    ζ_resid, σ = sample_ζ_norm0(rng, μ_ζP, μ_ζMs0, ϕc.unc; n_MC, cor_starts)
     #ζ_resid, σ = sample_ζ_norm0(rng, ϕ[1:2], reshape(ϕ[2 .+ (1:20)],2,:), ϕ[(end-length(interpreters.unc)+1):end], interpreters.unc; n_MC)
     ζ = stack(map(eachcol(ζ_resid)) do r
         rc = interpreters.PMs(r)
@@ -98,21 +99,21 @@ ComponentMarshellers
 - marsh_batch(n_batch) 
 - marsh_unc(n_UncP, n_UncM, n_UncCorr)
 """
-function sample_ζ_norm0(rng::Random.AbstractRNG, ζP::AbstractVector, ζMs::AbstractMatrix, ϕunc::AbstractVector, args...;
-    n_MC=3) 
+function sample_ζ_norm0(rng::Random.AbstractRNG, ζP::AbstractVector, ζMs::AbstractMatrix, 
+    args...; n_MC, cor_starts)
     n_θP, n_θMs = length(ζP), length(ζMs)
     urand = _create_random(rng, CA.getdata(ζP), n_θP + n_θMs, n_MC)
-    sample_ζ_norm0(urand, ζP, ζMs, ϕunc, args...)
+    sample_ζ_norm0(urand, ζP, ζMs, args...; cor_starts)
 end
 
 function sample_ζ_norm0(urand::AbstractMatrix, ζP::AbstractVector{T}, ζMs::AbstractMatrix, 
-    ϕunc::AbstractVector, int_unc = ComponentArrayInterpreter(ϕunc);
+    ϕunc::AbstractVector, int_unc = ComponentArrayInterpreter(ϕunc); cor_starts
     ) where {T}
     ϕuncc = int_unc(CA.getdata(ϕunc))
     n_θP, n_θMs, (n_θM, n_batch) = length(ζP), length(ζMs), size(ζMs) 
     # make sure to not create a UpperTriangular Matrix of an CuArray in transformU_cholesky1
-    UP = transformU_cholesky1(ϕuncc.ρsP)
-    UM = transformU_cholesky1(ϕuncc.ρsM)
+    UP = transformU_block_cholesky1(ϕuncc.ρsP, cor_starts.P)
+    UM = transformU_block_cholesky1(ϕuncc.ρsM, cor_starts.M)
     cf = ϕuncc.coef_logσ2_logMs
     logσ2_logMs = vec(cf[1, :] .+ cf[2, :] .* ζMs)
     logσ2_logP = vec(CA.getdata(ϕuncc.logσ2_logP))

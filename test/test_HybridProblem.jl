@@ -12,6 +12,7 @@ import Zygote
 
 using OptimizationOptimisers
 
+
 const MLengine = Val(nameof(SimpleChains))
 
 construct_problem = () -> begin
@@ -19,6 +20,7 @@ construct_problem = () -> begin
     θM = CA.ComponentVector{Float32}(r1 = 0.5, K1 = 0.2)
     transP = elementwise(exp)
     transM = Stacked(elementwise(identity), elementwise(exp))
+    cov_starts = (P=(1,2),M=(1)) # assume r0 independent of K2
     n_covar = 5
     n_batch = 10
     int_θdoubleMM = get_concrete(ComponentArrayInterpreter(
@@ -53,7 +55,7 @@ construct_problem = () -> begin
     # HybridProblem(θP, θM, transM, transP, n_covar, n_batch, f_doubleMM_with_global, 
     #     g, ϕg, train_loader)
     HybridProblem(θP, θM, g_chain, f_doubleMM_with_global, 
-        transM, transP, n_covar, n_batch, train_loader)
+        transM, transP, n_covar, n_batch, train_loader, cov_starts)
 end
 prob = construct_problem();
 scenario = (:default,)
@@ -93,3 +95,55 @@ scenario = (:default,)
         @test isapprox(par_templates.θP, int_ϕθP(res.u).θP, rtol = 0.11)
     end
 end
+
+() -> begin
+@testset "neg_elbo_transnorm_gf cpu" begin
+    rng = StableRNG(111)
+    g, ϕg0 = get_hybridcase_MLapplicator(prob, MLengine);
+    train_loader = get_hybridcase_train_dataloader(prob)
+    (xM, xP, y_o) = first(train_loader)
+    n_batch = size(y_o,2)
+    f = get_hybridcase_PBmodel(prob)
+    (θP0, θM0) = get_hybridcase_par_templates(prob)
+    (; transP, transM) = get_hybridcase_transforms(prob)
+
+    (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
+        θP0, θM0, ϕg0, n_batch; transP, transM);
+    ϕ_ini = ϕ
+    
+    cost = neg_elbo_transnorm_gf(rng, g, f, ϕ_ini, y_o,
+        xM, xP, transPMs_batch, map(get_concrete, interpreters);
+        n_MC = 8, logσ2y)
+    @test cost isa Float64
+    gr = Zygote.gradient(
+        ϕ -> neg_elbo_transnorm_gf(
+            rng, g, f, ϕ, y_o[:, 1:n_batch],
+            xM[:, 1:n_batch], xP[1:n_batch],
+            transPMs_batch, interpreters; n_MC = 8, logσ2y),
+        CA.getdata(ϕ_ini))
+    @test gr[1] isa Vector
+end;
+
+if CUDA.functional()
+    @testset "neg_elbo_transnorm_gf gpu" begin
+        ϕ = CuArray(CA.getdata(ϕ_ini))
+        xMg_batch = CuArray(xM[:, 1:n_batch])
+        xP_batch = xP[1:n_batch] # used in f which runs on CPU
+        cost = neg_elbo_transnorm_gf(rng, g_flux, f, ϕ, y_o[:, 1:n_batch], 
+            xMg_batch, xP_batch,
+            transPMs_batch, map(get_concrete, interpreters);
+            n_MC = 8, logσ2y)
+        @test cost isa Float64
+        gr = Zygote.gradient(
+            ϕ -> neg_elbo_transnorm_gf(
+                rng, g_flux, f, ϕ, y_o[:, 1:n_batch], 
+                xMg_batch, xP_batch,
+                transPMs_batch, interpreters; n_MC = 8, logσ2y),
+            ϕ)
+        @test gr[1] isa CuVector
+        @test eltype(gr[1]) == FT
+    end
+end
+end #if false
+
+

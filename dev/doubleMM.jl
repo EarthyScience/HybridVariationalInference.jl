@@ -282,7 +282,7 @@ histogram(vec(mean_y_pred - y_true)) # predictions centered around y_o (or y_tru
 
 # look at θP, θM1 of first site
 intm_PMs_gen = get_ca_int_PMs(n_site)
-ζs, _σ = HVI.generate_ζ(rng, g_flux, f, res.u, xM_gpu,
+ζs, _σ = HVI.generate_ζ(rng, g_flux, res.u, xM_gpu,
     (; interpreters..., PMs = intm_PMs_gen); n_MC = n_sample_pred);
 ζs = ζs |> Flux.cpu;
 θPM = vcat(θP_true, θMs_true[:, 1])

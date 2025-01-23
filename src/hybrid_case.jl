@@ -11,7 +11,8 @@ For a specific case, provide functions that specify details
 - `get_hybridcase_train_dataloader` (default depends on `gen_hybridcase_synthetic`)
 optionally
 - `gen_hybridcase_synthetic`
-- `get_hybridcase_FloatType` (defaults to eltype(θM))
+- `get_hybridcase_FloatType` (defaults to `eltype(θM)`)
+- `get_hybridcase_cor_starts` (defaults to include all correlations: `(P=(1,), M=(1,))`)
 """
 abstract type AbstractHybridCase end;
 
@@ -93,7 +94,7 @@ function gen_hybridcase_synthetic end
 
 Determine the FloatType for given Case and scenario, defaults to Float32
 """
-function get_hybridcase_FloatType(case::AbstractHybridCase; scenario)
+function get_hybridcase_FloatType(case::AbstractHybridCase; scenario=())
     return eltype(get_hybridcase_par_templates(case; scenario).θM)
 end
 
@@ -112,6 +113,27 @@ function get_hybridcase_train_dataloader(case::AbstractHybridCase, rng::Abstract
     xM_gpu = :use_flux ∈ scenario ? CuArray(xM) : xM
     train_loader = MLUtils.DataLoader((xM_gpu, xP, y_o), batchsize = n_batch)
     return(train_loader)
+end
+
+"""
+    get_hybridcase_cor_starts(case::AbstractHybridCase; scenario)
+
+Specify blocks in correlation matrices among parameters.
+Returns a NamedTuple.
+- `P`: correlations among global parameters
+- `M`: correlations among ML-predicted parameters
+
+Subsets ofparameters that are correlated with other but not correlated with
+parameters of other subranges are specified by indicating the starting position
+of each subrange.
+E.g. if withing global parameter vector `(p1, p2, p3)`, `p1` and `p2` are correlated, 
+but parameter `p3` is not correlated with them,
+then the first subrange starts at position 1 and the second subrange starts at position 3.
+If there is only single block of all ML-predicted parameters being correlated 
+with each other then this block starts at position 1: `(P=(1,3), M=(1,))`.
+"""
+function get_hybridcase_cor_starts(case::AbstractHybridCase; scenario = ())
+    (P=(1,), M=(1,))
 end
 
 

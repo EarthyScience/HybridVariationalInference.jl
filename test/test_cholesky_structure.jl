@@ -75,9 +75,9 @@ end;
     U1v = CP.vec2uutri(v_orig)
     @test U1v isa UnitUpperTriangular
     @test size(U1v, 1) == 4
-    gr = Zygote.gradient(v -> sum(abs2.(CP.vec2uutri(v))) , vcpu)[1] # works nice
+    gr = Zygote.gradient(v -> sum(abs2.(CP.vec2uutri(v))), vcpu)[1] # works nice
     # test providing keyword argument
-    gr = Zygote.gradient(v -> sum(abs2.(CP.vec2uutri(v; n=4))) , vcpu)[1] # works nice
+    gr = Zygote.gradient(v -> sum(abs2.(CP.vec2uutri(v; n = 4))), vcpu)[1] # works nice
     #
     v2 = CP.uutri2vec(U1v)
     @test v2 == v_orig
@@ -85,15 +85,15 @@ end;
 end;
 
 @testset "utri2vec_pos" begin
-    @test CP.utri2vec_pos(1,1) == 1
-    @test CP.utri2vec_pos(1,2) == 2
-    @test CP.utri2vec_pos(2,2) == 3
-    @test CP.utri2vec_pos(1,3) == 4
-    @test CP.utri2vec_pos(1,4) == 7
-    @test CP.utri2vec_pos(5,5) == 15
-    typeof(CP.utri2vec_pos(5,5)) == Int
-    typeof(CP.utri2vec_pos(Int32(5),Int32(5))) == Int32
-    @test_throws AssertionError CP.utri2vec_pos(2,1)
+    @test CP.utri2vec_pos(1, 1) == 1
+    @test CP.utri2vec_pos(1, 2) == 2
+    @test CP.utri2vec_pos(2, 2) == 3
+    @test CP.utri2vec_pos(1, 3) == 4
+    @test CP.utri2vec_pos(1, 4) == 7
+    @test CP.utri2vec_pos(5, 5) == 15
+    typeof(CP.utri2vec_pos(5, 5)) == Int
+    typeof(CP.utri2vec_pos(Int32(5), Int32(5))) == Int32
+    @test_throws AssertionError CP.utri2vec_pos(2, 1)
 end
 
 @testset "vec2uutri gpu" begin
@@ -136,6 +136,36 @@ end;
         @test Array(gr2) == gr1
     end
 end;
+
+@testset "transformU_block_cholesky1 gpu" begin
+    vc = CA.ComponentVector(b1 = [1.0f0], b2 = [2.0f0:5.0f0])
+    vc = CA.ComponentVector(b1 = [1.0f0:3.0f0])
+    vc = CA.ComponentVector(b1 = 1.0f0:3.0f0, b2 = [5.0f0])
+    v = CA.getdata(vc)
+    cor_starts = get_ca_starts(vc)
+    #ns=(CP.invsumn(length(v[k])) + 1 for k in keys(v))
+    #collect(ns)
+    U = CP.transformU_block_cholesky1(v, cor_starts)
+    @test diag(U' * U) ≈ ones(5)
+    @test U[1:3, 4:5] ≈ zeros(3, 2)
+    gr1 = Zygote.gradient(v -> sum(CP.transformU_block_cholesky1(v, cor_starts)), v)[1] # works nice
+    if CUDA.functional() # only run the test, if CUDA is working (not on Github ci)
+        vc = v_orig = CA.ComponentVector(b1 = CuArray(1.0f0:3.0f0), b2 = CuArray([5.0f0]))
+        v = CA.getdata(vc)
+        cor_starts = get_ca_starts(vc)
+        U = CP.transformU_block_cholesky1(v, cor_starts)
+        @test U isa CuArray
+        @test diag(Array(U' * U)) ≈ ones(5)
+        @test Array(U[1:3, 4:5]) ≈ zeros(3, 2)
+        gr1 = Zygote.gradient(v -> sum(CP.transformU_block_cholesky1(v, cor_starts)), v)[1] # works nice
+    end
+end;
+
+() -> begin
+    cor_starts = (1,)
+    cor_starts_end = (cor_starts..., length(v) + 1)
+    [cor_starts_end[i]:(cor_starts_end[i + 1] - 1) for i in 1:length(cor_starts)]
+end
 
 () -> begin
     #setup for fitting of interactive blocks below
@@ -251,4 +281,3 @@ end
     S_pred = Dσ' * Upred' * Upred * Dσ
     @test S_pred≈S atol=6e-1
 end
-
