@@ -22,8 +22,17 @@ function apply_model end
 
 (app::AbstractModelApplicator)(x, ϕ) = apply_model(app, x, ϕ)
 
-function construct_SimpleChainsApplicator end
-function construct_FluxApplicator end
-function construct_LuxApplicator end
+"""
+    construct_ChainsApplicator([rng::AbstractRNG,] chain, float_type)
+"""
+function construct_ChainsApplicator end
+
+function construct_ChainsApplicator(chain, float_type::DataType; kwargs...)
+    construct_ChainsApplicator(Random.default_rng(), chain, float_type; kwargs...)
+end
+
+# function construct_SimpleChainsApplicator end
+# function construct_FluxApplicator end
+# function construct_LuxApplicator end
 
 

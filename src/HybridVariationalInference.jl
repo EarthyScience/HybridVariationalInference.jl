@@ -16,15 +16,15 @@ using MLUtils  # dataloader
 export ComponentArrayInterpreter, flatten1, get_concrete
 include("ComponentArrayInterpreter.jl")
 
-export AbstractModelApplicator, construct_SimpleChainsApplicator, construct_FluxApplicator,
-       construct_LuxApplicator
+export AbstractModelApplicator, construct_ChainsApplicator
 include("ModelApplicator.jl")
 
 export AbstractGPUDataHandler, NullGPUDataHandler, get_default_GPUHandler
 include("GPUDataHandler.jl")
 
-export AbstractHybridCase, get_hybridcase_MLapplicator, get_hybridcase_PBmodel, get_hybridcase_sizes, get_hybridcase_FloatType, gen_hybridcase_synthetic,
+export AbstractHybridCase, get_hybridcase_MLapplicator, get_hybridcase_PBmodel, get_hybridcase_sizes, get_hybridcase_float_type, gen_hybridcase_synthetic,
        get_hybridcase_par_templates, get_hybridcase_transforms, get_hybridcase_train_dataloader,
+       get_hybridcase_neg_logden_obs, 
        gen_cov_pred
 include("hybrid_case.jl")
 

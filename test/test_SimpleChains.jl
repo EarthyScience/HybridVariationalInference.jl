@@ -12,7 +12,7 @@ using StatsFuns: logistic
         TurboDense{true}(tanh, n_covar * 4),
         TurboDense{false}(logistic, n_out)
     )
-    g, ϕg = construct_SimpleChainsApplicator(g_chain)
+    g, ϕg = construct_ChainsApplicator(g_chain, Float32)
     n_site = 3
     x = rand(n_covar, n_site)
     #ϕg = SimpleChains.init_params(g_chain);

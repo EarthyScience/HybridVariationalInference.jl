@@ -22,8 +22,12 @@ function HVI.get_hybridcase_par_templates(::DoubleMMCase; scenario::NTuple = ())
     (; θP, θM)
 end
 
-function HVI.get_hybridcase_transforms(::AbstractHybridCase; scenario::NTuple = ())
+function HVI.get_hybridcase_transforms(::DoubleMMCase; scenario::NTuple = ())
     (; transP, transM)
+end
+
+function HVI.get_hybridcase_neg_logden_obs(::DoubleMMCase; scenario::NTuple = ())
+    neg_logden_indep_normal
 end
 
 function HVI.get_hybridcase_sizes(::DoubleMMCase; scenario = ())
@@ -46,7 +50,7 @@ function HVI.get_hybridcase_PBmodel(::DoubleMMCase; scenario::NTuple = ())
     end
 end
 
-# function HVI.get_hybridcase_FloatType(::DoubleMMCase; scenario)
+# function HVI.get_hybridcase_float_type(::DoubleMMCase; scenario)
 #     return Float32
 # end
 
@@ -58,7 +62,7 @@ function HVI.gen_hybridcase_synthetic(case::DoubleMMCase, rng::AbstractRNG;
     n_covar_pc = 2
     n_site = 200
     (; n_covar, n_θM, n_θP) = get_hybridcase_sizes(case; scenario)
-    FloatType = get_hybridcase_FloatType(case; scenario)
+    FloatType = get_hybridcase_float_type(case; scenario)
     xM, θMs_true0 = gen_cov_pred(rng, FloatType, n_covar_pc, n_covar, n_site, n_θM;
         rhodec = 8, is_using_dropout = false)
     int_θMs_sites = ComponentArrayInterpreter(θM, (n_site,))
@@ -68,6 +72,7 @@ function HVI.gen_hybridcase_synthetic(case::DoubleMMCase, rng::AbstractRNG;
     xP = fill((;S1=xP_S1, S2=xP_S2), n_site)
     y_global_true, y_true = f(θP, θMs_true, xP)
     σ_o = FloatType(0.01)
+    logσ2_o = FloatType(2) .* log.(σ_o)
     #σ_o = 0.002
     y_global_o = y_global_true .+ randn(rng, FloatType, size(y_global_true)) .* σ_o
     y_o = y_true .+ randn(rng, FloatType, size(y_true)) .* σ_o
@@ -81,9 +86,11 @@ function HVI.gen_hybridcase_synthetic(case::DoubleMMCase, rng::AbstractRNG;
         y_true,
         y_global_o,
         y_o,
-        σ_o = fill(σ_o, size(y_true,1)),
+        y_unc = fill(logσ2_o, size(y_o)),
     )
 end
+
+
 
 
 

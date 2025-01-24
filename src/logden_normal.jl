@@ -13,7 +13,7 @@ a low uncertainty estimate and means closer to the observations to help
 an initial fit. The obtained parameters then can be used as starting values
 for a the proper fit with `σfac=1.0`.
 """
-function neg_logden_indep_normal(obs::AbstractVector, μ::AbstractVector, logσ2::AbstractVector; σfac=1.0)
+function neg_logden_indep_normal(obs::AbstractArray, μ::AbstractArray, logσ2::AbstractArray; σfac=1.0)
     # log of independent Normal distributions 
     # estimate independent uncertainty of each θM, rather than full covariance
     #nlogL = sum(σfac .* log.(σs) .+ 1 / 2 .* abs2.((obs .- μ) ./ σs))
@@ -26,21 +26,22 @@ function neg_logden_indep_normal(obs::AbstractVector, μ::AbstractVector, logσ2
     nlogL = sum(σfac .* logσ2 .+  abs2.(obs .- μ) .* exp.(.-logσ2)) / 2
     return (nlogL)
 end
-function neg_logden_indep_normal(obss::AbstractMatrix, preds::AbstractMatrix, logσ2::AbstractVector; kwargs...)
-    nlogLs = map(eachcol(obss), eachcol(preds)) do obs, μ
-        neg_logden_indep_normal(obs, μ, logσ2; kwargs...)
-    end
-    nlogL = sum(nlogLs)
-    return nlogL
-end
+# function neg_logden_indep_normal(obss::AbstractMatrix, preds::AbstractMatrix, logσ2::AbstractVector; kwargs...)
+#     nlogLs = map(eachcol(obss), eachcol(preds)) do obs, μ
+#         neg_logden_indep_normal(obs, μ, logσ2; kwargs...)
+#     end
+#     nlogL = sum(nlogLs)
+#     return nlogL
+# end
 
-function neg_logden_indep_normal(obss::AbstractMatrix, preds::AbstractMatrix, logσ2s::AbstractMatrix; kwargs...)
-    nlogLs = map(eachcol(obss), eachcol(preds), eachcol(logσ2s)) do obs, μ, logσ2
-        neg_logden_indep_normal(obs, μ, logσ2; kwargs...)
-    end
-    nlogL = sum(nlogLs)
-    return nlogL
-end
+# function neg_logden_indep_normal(obss::AbstractMatrix, preds::AbstractMatrix, logσ2s::AbstractMatrix; kwargs...)
+#     nlogLs = map(eachcol(obss), eachcol(preds), eachcol(logσ2s)) do obs, μ, logσ2
+#         neg_logden_indep_normal(obs, μ, logσ2; kwargs...)
+#     end
+#     nlogL = sum(nlogLs)
+#     return nlogL
+# end
+
 
 entropy_MvNormal(K, logdetΣ) = (K*(1+log(2π)) + logdetΣ)/2
 entropy_MvNormal(Σ) = entropy_MvNormal(size(Σ,1), logdet(Σ))

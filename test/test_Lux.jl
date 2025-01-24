@@ -13,9 +13,9 @@ using StatsFuns: logistic
         Dense(n_covar * 4 => n_covar * 4, tanh),
         Dense(n_covar * 4 => n_out, logistic, use_bias=false),
     );
-    g, ϕ = construct_LuxApplicator(g_chain, Float64; device = cpu_device());
+    g, ϕ = construct_ChainsApplicator(g_chain, Float64; device = cpu_device());
     @test eltype(ϕ) == Float64
-    g, ϕ = construct_LuxApplicator(g_chain; device = cpu_device());
+    g, ϕ = construct_ChainsApplicator(g_chain, Float32; device = cpu_device());
     @test eltype(ϕ) == Float32
     n_site = 3
     x = rand(Float32, n_covar, n_site)
