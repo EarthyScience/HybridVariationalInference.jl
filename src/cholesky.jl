@@ -279,7 +279,7 @@ Transform a parameterization v of a blockdiagonal of upper triangular matrices
 into the this matrix.
 `cor_starts` is a NTuple of Integeres specifying the first column of each block. 
 E.g. For a matrix with a 3x3, a 2x2, and another block, 
-the blocks start at colums (1,4,6). It defaults to a single entire block.
+the blocks start at columns (1,4,6). It defaults to a single entire block.
 """
 function transformU_block_cholesky1(v::AbstractVector, cor_starts = (1,))
     cor_starts_end = (cor_starts..., length(v)+1)

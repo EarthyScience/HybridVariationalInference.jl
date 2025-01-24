@@ -80,7 +80,7 @@ end
 
     # Pass the site-data for the batches as separate vectors wrapped in a tuple
     train_loader = MLUtils.DataLoader((xM, xP, y_o, y_unc), batchsize = n_batch)
-    # get_hybridcase_train_dataloader recreates synthetic data differetn θ_true
+    # get_hybridcase_train_dataloader recreates synthetic data different θ_true
     #train_loader = get_hybridcase_train_dataloader(case, rng; scenario)
 
     loss_gf = get_loss_gf(g, transM, f, y_global_o, int_ϕθP)

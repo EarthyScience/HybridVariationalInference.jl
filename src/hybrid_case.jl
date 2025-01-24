@@ -142,7 +142,7 @@ Returns a NamedTuple.
 Subsets ofparameters that are correlated with other but not correlated with
 parameters of other subranges are specified by indicating the starting position
 of each subrange.
-E.g. if withing global parameter vector `(p1, p2, p3)`, `p1` and `p2` are correlated, 
+E.g. if within global parameter vector `(p1, p2, p3)`, `p1` and `p2` are correlated, 
 but parameter `p3` is not correlated with them,
 then the first subrange starts at position 1 and the second subrange starts at position 3.
 If there is only single block of all ML-predicted parameters being correlated 
