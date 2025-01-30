@@ -57,8 +57,11 @@ end;
 
 # setup g as FluxNN on gpu
 using Flux
-scenario_flux = (scenario..., :use_Flux)
-g_flux, ϕg0_flux_cpu = get_hybridcase_MLapplicator(case; scenario = scenario_flux)
+
+if CUDA.functional()
+    scenario_flux = (scenario..., :use_Flux)
+    g_flux, ϕg0_flux_cpu = get_hybridcase_MLapplicator(case; scenario = scenario_flux)
+end
 
 if CUDA.functional()
     @testset "generate_ζ gpu" begin
