@@ -19,13 +19,10 @@ abstract type AbstractHybridCase end;
 
 
 """
-    get_hybridcase_MLapplicator([rng::AbstractRNG,] ::AbstractHybridCase, MLEngine; scenario=())
+    get_hybridcase_MLapplicator([rng::AbstractRNG,] ::AbstractHybridCase; scenario=())
 
 Construct the machine learning model fro given problem case and ML-Framework and 
 scenario.
-
-The MLEngine is a value type of a Symbol, usually the name of the module, e.g. 
-`const MLengine = Val(nameof(SimpleChains))`.
 
 returns a Tuple of
 - AbstractModelApplicator
@@ -33,8 +30,8 @@ returns a Tuple of
 """
 function get_hybridcase_MLapplicator end    
 
-function get_hybridcase_MLapplicator(case::AbstractHybridCase, MLEngine; scenario=())
-    get_hybridcase_MLapplicator(Random.default_rng(), case, MLEngine; scenario)
+function get_hybridcase_MLapplicator(case::AbstractHybridCase; scenario=())
+    get_hybridcase_MLapplicator(Random.default_rng(), case; scenario)
 end
 
 """
@@ -138,7 +135,7 @@ function get_hybridcase_train_dataloader(rng::AbstractRNG, case::AbstractHybridC
     scenario = ())
     (; xM, xP, y_o, y_unc) = gen_hybridcase_synthetic(rng, case; scenario)
     n_batch = 10
-    xM_gpu = :use_flux ∈ scenario ? CuArray(xM) : xM
+    xM_gpu = :use_Flux ∈ scenario ? CuArray(xM) : xM
     train_loader = MLUtils.DataLoader((xM_gpu, xP, y_o, y_unc), batchsize = n_batch)
     return(train_loader)
 end

@@ -16,7 +16,6 @@ using Bijectors
 rng = StableRNG(111)
 
 const case = DoubleMM.DoubleMMCase()
-#const MLengine = Val(nameof(SimpleChains))
 scenario = (:default,)
 
 n_θM, n_θP = length.(values(get_hybridcase_par_templates(case; scenario)))

@@ -35,11 +35,12 @@ end
 #     HybridProblem(θP, θM, g, ϕg, args...; kwargs...)
 # end
 
-function HVI.get_hybridcase_MLapplicator(rng::AbstractRNG, case::HVI.DoubleMM.DoubleMMCase, ::Val{:Flux};
+function HVI.construct_3layer_MLApplicator(
+        rng::AbstractRNG, case::HVI.AbstractHybridCase, ::Val{:Flux};
         scenario::NTuple = ())
     (;θM) = get_hybridcase_par_templates(case; scenario)
     n_out = length(θM)
-    n_covar = 5
+    n_covar = get_hybridcase_n_covar(case; scenario)
     #(; n_covar, n_θM) = get_hybridcase_sizes(case; scenario)
     float_type = get_hybridcase_float_type(case; scenario)
     is_using_dropout = :use_dropout ∈ scenario

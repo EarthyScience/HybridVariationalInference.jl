@@ -12,8 +12,6 @@ import Zygote
 
 using OptimizationOptimisers
 
-const MLengine = Val(nameof(SimpleChains))
-
 construct_problem = () -> begin
     FT = Float32
     θP = CA.ComponentVector{FT}(r0=0.3, K2=2.0)
@@ -63,7 +61,7 @@ scenario = (:default,)
 @testset "loss_gf" begin
     #----------- fit g and θP to y_o
     rng = StableRNG(111)
-    g, ϕg0 = get_hybridcase_MLapplicator(prob, MLengine; scenario)
+    g, ϕg0 = get_hybridcase_MLapplicator(prob; scenario)
     train_loader = get_hybridcase_train_dataloader(rng, prob; scenario)
     (xM, xP, y_o, y_unc) = first(train_loader)
     f = get_hybridcase_PBmodel(prob; scenario)
@@ -101,7 +99,7 @@ import Flux
 
 @testset "neg_elbo_transnorm_gf cpu" begin
     rng = StableRNG(111)
-    g, ϕg0 = get_hybridcase_MLapplicator(prob, MLengine)
+    g, ϕg0 = get_hybridcase_MLapplicator(prob)
     train_loader = get_hybridcase_train_dataloader(rng, prob)
     (xM, xP, y_o, y_unc) = first(train_loader)
     n_batch = size(y_o, 2)

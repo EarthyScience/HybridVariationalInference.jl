@@ -11,7 +11,6 @@ import Zygote
 
 using OptimizationOptimisers
 
-const MLengine = Val(nameof(SimpleChains))
 const case = DoubleMM.DoubleMMCase()
 scenario = (:default,)
 
@@ -34,7 +33,7 @@ rng = StableRNG(111)
 end
 
 @testset "loss_g" begin
-    g, ϕg0 = get_hybridcase_MLapplicator(rng, case, MLengine; scenario);
+    g, ϕg0 = get_hybridcase_MLapplicator(rng, case; scenario);
     (;transP, transM) = get_hybridcase_transforms(case; scenario)
 
     function loss_g(ϕg, x, g, transM)
@@ -67,7 +66,7 @@ end
 
 @testset "loss_gf" begin
     #----------- fit g and θP to y_o  (without uncertainty, without transforming θP)
-    g, ϕg0 = get_hybridcase_MLapplicator(case, MLengine; scenario);
+    g, ϕg0 = get_hybridcase_MLapplicator(case; scenario);
     (;transP, transM) = get_hybridcase_transforms(case; scenario)
     f = get_hybridcase_PBmodel(case; scenario)
 

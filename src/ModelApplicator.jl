@@ -36,3 +36,31 @@ end
 # function construct_LuxApplicator end
 
 
+"""
+    construct_3layer_MLApplicator(
+        rng::AbstractRNG, case::HVI.AbstractHybridCase, <ml_engine>;
+        scenario::NTuple = ())
+
+`ml_engine` usually is of type `Val{Symbol}`, e.g. Val(:Flux). See `select_ml_engine`.       
+"""
+function construct_3layer_MLApplicator end
+
+"""
+    select_ml_engine(;scenario)
+
+Returns a value type `Val{:Symbol}` to dispatch on the machine learning engine to use.
+- defaults to `Val(:SimpleChains)`
+- `:use_Lux ∈ scenario -> Val(:Lux)`
+- `:use_Flux ∈ scenario -> Val(:Flux)`
+"""
+function select_ml_engine(;scenario)
+    if :use_Lux ∈ scenario
+        return Val(:Lux)
+    elseif :use_Flux ∈ scenario
+        return Val(:Flux)
+    else
+        # default
+        return Val(:SimpleChains)
+    end
+end
+

@@ -7,7 +7,7 @@ using Statistics
 using ComponentArrays: ComponentArrays as CA
 
 using SimpleChains
-import Flux # to allow for FluxMLEngine and cpu()
+import Flux 
 using MLUtils
 import Zygote
 
@@ -17,20 +17,22 @@ using Bijectors
 using UnicodePlots
 
 const case = DoubleMM.DoubleMMCase()
-const MLengine = Val(nameof(SimpleChains))
-const FluxMLengine = Val(nameof(Flux))
 scenario = (:default,)
 rng = StableRNG(111)
 
 par_templates = get_hybridcase_par_templates(case; scenario)
 
-(; n_covar, n_batch, n_θM, n_θP) = get_hybridcase_sizes(case; scenario)
+#n_covar = get_hybridcase_n_covar(case; scenario)
+#, n_batch, n_θM, n_θP) = get_hybridcase_sizes(case; scenario)
 
 (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
 ) = gen_hybridcase_synthetic(rng, case; scenario);
 
+n_covar = size(xM,1)
+
+
 #----- fit g to θMs_true
-g, ϕg0 = get_hybridcase_MLapplicator(case, MLengine; scenario);
+g, ϕg0 = get_hybridcase_MLapplicator(case; scenario);
 (; transP, transM) = get_hybridcase_transforms(case; scenario)
 
 function loss_g(ϕg, x, g, transM)
@@ -89,6 +91,8 @@ FT = get_hybridcase_float_type(case; scenario)
 (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
     θP_true, θMs_true[:, 1], ϕg_opt1, n_batch; transP, transM);
 ϕ_true = ϕ
+
+
 
 () -> begin
     coef_logσ2_logMs = [-5.769 -3.501; -0.01791 0.007951]
@@ -162,7 +166,8 @@ mean_σ_o_MC = 0.006042
 
 ϕ = CA.getdata(ϕ_ini) |> Flux.gpu;
 xM_gpu = xM |> Flux.gpu;
-g_flux, _ = get_hybridcase_MLapplicator(case, FluxMLengine; scenario);
+scenario_flux = (scenario..., :use_Flux)
+g_flux, _ = get_hybridcase_MLapplicator(case; scenario = scenario_flux);
 
 # otpimize using LUX
 () -> begin
@@ -200,7 +205,7 @@ gr = Zygote.gradient(fcost,
 gr_c = CA.ComponentArray(gr[1] |> Flux.cpu, CA.getaxes(ϕ_ini)...)
 
 train_loader = MLUtils.DataLoader((xM_gpu, xP, y_o, y_unc), batchsize = n_batch)
-#train_loader = get_hybridcase_train_dataloader(case, rng; scenario = (scenario..., :use_flux))
+#train_loader = get_hybridcase_train_dataloader(case, rng; scenario = (scenario..., :use_Flux))
 
 optf = Optimization.OptimizationFunction(
     (ϕ, data) -> begin

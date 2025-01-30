@@ -17,6 +17,7 @@ export ComponentArrayInterpreter, flatten1, get_concrete
 include("ComponentArrayInterpreter.jl")
 
 export AbstractModelApplicator, construct_ChainsApplicator
+export construct_3layer_MLApplicator, select_ml_engine
 include("ModelApplicator.jl")
 
 export AbstractGPUDataHandler, NullGPUDataHandler, get_default_GPUHandler

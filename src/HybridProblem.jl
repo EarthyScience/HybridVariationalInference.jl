@@ -54,7 +54,7 @@ function get_hybridcase_PBmodel(prob::HybridProblem; scenario::NTuple = ())
     prob.f
 end
 
-function get_hybridcase_MLapplicator(prob::HybridProblem, ml_engine; scenario::NTuple = ());
+function get_hybridcase_MLapplicator(prob::HybridProblem; scenario::NTuple = ());
     prob.g, prob.ϕg
 end
 

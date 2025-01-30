@@ -91,6 +91,13 @@ function HVI.gen_hybridcase_synthetic(rng::AbstractRNG, case::DoubleMMCase;
     )
 end
 
+function HVI.get_hybridcase_MLapplicator(
+    rng::AbstractRNG, case::HVI.DoubleMM.DoubleMMCase; scenario = ())
+    ml_engine = select_ml_engine(; scenario)
+    construct_3layer_MLApplicator(rng, case, ml_engine; scenario)
+end
+
+
 
 
 

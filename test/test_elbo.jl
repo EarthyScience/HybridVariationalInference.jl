@@ -17,12 +17,11 @@ using GPUArraysCore: GPUArraysCore
 rng = StableRNG(111)
 
 const case = DoubleMM.DoubleMMCase()
-const MLengine = Val(nameof(SimpleChains))
 scenario = (:default,)
 FT = get_hybridcase_float_type(case; scenario)
 
 #θsite_true = get_hybridcase_par_templates(case; scenario)
-g, ϕg0 = get_hybridcase_MLapplicator(case, MLengine; scenario);
+g, ϕg0 = get_hybridcase_MLapplicator(case; scenario);
 f = get_hybridcase_PBmodel(case; scenario)
 
 n_covar = 5 
@@ -58,8 +57,8 @@ end;
 
 # setup g as FluxNN on gpu
 using Flux
-FluxMLengine = Val(nameof(Flux))
-g_flux, ϕg0_flux_cpu = get_hybridcase_MLapplicator(case, FluxMLengine; scenario)
+scenario_flux = (scenario..., :use_Flux)
+g_flux, ϕg0_flux_cpu = get_hybridcase_MLapplicator(case; scenario = scenario_flux)
 
 if CUDA.functional()
     @testset "generate_ζ gpu" begin
