@@ -1,4 +1,4 @@
-struct HybridProblem <: AbstractHybridCase 
+struct HybridProblem <: AbstractHybridProblem 
     θP
     θM
     f
@@ -32,41 +32,41 @@ function HybridProblem(θP::CA.ComponentVector, θM::CA.ComponentVector,
     HybridProblem(θP, θM, g, ϕg, f, args...; kwargs...)
 end
 
-function get_hybridcase_par_templates(prob::HybridProblem; scenario::NTuple = ())
+function get_hybridproblem_par_templates(prob::HybridProblem; scenario::NTuple = ())
     (; θP = prob.θP, θM = prob.θM)
 end
 
-function get_hybridcase_neg_logden_obs(prob::HybridProblem; scenario::NTuple = ())
+function get_hybridproblem_neg_logden_obs(prob::HybridProblem; scenario::NTuple = ())
     prob.py
 end
 
-function get_hybridcase_transforms(prob::HybridProblem; scenario::NTuple = ())
+function get_hybridproblem_transforms(prob::HybridProblem; scenario::NTuple = ())
     (; transP = prob.transP, transM = prob.transM)
 end
 
-# function get_hybridcase_sizes(prob::HybridProblem; scenario::NTuple = ())
+# function get_hybridproblem_sizes(prob::HybridProblem; scenario::NTuple = ())
 #     n_θM = length(prob.θM)
 #     n_θP = length(prob.θP)
 #     (; n_covar=prob.n_covar, n_batch=prob.n_batch, n_θM, n_θP)
 # end
 
-function get_hybridcase_PBmodel(prob::HybridProblem; scenario::NTuple = ())
+function get_hybridproblem_PBmodel(prob::HybridProblem; scenario::NTuple = ())
     prob.f
 end
 
-function get_hybridcase_MLapplicator(prob::HybridProblem; scenario::NTuple = ());
+function get_hybridproblem_MLapplicator(prob::HybridProblem; scenario::NTuple = ());
     prob.g, prob.ϕg
 end
 
-function get_hybridcase_train_dataloader(rng::AbstractRNG, prob::HybridProblem; scenario = ())
+function get_hybridproblem_train_dataloader(rng::AbstractRNG, prob::HybridProblem; scenario = ())
     return(prob.train_loader)
 end
 
-function get_hybridcase_cor_starts(prob::HybridProblem; scenario = ())
+function get_hybridproblem_cor_starts(prob::HybridProblem; scenario = ())
     prob.cor_starts
 end
 
-# function get_hybridcase_float_type(prob::HybridProblem; scenario::NTuple = ()) 
+# function get_hybridproblem_float_type(prob::HybridProblem; scenario::NTuple = ()) 
 #     eltype(prob.θM)
 # end
 

@@ -38,7 +38,7 @@ end
 
 """
     construct_3layer_MLApplicator(
-        rng::AbstractRNG, case::HVI.AbstractHybridCase, <ml_engine>;
+        rng::AbstractRNG, prob::HVI.AbstractHybridProblem, <ml_engine>;
         scenario::NTuple = ())
 
 `ml_engine` usually is of type `Val{Symbol}`, e.g. Val(:Flux). See `select_ml_engine`.       

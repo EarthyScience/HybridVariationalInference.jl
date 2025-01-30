@@ -61,12 +61,12 @@ scenario = (:default,)
 @testset "loss_gf" begin
     #----------- fit g and θP to y_o
     rng = StableRNG(111)
-    g, ϕg0 = get_hybridcase_MLapplicator(prob; scenario)
-    train_loader = get_hybridcase_train_dataloader(rng, prob; scenario)
+    g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
+    train_loader = get_hybridproblem_train_dataloader(rng, prob; scenario)
     (xM, xP, y_o, y_unc) = first(train_loader)
-    f = get_hybridcase_PBmodel(prob; scenario)
-    par_templates = get_hybridcase_par_templates(prob; scenario)
-    (;transM, transP) = get_hybridcase_transforms(prob; scenario)
+    f = get_hybridproblem_PBmodel(prob; scenario)
+    par_templates = get_hybridproblem_par_templates(prob; scenario)
+    (;transM, transP) = get_hybridproblem_transforms(prob; scenario)
 
     int_ϕθP = ComponentArrayInterpreter(CA.ComponentVector(
         ϕg=1:length(ϕg0), θP=par_templates.θP))
@@ -99,20 +99,20 @@ import Flux
 
 @testset "neg_elbo_transnorm_gf cpu" begin
     rng = StableRNG(111)
-    g, ϕg0 = get_hybridcase_MLapplicator(prob)
-    train_loader = get_hybridcase_train_dataloader(rng, prob)
+    g, ϕg0 = get_hybridproblem_MLapplicator(prob)
+    train_loader = get_hybridproblem_train_dataloader(rng, prob)
     (xM, xP, y_o, y_unc) = first(train_loader)
     n_batch = size(y_o, 2)
-    f = get_hybridcase_PBmodel(prob)
-    (θP0, θM0) = get_hybridcase_par_templates(prob)
-    (; transP, transM) = get_hybridcase_transforms(prob)
-    py = get_hybridcase_neg_logden_obs(prob)
+    f = get_hybridproblem_PBmodel(prob)
+    (θP0, θM0) = get_hybridproblem_par_templates(prob)
+    (; transP, transM) = get_hybridproblem_transforms(prob)
+    py = get_hybridproblem_neg_logden_obs(prob)
 
     (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
         θP0, θM0, ϕg0, n_batch; transP, transM)
     ϕ_ini = ϕ
 
-    py = get_hybridcase_neg_logden_obs(prob)
+    py = get_hybridproblem_neg_logden_obs(prob)
 
     cost = neg_elbo_transnorm_gf(rng, ϕ_ini, g, transPMs_batch, f, py, 
         xM, xP, y_o, y_unc, map(get_concrete, interpreters);
@@ -152,7 +152,7 @@ import Flux
                 n_MC=8),
                 ϕ)
             @test gr[1] isa CuVector
-            @test eltype(gr[1]) == get_hybridcase_float_type(prob)
+            @test eltype(gr[1]) == get_hybridproblem_float_type(prob)
         end
     end
 end

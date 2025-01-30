@@ -1,4 +1,4 @@
-struct DoubleMMCase <: AbstractHybridCase end
+struct DoubleMMCase <: AbstractHybridProblem end
 
 
 θP = CA.ComponentVector{Float32}(r0 = 0.3, K2 = 2.0)
@@ -18,19 +18,19 @@ function f_doubleMM(θ::AbstractVector, x)
     return (y)
 end
 
-function HVI.get_hybridcase_par_templates(::DoubleMMCase; scenario::NTuple = ())
+function HVI.get_hybridproblem_par_templates(::DoubleMMCase; scenario::NTuple = ())
     (; θP, θM)
 end
 
-function HVI.get_hybridcase_transforms(::DoubleMMCase; scenario::NTuple = ())
+function HVI.get_hybridproblem_transforms(::DoubleMMCase; scenario::NTuple = ())
     (; transP, transM)
 end
 
-function HVI.get_hybridcase_neg_logden_obs(::DoubleMMCase; scenario::NTuple = ())
+function HVI.get_hybridproblem_neg_logden_obs(::DoubleMMCase; scenario::NTuple = ())
     neg_logden_indep_normal
 end
 
-# function HVI.get_hybridcase_sizes(::DoubleMMCase; scenario = ())
+# function HVI.get_hybridproblem_sizes(::DoubleMMCase; scenario = ())
 #     n_covar_pc = 2
 #     n_covar = n_covar_pc + 3 # linear dependent
 #     #n_site = 10^n_covar_pc
@@ -41,7 +41,7 @@ end
 #     (; n_covar, n_batch, n_θM, n_θP)
 # end
 
-function HVI.get_hybridcase_PBmodel(::DoubleMMCase; scenario::NTuple = ())
+function HVI.get_hybridproblem_PBmodel(::DoubleMMCase; scenario::NTuple = ())
     #fsite = (θ, x_site) -> f_doubleMM(θ)  # omit x_site drivers
     function f_doubleMM_with_global(θP::AbstractVector, θMs::AbstractMatrix, x)
         pred_sites = applyf(f_doubleMM, θMs, θP, x)
@@ -50,26 +50,26 @@ function HVI.get_hybridcase_PBmodel(::DoubleMMCase; scenario::NTuple = ())
     end
 end
 
-# function HVI.get_hybridcase_float_type(::DoubleMMCase; scenario)
+# function HVI.get_hybridproblem_float_type(::DoubleMMCase; scenario)
 #     return Float32
 # end
 
 const xP_S1 = Float32[1.0, 1.0, 1.0, 1.0, 0.4, 0.3, 0.1]
 const xP_S2 = Float32[1.0, 3.0, 4.0, 5.0, 5.0, 5.0, 5.0]
 
-function HVI.gen_hybridcase_synthetic(rng::AbstractRNG, case::DoubleMMCase;
+function HVI.gen_hybridcase_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
         scenario = ())
     n_covar_pc = 2
     n_site = 200
     n_covar = 5
     n_θM = length(θM)
-    FloatType = get_hybridcase_float_type(case; scenario)
+    FloatType = get_hybridproblem_float_type(prob; scenario)
     xM, θMs_true0 = gen_cov_pred(rng, FloatType, n_covar_pc, n_covar, n_site, n_θM;
         rhodec = 8, is_using_dropout = false)
     int_θMs_sites = ComponentArrayInterpreter(θM, (n_site,))
     # normalize to be distributed around the prescribed true values
     θMs_true = int_θMs_sites(scale_centered_at(θMs_true0, θM, FloatType(0.1)))
-    f = get_hybridcase_PBmodel(case; scenario)
+    f = get_hybridproblem_PBmodel(prob; scenario)
     xP = fill((;S1=xP_S1, S2=xP_S2), n_site)
     y_global_true, y_true = f(θP, θMs_true, xP)
     σ_o = FloatType(0.01)
@@ -91,10 +91,10 @@ function HVI.gen_hybridcase_synthetic(rng::AbstractRNG, case::DoubleMMCase;
     )
 end
 
-function HVI.get_hybridcase_MLapplicator(
-    rng::AbstractRNG, case::HVI.DoubleMM.DoubleMMCase; scenario = ())
+function HVI.get_hybridproblem_MLapplicator(
+    rng::AbstractRNG, prob::HVI.DoubleMM.DoubleMMCase; scenario = ())
     ml_engine = select_ml_engine(; scenario)
-    construct_3layer_MLApplicator(rng, case, ml_engine; scenario)
+    construct_3layer_MLApplicator(rng, prob, ml_engine; scenario)
 end
 
 

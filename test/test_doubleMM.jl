@@ -11,14 +11,14 @@ import Zygote
 
 using OptimizationOptimisers
 
-const case = DoubleMM.DoubleMMCase()
+const prob = DoubleMM.DoubleMMCase()
 scenario = (:default,)
 
-par_templates = get_hybridcase_par_templates(case; scenario)
+par_templates = get_hybridproblem_par_templates(prob; scenario)
 
 rng = StableRNG(111)
 (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
-) = gen_hybridcase_synthetic(rng, case; scenario);
+) = gen_hybridcase_synthetic(rng, prob; scenario);
 
 @testset "gen_hybridcase_synthetic" begin
     @test isapprox(
@@ -28,13 +28,13 @@ rng = StableRNG(111)
 
     # test same results for same rng
     rng2 = StableRNG(111)
-    gen2 = gen_hybridcase_synthetic(rng2, case; scenario);
+    gen2 = gen_hybridcase_synthetic(rng2, prob; scenario);
     @test gen2.y_o == y_o
 end
 
 @testset "loss_g" begin
-    g, ϕg0 = get_hybridcase_MLapplicator(rng, case; scenario);
-    (;transP, transM) = get_hybridcase_transforms(case; scenario)
+    g, ϕg0 = get_hybridproblem_MLapplicator(rng, prob; scenario);
+    (;transP, transM) = get_hybridproblem_transforms(prob; scenario)
 
     function loss_g(ϕg, x, g, transM)
         # @show first(x,5)
@@ -66,9 +66,9 @@ end
 
 @testset "loss_gf" begin
     #----------- fit g and θP to y_o  (without uncertainty, without transforming θP)
-    g, ϕg0 = get_hybridcase_MLapplicator(case; scenario);
-    (;transP, transM) = get_hybridcase_transforms(case; scenario)
-    f = get_hybridcase_PBmodel(case; scenario)
+    g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario);
+    (;transP, transM) = get_hybridproblem_transforms(prob; scenario)
+    f = get_hybridproblem_PBmodel(prob; scenario)
 
     int_ϕθP = ComponentArrayInterpreter(CA.ComponentVector(
         ϕg = 1:length(ϕg0), θP = par_templates.θP))
@@ -78,8 +78,8 @@ end
     # Pass the site-data for the batches as separate vectors wrapped in a tuple
     n_batch = 10
     train_loader = MLUtils.DataLoader((xM, xP, y_o, y_unc), batchsize = n_batch)
-    # get_hybridcase_train_dataloader recreates synthetic data different θ_true
-    #train_loader = get_hybridcase_train_dataloader(case, rng; scenario)
+    # get_hybridproblem_train_dataloader recreates synthetic data different θ_true
+    #train_loader = get_hybridproblem_train_dataloader(prob, rng; scenario)
 
     loss_gf = get_loss_gf(g, transM, f, y_global_o, int_ϕθP)
     l1 = loss_gf(p0, first(train_loader)...)[1]
