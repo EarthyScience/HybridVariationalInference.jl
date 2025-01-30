@@ -80,13 +80,15 @@ if CUDA.functional()
 end
 
 @testset "neg_elbo_transnorm_gf cpu" begin
-    cost = neg_elbo_transnorm_gf(rng, g, f, py, ϕ_ini, y_o[:, 1:n_batch], y_unc[:, 1:n_batch],
-        xM[:, 1:n_batch], xP[1:n_batch], transPMs_batch, map(get_concrete, interpreters);
+    cost = neg_elbo_transnorm_gf(rng, ϕ_ini, g, transPMs_batch, f, py,
+        xM[:, 1:n_batch], xP[1:n_batch], y_o[:, 1:n_batch], y_unc[:, 1:n_batch],
+        map(get_concrete, interpreters);
         n_MC = 8)
     @test cost isa Float64
     gr = Zygote.gradient(
-        ϕ -> neg_elbo_transnorm_gf(rng, g, f, py, ϕ, y_o[:, 1:n_batch], y_unc[:, 1:n_batch],
-        xM[:, 1:n_batch], xP[1:n_batch], transPMs_batch, map(get_concrete, interpreters);
+        ϕ -> neg_elbo_transnorm_gf(rng, ϕ, g, transPMs_batch, f, py,
+        xM[:, 1:n_batch], xP[1:n_batch], y_o[:, 1:n_batch], y_unc[:, 1:n_batch],
+        map(get_concrete, interpreters);
         n_MC = 8),
         CA.getdata(ϕ_ini))
     @test gr[1] isa Vector
@@ -97,17 +99,15 @@ if CUDA.functional()
         ϕ = CuArray(CA.getdata(ϕ_ini))
         xMg_batch = CuArray(xM[:, 1:n_batch])
         xP_batch = xP[1:n_batch] # used in f which runs on CPU
-        cost = neg_elbo_transnorm_gf(rng, g_flux, f, py, ϕ, 
-            y_o[:, 1:n_batch], y_unc[:, 1:n_batch],
-            xMg_batch, xP_batch,
-            transPMs_batch, map(get_concrete, interpreters);
+        cost = neg_elbo_transnorm_gf(rng, ϕ, g_flux, transPMs_batch, f, py, 
+            xMg_batch, xP_batch, y_o[:, 1:n_batch], y_unc[:, 1:n_batch],
+             map(get_concrete, interpreters);
             n_MC = 8)
         @test cost isa Float64
         gr = Zygote.gradient(
-            ϕ -> neg_elbo_transnorm_gf(rng, g_flux, f, py, ϕ, 
-            y_o[:, 1:n_batch], y_unc[:, 1:n_batch],
-            xMg_batch, xP_batch,
-            transPMs_batch, map(get_concrete, interpreters);
+            ϕ -> neg_elbo_transnorm_gf(rng, ϕ, g_flux, transPMs_batch, f, py, 
+            xMg_batch, xP_batch, y_o[:, 1:n_batch], y_unc[:, 1:n_batch],
+             map(get_concrete, interpreters);
             n_MC = 8),
             ϕ)
         @test gr[1] isa CuVector

@@ -188,8 +188,8 @@ g_flux, _ = get_hybridcase_MLapplicator(case, FluxMLengine; scenario);
 end
 
 function fcost(ϕ, xM, y_o, y_unc)
-    neg_elbo_transnorm_gf(rng, g_flux, f, py, CA.getdata(ϕ), y_o, y_unc,
-        xM, xP, transPMs_batch, map(get_concrete, interpreters);
+    neg_elbo_transnorm_gf(rng, CA.getdata(ϕ), g_flux, transPMs_batch, f, py,
+        xM, xP, y_o, y_unc, map(get_concrete, interpreters);
         n_MC = 8)
 end
 fcost(ϕ, xM_gpu[:, 1:n_batch], y_o[:, 1:n_batch], y_unc[:, 1:n_batch])

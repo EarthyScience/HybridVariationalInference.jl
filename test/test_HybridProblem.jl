@@ -116,14 +116,14 @@ import Flux
 
     py = get_hybridcase_neg_logden_obs(prob)
 
-    cost = neg_elbo_transnorm_gf(rng, g, f, py, ϕ_ini, y_o, y_unc,
-        xM, xP, transPMs_batch, map(get_concrete, interpreters);
+    cost = neg_elbo_transnorm_gf(rng, ϕ_ini, g, transPMs_batch, f, py, 
+        xM, xP, y_o, y_unc, map(get_concrete, interpreters);
         n_MC=8)
     @test cost isa Float64
     gr = Zygote.gradient(
-        ϕ -> neg_elbo_transnorm_gf(rng, g, f, py, ϕ, y_o, y_unc,
-            xM, xP, transPMs_batch, map(get_concrete, interpreters);
-            n_MC=8),
+        ϕ -> neg_elbo_transnorm_gf(rng, ϕ, g, transPMs_batch, f, py, 
+        xM, xP, y_o, y_unc, map(get_concrete, interpreters);
+        n_MC=8),
         CA.getdata(ϕ_ini))
     @test gr[1] isa Vector
 
@@ -144,14 +144,14 @@ import Flux
             ϕ_ini.ϕg = ϕg0
             ϕ = CuArray(CA.getdata(ϕ_ini))
             xMg = CuArray(xM)
-            cost = neg_elbo_transnorm_gf(rng, g, f, py, ϕ, y_o, y_unc,
-                xMg, xP, transPMs_batch, map(get_concrete, interpreters);
+            cost = neg_elbo_transnorm_gf(rng, ϕ, g, transPMs_batch, f, py,
+                xMg, xP, y_o, y_unc, map(get_concrete, interpreters);
                 n_MC=8)
             @test cost isa Float64
             gr = Zygote.gradient(
-                ϕ -> neg_elbo_transnorm_gf(rng, g, f, py, ϕ, y_o, y_unc,
-                    xMg, xP, transPMs_batch, map(get_concrete, interpreters);
-                    n_MC=8),
+                ϕ -> neg_elbo_transnorm_gf(rng, ϕ, g, transPMs_batch, f, py,
+                xMg, xP, y_o, y_unc, map(get_concrete, interpreters);
+                n_MC=8),
                 ϕ)
             @test gr[1] isa CuVector
             @test eltype(gr[1]) == get_hybridcase_float_type(prob)
