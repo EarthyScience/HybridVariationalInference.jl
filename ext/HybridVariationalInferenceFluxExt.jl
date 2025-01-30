@@ -37,9 +37,11 @@ end
 
 function HVI.get_hybridcase_MLapplicator(rng::AbstractRNG, case::HVI.DoubleMM.DoubleMMCase, ::Val{:Flux};
         scenario::NTuple = ())
-    (; n_covar, n_θM) = get_hybridcase_sizes(case; scenario)
+    (;θM) = get_hybridcase_par_templates(case; scenario)
+    n_out = length(θM)
+    n_covar = 5
+    #(; n_covar, n_θM) = get_hybridcase_sizes(case; scenario)
     float_type = get_hybridcase_float_type(case; scenario)
-    n_out = n_θM
     is_using_dropout = :use_dropout ∈ scenario
     is_using_dropout && error("dropout scenario not supported with Flux yet.")
     g_chain = Flux.Chain(

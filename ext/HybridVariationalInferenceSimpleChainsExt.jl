@@ -21,9 +21,10 @@ HVI.apply_model(app::SimpleChainsApplicator, x, ϕ) = app.m(x, ϕ)
 
 function HVI.get_hybridcase_MLapplicator(rng::AbstractRNG, case::HVI.DoubleMM.DoubleMMCase, ::Val{:SimpleChains};
         scenario::NTuple=())
-    (;n_covar, n_θM) = get_hybridcase_sizes(case; scenario)
+    n_covar = get_hybridcase_n_covar(case; scenario)
     FloatType = get_hybridcase_float_type(case; scenario)
-    n_out = n_θM
+    (;θM) = get_hybridcase_par_templates(case; scenario)
+    n_out = length(θM)
     is_using_dropout = :use_dropout ∈ scenario
     g_chain = if is_using_dropout
         SimpleChain(

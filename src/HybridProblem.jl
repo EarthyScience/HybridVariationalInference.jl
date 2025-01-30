@@ -8,8 +8,6 @@ struct HybridProblem <: AbstractHybridCase
     transP
     transM
     cor_starts # = (P=(1,),M=(1,))
-    n_covar
-    n_batch
     train_loader
     # inner constructor to constrain the types
     function HybridProblem(
@@ -19,10 +17,9 @@ struct HybridProblem <: AbstractHybridCase
         py::Function,
         transM::Union{Function, Bijectors.Transform}, 
         transP::Union{Function, Bijectors.Transform}, 
-        n_covar::Integer, n_batch::Integer, 
         train_loader::DataLoader,
         cor_starts::NamedTuple = (P=(1,), M=(1,)))
-        new(θP, θM, f, g, ϕg, py, transM, transP, cor_starts, n_covar, n_batch, train_loader)
+        new(θP, θM, f, g, ϕg, py, transM, transP, cor_starts, train_loader)
     end
 end
 
@@ -47,11 +44,11 @@ function get_hybridcase_transforms(prob::HybridProblem; scenario::NTuple = ())
     (; transP = prob.transP, transM = prob.transM)
 end
 
-function get_hybridcase_sizes(prob::HybridProblem; scenario::NTuple = ())
-    n_θM = length(prob.θM)
-    n_θP = length(prob.θP)
-    (; n_covar=prob.n_covar, n_batch=prob.n_batch, n_θM, n_θP)
-end
+# function get_hybridcase_sizes(prob::HybridProblem; scenario::NTuple = ())
+#     n_θM = length(prob.θM)
+#     n_θP = length(prob.θP)
+#     (; n_covar=prob.n_covar, n_batch=prob.n_batch, n_θM, n_θP)
+# end
 
 function get_hybridcase_PBmodel(prob::HybridProblem; scenario::NTuple = ())
     prob.f
@@ -61,9 +58,7 @@ function get_hybridcase_MLapplicator(prob::HybridProblem, ml_engine; scenario::N
     prob.g, prob.ϕg
 end
 
-function get_hybridcase_train_dataloader(
-    prob::HybridProblem, rng::AbstractRNG = Random.default_rng(); 
-    scenario = ())
+function get_hybridcase_train_dataloader(rng::AbstractRNG, prob::HybridProblem; scenario = ())
     return(prob.train_loader)
 end
 

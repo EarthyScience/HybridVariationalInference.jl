@@ -8,10 +8,10 @@ For a specific case, provide functions that specify details
 - `get_hybridcase_neg_logden_obs`
 - `get_hybridcase_par_templates`
 - `get_hybridcase_transforms`
-- `get_hybridcase_sizes`
 - `get_hybridcase_train_dataloader` (default depends on `gen_hybridcase_synthetic`)
 optionally
 - `gen_hybridcase_synthetic`
+- `get_hybridcase_n_covar` (defaults to number of rows in xM in train_dataloader )
 - `get_hybridcase_float_type` (defaults to `eltype(θM)`)
 - `get_hybridcase_cor_starts` (defaults to include all correlations: `(P=(1,), M=(1,))`)
 """
@@ -79,19 +79,31 @@ Return a NamedTupe of
 """
 function get_hybridcase_transforms end
 
-"""
-    get_hybridcase_par_templates(::AbstractHybridCase; scenario)
+# """
+#     get_hybridcase_par_templates(::AbstractHybridCase; scenario)
+# Provide a NamedTuple of number of 
+# - n_covar: covariates xM
+# - n_site: all sites in the data
+# - n_batch: sites in one minibatch during fitting
+# - n_θM, n_θP: entries in parameter vectors
+# """
+# function get_hybridcase_sizes end
 
-Provide a NamedTuple of number of 
-- n_covar: covariates xM
-- n_site: all sites in the data
-- n_batch: sites in one minibatch during fitting
-- n_θM, n_θP: entries in parameter vectors
 """
-function get_hybridcase_sizes end
+    get_hybridcase_n_covar(::AbstractHybridCase; scenario)
+
+Provide the number of covariates. Default returns the number of rows in `xM` from
+`get_hybridcase_train_dataloader`.
+"""
+function get_hybridcase_n_covar(case::AbstractHybridCase; scenario)
+    train_loader = get_hybridcase_train_dataloader(Random.default_rng(), case; scenario)
+    (xM, xP, y_o, y_unc) = first(train_loader)
+    n_covar = size(xM, 1)
+    return(n_covar)
+end
 
 """
-    gen_hybridcase_synthetic(::AbstractHybridCase, rng; scenario)
+    gen_hybridcase_synthetic([rng,] ::AbstractHybridCase; scenario)
 
 Setup synthetic data, a NamedTuple of
 - xM: matrix of covariates, with one column per site
@@ -114,7 +126,7 @@ function get_hybridcase_float_type(case::AbstractHybridCase; scenario=())
 end
 
 """
-    get_hybridcase_train_dataloader(::AbstractHybridCase, rng; scenario)
+    get_hybridcase_train_dataloader([rng,] ::AbstractHybridCase; scenario)
 
 Return a DataLoader that provides a tuple of
 - `xM`: matrix of covariates, with one column per site
@@ -122,14 +134,20 @@ Return a DataLoader that provides a tuple of
 - `y_o`: matrix of observations with added noise, with one column per site
 - `y_unc`: matrix `sizeof(y_o)` of uncertainty information 
 """
-function get_hybridcase_train_dataloader(case::AbstractHybridCase, rng::AbstractRNG; 
+function get_hybridcase_train_dataloader(rng::AbstractRNG, case::AbstractHybridCase; 
     scenario = ())
-    (; xM, xP, y_o, y_unc) = gen_hybridcase_synthetic(case, rng; scenario)
-    (; n_batch) = get_hybridcase_sizes(case; scenario)
+    (; xM, xP, y_o, y_unc) = gen_hybridcase_synthetic(rng, case; scenario)
+    n_batch = 10
     xM_gpu = :use_flux ∈ scenario ? CuArray(xM) : xM
     train_loader = MLUtils.DataLoader((xM_gpu, xP, y_o, y_unc), batchsize = n_batch)
     return(train_loader)
 end
+
+function get_hybridcase_train_dataloader(case::AbstractHybridCase; scenario = ())
+    rng::AbstractRNG = Random.default_rng()
+    get_hybridcase_train_dataloader(rng, case; scenario)
+end
+
 
 """
     get_hybridcase_cor_starts(case::AbstractHybridCase; scenario)

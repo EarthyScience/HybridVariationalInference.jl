@@ -30,16 +30,16 @@ function HVI.get_hybridcase_neg_logden_obs(::DoubleMMCase; scenario::NTuple = ()
     neg_logden_indep_normal
 end
 
-function HVI.get_hybridcase_sizes(::DoubleMMCase; scenario = ())
-    n_covar_pc = 2
-    n_covar = n_covar_pc + 3 # linear dependent
-    #n_site = 10^n_covar_pc
-    n_batch = 10
-    n_θM = length(θM)
-    n_θP = length(θP)
-    #(; n_covar, n_site, n_batch, n_θM, n_θP)
-    (; n_covar, n_batch, n_θM, n_θP)
-end
+# function HVI.get_hybridcase_sizes(::DoubleMMCase; scenario = ())
+#     n_covar_pc = 2
+#     n_covar = n_covar_pc + 3 # linear dependent
+#     #n_site = 10^n_covar_pc
+#     n_batch = 10
+#     n_θM = length(θM)
+#     n_θP = length(θP)
+#     #(; n_covar, n_site, n_batch, n_θM, n_θP)
+#     (; n_covar, n_batch, n_θM, n_θP)
+# end
 
 function HVI.get_hybridcase_PBmodel(::DoubleMMCase; scenario::NTuple = ())
     #fsite = (θ, x_site) -> f_doubleMM(θ)  # omit x_site drivers
@@ -57,11 +57,12 @@ end
 const xP_S1 = Float32[1.0, 1.0, 1.0, 1.0, 0.4, 0.3, 0.1]
 const xP_S2 = Float32[1.0, 3.0, 4.0, 5.0, 5.0, 5.0, 5.0]
 
-function HVI.gen_hybridcase_synthetic(case::DoubleMMCase, rng::AbstractRNG;
+function HVI.gen_hybridcase_synthetic(rng::AbstractRNG, case::DoubleMMCase;
         scenario = ())
     n_covar_pc = 2
     n_site = 200
-    (; n_covar, n_θM, n_θP) = get_hybridcase_sizes(case; scenario)
+    n_covar = 5
+    n_θM = length(θM)
     FloatType = get_hybridcase_float_type(case; scenario)
     xM, θMs_true0 = gen_cov_pred(rng, FloatType, n_covar_pc, n_covar, n_site, n_θM;
         rhodec = 8, is_using_dropout = false)

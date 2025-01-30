@@ -27,7 +27,7 @@ par_templates = get_hybridcase_par_templates(case; scenario)
 (; n_covar, n_batch, n_θM, n_θP) = get_hybridcase_sizes(case; scenario)
 
 (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
-) = gen_hybridcase_synthetic(case, rng; scenario);
+) = gen_hybridcase_synthetic(rng, case; scenario);
 
 #----- fit g to θMs_true
 g, ϕg0 = get_hybridcase_MLapplicator(case, MLengine; scenario);
@@ -62,7 +62,7 @@ py = get_hybridcase_neg_logden_obs(case; scenario)
     p = p0 = vcat(ϕg0, par_templates.θP .* 0.9)  # slightly disturb θP_true
 
     # Pass the site-data for the batches as separate vectors wrapped in a tuple
-    train_loader = MLUtils.DataLoader((xM, xP, y_o), batchsize = n_batch)
+    train_loader = MLUtils.DataLoader((xM, xP, y_o, y_unc), batchsize = n_batch)
 
     loss_gf = get_loss_gf(g, f, y_global_o, int_ϕθP)
     l1 = loss_gf(p0, train_loader.data...)[1]

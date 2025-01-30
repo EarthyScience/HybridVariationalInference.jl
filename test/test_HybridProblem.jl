@@ -51,23 +51,20 @@ construct_problem = () -> begin
     rng = StableRNG(111)
     # dependency on DeoubleMMCase -> take care of changes in covariates
     (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
-    ) = gen_hybridcase_synthetic(DoubleMM.DoubleMMCase(), rng)
+    ) = gen_hybridcase_synthetic(rng, DoubleMM.DoubleMMCase())
     py = neg_logden_indep_normal
     train_loader = MLUtils.DataLoader((xM, xP, y_o, y_unc), batchsize=n_batch)
-    # HybridProblem(θP, θM, transM, transP, n_covar, n_batch, f_doubleMM_with_global, 
-    #     g, ϕg, train_loader)
     HybridProblem(θP, θM, g_chain, f_doubleMM_with_global, py,
-        transM, transP, n_covar, n_batch, train_loader, cov_starts)
+        transM, transP, train_loader, cov_starts)
 end
 prob = construct_problem();
 scenario = (:default,)
 
-#(; n_covar, n_batch, n_θM, n_θP) = get_hybridcase_sizes(prob; scenario)
-
 @testset "loss_gf" begin
     #----------- fit g and θP to y_o
+    rng = StableRNG(111)
     g, ϕg0 = get_hybridcase_MLapplicator(prob, MLengine; scenario)
-    train_loader = get_hybridcase_train_dataloader(prob; scenario)
+    train_loader = get_hybridcase_train_dataloader(rng, prob; scenario)
     (xM, xP, y_o, y_unc) = first(train_loader)
     f = get_hybridcase_PBmodel(prob; scenario)
     par_templates = get_hybridcase_par_templates(prob; scenario)
@@ -105,7 +102,7 @@ import Flux
 @testset "neg_elbo_transnorm_gf cpu" begin
     rng = StableRNG(111)
     g, ϕg0 = get_hybridcase_MLapplicator(prob, MLengine)
-    train_loader = get_hybridcase_train_dataloader(prob)
+    train_loader = get_hybridcase_train_dataloader(rng, prob)
     (xM, xP, y_o, y_unc) = first(train_loader)
     n_batch = size(y_o, 2)
     f = get_hybridcase_PBmodel(prob)

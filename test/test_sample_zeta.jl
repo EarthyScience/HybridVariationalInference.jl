@@ -19,15 +19,10 @@ const case = DoubleMM.DoubleMMCase()
 #const MLengine = Val(nameof(SimpleChains))
 scenario = (:default,)
 
-(; n_covar, n_batch, n_θM, n_θP) = get_hybridcase_sizes(case; scenario)
+n_θM, n_θP = length.(values(get_hybridcase_par_templates(case; scenario)))
 
 (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o
-) = gen_hybridcase_synthetic(case, rng; scenario)
-
-# n_site = 2
-# n_θP, n_θM = length(θ_true.θP), length(θ_true.θM)
-# σ_θM = θ_true.θM .* 0.1  # 10% around expected
-# θMs_true = θ_true.θM .+ randn(n_θM, n_site) .* σ_θM 
+) = gen_hybridcase_synthetic(rng, case; scenario)
 
 # set to 0.02 rather than zero for debugging non-zero correlations
 ρsP = zeros(sum(1:(n_θP-1))) .+ 0.02

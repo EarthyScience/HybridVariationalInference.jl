@@ -30,7 +30,7 @@ n_batch = 10
 n_θM, n_θP = values(map(length, get_hybridcase_par_templates(case; scenario)))
 
 (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
-) = gen_hybridcase_synthetic(case, rng; scenario);
+) = gen_hybridcase_synthetic(rng, case; scenario);
 
 py = neg_logden_indep_normal
 
