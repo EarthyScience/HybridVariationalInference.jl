@@ -16,25 +16,25 @@ using GPUArraysCore: GPUArraysCore
 #CUDA.device!(4)
 rng = StableRNG(111)
 
-const case = DoubleMM.DoubleMMCase()
+const prob = DoubleMM.DoubleMMCase()
 scenario = (:default,)
-FT = get_hybridcase_float_type(case; scenario)
+FT = get_hybridproblem_float_type(prob; scenario)
 
-#θsite_true = get_hybridcase_par_templates(case; scenario)
-g, ϕg0 = get_hybridcase_MLapplicator(case; scenario);
-f = get_hybridcase_PBmodel(case; scenario)
+#θsite_true = get_hybridproblem_par_templates(prob; scenario)
+g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario);
+f = get_hybridproblem_PBmodel(prob; scenario)
 
 n_covar = 5 
 n_batch = 10
-n_θM, n_θP = values(map(length, get_hybridcase_par_templates(case; scenario)))
+n_θM, n_θP = values(map(length, get_hybridproblem_par_templates(prob; scenario)))
 
 (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
-) = gen_hybridcase_synthetic(rng, case; scenario);
+) = gen_hybridcase_synthetic(rng, prob; scenario);
 
 py = neg_logden_indep_normal
 
 n_MC = 3
-(; transP, transM) = get_hybridcase_transforms(case; scenario)
+(; transP, transM) = get_hybridproblem_transforms(prob; scenario)
 # transP = elementwise(exp)
 # transM = Stacked(elementwise(identity), elementwise(exp))
 #transM = Stacked(elementwise(identity), elementwise(exp), elementwise(exp)) # test mismatch
@@ -60,7 +60,7 @@ using Flux
 
 if CUDA.functional()
     scenario_flux = (scenario..., :use_Flux)
-    g_flux, ϕg0_flux_cpu = get_hybridcase_MLapplicator(case; scenario = scenario_flux)
+    g_flux, ϕg0_flux_cpu = get_hybridproblem_MLapplicator(prob; scenario = scenario_flux)
 end
 
 if CUDA.functional()

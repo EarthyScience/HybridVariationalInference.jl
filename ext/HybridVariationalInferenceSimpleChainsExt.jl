@@ -20,11 +20,11 @@ end
 HVI.apply_model(app::SimpleChainsApplicator, x, ϕ) = app.m(x, ϕ)
 
 function HVI.construct_3layer_MLApplicator(
-    rng::AbstractRNG, case::HVI.AbstractHybridCase, ::Val{:SimpleChains};
+    rng::AbstractRNG, prob::HVI.AbstractHybridProblem, ::Val{:SimpleChains};
     scenario::NTuple = ())
-    n_covar = get_hybridcase_n_covar(case; scenario)
-    FloatType = get_hybridcase_float_type(case; scenario)
-    (;θM) = get_hybridcase_par_templates(case; scenario)
+    n_covar = get_hybridproblem_n_covar(prob; scenario)
+    FloatType = get_hybridproblem_float_type(prob; scenario)
+    (;θM) = get_hybridproblem_par_templates(prob; scenario)
     n_out = length(θM)
     is_using_dropout = :use_dropout ∈ scenario
     g_chain = if is_using_dropout

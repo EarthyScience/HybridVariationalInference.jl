@@ -16,24 +16,24 @@ using OptimizationOptimisers
 using Bijectors
 using UnicodePlots
 
-const case = DoubleMM.DoubleMMCase()
+const prob = DoubleMM.DoubleMMCase()
 scenario = (:default,)
 rng = StableRNG(111)
 
-par_templates = get_hybridcase_par_templates(case; scenario)
+par_templates = get_hybridproblem_par_templates(prob; scenario)
 
-#n_covar = get_hybridcase_n_covar(case; scenario)
-#, n_batch, n_θM, n_θP) = get_hybridcase_sizes(case; scenario)
+#n_covar = get_hybridproblem_n_covar(prob; scenario)
+#, n_batch, n_θM, n_θP) = get_hybridproblem_sizes(prob; scenario)
 
 (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
-) = gen_hybridcase_synthetic(rng, case; scenario);
+) = gen_hybridcase_synthetic(rng, prob; scenario);
 
 n_covar = size(xM,1)
 
 
 #----- fit g to θMs_true
-g, ϕg0 = get_hybridcase_MLapplicator(case; scenario);
-(; transP, transM) = get_hybridcase_transforms(case; scenario)
+g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario);
+(; transP, transM) = get_hybridproblem_transforms(prob; scenario)
 
 function loss_g(ϕg, x, g, transM)
     ζMs = g(x, ϕg) # predict the log of the parameters
@@ -52,8 +52,8 @@ res = Optimization.solve(optprob, Adam(0.02), callback = callback_loss(100), max
 l1, θMs_pred = loss_g(ϕg_opt1, xM, g, transM)
 scatterplot(vec(θMs_true), vec(θMs_pred))
 
-f = get_hybridcase_PBmodel(case; scenario)
-py = get_hybridcase_neg_logden_obs(case; scenario)
+f = get_hybridproblem_PBmodel(prob; scenario)
+py = get_hybridproblem_neg_logden_obs(prob; scenario)
 
 #----------- fit g and θP to y_o
 () -> begin
@@ -85,8 +85,8 @@ end
 
 #---------- HVI
 n_MC = 3
-(; transP, transM) = get_hybridcase_transforms(case; scenario)
-FT = get_hybridcase_float_type(case; scenario)
+(; transP, transM) = get_hybridproblem_transforms(prob; scenario)
+FT = get_hybridproblem_float_type(prob; scenario)
 
 (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
     θP_true, θMs_true[:, 1], ϕg_opt1, n_batch; transP, transM);
@@ -167,7 +167,7 @@ mean_σ_o_MC = 0.006042
 ϕ = CA.getdata(ϕ_ini) |> Flux.gpu;
 xM_gpu = xM |> Flux.gpu;
 scenario_flux = (scenario..., :use_Flux)
-g_flux, _ = get_hybridcase_MLapplicator(case; scenario = scenario_flux);
+g_flux, _ = get_hybridproblem_MLapplicator(prob; scenario = scenario_flux);
 
 # otpimize using LUX
 () -> begin
@@ -205,7 +205,7 @@ gr = Zygote.gradient(fcost,
 gr_c = CA.ComponentArray(gr[1] |> Flux.cpu, CA.getaxes(ϕ_ini)...)
 
 train_loader = MLUtils.DataLoader((xM_gpu, xP, y_o, y_unc), batchsize = n_batch)
-#train_loader = get_hybridcase_train_dataloader(case, rng; scenario = (scenario..., :use_Flux))
+#train_loader = get_hybridproblem_train_dataloader(prob, rng; scenario = (scenario..., :use_Flux))
 
 optf = Optimization.OptimizationFunction(
     (ϕ, data) -> begin

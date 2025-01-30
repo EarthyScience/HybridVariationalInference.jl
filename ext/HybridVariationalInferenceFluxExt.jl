@@ -36,13 +36,13 @@ end
 # end
 
 function HVI.construct_3layer_MLApplicator(
-        rng::AbstractRNG, case::HVI.AbstractHybridCase, ::Val{:Flux};
+        rng::AbstractRNG, prob::HVI.AbstractHybridProblem, ::Val{:Flux};
         scenario::NTuple = ())
-    (;θM) = get_hybridcase_par_templates(case; scenario)
+    (;θM) = get_hybridproblem_par_templates(prob; scenario)
     n_out = length(θM)
-    n_covar = get_hybridcase_n_covar(case; scenario)
-    #(; n_covar, n_θM) = get_hybridcase_sizes(case; scenario)
-    float_type = get_hybridcase_float_type(case; scenario)
+    n_covar = get_hybridproblem_n_covar(prob; scenario)
+    #(; n_covar, n_θM) = get_hybridproblem_sizes(prob; scenario)
+    float_type = get_hybridproblem_float_type(prob; scenario)
     is_using_dropout = :use_dropout ∈ scenario
     is_using_dropout && error("dropout scenario not supported with Flux yet.")
     g_chain = Flux.Chain(

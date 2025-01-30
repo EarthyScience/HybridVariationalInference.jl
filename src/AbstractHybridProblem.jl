@@ -2,40 +2,40 @@
 Type to dispatch constructing data and network structures
 for different cases of hybrid problem setups
 
-For a specific case, provide functions that specify details
-- `get_hybridcase_MLapplicator`
-- `get_hybridcase_PBmodel`
-- `get_hybridcase_neg_logden_obs`
-- `get_hybridcase_par_templates`
-- `get_hybridcase_transforms`
-- `get_hybridcase_train_dataloader` (default depends on `gen_hybridcase_synthetic`)
+For a specific prob, provide functions that specify details
+- `get_hybridproblem_MLapplicator`
+- `get_hybridproblem_PBmodel`
+- `get_hybridproblem_neg_logden_obs`
+- `get_hybridproblem_par_templates`
+- `get_hybridproblem_transforms`
+- `get_hybridproblem_train_dataloader` (default depends on `gen_hybridcase_synthetic`)
 optionally
 - `gen_hybridcase_synthetic`
-- `get_hybridcase_n_covar` (defaults to number of rows in xM in train_dataloader )
-- `get_hybridcase_float_type` (defaults to `eltype(θM)`)
-- `get_hybridcase_cor_starts` (defaults to include all correlations: `(P=(1,), M=(1,))`)
+- `get_hybridproblem_n_covar` (defaults to number of rows in xM in train_dataloader )
+- `get_hybridproblem_float_type` (defaults to `eltype(θM)`)
+- `get_hybridproblem_cor_starts` (defaults to include all correlations: `(P=(1,), M=(1,))`)
 """
-abstract type AbstractHybridCase end;
+abstract type AbstractHybridProblem end;
 
 
 """
-    get_hybridcase_MLapplicator([rng::AbstractRNG,] ::AbstractHybridCase; scenario=())
+    get_hybridproblem_MLapplicator([rng::AbstractRNG,] ::AbstractHybridProblem; scenario=())
 
-Construct the machine learning model fro given problem case and ML-Framework and 
+Construct the machine learning model fro given problem prob and ML-Framework and 
 scenario.
 
 returns a Tuple of
 - AbstractModelApplicator
 - initial parameter vector
 """
-function get_hybridcase_MLapplicator end    
+function get_hybridproblem_MLapplicator end    
 
-function get_hybridcase_MLapplicator(case::AbstractHybridCase; scenario=())
-    get_hybridcase_MLapplicator(Random.default_rng(), case; scenario)
+function get_hybridproblem_MLapplicator(prob::AbstractHybridProblem; scenario=())
+    get_hybridproblem_MLapplicator(Random.default_rng(), prob; scenario)
 end
 
 """
-    get_hybridcase_PBmodel(::AbstractHybridCase; scenario::NTuple=())
+    get_hybridproblem_PBmodel(::AbstractHybridProblem; scenario::NTuple=())
 
 Construct the process-based model function 
 `f(θP::AbstractVector, θMs::AbstractMatrix, x) -> (AbstractVector, AbstractMatrix)`
@@ -48,59 +48,59 @@ returns a tuple of predictions with components
 - first, those that are constant across sites
 - second, those that vary across sites, with a column for each site
 """
-function get_hybridcase_PBmodel end
+function get_hybridproblem_PBmodel end
 
 """
-    get_hybridcase_neg_logden_obs(::AbstractHybridCase; scenario)
+    get_hybridproblem_neg_logden_obs(::AbstractHybridProblem; scenario)
 
 Provide a `function(y_obs, ypred) -> Real` that computes the negative logdensity
 of the observations, given the predictions.
 """
-function get_hybridcase_neg_logden_obs end    
+function get_hybridproblem_neg_logden_obs end    
 
 
 """
-    get_hybridcase_par_templates(::AbstractHybridCase; scenario)
+    get_hybridproblem_par_templates(::AbstractHybridProblem; scenario)
 
 Provide tuple of templates of ComponentVectors `θP` and `θM`.
 """
-function get_hybridcase_par_templates end    
+function get_hybridproblem_par_templates end    
 
 
 """
-    get_hybridcase_transforms(::AbstractHybridCase; scenario)
+    get_hybridproblem_transforms(::AbstractHybridProblem; scenario)
 
 Return a NamedTupe of
 - `transP`: Bijectors.Transform for the global PBM parameters, θP
 - `transM`: Bijectors.Transform for the single-site PBM parameters, θM
 """
-function get_hybridcase_transforms end
+function get_hybridproblem_transforms end
 
 # """
-#     get_hybridcase_par_templates(::AbstractHybridCase; scenario)
+#     get_hybridproblem_par_templates(::AbstractHybridProblem; scenario)
 # Provide a NamedTuple of number of 
 # - n_covar: covariates xM
 # - n_site: all sites in the data
 # - n_batch: sites in one minibatch during fitting
 # - n_θM, n_θP: entries in parameter vectors
 # """
-# function get_hybridcase_sizes end
+# function get_hybridproblem_sizes end
 
 """
-    get_hybridcase_n_covar(::AbstractHybridCase; scenario)
+    get_hybridproblem_n_covar(::AbstractHybridProblem; scenario)
 
 Provide the number of covariates. Default returns the number of rows in `xM` from
-`get_hybridcase_train_dataloader`.
+`get_hybridproblem_train_dataloader`.
 """
-function get_hybridcase_n_covar(case::AbstractHybridCase; scenario)
-    train_loader = get_hybridcase_train_dataloader(Random.default_rng(), case; scenario)
+function get_hybridproblem_n_covar(prob::AbstractHybridProblem; scenario)
+    train_loader = get_hybridproblem_train_dataloader(Random.default_rng(), prob; scenario)
     (xM, xP, y_o, y_unc) = first(train_loader)
     n_covar = size(xM, 1)
     return(n_covar)
 end
 
 """
-    gen_hybridcase_synthetic([rng,] ::AbstractHybridCase; scenario)
+    gen_hybridcase_synthetic([rng,] ::AbstractHybridProblem; scenario)
 
 Setup synthetic data, a NamedTuple of
 - xM: matrix of covariates, with one column per site
@@ -114,16 +114,16 @@ Setup synthetic data, a NamedTuple of
 function gen_hybridcase_synthetic end
 
 """
-    get_hybridcase_float_type(::AbstractHybridCase; scenario)
+    get_hybridproblem_float_type(::AbstractHybridProblem; scenario)
 
 Determine the FloatType for given Case and scenario, defaults to Float32
 """
-function get_hybridcase_float_type(case::AbstractHybridCase; scenario=())
-    return eltype(get_hybridcase_par_templates(case; scenario).θM)
+function get_hybridproblem_float_type(prob::AbstractHybridProblem; scenario=())
+    return eltype(get_hybridproblem_par_templates(prob; scenario).θM)
 end
 
 """
-    get_hybridcase_train_dataloader([rng,] ::AbstractHybridCase; scenario)
+    get_hybridproblem_train_dataloader([rng,] ::AbstractHybridProblem; scenario)
 
 Return a DataLoader that provides a tuple of
 - `xM`: matrix of covariates, with one column per site
@@ -131,23 +131,23 @@ Return a DataLoader that provides a tuple of
 - `y_o`: matrix of observations with added noise, with one column per site
 - `y_unc`: matrix `sizeof(y_o)` of uncertainty information 
 """
-function get_hybridcase_train_dataloader(rng::AbstractRNG, case::AbstractHybridCase; 
+function get_hybridproblem_train_dataloader(rng::AbstractRNG, prob::AbstractHybridProblem; 
     scenario = ())
-    (; xM, xP, y_o, y_unc) = gen_hybridcase_synthetic(rng, case; scenario)
+    (; xM, xP, y_o, y_unc) = gen_hybridcase_synthetic(rng, prob; scenario)
     n_batch = 10
     xM_gpu = :use_Flux ∈ scenario ? CuArray(xM) : xM
     train_loader = MLUtils.DataLoader((xM_gpu, xP, y_o, y_unc), batchsize = n_batch)
     return(train_loader)
 end
 
-function get_hybridcase_train_dataloader(case::AbstractHybridCase; scenario = ())
+function get_hybridproblem_train_dataloader(prob::AbstractHybridProblem; scenario = ())
     rng::AbstractRNG = Random.default_rng()
-    get_hybridcase_train_dataloader(rng, case; scenario)
+    get_hybridproblem_train_dataloader(rng, prob; scenario)
 end
 
 
 """
-    get_hybridcase_cor_starts(case::AbstractHybridCase; scenario)
+    get_hybridproblem_cor_starts(prob::AbstractHybridProblem; scenario)
 
 Specify blocks in correlation matrices among parameters.
 Returns a NamedTuple.
@@ -163,7 +163,7 @@ then the first subrange starts at position 1 and the second subrange starts at p
 If there is only single block of all ML-predicted parameters being correlated 
 with each other then this block starts at position 1: `(P=(1,3), M=(1,))`.
 """
-function get_hybridcase_cor_starts(case::AbstractHybridCase; scenario = ())
+function get_hybridproblem_cor_starts(prob::AbstractHybridProblem; scenario = ())
     (P=(1,), M=(1,))
 end
 

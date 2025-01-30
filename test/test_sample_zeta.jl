@@ -15,13 +15,13 @@ using Bijectors
 #CUDA.device!(4)
 rng = StableRNG(111)
 
-const case = DoubleMM.DoubleMMCase()
+const prob = DoubleMM.DoubleMMCase()
 scenario = (:default,)
 
-n_θM, n_θP = length.(values(get_hybridcase_par_templates(case; scenario)))
+n_θM, n_θP = length.(values(get_hybridproblem_par_templates(prob; scenario)))
 
 (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o
-) = gen_hybridcase_synthetic(rng, case; scenario)
+) = gen_hybridcase_synthetic(rng, prob; scenario)
 
 # set to 0.02 rather than zero for debugging non-zero correlations
 ρsP = zeros(sum(1:(n_θP-1))) .+ 0.02
