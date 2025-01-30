@@ -35,9 +35,9 @@ end;
         Dense(n_covar * 4 => n_covar * 4, tanh),
         Dense(n_covar * 4 => n_out, identity, bias=false),
     )
-    g, ϕg = construct_FluxApplicator(g_chain |> f64)
+    g, ϕg = construct_ChainsApplicator(g_chain |> f64, Float64)
     @test eltype(ϕg) == Float64
-    g, ϕg = construct_FluxApplicator(g_chain)
+    g, ϕg = construct_ChainsApplicator(g_chain, Float32)
     @test eltype(ϕg) == Float32
     n_site = 3
     x = rand(Float32, n_covar, n_site)

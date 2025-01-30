@@ -16,15 +16,18 @@ using MLUtils  # dataloader
 export ComponentArrayInterpreter, flatten1, get_concrete
 include("ComponentArrayInterpreter.jl")
 
-export AbstractModelApplicator, construct_SimpleChainsApplicator, construct_FluxApplicator,
-       construct_LuxApplicator
+export AbstractModelApplicator, construct_ChainsApplicator
+export construct_3layer_MLApplicator, select_ml_engine
 include("ModelApplicator.jl")
 
 export AbstractGPUDataHandler, NullGPUDataHandler, get_default_GPUHandler
 include("GPUDataHandler.jl")
 
-export AbstractHybridCase, get_hybridcase_MLapplicator, get_hybridcase_PBmodel, get_hybridcase_sizes, get_hybridcase_FloatType, gen_hybridcase_synthetic,
+export AbstractHybridCase, get_hybridcase_MLapplicator, get_hybridcase_PBmodel, 
+        get_hybridcase_float_type, gen_hybridcase_synthetic,
        get_hybridcase_par_templates, get_hybridcase_transforms, get_hybridcase_train_dataloader,
+       get_hybridcase_neg_logden_obs, 
+       get_hybridcase_n_covar, 
        gen_cov_pred
 include("hybrid_case.jl")
 
@@ -43,7 +46,7 @@ include("util_opt.jl")
 export neg_logden_indep_normal, entropy_MvNormal
 include("logden_normal.jl")
 
-#export - all internal
+export get_ca_starts
 include("cholesky.jl")
 
 export neg_elbo_transnorm_gf, predict_gf

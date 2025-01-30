@@ -7,7 +7,7 @@ using Statistics
 using ComponentArrays: ComponentArrays as CA
 
 using SimpleChains
-import Flux # to allow for FluxMLEngine and cpu()
+import Flux 
 using MLUtils
 import Zygote
 
@@ -17,41 +17,43 @@ using Bijectors
 using UnicodePlots
 
 const case = DoubleMM.DoubleMMCase()
-const MLengine = Val(nameof(SimpleChains))
-const FluxMLengine = Val(nameof(Flux))
 scenario = (:default,)
 rng = StableRNG(111)
 
 par_templates = get_hybridcase_par_templates(case; scenario)
 
-(; n_covar, n_batch, n_θM, n_θP) = get_hybridcase_sizes(case; scenario)
+#n_covar = get_hybridcase_n_covar(case; scenario)
+#, n_batch, n_θM, n_θP) = get_hybridcase_sizes(case; scenario)
 
-(; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, σ_o
-) = gen_hybridcase_synthetic(case, rng; scenario);
+(; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
+) = gen_hybridcase_synthetic(rng, case; scenario);
+
+n_covar = size(xM,1)
+
 
 #----- fit g to θMs_true
-g, ϕg0 = get_hybridcase_MLapplicator(case, MLengine; scenario);
+g, ϕg0 = get_hybridcase_MLapplicator(case; scenario);
+(; transP, transM) = get_hybridcase_transforms(case; scenario)
 
-function loss_g(ϕg, x, g)
+function loss_g(ϕg, x, g, transM)
     ζMs = g(x, ϕg) # predict the log of the parameters
-    θMs = exp.(ζMs)
+    θMs = reduce(hcat, map(transM, eachcol(ζMs))) # transform each column
     loss = sum(abs2, θMs .- θMs_true)
     return loss, θMs
 end
-loss_g(ϕg0, xM, g)
-Zygote.gradient(x -> loss_g(x, xM, g)[1], ϕg0);
+loss_g(ϕg0, xM, g, transM)
 
-optf = Optimization.OptimizationFunction((ϕg, p) -> loss_g(ϕg, xM, g)[1],
+optf = Optimization.OptimizationFunction((ϕg, p) -> loss_g(ϕg, xM, g, transM)[1],
     Optimization.AutoZygote())
 optprob = Optimization.OptimizationProblem(optf, ϕg0);
 res = Optimization.solve(optprob, Adam(0.02), callback = callback_loss(100), maxiters = 800);
 
 ϕg_opt1 = res.u;
-loss_g(ϕg_opt1, xM, g)
-scatterplot(vec(θMs_true), vec(loss_g(ϕg_opt1, xM, g)[2]))
-@test cor(vec(θMs_true), vec(loss_g(ϕg_opt1, xM, g)[2])) > 0.9
+l1, θMs_pred = loss_g(ϕg_opt1, xM, g, transM)
+scatterplot(vec(θMs_true), vec(θMs_pred))
 
 f = get_hybridcase_PBmodel(case; scenario)
+py = get_hybridcase_neg_logden_obs(case; scenario)
 
 #----------- fit g and θP to y_o
 () -> begin
@@ -62,7 +64,7 @@ f = get_hybridcase_PBmodel(case; scenario)
     p = p0 = vcat(ϕg0, par_templates.θP .* 0.9)  # slightly disturb θP_true
 
     # Pass the site-data for the batches as separate vectors wrapped in a tuple
-    train_loader = MLUtils.DataLoader((xM, xP, y_o), batchsize = n_batch)
+    train_loader = MLUtils.DataLoader((xM, xP, y_o, y_unc), batchsize = n_batch)
 
     loss_gf = get_loss_gf(g, f, y_global_o, int_ϕθP)
     l1 = loss_gf(p0, train_loader.data...)[1]
@@ -82,14 +84,15 @@ f = get_hybridcase_PBmodel(case; scenario)
 end
 
 #---------- HVI
-logσ2y = 2 .* log.(σ_o)
 n_MC = 3
-transP = elementwise(exp)
-transM = Stacked(elementwise(identity), elementwise(exp))
+(; transP, transM) = get_hybridcase_transforms(case; scenario)
+FT = get_hybridcase_float_type(case; scenario)
 
 (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
-    θP_true, θMs_true[:, 1], ϕg_opt1, n_batch; transP = asℝ₊, transM = asℝ₊);
+    θP_true, θMs_true[:, 1], ϕg_opt1, n_batch; transP, transM);
 ϕ_true = ϕ
+
+
 
 () -> begin
     coef_logσ2_logMs = [-5.769 -3.501; -0.01791 0.007951]
@@ -149,49 +152,22 @@ transM = Stacked(elementwise(identity), elementwise(exp))
     ϕ_true = inverse_ca(trans_gu, ϕt_true)
 end
 
-ϕ_ini0 = ζ = vcat(ϕ_true[:μP] .* 0.0, ϕg0, ϕ_true[[:unc]]); # scratch
+ϕ_ini0 = ζ = reduce(
+    vcat, (
+        ϕ_true[[:μP]] .* FT(0.001), CA.ComponentVector(ϕg = ϕg0), ϕ_true[[:unc]])) # scratch
 #
-# true values
-ϕ_ini = ζ = vcat(ϕ_true[[:μP, :ϕg]] .* 1.2, ϕ_true[[:unc]]); # slight disturbance
+ϕ_ini = ζ = reduce(
+    vcat, (
+        ϕ_true[[:μP]] .- FT(0.1), ϕ_true[[:ϕg]] .* FT(1.1), ϕ_true[[:unc]])) # slight disturbance
 # hardcoded from HMC inversion
 ϕ_ini.unc.coef_logσ2_logMs = [-5.769 -3.501; -0.01791 0.007951]
 ϕ_ini.unc.logσ2_logP = CA.ComponentVector(r0 = -8.997, K2 = -5.893)
 mean_σ_o_MC = 0.006042
 
-# test cost function and gradient
-() -> begin
-    neg_elbo_transnorm_gf(rng, g, f, ϕ_true, y_o[:, 1:n_batch], xM[:, 1:n_batch],
-        transPMs_batch, map(get_concrete, interpreters);
-        n_MC = 8, logσ2y)
-    Zygote.gradient(
-        ϕ -> neg_elbo_transnorm_gf(
-            rng, g, f, ϕ, y_o[:, 1:n_batch], xM[:, 1:n_batch],
-            transPMs_batch, interpreters; n_MC = 8, logσ2y),
-        CA.getdata(ϕ_true))
-end
-
-# optimize using SimpleChains
-() -> begin
-    train_loader = MLUtils.DataLoader((xM, y_o), batchsize = n_batch)
-
-    optf = Optimization.OptimizationFunction(
-        (ϕ, data) -> begin
-            xM, y_o = data
-            neg_elbo_transnorm_gf(
-                rng, g, f, ϕ, y_o, xM, transPMs_batch,
-                map(get_concrete, interpreters_g); n_MC = 5, logσ2y)
-        end,
-        Optimization.AutoZygote())
-    optprob = Optimization.OptimizationProblem(optf, CA.getdata(ϕ_ini), train_loader)
-    res = Optimization.solve(
-        optprob, Optimisers.Adam(0.02), callback = callback_loss(50), maxiters = 800)
-    #optprob = Optimization.OptimizationProblem(optf, ϕ_ini0);
-    #res = Optimization.solve(optprob, Adam(0.02), callback=callback_loss(50), maxiters=1_400);
-end
-
-ϕ = ϕ_ini |> Flux.gpu;
+ϕ = CA.getdata(ϕ_ini) |> Flux.gpu;
 xM_gpu = xM |> Flux.gpu;
-g_flux, ϕg0_flux_cpu = get_hybridcase_MLapplicator(case, FluxMLengine; scenario);
+scenario_flux = (scenario..., :use_Flux)
+g_flux, _ = get_hybridcase_MLapplicator(case; scenario = scenario_flux);
 
 # otpimize using LUX
 () -> begin
@@ -216,27 +192,25 @@ g_flux, ϕg0_flux_cpu = get_hybridcase_MLapplicator(case, FluxMLengine; scenario
     g_flux = g_luxs
 end
 
-function fcost(ϕ, xM, y_o)
-    neg_elbo_transnorm_gf(rng, g_flux, f, CA.getdata(ϕ), y_o,
-        xM, transPMs_batch, map(get_concrete, interpreters);
-        n_MC = 8, logσ2y = logσ2y)
+function fcost(ϕ, xM, y_o, y_unc)
+    neg_elbo_transnorm_gf(rng, CA.getdata(ϕ), g_flux, transPMs_batch, f, py,
+        xM, xP, y_o, y_unc, map(get_concrete, interpreters);
+        n_MC = 8)
 end
-fcost(ϕ, xM_gpu[:, 1:n_batch], y_o[:, 1:n_batch])
+fcost(ϕ, xM_gpu[:, 1:n_batch], y_o[:, 1:n_batch], y_unc[:, 1:n_batch])
 #Zygote.gradient(fcost, ϕ) |> cpu;
 gr = Zygote.gradient(fcost,
-    CA.getdata(ϕ), CA.getdata(xM_gpu[:, 1:n_batch]), CA.getdata(y_o[:, 1:n_batch]));
-gr_c = CA.ComponentArray(gr[1] |> Flux.cpu, CA.getaxes(ϕ)...)
+    CA.getdata(ϕ), CA.getdata(xM_gpu[:, 1:n_batch]),
+    CA.getdata(y_o[:, 1:n_batch]), CA.getdata(y_unc[:, 1:n_batch]));
+gr_c = CA.ComponentArray(gr[1] |> Flux.cpu, CA.getaxes(ϕ_ini)...)
 
-train_loader = MLUtils.DataLoader((xM_gpu, xP, y_o), batchsize = n_batch)
-train_loader = get_hybridcase_train_dataloader(case, rng; scenario = (scenario..., :use_flux))
+train_loader = MLUtils.DataLoader((xM_gpu, xP, y_o, y_unc), batchsize = n_batch)
+#train_loader = get_hybridcase_train_dataloader(case, rng; scenario = (scenario..., :use_Flux))
 
 optf = Optimization.OptimizationFunction(
     (ϕ, data) -> begin
-        xM, y_o = data
-        fcost(ϕ, xM, y_o)
-        # neg_elbo_transnorm_gf(
-        #     rng, g_flux, f, ϕ, y_o, xM, transPMs_batch,
-        #     map(get_concrete, interpreters); n_MC = 5, logσ2y)
+        xM, xP, y_o, y_unc = data
+        fcost(ϕ, xM, y_o, y_unc)
     end,
     Optimization.AutoZygote())
 optprob = Optimization.OptimizationProblem(
@@ -256,7 +230,7 @@ end
 ζMs_VI = g_flux(xM_gpu, ζ_VIc.ϕg |> Flux.gpu) |> Flux.cpu
 ϕunc_VI = interpreters.unc(ζ_VIc.unc)
 
-hcat(θP_true, exp.(ζ_VIc.μP))
+hcat(log.(θP_true), ϕ_ini.μP, ζ_VIc.μP)
 plt = scatterplot(vec(θMs_true), vec(exp.(ζMs_VI)))
 #lineplot!(plt, 0.0, 1.1, identity)
 # 
@@ -266,11 +240,12 @@ hcat(ϕ_ini.unc, ϕunc_VI) # need to compare to MC sample
 # test predicting correct obs-uncertainty of predictive posterior
 n_sample_pred = 200
 
-y_pred = predict_gf(rng, g_flux, f, res.u, xM_gpu, interpreters;
+y_pred = predict_gf(rng, g_flux, f, res.u, xM_gpu, xP, interpreters;
     get_transPMs, get_ca_int_PMs, n_sample_pred);
 size(y_pred) # n_obs x n_site, n_sample_pred
 
 σ_o_post = dropdims(std(y_pred; dims = 3), dims = 3);
+σ_o = exp.(y_unc[:,1] / 2)
 
 #describe(σ_o_post)
 hcat(σ_o, fill(mean_σ_o_MC, length(σ_o)),
@@ -282,7 +257,7 @@ histogram(vec(mean_y_pred - y_true)) # predictions centered around y_o (or y_tru
 
 # look at θP, θM1 of first site
 intm_PMs_gen = get_ca_int_PMs(n_site)
-ζs, _σ = HVI.generate_ζ(rng, g_flux, f, res.u, xM_gpu,
+ζs, _σ = HVI.generate_ζ(rng, g_flux, res.u, xM_gpu,
     (; interpreters..., PMs = intm_PMs_gen); n_MC = n_sample_pred);
 ζs = ζs |> Flux.cpu;
 θPM = vcat(θP_true, θMs_true[:, 1])

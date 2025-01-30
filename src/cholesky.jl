@@ -252,6 +252,55 @@ function transformU_cholesky1(v::GPUArraysCore.AbstractGPUVector; n=invsumn(leng
     return U
 end
 
+# function transformU_block_cholesky1(v::CA.ComponentVector; 
+#     ns=(invsumn(length(v[k])) + 1 for k in keys(v)) # may pass for efficiency
+#     )
+#     blocks = [transformU_cholesky1(v[k]; n) for (k, n) in zip(keys(v), ns)]
+#     U = _create_blockdiag(v[first(keys(v))], blocks) # v only for dispatch: plain matrix for gpu
+# end
+
+
+"""
+    get_ca_starts(vc::ComponentVector)
+
+Return a tuple with starting positions of components in vc. 
+Useful for providing information on correlactions among subranges in a vector.
+"""
+function get_ca_starts(vc::CA.ComponentVector)
+    (1,  (1 .+ cumsum((length(vc[k]) for k in front(keys(vc)))))...) 
+end
+"omit the last n elements of an iterator"
+front(itr, n=1) = Iterators.take(itr, length(itr)-n)
+
+"""
+    transformU_block_cholesky1(v::AbstractVector, cor_starts = (1,))
+
+Transform a parameterization v of a blockdiagonal of upper triangular matrices
+into the this matrix.
+`cor_starts` is a NTuple of Integeres specifying the first column of each block. 
+E.g. For a matrix with a 3x3, a 2x2, and another block, 
+the blocks start at columns (1,4,6). It defaults to a single entire block.
+"""
+function transformU_block_cholesky1(v::AbstractVector, cor_starts = (1,))
+    cor_starts_end = (cor_starts..., length(v)+1)
+    ranges = ChainRulesCore.@ignore_derivatives (
+        cor_starts_end[i]:(cor_starts_end[i+1]-1) for i in 1:length(cor_starts))
+    blocks = [transformU_cholesky1(v[r]) for r in ranges]
+    U = _create_blockdiag(v, blocks) # v only for dispatch: plain matrix for gpu
+    return(U)
+end
+
+function _create_blockdiag(::AbstractArray, blocks) 
+    BlockDiagonal(blocks)
+end
+
+function _create_blockdiag(::GPUArraysCore.AbstractGPUArray, blocks) 
+    # impose no special structure
+    cat(blocks...; dims=(1, 2))
+end
+
+
+
 () -> begin
     tmp = sqrt.(sum(abs2, U_scaled, dims=1))
     tmp2 = sum(abs2, U_scaled, dims=1) .^ (-1 / 2)

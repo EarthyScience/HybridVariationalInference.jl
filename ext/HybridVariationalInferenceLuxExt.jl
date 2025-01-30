@@ -10,8 +10,8 @@ struct LuxApplicator{MT, IT} <: AbstractModelApplicator
     int_ϕ::IT
 end
 
-function HVI.construct_LuxApplicator(m::Chain, float_type=Float32; device = gpu_device()) 
-    ps, st = Lux.setup(Random.default_rng(), m)
+function HVI.construct_ChainsApplicator(rng::AbstractRNG, m::Chain, float_type=Float32; device = gpu_device()) 
+    ps, st = Lux.setup(rng, m)
     ps_ca = float_type.(CA.ComponentArray(ps)) 
     st = st |> device
     stateful_layer = StatefulLuxLayer{true}(m, nothing, st)
@@ -25,11 +25,12 @@ function HVI.apply_model(app::LuxApplicator, x, ϕ)
     app.stateful_layer(x, ϕc)
 end
 
-function HVI.HybridProblem(θP::CA.ComponentVector, θM::CA.ComponentVector, g_chain::Chain, 
-    args...; device = gpu_device(), kwargs...)
-    # constructor with SimpleChain
-    g, ϕg = construct_LuxApplicator(g_chain, eltype(θM); device)
-    HybridProblem(θP, θM, g, ϕg, args...; kwargs...)
-end
+# function HVI.HybridProblem(rng::AbstractRNG, 
+#     θP::CA.ComponentVector, θM::CA.ComponentVector, g_chain::Chain, 
+#     args...; device = gpu_device(), kwargs...)
+#     # constructor with SimpleChain
+#     g, ϕg = construct_ChainsApplicator(rng, g_chain, eltype(θM); device)
+#     HybridProblem(θP, θM, g, ϕg, args...; kwargs...)
+# end
 
 end # module

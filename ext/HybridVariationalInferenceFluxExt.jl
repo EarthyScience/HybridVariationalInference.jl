@@ -3,12 +3,14 @@ module HybridVariationalInferenceFluxExt
 using HybridVariationalInference, Flux
 using HybridVariationalInference: HybridVariationalInference as HVI
 using ComponentArrays: ComponentArrays as CA
+using Random
 
 struct FluxApplicator{RT} <: AbstractModelApplicator
     rebuild::RT
 end
 
-function HVI.construct_FluxApplicator(m::Chain)
+function HVI.construct_ChainsApplicator(rng::AbstractRNG, m::Chain, float_type::DataType)
+    # TODO: care fore rng and float_type
     ϕ, rebuild = destructure(m)
     FluxApplicator(rebuild), ϕ
 end
@@ -26,18 +28,21 @@ function __init__()
     HVI.set_default_GPUHandler(FluxGPUDataHandler())
 end
 
-function HVI.HybridProblem(θP::CA.ComponentVector, θM::CA.ComponentVector, g_chain::Flux.Chain, 
-    args...; kwargs...)
-    # constructor with Flux.Chain
-    g, ϕg = construct_FluxApplicator(g_chain)
-    HybridProblem(θP, θM, g, ϕg, args...; kwargs...)
-end
+# function HVI.HybridProblem(θP::CA.ComponentVector, θM::CA.ComponentVector, g_chain::Flux.Chain, 
+#     args...; kwargs...)
+#     # constructor with Flux.Chain
+#     g, ϕg = construct_FluxApplicator(g_chain)
+#     HybridProblem(θP, θM, g, ϕg, args...; kwargs...)
+# end
 
-function HVI.get_hybridcase_MLapplicator(case::HVI.DoubleMM.DoubleMMCase, ::Val{:Flux};
+function HVI.construct_3layer_MLApplicator(
+        rng::AbstractRNG, case::HVI.AbstractHybridCase, ::Val{:Flux};
         scenario::NTuple = ())
-    (; n_covar, n_θM) = get_hybridcase_sizes(case; scenario)
-    FloatType = get_hybridcase_FloatType(case; scenario)
-    n_out = n_θM
+    (;θM) = get_hybridcase_par_templates(case; scenario)
+    n_out = length(θM)
+    n_covar = get_hybridcase_n_covar(case; scenario)
+    #(; n_covar, n_θM) = get_hybridcase_sizes(case; scenario)
+    float_type = get_hybridcase_float_type(case; scenario)
     is_using_dropout = :use_dropout ∈ scenario
     is_using_dropout && error("dropout scenario not supported with Flux yet.")
     g_chain = Flux.Chain(
@@ -47,7 +52,7 @@ function HVI.get_hybridcase_MLapplicator(case::HVI.DoubleMM.DoubleMMCase, ::Val{
         # dense layer without bias that maps to n outputs and `identity` activation
         Flux.Dense(n_covar * 4 => n_out, identity, bias = false)
     )
-    construct_FluxApplicator(g_chain)
+    construct_ChainsApplicator(rng, g_chain, float_type)
 end
 
 
