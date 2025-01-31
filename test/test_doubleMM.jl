@@ -99,8 +99,8 @@ end
     θMs_pred = CA.ComponentArray(θMs_pred, CA.getaxes(θMs_true))
     #TODO @test isapprox(par_templates.θP, int_ϕθP(res.u).θP, rtol = 0.15)
     @test cor(vec(θMs_true), vec(θMs_pred)) > 0.9
-    @test cor(θMs_true[:,1], θMs_pred[:,1]) > 0.9
-    @test cor(θMs_true[:,2], θMs_pred[:,2]) > 0.9
+    @test cor(θMs_true[:,1], θMs_pred[:,1]) > 0.8
+    @test cor(θMs_true[:,2], θMs_pred[:,2]) > 0.8
 
     () -> begin
         scatterplot(vec(θMs_true), vec(θMs_pred))

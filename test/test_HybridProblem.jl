@@ -51,9 +51,13 @@ construct_problem = () -> begin
     (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
     ) = gen_hybridcase_synthetic(rng, DoubleMM.DoubleMMCase())
     py = neg_logden_indep_normal
-    train_loader = MLUtils.DataLoader((xM, xP, y_o, y_unc), batchsize=n_batch)
+    get_train_loader = let xM = xM, xP = xP, y_o = y_o, y_unc = y_unc
+        function inner_get_train_loader(rng; n_batch, kwargs...)
+            MLUtils.DataLoader((xM, xP, y_o, y_unc), batchsize=n_batch)
+        end
+    end
     HybridProblem(θP, θM, g_chain, f_doubleMM_with_global, py,
-        transM, transP, train_loader, cov_starts)
+        transM, transP, get_train_loader, cov_starts)
 end
 prob = construct_problem();
 scenario = (:default,)
@@ -62,11 +66,11 @@ scenario = (:default,)
     #----------- fit g and θP to y_o
     rng = StableRNG(111)
     g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
-    train_loader = get_hybridproblem_train_dataloader(rng, prob; scenario)
+    train_loader = get_hybridproblem_train_dataloader(rng, prob; n_batch = 10, scenario)
     (xM, xP, y_o, y_unc) = first(train_loader)
     f = get_hybridproblem_PBmodel(prob; scenario)
     par_templates = get_hybridproblem_par_templates(prob; scenario)
-    (;transM, transP) = get_hybridproblem_transforms(prob; scenario)
+    (; transM, transP) = get_hybridproblem_transforms(prob; scenario)
 
     int_ϕθP = ComponentArrayInterpreter(CA.ComponentVector(
         ϕg=1:length(ϕg0), θP=par_templates.θP))
@@ -100,7 +104,7 @@ import Flux
 @testset "neg_elbo_transnorm_gf cpu" begin
     rng = StableRNG(111)
     g, ϕg0 = get_hybridproblem_MLapplicator(prob)
-    train_loader = get_hybridproblem_train_dataloader(rng, prob)
+    train_loader = get_hybridproblem_train_dataloader(rng, prob; n_batch = 10)
     (xM, xP, y_o, y_unc) = first(train_loader)
     n_batch = size(y_o, 2)
     f = get_hybridproblem_PBmodel(prob)
@@ -114,14 +118,14 @@ import Flux
 
     py = get_hybridproblem_neg_logden_obs(prob)
 
-    cost = neg_elbo_transnorm_gf(rng, ϕ_ini, g, transPMs_batch, f, py, 
+    cost = neg_elbo_transnorm_gf(rng, ϕ_ini, g, transPMs_batch, f, py,
         xM, xP, y_o, y_unc, map(get_concrete, interpreters);
         n_MC=8)
     @test cost isa Float64
     gr = Zygote.gradient(
-        ϕ -> neg_elbo_transnorm_gf(rng, ϕ, g, transPMs_batch, f, py, 
-        xM, xP, y_o, y_unc, map(get_concrete, interpreters);
-        n_MC=8),
+        ϕ -> neg_elbo_transnorm_gf(rng, ϕ, g, transPMs_batch, f, py,
+            xM, xP, y_o, y_unc, map(get_concrete, interpreters);
+            n_MC=8),
         CA.getdata(ϕ_ini))
     @test gr[1] isa Vector
 
@@ -148,8 +152,8 @@ import Flux
             @test cost isa Float64
             gr = Zygote.gradient(
                 ϕ -> neg_elbo_transnorm_gf(rng, ϕ, g, transPMs_batch, f, py,
-                xMg, xP, y_o, y_unc, map(get_concrete, interpreters);
-                n_MC=8),
+                    xMg, xP, y_o, y_unc, map(get_concrete, interpreters);
+                    n_MC=8),
                 ϕ)
             @test gr[1] isa CuVector
             @test eltype(gr[1]) == get_hybridproblem_float_type(prob)

@@ -12,6 +12,9 @@ using Bijectors
 using Zygote  # Zygote.@ignore CUDA.randn
 using BlockDiagonals
 using MLUtils  # dataloader
+using CommonSolve
+#using OptimizationOptimisers # default alg=Adam(0.02)
+using Optimization
 
 export ComponentArrayInterpreter, flatten1, get_concrete
 include("ComponentArrayInterpreter.jl")
@@ -28,6 +31,7 @@ export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_
        get_hybridproblem_par_templates, get_hybridproblem_transforms, get_hybridproblem_train_dataloader,
        get_hybridproblem_neg_logden_obs, 
        get_hybridproblem_n_covar, 
+       update,
        gen_cov_pred
 include("AbstractHybridProblem.jl")
 
@@ -54,6 +58,10 @@ include("elbo.jl")
 
 export init_hybrid_params
 include("init_hybrid_params.jl")
+
+export AbstractHybridSolver, HybridPointSolver, HybridPosteriorSolver
+include("HybridSolver.jl")
+
 
 export DoubleMM
 include("DoubleMM/DoubleMM.jl")
