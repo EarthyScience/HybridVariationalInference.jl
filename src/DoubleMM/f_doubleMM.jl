@@ -22,6 +22,12 @@ function HVI.get_hybridproblem_par_templates(::DoubleMMCase; scenario::NTuple = 
     (; θP, θM)
 end
 
+function HVI.get_hybridproblem_MLapplicator(
+    rng::AbstractRNG, prob::HVI.DoubleMM.DoubleMMCase; scenario = ())
+    ml_engine = select_ml_engine(; scenario)
+    construct_3layer_MLApplicator(rng, prob, ml_engine; scenario)
+end
+
 function HVI.get_hybridproblem_transforms(::DoubleMMCase; scenario::NTuple = ())
     (; transP, transM)
 end
@@ -91,11 +97,6 @@ function HVI.gen_hybridcase_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     )
 end
 
-function HVI.get_hybridproblem_MLapplicator(
-    rng::AbstractRNG, prob::HVI.DoubleMM.DoubleMMCase; scenario = ())
-    ml_engine = select_ml_engine(; scenario)
-    construct_3layer_MLApplicator(rng, prob, ml_engine; scenario)
-end
 
 
 

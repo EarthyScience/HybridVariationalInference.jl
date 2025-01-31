@@ -55,6 +55,11 @@ function HVI.construct_3layer_MLApplicator(
     construct_ChainsApplicator(rng, g_chain, float_type)
 end
 
+function HVI.cpu_ca(ca::CA.ComponentArray)
+    CA.ComponentArray(cpu(CA.getdata(ca)), CA.getaxes(ca))
+end
+
+
 
 
 end # module

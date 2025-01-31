@@ -81,7 +81,7 @@ scenario = (:default,)
     y_global_o = Float64[]
     loss_gf = get_loss_gf(g, transM, f, y_global_o, int_ϕθP)
     l1 = loss_gf(p0, first(train_loader)...)
-    gr = Zygote.gradient(p -> loss_gf(p, train_loader.data...)[1], p0)
+    gr = Zygote.gradient(p -> loss_gf(p, train_loader.data...)[1], CA.getdata(p0))
     @test gr[1] isa Vector
 
     () -> begin

@@ -11,19 +11,24 @@ using UnicodePlots
 using SimpleChains
 using Flux
 using MLUtils
+using CUDA
 
 rng = StableRNG(114)
 scenario = NTuple{0, Symbol}()
-#scenario = (:use_Flux,)
+scenario = (:use_Flux,)
 
 #------ setup synthetic data and training data loader
 (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
 ) = gen_hybridcase_synthetic(rng, DoubleMM.DoubleMMCase(); scenario);
+xM_cpu = xM
+if :use_Flux ∈ scenario
+    xM = CuArray(xM_cpu)
+end
 get_train_loader = (rng; n_batch, kwargs...) -> MLUtils.DataLoader((xM, xP, y_o, y_unc), batchsize = n_batch)
 σ_o = exp(first(y_unc)/2)
 
 # assign the train_loader, otherwise it eatch time creates another version of synthetic data
-prob0 = update(HybridProblem(DoubleMM.DoubleMMCase(); scenario); get_train_loader)
+prob0 = HVI.update(HybridProblem(DoubleMM.DoubleMMCase(); scenario); get_train_loader)
 
 #------- pointwise hybrid model fit
 #solver = HybridPointSolver(; alg = Adam(0.02), n_batch = 30)
@@ -31,28 +36,25 @@ solver = HybridPointSolver(; alg = Adam(0.01), n_batch = 10)
 #solver = HybridPointSolver(; alg = Adam(), n_batch = 200)
 (; ϕ, resopt) = solve(prob0, solver; scenario,
     rng, callback = callback_loss(100), maxiters = 1200);
-prob0o = update(prob0; ϕg=ϕ.ϕg, θP=ϕ.θP)
-y_pred_global, y_pred, θMs = gf(prob0o, xM, xP);
+# update the problem with optimized parameters
+prob0o = HVI.update(prob0; ϕg=cpu_ca(ϕ).ϕg, θP=cpu_ca(ϕ).θP)
+y_pred_global, y_pred, θMs = gf(prob0o, xM, xP; scenario);
 scatterplot(θMs_true[1,:], θMs[1,:])
 scatterplot(θMs_true[2,:], θMs[2,:])
 
 # do a few steps without minibatching, 
 #   by providing the data rather than the DataLoader
-# train_loader0 = get_hybridproblem_train_dataloader(rng, prob0; scenario, n_batch=1000)
-# get_train_loader_data = (args...; kwargs...) -> train_loader0.data
-# prob1 = update(prob0o; get_train_loader = get_train_loader_data)
-prob1 = prob0o
-
-#solver1 = HybridPointSolver(; alg = Adam(0.05), n_batch = n_site)
 solver1 = HybridPointSolver(; alg = Adam(0.01), n_batch = n_site)
-(; ϕ, resopt) = solve(prob1, solver1; scenario, rng, 
+(; ϕ, resopt) = solve(prob0o, solver1; scenario, rng, 
     callback = callback_loss(20), maxiters = 600);
-prob1o = update(prob1; ϕg=ϕ.ϕg, θP=ϕ.θP)
-y_pred_global, y_pred, θMs = gf(prob1o, xM, xP);
+prob1o = HVI.update(prob0o; ϕg=cpu_ca(ϕ).ϕg, θP=cpu_ca(ϕ).θP);
+y_pred_global, y_pred, θMs = gf(prob1o, xM, xP; scenario);
 scatterplot(θMs_true[1,:], θMs[1,:])
 scatterplot(θMs_true[2,:], θMs[2,:])
 prob1o.θP
 scatterplot(vec(y_true), vec(y_pred))
+
+# still overestimating θMs
 
 () -> begin # with more iterations?
     prob2 = prob1o
@@ -63,50 +65,55 @@ scatterplot(vec(y_true), vec(y_pred))
     prob2o.θP
 end
 
+
 #----------- fit g to true θMs 
-# and fit gf starting from true parameters
-prob = prob0
-g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario);
-(; transP, transM) = get_hybridproblem_transforms(prob; scenario)
+() -> begin
+    # and fit gf starting from true parameters
+    prob = prob0
+    g, ϕg0_cpu = get_hybridproblem_MLapplicator(prob; scenario);
+    ϕg0 = (:use_Flux ∈ scenario) ? CuArray(ϕg0_cpu) : ϕg0_cpu
+    (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
 
-function loss_g(ϕg, x, g, transM)
-    ζMs = g(x, ϕg) # predict the log of the parameters
-    θMs = reduce(hcat, map(transM, eachcol(ζMs))) # transform each column
-    loss = sum(abs2, θMs .- θMs_true)
-    return loss, θMs
-end
-loss_g(ϕg0, xM, g, transM)
+    function loss_g(ϕg, x, g, transM; gpu_handler = HVI.default_GPU_DataHandler)
+        ζMs = g(x, ϕg) # predict the log of the parameters
+        ζMs_cpu = gpu_handler(ζMs)
+        θMs = reduce(hcat, map(transM, eachcol(ζMs_cpu))) # transform each column
+        loss = sum(abs2, θMs .- θMs_true)
+        return loss, θMs
+    end
+    loss_g(ϕg0, xM, g, transM)
 
-optf = Optimization.OptimizationFunction((ϕg, p) -> loss_g(ϕg, xM, g, transM)[1],
-    Optimization.AutoZygote())
-optprob = Optimization.OptimizationProblem(optf, ϕg0);
-res = Optimization.solve(optprob, Adam(0.015), callback = callback_loss(100), maxiters = 2000);
+    optf = Optimization.OptimizationFunction((ϕg, p) -> loss_g(ϕg, xM, g, transM)[1],
+        Optimization.AutoZygote())
+    optprob = Optimization.OptimizationProblem(optf, ϕg0);
+    res = Optimization.solve(optprob, Adam(0.015), callback = callback_loss(100), maxiters = 2000);
 
-ϕg_opt1 = res.u;
-l1, θMs = loss_g(ϕg_opt1, xM, g, transM)
-#scatterplot(θMs_true[1,:], θMs[1,:])
-scatterplot(θMs_true[2,:], θMs[2,:]) # able to fit θMs[2,:]
+    ϕg_opt1 = res.u;
+    l1, θMs = loss_g(ϕg_opt1, xM, g, transM)
+    #scatterplot(θMs_true[1,:], θMs[1,:])
+    scatterplot(θMs_true[2,:], θMs[2,:]) # able to fit θMs[2,:]
 
-prob3 = update(prob0, ϕg = ϕg_opt1, θP = θP_true)
-solver1 = HybridPointSolver(; alg = Adam(0.01), n_batch = n_site)
-(; ϕ, resopt) = solve(prob3, solver1; scenario, rng, 
-    callback = callback_loss(50), maxiters = 600);
-prob3o = update(prob3; ϕg=ϕ.ϕg, θP=ϕ.θP)
-y_pred_global, y_pred, θMs = gf(prob3o, xM, xP);
-scatterplot(θMs_true[2,:], θMs[2,:])
-prob3o.θP
-scatterplot(vec(y_true), vec(y_pred))
-scatterplot(vec(y_true), vec(y_o))
-scatterplot(vec(y_pred), vec(y_o))
+    prob3 = HVI.update(prob0, ϕg = Array(ϕg_opt1), θP = θP_true)
+    solver1 = HybridPointSolver(; alg = Adam(0.01), n_batch = n_site)
+    (; ϕ, resopt) = solve(prob3, solver1; scenario, rng, 
+        callback = callback_loss(50), maxiters = 600);
+    prob3o = HVI.update(prob3; ϕg=cpu_ca(ϕ).ϕg, θP=cpu_ca(ϕ).θP)
+    y_pred_global, y_pred, θMs = gf(prob3o, xM, xP; scenario);
+    scatterplot(θMs_true[2,:], θMs[2,:])
+    prob3o.θP
+    scatterplot(vec(y_true), vec(y_pred))
+    scatterplot(vec(y_true), vec(y_o))
+    scatterplot(vec(y_pred), vec(y_o))
 
-() -> begin # optimized loss is indeed lower than with true parameters
-    int_ϕθP = ComponentArrayInterpreter(CA.ComponentVector(
-        ϕg = 1:length(prob0.ϕg), θP = prob0.θP))
-    loss_gf = get_loss_gf(prob0.g, prob0.transM, prob0.f, Float32[], int_ϕθP)
-    loss_gf(vcat(prob3.ϕg, prob3.θP), xM, xP, y_o, y_unc)[1]
-    loss_gf(vcat(prob3o.ϕg, prob3o.θP), xM, xP, y_o, y_unc)[1]
-    #
-    loss_gf(vcat(prob2o.ϕg, prob2o.θP), xM, xP, y_o, y_unc)[1]
+    () -> begin # optimized loss is indeed lower than with true parameters
+        int_ϕθP = ComponentArrayInterpreter(CA.ComponentVector(
+            ϕg = 1:length(prob0.ϕg), θP = prob0.θP))
+        loss_gf = get_loss_gf(prob0.g, prob0.transM, prob0.f, Float32[], int_ϕθP)
+        loss_gf(vcat(prob3.ϕg, prob3.θP), xM, xP, y_o, y_unc)[1]
+        loss_gf(vcat(prob3o.ϕg, prob3o.θP), xM, xP, y_o, y_unc)[1]
+        #
+        loss_gf(vcat(prob2o.ϕg, prob2o.θP), xM, xP, y_o, y_unc)[1]
+    end
 end
     
 #----------- Hybrid Variational inference 

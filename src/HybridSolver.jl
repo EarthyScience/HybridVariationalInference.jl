@@ -24,7 +24,8 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     f = get_hybridproblem_PBmodel(prob; scenario)
     y_global_o = FT[] # TODO
     loss_gf = get_loss_gf(g, transM, f, y_global_o, int_ϕθP)
-    #l1 = loss_gf(p0, train_loader...)[1]
+    # data1 = first(train_loader)
+    # l1 = loss_gf(p0, first(train_loader)...)[1]
     # Zygote.gradient(p0 -> loss_gf(p0, data1...)[1], p0)
     optf = Optimization.OptimizationFunction((ϕ, data) -> loss_gf(ϕ, data...)[1],
         Optimization.AutoZygote())

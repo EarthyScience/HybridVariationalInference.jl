@@ -31,7 +31,7 @@ export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_
        get_hybridproblem_par_templates, get_hybridproblem_transforms, get_hybridproblem_train_dataloader,
        get_hybridproblem_neg_logden_obs, 
        get_hybridproblem_n_covar, 
-       update,
+       #update,
        gen_cov_pred
 include("AbstractHybridProblem.jl")
 
@@ -46,6 +46,9 @@ include("gencovar.jl")
 
 export callback_loss
 include("util_opt.jl")
+
+export cpu_ca
+include("util_ca.jl")
 
 export neg_logden_indep_normal, entropy_MvNormal
 include("logden_normal.jl")
