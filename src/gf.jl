@@ -19,14 +19,22 @@ end
 """
 composition f ∘ transM ∘ g: mechanistic model after machine learning parameter prediction
 """
-function gf(g, transM, f, xM, xP, ϕg, θP)
+function gf(g, transM, f, xM, xP, ϕg, θP; gpu_handler = default_GPU_DataHandler)
     # @show first(xM,5)
     # @show first(ϕg,5)
     ζMs = g(xM, ϕg) # predict the log of the parameters
-    # @show first(ζMs,5)
-    θMs = reduce(hcat, map(transM, eachcol(ζMs))) # transform each column
+    ζMs_cpu = gpu_handler(ζMs)
+    θMs = reduce(hcat, map(transM, eachcol(ζMs_cpu))) # transform each column
     y_pred_global, y_pred = f(θP, θMs, xP)
     return y_pred_global, y_pred, θMs
+end
+
+function gf(prob::AbstractHybridProblem, xM, xP, args...; scenario = (), kwargs...)
+    g, ϕg = get_hybridproblem_MLapplicator(prob; scenario)
+    f = get_hybridproblem_PBmodel(prob; scenario)
+    (; θP, θM) = get_hybridproblem_par_templates(prob; scenario)
+    (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
+    gf(g, transM, f, xM, xP, ϕg, θP; kwargs...)
 end
 
 """
@@ -48,6 +56,7 @@ function get_loss_gf(g, transM, f, y_o_global, int_ϕθP::AbstractComponentArray
         end
     end
 end
+
 
 () -> begin
     loss_gf(p, xM, y_o)

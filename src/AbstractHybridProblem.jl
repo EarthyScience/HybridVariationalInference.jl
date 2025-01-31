@@ -123,7 +123,7 @@ function get_hybridproblem_float_type(prob::AbstractHybridProblem; scenario=())
 end
 
 """
-    get_hybridproblem_train_dataloader([rng,] ::AbstractHybridProblem; scenario)
+    get_hybridproblem_train_dataloader([rng,] ::AbstractHybridProblem; scenario, n_batch)
 
 Return a DataLoader that provides a tuple of
 - `xM`: matrix of covariates, with one column per site
@@ -132,9 +132,8 @@ Return a DataLoader that provides a tuple of
 - `y_unc`: matrix `sizeof(y_o)` of uncertainty information 
 """
 function get_hybridproblem_train_dataloader(rng::AbstractRNG, prob::AbstractHybridProblem; 
-    scenario = ())
+    scenario = (), n_batch = 10)
     (; xM, xP, y_o, y_unc) = gen_hybridcase_synthetic(rng, prob; scenario)
-    n_batch = 10
     xM_gpu = :use_Flux ∈ scenario ? CuArray(xM) : xM
     train_loader = MLUtils.DataLoader((xM_gpu, xP, y_o, y_unc), batchsize = n_batch)
     return(train_loader)
