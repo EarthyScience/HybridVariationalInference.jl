@@ -37,7 +37,7 @@ function init_hybrid_params(θP, θM, ϕg, n_batch;
         ρsP,
         ρsM)
     ϕ = CA.ComponentVector(;
-        μP = inverse(transP)(θP),
+        μP = apply_preserve_axes(inverse(transP),θP),
         ϕg = ϕg,
         unc = ϕunc0);
     #

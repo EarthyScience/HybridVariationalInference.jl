@@ -52,7 +52,7 @@ Create a loss function for parameter vector p, given
 - int_ϕθP: interpreter attachin axis with compponents ϕg and pc.θP
 """
 function get_loss_gf(g, transM, f, y_o_global, int_ϕθP::AbstractComponentArrayInterpreter)
-    let g = g, transM = transM, f = f, int_ϕθP = int_ϕθP
+    let g = g, transM = transM, f = f, int_ϕθP = int_ϕθP, y_o_global = y_o_global
         function loss_gf(p, xM, xP, y_o, y_unc)
             σ = exp.(y_unc ./ 2)
             pc = int_ϕθP(p)
