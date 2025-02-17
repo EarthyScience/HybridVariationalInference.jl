@@ -87,6 +87,8 @@ function generate_ζ(rng, g, ϕ::AbstractVector, xM::AbstractMatrix,
     μ_ζMs0 = g(xM, ϕg) # TODO provide μ_ζP to g
     ζ_resid, σ = sample_ζ_norm0(rng, μ_ζP, μ_ζMs0, ϕc.unc; n_MC, cor_starts)
     #ζ_resid, σ = sample_ζ_norm0(rng, ϕ[1:2], reshape(ϕ[2 .+ (1:20)],2,:), ϕ[(end-length(interpreters.unc)+1):end], interpreters.unc; n_MC)
+    # @show size(ζ_resid)
+    # @show length(interpreters.PMs)
     ζ = stack(map(eachcol(ζ_resid)) do r
         rc = interpreters.PMs(r)
         ζP = μ_ζP .+ rc.P

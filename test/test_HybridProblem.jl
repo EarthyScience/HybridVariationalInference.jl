@@ -14,11 +14,11 @@ using OptimizationOptimisers
 
 construct_problem = () -> begin
     FT = Float32
-    θP = CA.ComponentVector{FT}(r0=0.3, K2=2.0)
-    θM = CA.ComponentVector{FT}(r1=0.5, K1=0.2)
+    θP = CA.ComponentVector{FT}(r0 = 0.3, K2 = 2.0)
+    θM = CA.ComponentVector{FT}(r1 = 0.5, K1 = 0.2)
     transP = elementwise(exp)
     transM = Stacked(elementwise(identity), elementwise(exp))
-    cov_starts = (P=(1, 2), M=(1)) # assume r0 independent of K2
+    cov_starts = (P = (1, 2), M = (1)) # assume r0 independent of K2
     n_covar = 5
     n_batch = 10
     int_θdoubleMM = get_concrete(ComponentArrayInterpreter(
@@ -49,11 +49,15 @@ construct_problem = () -> begin
     rng = StableRNG(111)
     # dependency on DeoubleMMCase -> take care of changes in covariates
     (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
-    ) = gen_hybridcase_synthetic(rng, DoubleMM.DoubleMMCase())
+) = gen_hybridcase_synthetic(rng, DoubleMM.DoubleMMCase())
     py = neg_logden_indep_normal
-    train_loader = MLUtils.DataLoader((xM, xP, y_o, y_unc), batchsize=n_batch)
+    get_train_loader = let xM = xM, xP = xP, y_o = y_o, y_unc = y_unc
+        function inner_get_train_loader(rng; n_batch, kwargs...)
+            MLUtils.DataLoader((xM, xP, y_o, y_unc), batchsize = n_batch, partial = false)
+        end
+    end
     HybridProblem(θP, θM, g_chain, f_doubleMM_with_global, py,
-        transM, transP, train_loader, cov_starts)
+        transM, transP, get_train_loader, cov_starts)
 end
 prob = construct_problem();
 scenario = (:default,)
@@ -62,14 +66,14 @@ scenario = (:default,)
     #----------- fit g and θP to y_o
     rng = StableRNG(111)
     g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
-    train_loader = get_hybridproblem_train_dataloader(rng, prob; scenario)
+    train_loader = get_hybridproblem_train_dataloader(rng, prob; n_batch = 10, scenario)
     (xM, xP, y_o, y_unc) = first(train_loader)
     f = get_hybridproblem_PBmodel(prob; scenario)
     par_templates = get_hybridproblem_par_templates(prob; scenario)
-    (;transM, transP) = get_hybridproblem_transforms(prob; scenario)
+    (; transM, transP) = get_hybridproblem_transforms(prob; scenario)
 
     int_ϕθP = ComponentArrayInterpreter(CA.ComponentVector(
-        ϕg=1:length(ϕg0), θP=par_templates.θP))
+        ϕg = 1:length(ϕg0), θP = par_templates.θP))
     p = p0 = vcat(ϕg0, par_templates.θP .* 0.8)  # slightly disturb θP_true
 
     # Pass the site-data for the batches as separate vectors wrapped in a tuple
@@ -77,7 +81,7 @@ scenario = (:default,)
     y_global_o = Float64[]
     loss_gf = get_loss_gf(g, transM, f, y_global_o, int_ϕθP)
     l1 = loss_gf(p0, first(train_loader)...)
-    gr = Zygote.gradient(p -> loss_gf(p, train_loader.data...)[1], p0)
+    gr = Zygote.gradient(p -> loss_gf(p, train_loader.data...)[1], CA.getdata(p0))
     @test gr[1] isa Vector
 
     () -> begin
@@ -87,10 +91,10 @@ scenario = (:default,)
 
         res = Optimization.solve(
             #        optprob, Adam(0.02), callback = callback_loss(100), maxiters = 1000);
-            optprob, Adam(0.02), maxiters=1000)
+            optprob, Adam(0.02), maxiters = 1000)
 
         l1, y_pred_global, y_pred, θMs_pred = loss_gf(res.u, train_loader.data...)
-        @test isapprox(par_templates.θP, int_ϕθP(res.u).θP, rtol=0.11)
+        @test isapprox(par_templates.θP, int_ϕθP(res.u).θP, rtol = 0.11)
     end
 end
 
@@ -100,7 +104,7 @@ import Flux
 @testset "neg_elbo_transnorm_gf cpu" begin
     rng = StableRNG(111)
     g, ϕg0 = get_hybridproblem_MLapplicator(prob)
-    train_loader = get_hybridproblem_train_dataloader(rng, prob)
+    train_loader = get_hybridproblem_train_dataloader(rng, prob; n_batch = 10)
     (xM, xP, y_o, y_unc) = first(train_loader)
     n_batch = size(y_o, 2)
     f = get_hybridproblem_PBmodel(prob)
@@ -114,14 +118,14 @@ import Flux
 
     py = get_hybridproblem_neg_logden_obs(prob)
 
-    cost = neg_elbo_transnorm_gf(rng, ϕ_ini, g, transPMs_batch, f, py, 
+    cost = neg_elbo_transnorm_gf(rng, ϕ_ini, g, transPMs_batch, f, py,
         xM, xP, y_o, y_unc, map(get_concrete, interpreters);
-        n_MC=8)
+        n_MC = 8)
     @test cost isa Float64
     gr = Zygote.gradient(
-        ϕ -> neg_elbo_transnorm_gf(rng, ϕ, g, transPMs_batch, f, py, 
-        xM, xP, y_o, y_unc, map(get_concrete, interpreters);
-        n_MC=8),
+        ϕ -> neg_elbo_transnorm_gf(rng, ϕ, g, transPMs_batch, f, py,
+            xM, xP, y_o, y_unc, map(get_concrete, interpreters);
+            n_MC = 8),
         CA.getdata(ϕ_ini))
     @test gr[1] isa Vector
 
@@ -135,7 +139,7 @@ import Flux
                     Flux.Dense(n_covar => n_covar * 4, tanh),
                     Flux.Dense(n_covar * 4 => n_covar * 4, tanh),
                     # dense layer without bias that maps to n outputs and `identity` activation
-                    Flux.Dense(n_covar * 4 => n_out, identity, bias=false)
+                    Flux.Dense(n_covar * 4 => n_out, identity, bias = false)
                 )
                 construct_ChainsApplicator(g_chain, eltype(θM0))
             end
@@ -144,15 +148,40 @@ import Flux
             xMg = CuArray(xM)
             cost = neg_elbo_transnorm_gf(rng, ϕ, g, transPMs_batch, f, py,
                 xMg, xP, y_o, y_unc, map(get_concrete, interpreters);
-                n_MC=8)
+                n_MC = 8)
             @test cost isa Float64
             gr = Zygote.gradient(
                 ϕ -> neg_elbo_transnorm_gf(rng, ϕ, g, transPMs_batch, f, py,
-                xMg, xP, y_o, y_unc, map(get_concrete, interpreters);
-                n_MC=8),
+                    xMg, xP, y_o, y_unc, map(get_concrete, interpreters);
+                    n_MC = 8),
                 ϕ)
             @test gr[1] isa CuVector
             @test eltype(gr[1]) == get_hybridproblem_float_type(prob)
         end
     end
 end
+
+@testset "HybridPointSolver" begin
+    rng = StableRNG(111)
+    solver = HybridPointSolver(; alg = Adam(0.02), n_batch = 11)
+    (; ϕ, resopt) = solve(prob, solver; scenario, rng,
+        #callback = callback_loss(100), maxiters = 1200
+        #maxiters = 1200
+        #maxiters = 20
+        maxiters = 200
+    )
+    (;θP) = get_hybridproblem_par_templates(prob; scenario)
+    @test ϕ.θP.r0 < 1.5*θP.r0
+end;
+
+@testset "HybridPosteriorSolver" begin
+    rng = StableRNG(111)
+    solver = HybridPosteriorSolver(; alg = Adam(0.02), n_batch = 11, n_MC=3)
+    (; ϕ, θP, resopt) = solve(prob, solver; scenario, rng,
+        #callback = callback_loss(100), maxiters = 1200
+        #maxiters = 20 # yields error
+        maxiters = 200
+    )
+    θPt = get_hybridproblem_par_templates(prob; scenario).θP
+    @test θP.r0 < 1.5*θPt.r0
+end;

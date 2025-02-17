@@ -1,11 +1,11 @@
 struct DoubleMMCase <: AbstractHybridProblem end
 
 
-θP = CA.ComponentVector{Float32}(r0 = 0.3, K2 = 2.0)
-θM = CA.ComponentVector{Float32}(r1 = 0.5, K1 = 0.2)
+const θP = CA.ComponentVector{Float32}(r0 = 0.3, K2 = 2.0)
+const θM = CA.ComponentVector{Float32}(r1 = 0.5, K1 = 0.2)
 
-transP = elementwise(exp)
-transM = Stacked(elementwise(identity), elementwise(exp))
+const transP = elementwise(exp)
+const transM = Stacked(elementwise(identity), elementwise(exp))
 
 
 const int_θdoubleMM = ComponentArrayInterpreter(flatten1(CA.ComponentVector(; θP, θM)))
@@ -20,6 +20,12 @@ end
 
 function HVI.get_hybridproblem_par_templates(::DoubleMMCase; scenario::NTuple = ())
     (; θP, θM)
+end
+
+function HVI.get_hybridproblem_MLapplicator(
+    rng::AbstractRNG, prob::HVI.DoubleMM.DoubleMMCase; scenario = ())
+    ml_engine = select_ml_engine(; scenario)
+    construct_3layer_MLApplicator(rng, prob, ml_engine; scenario)
 end
 
 function HVI.get_hybridproblem_transforms(::DoubleMMCase; scenario::NTuple = ())
@@ -54,13 +60,13 @@ end
 #     return Float32
 # end
 
-const xP_S1 = Float32[1.0, 1.0, 1.0, 1.0, 0.4, 0.3, 0.1]
+const xP_S1 = Float32[0.5, 0.5, 0.5, 0.5, 0.4, 0.3, 0.1]
 const xP_S2 = Float32[1.0, 3.0, 4.0, 5.0, 5.0, 5.0, 5.0]
 
 function HVI.gen_hybridcase_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
         scenario = ())
     n_covar_pc = 2
-    n_site = 200
+    n_site = 800
     n_covar = 5
     n_θM = length(θM)
     FloatType = get_hybridproblem_float_type(prob; scenario)
@@ -91,11 +97,6 @@ function HVI.gen_hybridcase_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     )
 end
 
-function HVI.get_hybridproblem_MLapplicator(
-    rng::AbstractRNG, prob::HVI.DoubleMM.DoubleMMCase; scenario = ())
-    ml_engine = select_ml_engine(; scenario)
-    construct_3layer_MLApplicator(rng, prob, ml_engine; scenario)
-end
 
 
 

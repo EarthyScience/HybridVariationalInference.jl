@@ -1,6 +1,7 @@
 using Test
 using StatsFuns: logistic
 using CUDA, GPUArraysCore
+using ComponentArrays: ComponentArrays as CA
 
 using HybridVariationalInference
 # @testset "get_default_GPUHandler before loading Flux" begin
@@ -51,5 +52,12 @@ end;
     y = g(x, ϕ)
     #@test ϕ isa GPUArraysCore.AbstractGPUArray
     @test size(y) == (n_out, n_site)
+end;
+
+@testset "cpu_ca" begin
+    c1 = CA.ComponentVector(a=(a1=1,a2=2:3),b=3:4)
+    c1_gpu = gpu(c1)
+    #cpu(c1_gpu) # fails
+    @test cpu_ca(c1_gpu) == c1
 end;
 

@@ -17,7 +17,6 @@ optionally
 """
 abstract type AbstractHybridProblem end;
 
-
 """
     get_hybridproblem_MLapplicator([rng::AbstractRNG,] ::AbstractHybridProblem; scenario=())
 
@@ -28,9 +27,9 @@ returns a Tuple of
 - AbstractModelApplicator
 - initial parameter vector
 """
-function get_hybridproblem_MLapplicator end    
+function get_hybridproblem_MLapplicator end
 
-function get_hybridproblem_MLapplicator(prob::AbstractHybridProblem; scenario=())
+function get_hybridproblem_MLapplicator(prob::AbstractHybridProblem; scenario = ())
     get_hybridproblem_MLapplicator(Random.default_rng(), prob; scenario)
 end
 
@@ -56,16 +55,14 @@ function get_hybridproblem_PBmodel end
 Provide a `function(y_obs, ypred) -> Real` that computes the negative logdensity
 of the observations, given the predictions.
 """
-function get_hybridproblem_neg_logden_obs end    
-
+function get_hybridproblem_neg_logden_obs end
 
 """
     get_hybridproblem_par_templates(::AbstractHybridProblem; scenario)
 
 Provide tuple of templates of ComponentVectors `θP` and `θM`.
 """
-function get_hybridproblem_par_templates end    
-
+function get_hybridproblem_par_templates end
 
 """
     get_hybridproblem_transforms(::AbstractHybridProblem; scenario)
@@ -96,7 +93,7 @@ function get_hybridproblem_n_covar(prob::AbstractHybridProblem; scenario)
     train_loader = get_hybridproblem_train_dataloader(Random.default_rng(), prob; scenario)
     (xM, xP, y_o, y_unc) = first(train_loader)
     n_covar = size(xM, 1)
-    return(n_covar)
+    return (n_covar)
 end
 
 """
@@ -118,12 +115,12 @@ function gen_hybridcase_synthetic end
 
 Determine the FloatType for given Case and scenario, defaults to Float32
 """
-function get_hybridproblem_float_type(prob::AbstractHybridProblem; scenario=())
+function get_hybridproblem_float_type(prob::AbstractHybridProblem; scenario = ())
     return eltype(get_hybridproblem_par_templates(prob; scenario).θM)
 end
 
 """
-    get_hybridproblem_train_dataloader([rng,] ::AbstractHybridProblem; scenario)
+    get_hybridproblem_train_dataloader([rng,] ::AbstractHybridProblem; scenario, n_batch)
 
 Return a DataLoader that provides a tuple of
 - `xM`: matrix of covariates, with one column per site
@@ -131,20 +128,19 @@ Return a DataLoader that provides a tuple of
 - `y_o`: matrix of observations with added noise, with one column per site
 - `y_unc`: matrix `sizeof(y_o)` of uncertainty information 
 """
-function get_hybridproblem_train_dataloader(rng::AbstractRNG, prob::AbstractHybridProblem; 
-    scenario = ())
+function get_hybridproblem_train_dataloader(rng::AbstractRNG, prob::AbstractHybridProblem;
+        scenario = (), n_batch = 10)
     (; xM, xP, y_o, y_unc) = gen_hybridcase_synthetic(rng, prob; scenario)
-    n_batch = 10
     xM_gpu = :use_Flux ∈ scenario ? CuArray(xM) : xM
-    train_loader = MLUtils.DataLoader((xM_gpu, xP, y_o, y_unc), batchsize = n_batch)
-    return(train_loader)
+    train_loader = MLUtils.DataLoader((xM_gpu, xP, y_o, y_unc);
+        batchsize = n_batch, partial = false)
+    return (train_loader)
 end
 
 function get_hybridproblem_train_dataloader(prob::AbstractHybridProblem; scenario = ())
     rng::AbstractRNG = Random.default_rng()
     get_hybridproblem_train_dataloader(rng, prob; scenario)
 end
-
 
 """
     get_hybridproblem_cor_starts(prob::AbstractHybridProblem; scenario)
@@ -164,8 +160,5 @@ If there is only single block of all ML-predicted parameters being correlated
 with each other then this block starts at position 1: `(P=(1,3), M=(1,))`.
 """
 function get_hybridproblem_cor_starts(prob::AbstractHybridProblem; scenario = ())
-    (P=(1,), M=(1,))
+    (P = (1,), M = (1,))
 end
-
-
-
