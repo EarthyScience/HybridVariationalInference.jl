@@ -17,7 +17,7 @@ optionally
 - `get_hybridproblem_cor_ends` (defaults to include all correlations: `(P=(1,), M=(1,))`)
 
 The initial value of parameters to estimate is spread
-- `ϕg`: paramter of the MLapplicator: returned by `get_hybridproblem_MLapplicator`
+- `ϕg`: parameter of the MLapplicator: returned by `get_hybridproblem_MLapplicator`
 - `ζP`: mean of the PBmodel parameters: returned by `get_hybridproblem_par_templates`
 - `ϕunc`: additional parameters of the approximte posterior: returned by `get_hybridproblem_ϕunc`
 """

@@ -288,7 +288,7 @@ end
     get_cor_count(n_par::Integer)
 
 Return number of correlation coefficients for a correlation matrix of size `(npar x npar)`
-With blocks starting a postions given with tuple `cor_ends`.
+With blocks starting a positions given with tuple `cor_ends`.
 """
 function get_cor_count(cor_ends::AbstractVector)
     sum(get_cor_counts(cor_ends))

@@ -20,7 +20,7 @@ Returns a NamedTuple of
     parameters, e.g. `Stacked(elementwise(identity), elementwise(exp), elementwise(exp))`.
     Its the transformation froing from unconstrained to constrained space: θ = Tinv(ζ),
     because this direction is used much more often.
-- `ϕunc0` initial uncertainty parameters, ComponentVector wiht format of `init_hybrid_ϕunc.`
+- `ϕunc0` initial uncertainty parameters, ComponentVector with format of `init_hybrid_ϕunc.`
 """
 function init_hybrid_params(θP::AbstractVector{FT}, θM::AbstractVector{FT},
         cor_ends::NamedTuple, ϕg::AbstractVector{FT}, n_batch;
