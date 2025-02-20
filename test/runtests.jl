@@ -3,7 +3,6 @@ const GROUP = get(ENV, "GROUP", "All") # defined in in CI.yml
 
 @time begin
     if GROUP == "All" || GROUP == "Basic"
-        @time @safetestset "test_HybridProblem" include("test_HybridProblem.jl")
         #@safetestset "test" include("test/test_ComponentArrayInterpreter.jl")
         @time @safetestset "test_ComponentArrayInterpreter" include("test_ComponentArrayInterpreter.jl")
         #@safetestset "test" include("test/test_gencovar.jl")

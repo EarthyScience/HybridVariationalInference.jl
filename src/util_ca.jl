@@ -7,7 +7,7 @@ function cpu_ca end
 # define in FluxExt
 
 function apply_preserve_axes(f, ca::CA.ComponentArray)
-    CA.ComponentArray(f(ca), CA.getaxes(ca))
+    CA.ComponentArray(f(CA.getdata(ca)), CA.getaxes(ca))
 end
 
 

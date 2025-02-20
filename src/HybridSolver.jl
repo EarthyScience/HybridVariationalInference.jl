@@ -49,17 +49,19 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     scenario, rng = Random.default_rng(), kwargs...)
     par_templates = get_hybridproblem_par_templates(prob; scenario)
     (; θP, θM) = par_templates
+    cor_ends = get_hybridproblem_cor_ends(prob; scenario)
     g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario);
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
-        θP, θM, ϕg0, solver.n_batch; transP, transM);
+        θP, θM, cor_ends, ϕg0, solver.n_batch; transP, transM);
     use_gpu = (:use_Flux ∈ scenario)
     ϕ0 = use_gpu ? CuArray(ϕ) : ϕ # TODO replace CuArray by something more general
     train_loader = get_hybridproblem_train_dataloader(rng, prob; scenario, solver.n_batch)    
     f = get_hybridproblem_PBmodel(prob; scenario)
     py = get_hybridproblem_neg_logden_obs(prob; scenario)
     y_global_o = Float32[] # TODO
-    loss_elbo = get_loss_elbo(g, transPMs_batch, f, py, y_global_o, interpreters; solver.n_MC)
+    loss_elbo = get_loss_elbo(
+        g, transPMs_batch, f, py, y_global_o, interpreters; solver.n_MC, cor_ends)
     # test loss function once
     l0 = loss_elbo(ϕ0, rng, first(train_loader)...)
     optf = Optimization.OptimizationFunction((ϕ, data) -> loss_elbo(ϕ, rng, data...)[1],
@@ -84,12 +86,12 @@ The loss function takes in addition to ϕ, data that changes with minibatch
 - xP: drivers for the processmodel: Iterator of size n_site
 - y_o, y_unc: matrix of observations and uncertainties, sites in columns
 """
-function get_loss_elbo(g, transPMs, f, py, y_o_global, interpreters; n_MC)
-    let g = g, transPMs = transPMs, f = f, py=py, y_o_global = y_o_global, n_MC = n_MC
-        interpreters = map(get_concrete, interpreters)
+function get_loss_elbo(g, transPMs, f, py, y_o_global, interpreters; n_MC, cor_ends)
+    let g = g, transPMs = transPMs, f = f, py=py, y_o_global = y_o_global, n_MC = n_MC,
+        cor_ends = cor_ends, interpreters = map(get_concrete, interpreters)
         function loss_elbo(ϕ, rng, xM, xP, y_o, y_unc)
             neg_elbo_transnorm_gf(rng, ϕ, g, transPMs, f, py,
-            xM, xP, y_o, y_unc, interpreters; n_MC)
+            xM, xP, y_o, y_unc, interpreters; n_MC, cor_ends)
         end
     end
 end

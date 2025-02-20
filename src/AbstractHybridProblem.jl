@@ -1,19 +1,25 @@
 """
 Type to dispatch constructing data and network structures
-for different cases of hybrid problem setups
+for different cases of hybrid problem setups.
 
 For a specific prob, provide functions that specify details
 - `get_hybridproblem_MLapplicator`
+- `get_hybridproblem_transforms`
 - `get_hybridproblem_PBmodel`
 - `get_hybridproblem_neg_logden_obs`
 - `get_hybridproblem_par_templates`
-- `get_hybridproblem_transforms`
+- `get_hybridproblem_ϕunc`
 - `get_hybridproblem_train_dataloader` (default depends on `gen_hybridcase_synthetic`)
 optionally
 - `gen_hybridcase_synthetic`
 - `get_hybridproblem_n_covar` (defaults to number of rows in xM in train_dataloader )
 - `get_hybridproblem_float_type` (defaults to `eltype(θM)`)
-- `get_hybridproblem_cor_starts` (defaults to include all correlations: `(P=(1,), M=(1,))`)
+- `get_hybridproblem_cor_ends` (defaults to include all correlations: `(P=(1,), M=(1,))`)
+
+The initial value of parameters to estimate is spread
+- `ϕg`: parameter of the MLapplicator: returned by `get_hybridproblem_MLapplicator`
+- `ζP`: mean of the PBmodel parameters: returned by `get_hybridproblem_par_templates`
+- `ϕunc`: additional parameters of the approximte posterior: returned by `get_hybridproblem_ϕunc`
 """
 abstract type AbstractHybridProblem end;
 
@@ -63,6 +69,13 @@ function get_hybridproblem_neg_logden_obs end
 Provide tuple of templates of ComponentVectors `θP` and `θM`.
 """
 function get_hybridproblem_par_templates end
+
+"""
+    get_hybridproblem_ϕunc(::AbstractHybridProblem; scenario)
+
+Provide a ComponentArray of the initial additional parameters of the approximate posterior.
+"""
+function get_hybridproblem_ϕunc end
 
 """
     get_hybridproblem_transforms(::AbstractHybridProblem; scenario)
@@ -143,7 +156,7 @@ function get_hybridproblem_train_dataloader(prob::AbstractHybridProblem; scenari
 end
 
 """
-    get_hybridproblem_cor_starts(prob::AbstractHybridProblem; scenario)
+    get_hybridproblem_cor_ends(prob::AbstractHybridProblem; scenario)
 
 Specify blocks in correlation matrices among parameters.
 Returns a NamedTuple.
@@ -159,6 +172,7 @@ then the first subrange starts at position 1 and the second subrange starts at p
 If there is only single block of all ML-predicted parameters being correlated 
 with each other then this block starts at position 1: `(P=(1,3), M=(1,))`.
 """
-function get_hybridproblem_cor_starts(prob::AbstractHybridProblem; scenario = ())
-    (P = (1,), M = (1,))
+function get_hybridproblem_cor_ends(prob::AbstractHybridProblem; scenario = ())
+    pt = get_hybridproblem_par_templates(prob; scenario)
+    (P = [length(pt.θP)], M = [length(pt.θM)])
 end
