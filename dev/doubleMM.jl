@@ -55,7 +55,7 @@ scatterplot(θMs_true[2,:], θMs[2,:])
 prob1o.θP
 scatterplot(vec(y_true), vec(y_pred))
 
-# still overestimating θMs
+# still overestimating θMs and θP
 
 () -> begin # with more iterations?
     prob2 = prob1o

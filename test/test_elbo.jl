@@ -39,6 +39,7 @@ cor_ends = get_hybridproblem_cor_ends(prob; scenario)
 # transP = elementwise(exp)
 # transM = Stacked(elementwise(identity), elementwise(exp))
 #transM = Stacked(elementwise(identity), elementwise(exp), elementwise(exp)) # test mismatch
+ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(FT))
 (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
     θP_true, θMs_true[:, 1], cor_ends, ϕg0, n_batch; transP, transM);
 ϕ_ini = ϕ

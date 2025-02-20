@@ -162,7 +162,7 @@ end;
     U = CP.transformU_block_cholesky1(v, cor_ends)
     @test diag(U' * U) ≈ ones(4)
     @test U[1:3, 4:4] ≈ zeros(3, 1)
-    gr1 = Zygote.gradient(v -> sum(CP.transformU_block_cholesky1(v, cor_ends)), v)[1] # works nice
+    gr1 = Zygote.gradient(v -> sum(CP.transformU_block_cholesky1(v, cor_ends)), v)[1]; # works nice
     # degenerate case of no correlations
     vc0 = CA.ComponentVector{Float32}()
     cor_ends0 = get_ca_ends(vc0)
@@ -171,7 +171,7 @@ end;
     #collect(ns)
     U = CP.transformU_block_cholesky1(CA.getdata(ρ0), cor_ends0)
     @test diag(U) == [1f0]
-    gr1 = Zygote.gradient(v -> sum(CP.transformU_block_cholesky1(ρ0, cor_ends0)), v)[1] # works nice
+    gr1 = Zygote.gradient(v -> sum(CP.transformU_block_cholesky1(ρ0, cor_ends0)), v)[1]; # works nice
 
     if CUDA.functional() # only run the test, if CUDA is working (not on Github ci)
         vc = v_orig = CA.ComponentVector(b1 = CuArray(1.0f0:3.0f0), b2 = CuArray([5.0f0]))

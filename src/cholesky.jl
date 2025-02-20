@@ -290,20 +290,19 @@ end
 Return number of correlation coefficients for a correlation matrix of size `(npar x npar)`
 With blocks starting a postions given with tuple `cor_ends`.
 """
-function get_cor_count(cor_ends)
+function get_cor_count(cor_ends::AbstractVector)
     sum(get_cor_counts(cor_ends))
 end
 function get_cor_counts(cor_ends::AbstractVector{T}) where {T}
     isempty(cor_ends) && return (zero(T))
     cnt_blocks = (
         begin
-            cor_start = i == 1 ? one(T) : cor_ends[i-1] + one(T)
-            cor_ends[i] - cor_start
+            i == 1 ? cor_ends[i] : cor_ends[i] - cor_ends[i-1]
         end for i in 1:length(cor_ends)
     )
-    sumn.(cnt_blocks)
+    get_cor_count.(cnt_blocks)
 end
-function get_cor_count(n_par::T) where {T<:Integer}
+function get_cor_count(n_par::T) where T<:Number # <: Integer causes problems with  AD 
     sumn(n_par - one(T))
 end
 
@@ -318,7 +317,7 @@ E.g. For a matrix with a 3x3, a 2x2, and another single-entry block,
 the blocks start at columns (3,5,6). It defaults to a single entire block.
 """
 function transformU_block_cholesky1(
-    v::AbstractVector{T}, cor_ends::AbstractVector{IT}=Int[]) where {T,IT<:Integer}
+    v::AbstractVector{T}, cor_ends::AbstractVector{TI}=Int[]) where {T,TI<:Integer}
     #@show v, cor_ends
     if length(cor_ends) <= 1 # if there is only one block, return it 
         return transformU_cholesky1(v)
@@ -327,7 +326,7 @@ function transformU_block_cholesky1(
     #@show cor_counts
     ranges = ChainRulesCore.@ignore_derivatives (
         begin
-            cor_start = (i == 1 ? 1 : cor_counts[i-1] + one(IT))
+            cor_start = (i == 1 ? one(TI) : cor_counts[i-1] + one(TI))
             cor_start:cor_counts[i]
         end for i in 1:length(cor_counts)
     )

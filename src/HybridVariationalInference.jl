@@ -60,7 +60,7 @@ include("cholesky.jl")
 export neg_elbo_transnorm_gf, predict_gf
 include("elbo.jl")
 
-export init_hybrid_params
+export init_hybrid_params, init_hybrid_ϕunc
 include("init_hybrid_params.jl")
 
 export AbstractHybridSolver, HybridPointSolver, HybridPosteriorSolver
