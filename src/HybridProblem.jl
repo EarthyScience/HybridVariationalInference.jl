@@ -7,7 +7,7 @@ struct HybridProblem <: AbstractHybridProblem
     py
     transP
     transM
-    cor_starts # = (P=(1,),M=(1,))
+    cor_ends # = (P=(1,),M=(1,))
     get_train_loader
     # inner constructor to constrain the types
     function HybridProblem(
@@ -20,8 +20,8 @@ struct HybridProblem <: AbstractHybridProblem
             #train_loader::DataLoader,
             # return a function that constructs the trainloader based on n_batch
             get_train_loader::Function,
-            cor_starts::NamedTuple = (P = (1,), M = (1,)))
-        new(θP, θM, f, g, ϕg, py, transM, transP, cor_starts, get_train_loader)
+            cor_ends::NamedTuple = (P = [length(θP)], M = [length(θM)]))
+        new(θP, θM, f, g, ϕg, py, transM, transP, cor_ends, get_train_loader)
     end
 end
 
@@ -45,8 +45,8 @@ function HybridProblem(prob::AbstractHybridProblem; scenario = ())
             get_hybridproblem_train_dataloader(rng::AbstractRNG, prob; scenario, kwargs...)
         end
     end
-    cor_starts = get_hybridproblem_cor_starts(prob; scenario)
-    HybridProblem(θP, θM, g, ϕg, f, py, transP, transM, get_train_loader, cor_starts)
+    cor_ends = get_hybridproblem_cor_ends(prob; scenario)
+    HybridProblem(θP, θM, g, ϕg, f, py, transP, transM, get_train_loader, cor_ends)
 end
 
 function update(prob::HybridProblem;
@@ -58,7 +58,7 @@ function update(prob::HybridProblem;
         transM::Union{Function, Bijectors.Transform} = prob.transM,
         transP::Union{Function, Bijectors.Transform} = prob.transP,
         get_train_loader::Function = prob.get_train_loader,
-        cor_starts::NamedTuple = prob.cor_starts)
+        cor_ends::NamedTuple = prob.cor_ends)
     # prob.θP = θP
     # prob.θM = θM
     # prob.f = f
@@ -67,13 +67,17 @@ function update(prob::HybridProblem;
     # prob.py = py
     # prob.transM = transM
     # prob.transP = transP
-    # prob.cor_starts = cor_starts
+    # prob.cor_ends = cor_ends
     # prob.get_train_loader = get_train_loader
-    HybridProblem(θP, θM, g, ϕg, f, py, transP, transM, get_train_loader, cor_starts)
+    HybridProblem(θP, θM, g, ϕg, f, py, transP, transM, get_train_loader, cor_ends)
 end
 
 function get_hybridproblem_par_templates(prob::HybridProblem; scenario::NTuple = ())
     (; θP = prob.θP, θM = prob.θM)
+end
+
+function get_hybridproblem_ϕunc(prob::HybridProblem; scenario::NTuple = ())
+    prob.ϕunc
 end
 
 function get_hybridproblem_neg_logden_obs(prob::HybridProblem; scenario::NTuple = ())
@@ -102,8 +106,8 @@ function get_hybridproblem_train_dataloader(rng::AbstractRNG, prob::HybridProble
     return prob.get_train_loader(rng; kwargs...)
 end
 
-function get_hybridproblem_cor_starts(prob::HybridProblem; scenario = ())
-    prob.cor_starts
+function get_hybridproblem_cor_ends(prob::HybridProblem; scenario = ())
+    prob.cor_ends
 end
 
 # function get_hybridproblem_float_type(prob::HybridProblem; scenario::NTuple = ()) 

@@ -31,6 +31,7 @@ export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_
        get_hybridproblem_par_templates, get_hybridproblem_transforms, get_hybridproblem_train_dataloader,
        get_hybridproblem_neg_logden_obs, 
        get_hybridproblem_n_covar, 
+       get_hybridproblem_cor_ends,
        #update,
        gen_cov_pred
 include("AbstractHybridProblem.jl")
@@ -53,7 +54,7 @@ include("util_ca.jl")
 export neg_logden_indep_normal, entropy_MvNormal
 include("logden_normal.jl")
 
-export get_ca_starts
+export get_ca_starts, get_ca_ends, get_cor_count
 include("cholesky.jl")
 
 export neg_elbo_transnorm_gf, predict_gf

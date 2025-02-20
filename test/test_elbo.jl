@@ -35,22 +35,23 @@ py = neg_logden_indep_normal
 
 n_MC = 3
 (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
+cor_ends = get_hybridproblem_cor_ends(prob; scenario)
 # transP = elementwise(exp)
 # transM = Stacked(elementwise(identity), elementwise(exp))
 #transM = Stacked(elementwise(identity), elementwise(exp), elementwise(exp)) # test mismatch
 (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
-    θP_true, θMs_true[:, 1], ϕg0, n_batch; transP, transM);
+    θP_true, θMs_true[:, 1], cor_ends, ϕg0, n_batch; transP, transM);
 ϕ_ini = ϕ
 
 @testset "generate_ζ" begin
     ζ, σ = CP.generate_ζ(
         rng, g, ϕ_ini, xM[:, 1:n_batch], map(get_concrete, interpreters);
-        n_MC = 8)
+        n_MC = 8, cor_ends)
     @test ζ isa Matrix
     gr = Zygote.gradient(
         ϕ -> sum(CP.generate_ζ(
             rng, g, ϕ, xM[:, 1:n_batch], map(get_concrete, interpreters);
-            n_MC = 8)[1]),
+            n_MC = 8, cor_ends)[1]),
         CA.getdata(ϕ_ini))
     @test gr[1] isa Vector
 end;
@@ -69,13 +70,13 @@ if CUDA.functional()
         xMg_batch = CuArray(xM[:, 1:n_batch])
         ζ, σ = CP.generate_ζ(
             rng, g_flux, ϕ, xMg_batch, map(get_concrete, interpreters);
-            n_MC = 8)
+            n_MC = 8, cor_ends)
         @test ζ isa CuMatrix
         @test eltype(ζ) == FT
         gr = Zygote.gradient(
             ϕ -> sum(CP.generate_ζ(
                 rng, g_flux, ϕ, xMg_batch, map(get_concrete, interpreters);
-                n_MC = 8)[1]),
+                n_MC = 8, cor_ends)[1]),
             ϕ)
         @test gr[1] isa CuVector
     end
@@ -85,13 +86,13 @@ end
     cost = neg_elbo_transnorm_gf(rng, ϕ_ini, g, transPMs_batch, f, py,
         xM[:, 1:n_batch], xP[1:n_batch], y_o[:, 1:n_batch], y_unc[:, 1:n_batch],
         map(get_concrete, interpreters);
-        n_MC = 8)
+        n_MC = 8, cor_ends)
     @test cost isa Float64
     gr = Zygote.gradient(
         ϕ -> neg_elbo_transnorm_gf(rng, ϕ, g, transPMs_batch, f, py,
         xM[:, 1:n_batch], xP[1:n_batch], y_o[:, 1:n_batch], y_unc[:, 1:n_batch],
         map(get_concrete, interpreters);
-        n_MC = 8),
+        n_MC = 8, cor_ends),
         CA.getdata(ϕ_ini))
     @test gr[1] isa Vector
 end;
@@ -104,13 +105,13 @@ if CUDA.functional()
         cost = neg_elbo_transnorm_gf(rng, ϕ, g_flux, transPMs_batch, f, py, 
             xMg_batch, xP_batch, y_o[:, 1:n_batch], y_unc[:, 1:n_batch],
              map(get_concrete, interpreters);
-            n_MC = 8)
+            n_MC = 8, cor_ends)
         @test cost isa Float64
         gr = Zygote.gradient(
             ϕ -> neg_elbo_transnorm_gf(rng, ϕ, g_flux, transPMs_batch, f, py, 
             xMg_batch, xP_batch, y_o[:, 1:n_batch], y_unc[:, 1:n_batch],
              map(get_concrete, interpreters);
-            n_MC = 8),
+            n_MC = 8, cor_ends),
             ϕ)
         @test gr[1] isa CuVector
         @test eltype(gr[1]) == FT
@@ -124,7 +125,7 @@ end
     @test length(intm_PMs_gen) == 402
     @test trans_PMs_gen.length_in == 402
     y_pred = predict_gf(rng, g, f, ϕ_ini, xM, xP, map(get_concrete, interpreters);
-        get_transPMs, get_ca_int_PMs, n_sample_pred)
+        get_transPMs, get_ca_int_PMs, n_sample_pred, cor_ends)
     @test y_pred isa Array
     @test size(y_pred) == (size(y_o)..., n_sample_pred)
 end
@@ -135,7 +136,7 @@ if CUDA.functional()
         ϕ = CuArray(CA.getdata(ϕ_ini))
         xMg = CuArray(xM)
         y_pred = predict_gf(rng, g_flux, f, ϕ, xMg, xP, map(get_concrete, interpreters);
-            get_transPMs, get_ca_int_PMs, n_sample_pred)
+            get_transPMs, get_ca_int_PMs, n_sample_pred, cor_ends)
         @test y_pred isa Array
         @test size(y_pred) == (size(y_o)..., n_sample_pred)
     end

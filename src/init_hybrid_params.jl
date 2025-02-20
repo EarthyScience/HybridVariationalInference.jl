@@ -19,7 +19,7 @@ Returns a NamedTuple of
     Its the transformation froing from unconstrained to constrained space: θ = Tinv(ζ),
     because this direction is used much more often.
 """
-function init_hybrid_params(θP, θM, ϕg, n_batch; 
+function init_hybrid_params(θP, θM, cor_ends::NamedTuple, ϕg, n_batch; 
     transP=elementwise(identity), transM=elementwise(identity))
     n_θP = length(θP)
     n_θM = length(θM)
@@ -29,8 +29,10 @@ function init_hybrid_params(θP, θM, ϕg, n_batch;
     _ = Bijectors.inverse(transM)(θM)
     FT = eltype(θM)
     # zero correlation matrices
-    ρsP = zeros(FT, sum(1:(n_θP - 1)))
-    ρsM = zeros(FT, sum(1:(n_θM - 1)))
+    # ρsP = zeros(FT, sum(1:(n_θP - 1)))
+    # ρsM = zeros(FT, sum(1:(n_θM - 1)))
+    ρsP = zeros(FT, get_cor_count(cor_ends.P))
+    ρsM = zeros(FT, get_cor_count(cor_ends.M))
     ϕunc0 = CA.ComponentVector(;
         logσ2_logP = fill(FT(-10.0), n_θP),
         coef_logσ2_logMs = reduce(hcat, (FT[-10.0, 0.0] for _ in 1:n_θM)),
@@ -71,3 +73,20 @@ function init_hybrid_params(θP, θM, ϕg, n_batch;
     (;ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs)
 end
 
+function init_hybrid_ϕunc(logσ2_logP::AbstractVector{FT}, coef_logσ2_logMs, cor_ends;
+    ρ0 = zeros(FT)) where FT
+    
+        n_θP = length(θP)
+        n_θM = length(θM)
+        n_ϕg = length(ϕg)
+        # TODO zero correlation matrices
+        ρsP = zeros(FT, sum(1:(n_θP - 1)))
+        ρsM = zeros(FT, sum(1:(n_θM - 1)))
+        ϕunc0 = CA.ComponentVector(;
+            logσ2_logP = fill(FT(-10.0), n_θP),
+            coef_logσ2_logMs = reduce(hcat, (FT[-10.0, 0.0] for _ in 1:n_θM)),
+            ρsP,
+            ρsM)
+    end
+    
+    

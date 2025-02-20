@@ -18,7 +18,7 @@ construct_problem = () -> begin
     θM = CA.ComponentVector{FT}(r1 = 0.5, K1 = 0.2)
     transP = elementwise(exp)
     transM = Stacked(elementwise(identity), elementwise(exp))
-    cov_starts = (P = (1, 2), M = (1)) # assume r0 independent of K2
+    cor_ends = (P = 1:length(θP), M = [length(θM)]) # assume r0 independent of K2
     n_covar = 5
     n_batch = 10
     int_θdoubleMM = get_concrete(ComponentArrayInterpreter(
@@ -57,7 +57,7 @@ construct_problem = () -> begin
         end
     end
     HybridProblem(θP, θM, g_chain, f_doubleMM_with_global, py,
-        transM, transP, get_train_loader, cov_starts)
+        transM, transP, get_train_loader, cor_ends)
 end
 prob = construct_problem();
 scenario = (:default,)
@@ -111,21 +111,23 @@ import Flux
     (θP0, θM0) = get_hybridproblem_par_templates(prob)
     (; transP, transM) = get_hybridproblem_transforms(prob)
     py = get_hybridproblem_neg_logden_obs(prob)
+    cor_ends = get_hybridproblem_cor_ends(prob)
 
     (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
-        θP0, θM0, ϕg0, n_batch; transP, transM)
+        θP0, θM0, cor_ends, ϕg0, n_batch; transP, transM)
     ϕ_ini = ϕ
+    ϕ.unc
 
     py = get_hybridproblem_neg_logden_obs(prob)
 
     cost = neg_elbo_transnorm_gf(rng, ϕ_ini, g, transPMs_batch, f, py,
         xM, xP, y_o, y_unc, map(get_concrete, interpreters);
-        n_MC = 8)
+        n_MC = 8, cor_ends)
     @test cost isa Float64
     gr = Zygote.gradient(
         ϕ -> neg_elbo_transnorm_gf(rng, ϕ, g, transPMs_batch, f, py,
             xM, xP, y_o, y_unc, map(get_concrete, interpreters);
-            n_MC = 8),
+            n_MC = 8, cor_ends),
         CA.getdata(ϕ_ini))
     @test gr[1] isa Vector
 
@@ -148,12 +150,12 @@ import Flux
             xMg = CuArray(xM)
             cost = neg_elbo_transnorm_gf(rng, ϕ, g, transPMs_batch, f, py,
                 xMg, xP, y_o, y_unc, map(get_concrete, interpreters);
-                n_MC = 8)
+                n_MC = 8, cor_ends)
             @test cost isa Float64
             gr = Zygote.gradient(
                 ϕ -> neg_elbo_transnorm_gf(rng, ϕ, g, transPMs_batch, f, py,
                     xMg, xP, y_o, y_unc, map(get_concrete, interpreters);
-                    n_MC = 8),
+                    n_MC = 8, cor_ends),
                 ϕ)
             @test gr[1] isa CuVector
             @test eltype(gr[1]) == get_hybridproblem_float_type(prob)
