@@ -7,6 +7,8 @@ using Random
 using Combinatorics
 using StatsFuns: logistic
 using Bijectors
+using CUDA
+using Distributions, DistributionFits
 
 
 export f_doubleMM, xP_S1, xP_S2

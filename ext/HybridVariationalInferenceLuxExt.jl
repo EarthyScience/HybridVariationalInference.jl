@@ -4,6 +4,9 @@ using HybridVariationalInference, Lux
 using HybridVariationalInference: HybridVariationalInference as HVI
 using ComponentArrays: ComponentArrays as CA
 using Random
+using StatsFuns: logistic
+
+
 
 struct LuxApplicator{MT, IT} <: AbstractModelApplicator 
     stateful_layer::MT

@@ -10,11 +10,13 @@ For a specific prob, provide functions that specify details
 - `get_hybridproblem_par_templates`
 - `get_hybridproblem_ϕunc`
 - `get_hybridproblem_train_dataloader` (default depends on `gen_hybridcase_synthetic`)
+- `get_hybridproblem_priors` 
 optionally
 - `gen_hybridcase_synthetic`
 - `get_hybridproblem_n_covar` (defaults to number of rows in xM in train_dataloader )
 - `get_hybridproblem_float_type` (defaults to `eltype(θM)`)
-- `get_hybridproblem_cor_ends` (defaults to include all correlations: `(P=(1,), M=(1,))`)
+- `get_hybridproblem_cor_ends` (defaults to include all correlations: 
+  `(P = [length(θP)], M = [length(θM)])`)
 
 The initial value of parameters to estimate is spread
 - `ϕg`: parameter of the MLapplicator: returned by `get_hybridproblem_MLapplicator`
@@ -153,6 +155,18 @@ end
 function get_hybridproblem_train_dataloader(prob::AbstractHybridProblem; scenario = ())
     rng::AbstractRNG = Random.default_rng()
     get_hybridproblem_train_dataloader(rng, prob; scenario)
+end
+
+"""
+    get_hybridproblem_priors(::AbstractHybridProblem; scenario)
+
+Return a dictionary of marginal prior distributions for components in `θP` and `θM`.
+Defaults for each component `θ` to `Normal(θ, max(θ, 1.0))`.
+"""
+function get_hybridproblem_priors(prob::AbstractHybridProblem; scenario = ())
+    pt = get_hybridproblem_par_templates(prob; scenario)
+    θ = vcat(pt.θP, pt.θM)   
+    Dict(keys(θ) .=> Normal.(CA.getdata(θ), max.(CA.getdata(θ), one(eltype(θ))))) 
 end
 
 """

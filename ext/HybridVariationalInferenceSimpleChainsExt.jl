@@ -6,8 +6,6 @@ using StatsFuns: logistic
 using ComponentArrays: ComponentArrays as CA
 using Random
 
-
-
 struct SimpleChainsApplicator{MT} <: AbstractModelApplicator
     m::MT
 end
@@ -35,8 +33,8 @@ function HVI.construct_3layer_MLApplicator(
             SimpleChains.Dropout(0.2), # dropout layer
             TurboDense{true}(tanh, n_covar * 4),
             SimpleChains.Dropout(0.2),
-            # dense layer without bias that maps to n outputs and `identity` activation
-            TurboDense{false}(identity, n_out)
+            # dense layer without bias that maps to n outputs and `logistic` activation
+            TurboDense{false}(logistic, n_out)
         )
     else
         SimpleChain(
@@ -44,8 +42,8 @@ function HVI.construct_3layer_MLApplicator(
             # dense layer with bias that maps to 8 outputs and applies `tanh` activation
             TurboDense{true}(tanh, n_covar * 4),
             TurboDense{true}(tanh, n_covar * 4),
-            # dense layer without bias that maps to n outputs and `identity` activation
-            TurboDense{false}(identity, n_out)
+            # dense layer without bias that maps to n outputs and `logistic` activation
+            TurboDense{false}(logistic, n_out)
         )
     end
     construct_ChainsApplicator(rng, g_chain, FloatType)

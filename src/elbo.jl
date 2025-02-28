@@ -25,21 +25,22 @@ expected value of the likelihood of observations.
 - `n_MC`: number of MonteCarlo samples from the distribution of parameters to simulate
   using the mechanistic model f.
 """
-function neg_elbo_transnorm_gf(rng, ϕ::AbstractVector, g, transPMs, f, py, 
-    xM::AbstractMatrix, xP, y_ob, y_unc, 
-    interpreters::NamedTuple; 
-    n_MC=3, gpu_data_handler = get_default_GPUHandler(),
-    cor_ends # =(P=(1,),M=(1,))
-    )
+function neg_elbo_transnorm_gf(rng, ϕ::AbstractVector, g, transPMs, f, py,
+        xM::AbstractMatrix, xP, y_ob, y_unc,
+        interpreters::NamedTuple;
+        n_MC = 3, gpu_data_handler = get_default_GPUHandler(),
+        cor_ends # =(P=(1,),M=(1,))
+)
     ζs, σ = generate_ζ(rng, g, ϕ, xM, interpreters; n_MC, cor_ends)
     ζs_cpu = gpu_data_handler(ζs) # differentiable fetch to CPU in Flux package extension
     #ζi = first(eachcol(ζs_cpu))
-    nLy = reduce(+, map(eachcol(ζs_cpu)) do ζi
-        y_pred_i, logjac = predict_y(ζi, xP, f, transPMs, interpreters.PMs)
-        #nLy1 = neg_logden_indep_normal(y_ob, y_pred_i, y_unc)
-        nLy1 = py(y_ob, y_pred_i, y_unc)
-        nLy1 - logjac
-    end) / n_MC
+    nLy = reduce(
+        +, map(eachcol(ζs_cpu)) do ζi
+            θ_i, y_pred_i, logjac = predict_y(ζi, xP, f, transPMs, interpreters.PMs)
+            #nLy1 = neg_logden_indep_normal(y_ob, y_pred_i, y_unc)
+            nLy1 = py(y_ob, y_pred_i, y_unc)
+            nLy1 - logjac
+        end) / n_MC
     #sum_log_σ = sum(log.(σ))
     # logdet_jacT2 = -sum_log_σ # log Prod(1/σ_i) = -sum log σ_i 
     logdetΣ = 2 * sum(log.(σ))
@@ -52,24 +53,56 @@ end
         get_transPMs, get_ca_int_PMs, n_sample_pred=200, 
         gpu_data_handler=get_default_GPUHandler())
 
-Prediction function for hybrid model. Returns an Array `(n_obs, n_site, n_sample_pred)`.
+Prediction function for hybrid model. Returns an NamedTuple with entries
+- `θ`: ComponentArray `(n_θP + n_site * n_θM), n_sample_pred)` of PBM model parameters.
+- `y`: Array `(n_obs, n_site, n_sample_pred)` of model predictions.
 """
+function predict_gf(rng, prob::AbstractHybridProblem, xM::AbstractMatrix, xP;
+        scenario,
+        n_sample_pred = 200,
+        dev = gpu_device(),
+        gpu_data_handler = get_default_GPUHandler()
+)
+    n_site = length(xP)
+    @assert size(xM, 2) == n_site
+    par_templates = get_hybridproblem_par_templates(prob; scenario)
+    (; θP, θM) = par_templates
+    cor_ends = get_hybridproblem_cor_ends(prob; scenario)
+    g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
+    (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
+    f = get_hybridproblem_PBmodel(prob; scenario)
+    (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
+        θP, θM, cor_ends, ϕg0, n_site; transP, transM)
+    g_dev, ϕ_dev = dev(g), dev(ϕ)    
+    # use_gpu = (:use_Flux ∈ scenario)
+    # ϕ0 = use_gpu ? CuArray(ϕ) : ϕ # TODO replace CuArray by something more general
+    predict_gf(rng, g_dev, f, ϕ_dev, xM, xP, interpreters;
+        get_transPMs, get_ca_int_PMs, n_sample_pred, gpu_data_handler, cor_ends)
+end
+
 function predict_gf(rng, g, f, ϕ::AbstractVector, xM::AbstractMatrix, xP, interpreters;
-    get_transPMs, get_ca_int_PMs, n_sample_pred=200, 
-    gpu_data_handler=get_default_GPUHandler(),
-    cor_ends
-    #cor_ends=(P=(1,),M=(1,))
-    )
+        get_transPMs, get_ca_int_PMs, n_sample_pred = 200,
+        gpu_data_handler = get_default_GPUHandler(),
+        cor_ends        #cor_ends=(P=(1,),M=(1,))
+)
     n_site = size(xM, 2)
     intm_PMs_gen = get_ca_int_PMs(n_site)
     trans_PMs_gen = get_transPMs(n_site)
     interpreters_gen = (; interpreters..., PMs = intm_PMs_gen)
-    ζs, _ = generate_ζ(rng, g, CA.getdata(ϕ), CA.getdata(xM),
-    interpreters_gen; n_MC = n_sample_pred, cor_ends)
-    ζs_cpu = gpu_data_handler(ζs) #
-    y_pred = stack(map(ζ -> first(predict_y(
-        ζ, xP, f, trans_PMs_gen, interpreters_gen.PMs)), eachcol(ζs_cpu)));
-    y_pred
+    ζs_gpu, _ = generate_ζ(rng, g, CA.getdata(ϕ), CA.getdata(xM), interpreters_gen;
+        n_MC = n_sample_pred, cor_ends)
+    ζs = gpu_data_handler(ζs_gpu)
+    #y_pred_global, y_pred = f(θc.P, θc.Ms, xP)
+    # TODO take care of y_pred_global
+    θandy = map(eachcol(ζs)) do ζ
+        predict_y(ζ, xP, f, trans_PMs_gen, interpreters_gen.PMs)[1:2]
+    end 
+    θ1 = first(first(θandy))
+    θ = CA.ComponentMatrix(
+        stack(CA.getdata.(first.(θandy))), (CA.getaxes(θ1)[1], CA.FlatAxis()))
+    #θ[:P,1]
+    y = stack(last.(θandy))
+    (; θ, y)
 end
 
 """
@@ -81,7 +114,7 @@ to the means extracted from parameters and predicted by the machine learning
 model. 
 """
 function generate_ζ(rng, g, ϕ::AbstractVector, xM::AbstractMatrix,
-    interpreters::NamedTuple; n_MC=3, cor_ends)
+        interpreters::NamedTuple; n_MC = 3, cor_ends)
     # see documentation of neg_elbo_transnorm_gf
     ϕc = interpreters.μP_ϕg_unc(CA.getdata(ϕ))
     μ_ζP = ϕc.μP
@@ -109,18 +142,18 @@ together with the vector of standard deviations, σ.
 `int_unc`: Interpret vector as ComponentVector with components
    ρsP, ρsM, logσ2_logP, coef_logσ2_logMs(intercept + slope), 
 """
-function sample_ζ_norm0(rng::Random.AbstractRNG, ζP::AbstractVector, ζMs::AbstractMatrix, 
-    args...; n_MC, cor_ends)
+function sample_ζ_norm0(rng::Random.AbstractRNG, ζP::AbstractVector, ζMs::AbstractMatrix,
+        args...; n_MC, cor_ends)
     n_θP, n_θMs = length(ζP), length(ζMs)
     urand = _create_random(rng, CA.getdata(ζP), n_θP + n_θMs, n_MC)
     sample_ζ_norm0(urand, ζP, ζMs, args...; cor_ends)
 end
 
-function sample_ζ_norm0(urand::AbstractMatrix, ζP::AbstractVector{T}, ζMs::AbstractMatrix, 
-    ϕunc::AbstractVector, int_unc = ComponentArrayInterpreter(ϕunc); cor_ends
-    ) where {T}
+function sample_ζ_norm0(urand::AbstractMatrix, ζP::AbstractVector{T}, ζMs::AbstractMatrix,
+        ϕunc::AbstractVector, int_unc = ComponentArrayInterpreter(ϕunc); cor_ends
+) where {T}
     ϕuncc = int_unc(CA.getdata(ϕunc))
-    n_θP, n_θMs, (n_θM, n_batch) = length(ζP), length(ζMs), size(ζMs) 
+    n_θP, n_θMs, (n_θM, n_batch) = length(ζP), length(ζMs), size(ζMs)
     # make sure to not create a UpperTriangular Matrix of an CuArray in transformU_cholesky1
     ρsP = isempty(ϕuncc.ρsP) ? similar(ϕuncc.ρsP) : ϕuncc.ρsP # required by zygote
     UP = transformU_block_cholesky1(ρsP, cor_ends.P)
@@ -134,7 +167,7 @@ function sample_ζ_norm0(urand::AbstractMatrix, ζP::AbstractVector{T}, ζMs::Ab
     σP = exp.(logσ2_logP ./ 2)
     # BlockDiagonal does work with CUDA, but not with combination of Zygote and CUDA
     # need to construct full matrix for CUDA
-    Uσ = _create_blockdiag(UP, UM, σP, σMs, n_batch) 
+    Uσ = _create_blockdiag(UP, UM, σP, σMs, n_batch)
     ζ_resid = Uσ' * urand
     σ = diag(Uσ)   # elements of the diagonal: standard deviations
     # returns CuArrays to either continue on GPU or need to transfer to CPU
@@ -143,16 +176,18 @@ end
 
 function _create_blockdiag(UP::AbstractMatrix{T}, UM, σP, σMs, n_batch) where {T}
     v = [i == 0 ? UP * Diagonal(σP) : UM * Diagonal(σMs[:, i]) for i in 0:n_batch]
+    #Main.@infiltrate_main
     BlockDiagonal(v)
 end
-function _create_blockdiag(UP::GPUArraysCore.AbstractGPUMatrix{T}, UM, σP, σMs, n_batch) where {T}
+function _create_blockdiag(
+        UP::GPUArraysCore.AbstractGPUMatrix{T}, UM, σP, σMs, n_batch) where {T}
     # using BlockDiagonal leads to Scalar operations downstream
     # v = [i == 0 ? UP * Diagonal(σP) : UM * Diagonal(σMs[:, i]) for i in 0:n_batch]
     # BlockDiagonal(v)    
     # Uσ = cat([i == 0 ? UP * Diagonal(σP) : UM * Diagonal(σMs[:, i]) for i in 0:n_batch]...;
     #     dims=(1, 2))
     # on GPU use only one big multiplication rather than many small ones
-    U = cat([i == 0 ? UP : UM for i in 0:n_batch]...; dims=(1, 2))
+    U = cat([i == 0 ? UP : UM for i in 0:n_batch]...; dims = (1, 2))
     #Main.@infiltrate_main
     σD = Diagonal(vcat(σP, vec(σMs)))
     Uσ = U * σD
@@ -182,14 +217,19 @@ Steps:
 - transform the parameters to original constrained space
 - Applies the mechanistic model for each site
 """
-function predict_y(ζi, xP, f, transPMs::Bijectors.Transform, int_PMs::AbstractComponentArrayInterpreter)
+function predict_y(ζi, xP, f, transPMs::Bijectors.Transform,
+        int_PMs::AbstractComponentArrayInterpreter)
+    θc, logjac = transform_ζ(ζi, transPMs, int_PMs)
+    y_pred_global, y_pred = f(θc.P, θc.Ms, xP)
+    # TODO take care of y_pred_global
+    θc, y_pred, logjac
+end
+
+function transform_ζ(ζi, transPMs::Bijectors.Transform,
+        int_PMs::AbstractComponentArrayInterpreter)
     # θtup, logjac = transform_and_logjac(transPMs, ζi) # both allocating
     # θc = CA.ComponentVector(θtup)
     θ, logjac = Bijectors.with_logabsdet_jacobian(transPMs, ζi) # both allocating
     θc = int_PMs(θ)
-    # TODO provide xP
-    # xP = fill((), size(θc.Ms,2))
-    y_pred_global, y_pred = f(θc.P, θc.Ms, xP) # TODO parallelize on CPU
-    # TODO take care of y_pred_global
-    y_pred, logjac
+    θc, logjac
 end
