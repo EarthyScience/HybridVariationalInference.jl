@@ -6,7 +6,7 @@ const GROUP = get(ENV, "GROUP", "All") # defined in in CI.yml
         #@safetestset "test" include("test/test_ComponentArrayInterpreter.jl")
         @time @safetestset "test_ComponentArrayInterpreter" include("test_ComponentArrayInterpreter.jl")
         #@safetestset "test" include("test/test_ModelApplicator.jl")
-        @time @safetestset "test_gencovar" include("test_ModelApplicator.jl")
+        @time @safetestset "test_ModelApplicator" include("test_ModelApplicator.jl")
         #@safetestset "test" include("test/test_gencovar.jl")
         @time @safetestset "test_gencovar" include("test_gencovar.jl")
         #@safetestset "test" include("test/test_SimpleChains.jl")
