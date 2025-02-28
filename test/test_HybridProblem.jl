@@ -149,7 +149,7 @@ import Flux
     @test gr[1] isa Vector
 
     gdev = gpu_device()
-    if MLDataDevices.functional(gdev)
+    if gdev isa MLDataDevices.AbstractGPUDevice 
         @testset "neg_elbo_transnorm_gf gpu" begin
             g, ϕg0 = begin
                 n_covar = size(xM, 1)
