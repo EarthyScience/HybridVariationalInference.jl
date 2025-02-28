@@ -33,7 +33,7 @@ end;
     @test p ≈ r
     gdev = gpu_device()
     #cdev = cpu_device()
-    if MLDataDevices.functional(gdev)
+    if gdev isa MLDataDevices.AbstractGPUDevice 
         g_gpu = g |> gdev
         @test g_gpu.μ isa GPUArraysCore.AbstractGPUArray
         r_gpu = r |> gdev
