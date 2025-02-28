@@ -1,15 +1,15 @@
-function applyf(f, θMs::AbstractMatrix, θP::AbstractVector, x)
-    # predict several sites with same global parameters θP
-    yv = map(eachcol(θMs), x) do θM, x_site
-        f(vcat(θP, θM), x_site)
+function applyf(f, θMs::AbstractMatrix, θP::AbstractVector, θFix::AbstractVector, xP)
+    # predict several sites with same global parameters θP and fixed parameters θFix
+    yv = map(eachcol(θMs), xP) do θM, x_site
+        f(vcat(θP, θM, θFix), x_site)
     end
     y = stack(yv)
     return(y)
 end
-function applyf(f, θMs::AbstractMatrix, θPs::AbstractMatrix, xP)
+function applyf(f, θMs::AbstractMatrix, θPs::AbstractMatrix, θFix::AbstractVector, xP)
     # do not call f with matrix θ, because .* with vectors S1 would go wrong
     yv = map(eachcol(θMs), eachcol(θPs), xP) do θM, θP, xP_site
-        f(vcat(θP, θM), xP_site)
+        f(vcat(θP, θM, θFix), xP_site)
     end
     y = stack(yv)
     return(y)
@@ -19,7 +19,8 @@ end
 """
 composition f ∘ transM ∘ g: mechanistic model after machine learning parameter prediction
 """
-function gf(g, transM, f, xM, xP, ϕg, θP; gpu_handler = default_GPU_DataHandler)
+function gf(g, transM, f, xM, xP, ϕg, θP; 
+    gpu_handler = default_GPU_DataHandler)
     # @show first(xM,5)
     # @show first(ϕg,5)
     ζMs = g(xM, ϕg) # predict the log of the parameters
@@ -34,13 +35,14 @@ function gf(g, transM, f, xM, xP, ϕg, θP; gpu_handler = default_GPU_DataHandle
     return y_pred_global, y_pred, θMs
 end
 
-function gf(prob::AbstractHybridProblem, xM, xP, args...; scenario = (), kwargs...)
+function gf(prob::AbstractHybridProblem, xM, xP, args...; 
+    scenario = (), dev = gpu_device(), kwargs...)
     g, ϕg = get_hybridproblem_MLapplicator(prob; scenario)
     f = get_hybridproblem_PBmodel(prob; scenario)
     (; θP, θM) = get_hybridproblem_par_templates(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
-    ϕg_dev, θP_dev = (:use_Flux ∈ scenario) ? (CuArray(ϕg), CuArray(CA.getdata(θP))) : (ϕg, CA.getdata(θP))
-    gf(g, transM, f, xM, xP, ϕg_dev, θP_dev; kwargs...)
+    g_dev, ϕg_dev, θP_dev =  (dev(g), dev(ϕg), dev(CA.getdata(θP))) 
+    gf(g_dev, transM, f, xM, xP, ϕg_dev, θP_dev; kwargs...)
 end
 
 """

@@ -24,7 +24,7 @@ FT = get_hybridproblem_float_type(prob; scenario)
 g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario);
 f = get_hybridproblem_PBmodel(prob; scenario)
 
-n_covar = 5 
+n_covar = 5
 n_batch = 10
 n_θM, n_θP = values(map(length, get_hybridproblem_par_templates(prob; scenario)))
 
@@ -63,20 +63,22 @@ using Flux
 if CUDA.functional()
     scenario_flux = (scenario..., :use_Flux)
     g_flux, ϕg0_flux_cpu = get_hybridproblem_MLapplicator(prob; scenario = scenario_flux)
+    g_gpu = gpu(g_flux)
 end
 
 if CUDA.functional()
     @testset "generate_ζ gpu" begin
         ϕ = CuArray(CA.getdata(ϕ_ini))
+        @test g_gpu.μ isa GPUArraysCore.AbstractGPUArray
         xMg_batch = CuArray(xM[:, 1:n_batch])
         ζ, σ = CP.generate_ζ(
-            rng, g_flux, ϕ, xMg_batch, map(get_concrete, interpreters);
+            rng, g_gpu, ϕ, xMg_batch, map(get_concrete, interpreters);
             n_MC = 8, cor_ends)
         @test ζ isa CuMatrix
         @test eltype(ζ) == FT
         gr = Zygote.gradient(
             ϕ -> sum(CP.generate_ζ(
-                rng, g_flux, ϕ, xMg_batch, map(get_concrete, interpreters);
+                rng, g_gpu, ϕ, xMg_batch, map(get_concrete, interpreters);
                 n_MC = 8, cor_ends)[1]),
             ϕ)
         @test gr[1] isa CuVector
@@ -91,9 +93,9 @@ end
     @test cost isa Float64
     gr = Zygote.gradient(
         ϕ -> neg_elbo_transnorm_gf(rng, ϕ, g, transPMs_batch, f, py,
-        xM[:, 1:n_batch], xP[1:n_batch], y_o[:, 1:n_batch], y_unc[:, 1:n_batch],
-        map(get_concrete, interpreters);
-        n_MC = 8, cor_ends),
+            xM[:, 1:n_batch], xP[1:n_batch], y_o[:, 1:n_batch], y_unc[:, 1:n_batch],
+            map(get_concrete, interpreters);
+            n_MC = 8, cor_ends),
         CA.getdata(ϕ_ini))
     @test gr[1] isa Vector
 end;
@@ -103,16 +105,16 @@ if CUDA.functional()
         ϕ = CuArray(CA.getdata(ϕ_ini))
         xMg_batch = CuArray(xM[:, 1:n_batch])
         xP_batch = xP[1:n_batch] # used in f which runs on CPU
-        cost = neg_elbo_transnorm_gf(rng, ϕ, g_flux, transPMs_batch, f, py, 
+        cost = neg_elbo_transnorm_gf(rng, ϕ, g_gpu, transPMs_batch, f, py,
             xMg_batch, xP_batch, y_o[:, 1:n_batch], y_unc[:, 1:n_batch],
-             map(get_concrete, interpreters);
+            map(get_concrete, interpreters);
             n_MC = 8, cor_ends)
         @test cost isa Float64
         gr = Zygote.gradient(
-            ϕ -> neg_elbo_transnorm_gf(rng, ϕ, g_flux, transPMs_batch, f, py, 
-            xMg_batch, xP_batch, y_o[:, 1:n_batch], y_unc[:, 1:n_batch],
-             map(get_concrete, interpreters);
-            n_MC = 8, cor_ends),
+            ϕ -> neg_elbo_transnorm_gf(rng, ϕ, g_gpu, transPMs_batch, f, py,
+                xMg_batch, xP_batch, y_o[:, 1:n_batch], y_unc[:, 1:n_batch],
+                map(get_concrete, interpreters);
+                n_MC = 8, cor_ends),
             ϕ)
         @test gr[1] isa CuVector
         @test eltype(gr[1]) == FT
@@ -125,10 +127,12 @@ end
     trans_PMs_gen = get_transPMs(n_site)
     @test length(intm_PMs_gen) == 402
     @test trans_PMs_gen.length_in == 402
-    y_pred = predict_gf(rng, g, f, ϕ_ini, xM, xP, map(get_concrete, interpreters);
+    (; θ, y) = predict_gf(rng, g, f, ϕ_ini, xM, xP, map(get_concrete, interpreters);
         get_transPMs, get_ca_int_PMs, n_sample_pred, cor_ends)
-    @test y_pred isa Array
-    @test size(y_pred) == (size(y_o)..., n_sample_pred)
+    @test θ isa CA.ComponentMatrix
+    @test θ[:, 1].P.r0 > 0
+    @test y isa Array
+    @test size(y) == (size(y_o)..., n_sample_pred)
 end
 
 if CUDA.functional()
@@ -136,9 +140,11 @@ if CUDA.functional()
         n_sample_pred = 200
         ϕ = CuArray(CA.getdata(ϕ_ini))
         xMg = CuArray(xM)
-        y_pred = predict_gf(rng, g_flux, f, ϕ, xMg, xP, map(get_concrete, interpreters);
+        (; θ, y) = predict_gf(rng, g_gpu, f, ϕ, xMg, xP, map(get_concrete, interpreters);
             get_transPMs, get_ca_int_PMs, n_sample_pred, cor_ends)
-        @test y_pred isa Array
-        @test size(y_pred) == (size(y_o)..., n_sample_pred)
+        @test θ isa CA.ComponentMatrix # only ML parameters are on gpu
+        @test θ[:, 1].P.r0 > 0
+        @test y isa Array
+        @test size(y) == (size(y_o)..., n_sample_pred)
     end
 end

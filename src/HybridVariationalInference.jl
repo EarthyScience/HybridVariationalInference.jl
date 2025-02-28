@@ -3,10 +3,12 @@ module HybridVariationalInference
 using ComponentArrays: ComponentArrays as CA
 using Random
 using StatsBase # fit ZScoreTransform
+using StatsFuns # norminvcdf
 using Combinatorics # gen_hybridcase_synthetic/combinations
 using GPUArraysCore
 using LinearAlgebra
-using CUDA
+using MLDataDevices
+using CUDA  #TODO avoid dependency
 using ChainRulesCore
 using Bijectors
 using Zygote  # Zygote.@ignore CUDA.randn
@@ -15,12 +17,14 @@ using MLUtils  # dataloader
 using CommonSolve
 #using OptimizationOptimisers # default alg=Adam(0.02)
 using Optimization
+using Distributions, DistributionFits
 
 export ComponentArrayInterpreter, flatten1, get_concrete
 include("ComponentArrayInterpreter.jl")
 
 export AbstractModelApplicator, construct_ChainsApplicator
 export construct_3layer_MLApplicator, select_ml_engine
+export NullModelApplicator, MagnitudeModelApplicator, NormalScalingModelApplicator
 include("ModelApplicator.jl")
 
 export AbstractGPUDataHandler, NullGPUDataHandler, get_default_GPUHandler
@@ -32,6 +36,7 @@ export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_
        get_hybridproblem_neg_logden_obs, 
        get_hybridproblem_n_covar, 
        get_hybridproblem_cor_ends,
+       get_hybridproblem_priors,
        #update,
        gen_cov_pred
 include("AbstractHybridProblem.jl")

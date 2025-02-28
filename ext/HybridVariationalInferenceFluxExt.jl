@@ -4,6 +4,7 @@ using HybridVariationalInference, Flux
 using HybridVariationalInference: HybridVariationalInference as HVI
 using ComponentArrays: ComponentArrays as CA
 using Random
+using StatsFuns: logistic
 
 struct FluxApplicator{RT} <: AbstractModelApplicator
     rebuild::RT
@@ -49,8 +50,8 @@ function HVI.construct_3layer_MLApplicator(
         # dense layer with bias that maps to 8 outputs and applies `tanh` activation
         Flux.Dense(n_covar => n_covar * 4, tanh),
         Flux.Dense(n_covar * 4 => n_covar * 4, tanh),
-        # dense layer without bias that maps to n outputs and `identity` activation
-        Flux.Dense(n_covar * 4 => n_out, identity, bias = false)
+        # dense layer without bias that maps to n outputs and `logistic` activation
+        Flux.Dense(n_covar * 4 => n_out, logistic, bias = false)
     )
     construct_ChainsApplicator(rng, g_chain, float_type)
 end

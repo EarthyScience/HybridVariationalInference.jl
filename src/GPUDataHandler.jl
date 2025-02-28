@@ -28,4 +28,7 @@ function set_default_GPUHandler(handler::AbstractGPUDataHandler)
     global default_GPU_DataHandler = handler
 end
 
+struct DataDevGPUDataHandler <: AbstractGPUDataHandler end
+handle_GPU_data(::DataDevGPUDataHandler, x::AbstractArray) = x
+
 

@@ -5,6 +5,8 @@ const GROUP = get(ENV, "GROUP", "All") # defined in in CI.yml
     if GROUP == "All" || GROUP == "Basic"
         #@safetestset "test" include("test/test_ComponentArrayInterpreter.jl")
         @time @safetestset "test_ComponentArrayInterpreter" include("test_ComponentArrayInterpreter.jl")
+        #@safetestset "test" include("test/test_ModelApplicator.jl")
+        @time @safetestset "test_ModelApplicator" include("test_ModelApplicator.jl")
         #@safetestset "test" include("test/test_gencovar.jl")
         @time @safetestset "test_gencovar" include("test_gencovar.jl")
         #@safetestset "test" include("test/test_SimpleChains.jl")
@@ -19,13 +21,15 @@ const GROUP = get(ENV, "GROUP", "All") # defined in in CI.yml
         @time @safetestset "test_sample_zeta" include("test_sample_zeta.jl")
         #@safetestset "test" include("test/test_elbo.jl")
         @time @safetestset "test_elbo" include("test_elbo.jl")
-        #@safetestset "test" include("test/test_HybridProblem.jl")
-        @time @safetestset "test_HybridProblem" include("test_HybridProblem.jl")
         #
         #@safetestset "test" include("test/test_Flux.jl")
         @time @safetestset "test_Flux" include("test_Flux.jl")
         #@safetestset "test" include("test/test_Lux.jl")
         @time @safetestset "test_Lux" include("test_Lux.jl")
+        #
+        # tests that need fixing (but should not be commented) at the end:
+        #@safetestset "test" include("test/test_HybridProblem.jl")
+        @time @safetestset "test_HybridProblem" include("test_HybridProblem.jl")
     end
 end
 
