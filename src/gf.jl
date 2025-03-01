@@ -19,22 +19,6 @@ end
 """
 composition f ∘ transM ∘ g: mechanistic model after machine learning parameter prediction
 """
-function gf(g, transM, f, xM, xP, ϕg, θP; 
-    gpu_handler = default_GPU_DataHandler)
-    # @show first(xM,5)
-    # @show first(ϕg,5)
-    ζMs = g(xM, ϕg) # predict the log of the parameters
-    ζMs_cpu = gpu_handler(ζMs)
-    if θP isa SubArray && !(gpu_handler isa NullGPUDataHandler) 
-        # otherwise Zyote fails on gpu_handler
-        θP = copy(θP)
-    end
-    θP_cpu = gpu_handler(CA.getdata(θP))
-    θMs = reduce(hcat, map(transM, eachcol(ζMs_cpu))) # transform each column
-    y_pred_global, y_pred = f(θP_cpu, θMs, xP)
-    return y_pred_global, y_pred, θMs
-end
-
 function gf(prob::AbstractHybridProblem, xM, xP, args...; 
     scenario = (), dev = gpu_device(), kwargs...)
     g, ϕg = get_hybridproblem_MLapplicator(prob; scenario)
@@ -44,6 +28,31 @@ function gf(prob::AbstractHybridProblem, xM, xP, args...;
     g_dev, ϕg_dev, θP_dev =  (dev(g), dev(ϕg), dev(CA.getdata(θP))) 
     gf(g_dev, transM, f, xM, xP, ϕg_dev, θP_dev; kwargs...)
 end
+
+function gf(g, transM, f, xM, xP, ϕg, θP; 
+    gpu_handler = default_GPU_DataHandler)
+    # @show first(xM,5)
+    # @show first(ϕg,5)
+    if θP isa SubArray && !(gpu_handler isa NullGPUDataHandler) 
+        # otherwise Zyote fails on gpu_handler
+        θP = copy(θP)
+    end
+    θP_cpu = gpu_handler(CA.getdata(θP))
+    θMs = gtrans(g, transM, xM, ϕg; gpu_handler)
+    y_pred_global, y_pred = f(θP_cpu, θMs, xP)
+    return y_pred_global, y_pred, θMs
+end
+
+"""
+composition transM ∘ g: transformation after machine learning parameter prediction
+"""
+function gtrans(g, transM, xM, ϕg; gpu_handler = default_GPU_DataHandler)
+    ζMs = g(xM, ϕg) # predict the log of the parameters
+    ζMs_cpu = gpu_handler(ζMs)
+    # TODO move to gpu, Zygote needs to work with transM
+    θMs = reduce(hcat, map(transM, eachcol(ζMs_cpu))) # transform each column
+end
+
 
 """
 Create a loss function for parameter vector p, given 
@@ -55,7 +64,7 @@ Create a loss function for parameter vector p, given
 """
 function get_loss_gf(g, transM, f, y_o_global, int_ϕθP::AbstractComponentArrayInterpreter)
     let g = g, transM = transM, f = f, int_ϕθP = int_ϕθP, y_o_global = y_o_global
-        function loss_gf(p, xM, xP, y_o, y_unc)
+        function loss_gf(p, xM, xP, y_o, y_unc, i_sites)
             σ = exp.(y_unc ./ 2)
             pc = int_ϕθP(p)
             y_pred_global, y_pred, θMs = gf(

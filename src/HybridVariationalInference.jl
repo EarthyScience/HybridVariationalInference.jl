@@ -4,7 +4,7 @@ using ComponentArrays: ComponentArrays as CA
 using Random
 using StatsBase # fit ZScoreTransform
 using StatsFuns # norminvcdf
-using Combinatorics # gen_hybridcase_synthetic/combinations
+using Combinatorics # gen_hybridproblem_synthetic/combinations
 using GPUArraysCore
 using LinearAlgebra
 using MLDataDevices
@@ -30,15 +30,19 @@ include("ModelApplicator.jl")
 export AbstractGPUDataHandler, NullGPUDataHandler, get_default_GPUHandler
 include("GPUDataHandler.jl")
 
-export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_PBmodel, 
-        get_hybridproblem_float_type, gen_hybridcase_synthetic,
-       get_hybridproblem_par_templates, get_hybridproblem_transforms, get_hybridproblem_train_dataloader,
-       get_hybridproblem_neg_logden_obs, 
-       get_hybridproblem_n_covar, 
+export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_PBmodel,
+       get_hybridproblem_ϕunc,
+       get_hybridproblem_float_type, gen_hybridproblem_synthetic,
+       get_hybridproblem_par_templates, get_hybridproblem_transforms,
+       get_hybridproblem_train_dataloader,
+       get_hybridproblem_neg_logden_obs,
+       get_hybridproblem_n_covar,
+       get_hybridproblem_n_site,
        get_hybridproblem_cor_ends,
        get_hybridproblem_priors,
-       #update,
-       gen_cov_pred
+#update,
+       gen_cov_pred,
+       construct_dataloader_from_synthetic
 include("AbstractHybridProblem.jl")
 
 export HybridProblem
@@ -70,7 +74,6 @@ include("init_hybrid_params.jl")
 
 export AbstractHybridSolver, HybridPointSolver, HybridPosteriorSolver
 include("HybridSolver.jl")
-
 
 export DoubleMM
 include("DoubleMM/DoubleMM.jl")

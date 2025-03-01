@@ -27,9 +27,10 @@ end
 
 rng = StableRNG(111)
 (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
-) = gen_hybridcase_synthetic(rng, prob; scenario);
+) = gen_hybridproblem_synthetic(rng, prob; scenario);
+i_sites = 1:n_site
 
-@testset "gen_hybridcase_synthetic" begin
+@testset "gen_hybridproblem_synthetic" begin
     @test isapprox(
         vec(mean(CA.getdata(θMs_true); dims = 2)), CA.getdata(par_templates.θM), rtol = 0.02)
     @test isapprox(vec(std(CA.getdata(θMs_true); dims = 2)),
@@ -37,7 +38,7 @@ rng = StableRNG(111)
 
     # test same results for same rng
     rng2 = StableRNG(111)
-    gen2 = gen_hybridcase_synthetic(rng2, prob; scenario)
+    gen2 = gen_hybridproblem_synthetic(rng2, prob; scenario)
     @test gen2.y_o == y_o
 end
 
@@ -92,16 +93,16 @@ end
 
     # Pass the site-data for the batches as separate vectors wrapped in a tuple
     n_batch = 10
-    train_loader = MLUtils.DataLoader((xM, xP, y_o, y_unc), batchsize = n_batch)
+    train_loader = MLUtils.DataLoader((xM, xP, y_o, y_unc, i_sites), batchsize = n_batch)
     # get_hybridproblem_train_dataloader recreates synthetic data different θ_true
-    #train_loader = get_hybridproblem_train_dataloader(prob, rng; scenario)
+    train_loader2 = get_hybridproblem_train_dataloader(prob; scenario, n_batch = n_site)
 
     loss_gf = get_loss_gf(g, transM, f, y_global_o, int_ϕθP)
     l1 = loss_gf(p0, first(train_loader)...)[1]
-    (xM_batch, xP_batch, y_o_batch, y_unc_batch) = first(train_loader)
+    (xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch) = first(train_loader)
     Zygote.gradient(
         p0 -> loss_gf(
-            p0, xM_batch, xP_batch, y_o_batch, y_unc_batch)[1], CA.getdata(p0))
+            p0, xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch)[1], CA.getdata(p0))
 
     optf = Optimization.OptimizationFunction((ϕ, data) -> loss_gf(ϕ, data...)[1],
         Optimization.AutoZygote())
@@ -120,6 +121,7 @@ end
     @test cor(θMs_true[:, 2], θMs_pred[:, 2]) > 0.8
 
     () -> begin
+        #@usingany UnicodePlots
         scatterplot(vec(θMs_true), vec(θMs_pred))
         scatterplot(θMs_true[1, :], θMs_pred[1, :])
         scatterplot(θMs_true[2, :], θMs_pred[2, :])
@@ -129,20 +131,22 @@ end
     end
 end
 
-using CUDA
+using CUDA: CUDA
 using Flux
 using GPUArraysCore
 
-if CUDA.functional()
+gdev = gpu_device()
+cdev = cpu_device()
+if gdev isa MLDataDevices.AbstractGPUDevice
     @testset "transfer NormalScalingModelApplicator to gpu" begin
         scenario = (:use_Flux,)
         g, ϕg0 = get_hybridproblem_MLapplicator(rng, prob; scenario)
-        ϕg = gpu(ϕg0)
-        xM_gpu = gpu(xM)
-        g_gpu = gpu(g)
+        ϕg = gdev(ϕg0)
+        xM_gpu = gdev(xM)
+        g_gpu = gdev(g)
         @test g_gpu.μ isa GPUArraysCore.AbstractGPUArray
         y_gpu =  g_gpu(xM_gpu, ϕg)
         y = g(xM, ϕg0)
-        @test cpu(y_gpu) ≈ y
+        @test cdev(y_gpu) ≈ y
     end;
 end

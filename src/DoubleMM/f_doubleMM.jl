@@ -29,9 +29,8 @@ function HVI.get_hybridproblem_par_templates(::DoubleMMCase; scenario::NTuple = 
 end
 
 function HVI.get_hybridproblem_priors(::DoubleMMCase; scenario = ())
-    Dict( keys(θall) .=> fit.(LogNormal, θall, QuantilePoint.(θall .* 3, 0.95)))
+    Dict(keys(θall) .=> fit.(LogNormal, θall, QuantilePoint.(θall .* 3, 0.95)))
 end
-
 
 function HVI.get_hybridproblem_MLapplicator(
         rng::AbstractRNG, prob::HVI.DoubleMM.DoubleMMCase; scenario = ())
@@ -44,12 +43,10 @@ function HVI.get_hybridproblem_MLapplicator(
     # construct normal distribution from quantiles at unconstrained scale
     priors_dict = get_hybridproblem_priors(prob; scenario)
     priors = [priors_dict[k] for k in keys(θM)]
-    (;transM) = get_hybridproblem_transforms(prob; scenario)
+    (; transM) = get_hybridproblem_transforms(prob; scenario)
     g = NormalScalingModelApplicator(g_nomag, priors, transM, eltype(ϕ_g0))
     return g, ϕ_g0
 end
-
-
 
 function HVI.get_hybridproblem_transforms(::DoubleMMCase; scenario::NTuple = ())
     if (:stackedMS ∈ scenario)
@@ -98,11 +95,19 @@ const xP_S2 = Float32[1.0, 3.0, 4.0, 5.0, 5.0, 5.0, 5.0, 5.0]
 # const xP_S1 = Float32[0.5, 0.5, 0.5, 0.5, 0.5, 0.4, 0.3, 0.1]
 # const xP_S2 = Float32[1.0, 2.0, 3.0, 4.0, 5.0, 5.0, 5.0, 5.0]
 
-function HVI.gen_hybridcase_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
+HVI.get_hybridproblem_n_covar(prob::DoubleMMCase; scenario) = 5
+HVI.get_hybridproblem_n_site(prob::DoubleMMCase; scenario) = 800
+
+function HVI.get_hybridproblem_train_dataloader(prob::DoubleMMCase; scenario = (), n_batch)
+    rng::AbstractRNG = StableRNG(111)
+    construct_dataloader_from_synthetic(rng, prob; scenario, n_batch)
+end
+
+function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
         scenario = ())
     n_covar_pc = 2
-    n_site = 800
-    n_covar = 5
+    n_site = get_hybridproblem_n_site(prob; scenario)
+    n_covar = get_hybridproblem_n_covar(prob; scenario)
     n_θM = length(θM)
     FloatType = get_hybridproblem_float_type(prob; scenario)
     par_templates = get_hybridproblem_par_templates(prob; scenario)

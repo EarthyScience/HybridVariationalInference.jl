@@ -42,7 +42,7 @@ construct_problem = () -> begin
     rng = StableRNG(111)
     # dependency on DeoubleMMCase -> take care of changes in covariates
     (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
-    ) = gen_hybridcase_synthetic(rng, DoubleMM.DoubleMMCase())
+    ) = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase())
     n_covar = size(xM,1)
     g_chain = SimpleChain(
         static(n_covar), # input dimension (optional)
@@ -56,9 +56,10 @@ construct_problem = () -> begin
     #
     py = neg_logden_indep_normal
     n_batch = 10
-    get_train_loader = let xM = xM, xP = xP, y_o = y_o, y_unc = y_unc
-        function inner_get_train_loader(rng; n_batch, kwargs...)
-            MLUtils.DataLoader((xM, xP, y_o, y_unc), batchsize=n_batch, partial=false)
+    i_sites = 1:n_site
+    get_train_loader = let xM = xM, xP = xP, y_o = y_o, y_unc = y_unc, i_sites = i_sites
+        function inner_get_train_loader(; n_batch, kwargs...)
+            MLUtils.DataLoader((xM, xP, y_o, y_unc, i_sites), batchsize=n_batch, partial=false)
         end
     end
     θall = vcat(θP, θM)
@@ -69,18 +70,20 @@ construct_problem = () -> begin
     app, ϕg0 = construct_ChainsApplicator(rng, g_chain)
     g_chain_scaled = NormalScalingModelApplicator(app, priorsM, transM, FT)
     #g_chain_scaled = app
-    HybridProblem(θP, θM, g_chain_scaled, ϕg0, f_doubleMM_with_global, priors_dict, py,
-        transM, transP, get_train_loader, cor_ends)
+    ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(FT)) 
+    HybridProblem(θP, θM, g_chain_scaled, ϕg0, ϕunc0, f_doubleMM_with_global, priors_dict, py,
+        transM, transP, get_train_loader, n_covar, n_site, cor_ends)
 end
 prob = construct_problem();
+#@descend construct_problem()
 scenario = (:default,)
 
 @testset "loss_gf" begin
     #----------- fit g and θP to y_o
     rng = StableRNG(111)
     g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
-    train_loader = get_hybridproblem_train_dataloader(rng, prob; n_batch=10, scenario)
-    (xM, xP, y_o, y_unc) = first(train_loader)
+    train_loader = get_hybridproblem_train_dataloader(prob; n_batch=10, scenario)
+    (xM, xP, y_o, y_unc, i_sites) = first(train_loader)
     f = get_hybridproblem_PBmodel(prob; scenario)
     par_templates = get_hybridproblem_par_templates(prob; scenario)
     #f(par_templates.θP, hcat(par_templates.θM, par_templates.θM), xP[1:2])
@@ -121,8 +124,8 @@ import Flux
 @testset "neg_elbo_transnorm_gf" begin
     rng = StableRNG(111)
     g, ϕg0 = get_hybridproblem_MLapplicator(prob)
-    train_loader = get_hybridproblem_train_dataloader(rng, prob; n_batch=10)
-    (xM, xP, y_o, y_unc) = first(train_loader)
+    train_loader = get_hybridproblem_train_dataloader(prob; n_batch=10)
+    (xM, xP, y_o, y_unc, i_sites) = first(train_loader)
     n_batch = size(y_o, 2)
     f = get_hybridproblem_PBmodel(prob)
     (θP0, θM0) = get_hybridproblem_par_templates(prob)
@@ -138,12 +141,12 @@ import Flux
     py = get_hybridproblem_neg_logden_obs(prob)
 
     cost = neg_elbo_transnorm_gf(rng, ϕ_ini, g, transPMs_batch, f, py,
-        xM, xP, y_o, y_unc, map(get_concrete, interpreters);
+        xM, xP, y_o, y_unc, i_sites, map(get_concrete, interpreters);
         n_MC=8, cor_ends)
     @test cost isa Float64
     gr = Zygote.gradient(
         ϕ -> neg_elbo_transnorm_gf(rng, ϕ, g, transPMs_batch, f, py,
-            xM, xP, y_o, y_unc, map(get_concrete, interpreters);
+            xM, xP, y_o, y_unc, i_sites, map(get_concrete, interpreters);
             n_MC=8, cor_ends),
         CA.getdata(ϕ_ini))
     @test gr[1] isa Vector
@@ -168,12 +171,12 @@ import Flux
             xMg = gdev(xM)
             g_dev = gdev(g)
             cost = neg_elbo_transnorm_gf(rng, ϕ, g_dev, transPMs_batch, f, py,
-                xMg, xP, y_o, y_unc, map(get_concrete, interpreters);
+                xMg, xP, y_o, y_unc, i_sites, map(get_concrete, interpreters);
                 n_MC=8, cor_ends)
             @test cost isa Float64
             gr = Zygote.gradient(
                 ϕ -> neg_elbo_transnorm_gf(rng, ϕ, g_dev, transPMs_batch, f, py,
-                    xMg, xP, y_o, y_unc, map(get_concrete, interpreters);
+                    xMg, xP, y_o, y_unc, i_sites, map(get_concrete, interpreters);
                     n_MC=8, cor_ends),
                 ϕ)
             @test gr[1] isa GPUArraysCore.AbstractGPUArray
@@ -201,11 +204,14 @@ end;
     rng = StableRNG(111)
     solver = HybridPosteriorSolver(; alg=Adam(0.02), n_batch=11, n_MC=3)
     (; ϕ, θP, resopt) = solve(prob, solver; scenario, rng,
-        #callback = callback_loss(100), maxiters = 1200
-        #maxiters = 20 # yields error
-        maxiters=200,
+        callback = callback_loss(100), maxiters = 1200,
+        #maxiters = 20 # too small so that it yields error
+        #maxiters=200,
+        θmean_quant = 0.01,   # test constraining mean to initial prediction     
         dev = cdev
     )
     θPt = get_hybridproblem_par_templates(prob; scenario).θP
     @test θP.r0 < 1.5 * θPt.r0
+    θP
+    prob.θP
 end;

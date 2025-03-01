@@ -4,6 +4,7 @@ using HybridVariationalInference
 using HybridVariationalInference: HybridVariationalInference as HVI
 using ComponentArrays: ComponentArrays as CA
 using Random
+using StableRNGs
 using Combinatorics
 using StatsFuns: logistic
 using Bijectors

@@ -22,7 +22,7 @@ scenario = (:default,)
 n_θM, n_θP = length.(values(get_hybridproblem_par_templates(prob; scenario)))
 
 (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o
-) = gen_hybridcase_synthetic(rng, prob; scenario)
+) = gen_hybridproblem_synthetic(rng, prob; scenario)
 
 FT = get_hybridproblem_float_type(prob; scenario)
 

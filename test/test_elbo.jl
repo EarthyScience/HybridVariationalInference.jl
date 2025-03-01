@@ -29,7 +29,7 @@ n_batch = 10
 n_θM, n_θP = values(map(length, get_hybridproblem_par_templates(prob; scenario)))
 
 (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
-) = gen_hybridcase_synthetic(rng, prob; scenario);
+) = gen_hybridproblem_synthetic(rng, prob; scenario);
 
 py = neg_logden_indep_normal
 
@@ -86,33 +86,35 @@ if CUDA.functional()
 end
 
 @testset "neg_elbo_transnorm_gf cpu" begin
+    i_sites = 1:n_batch
     cost = neg_elbo_transnorm_gf(rng, ϕ_ini, g, transPMs_batch, f, py,
-        xM[:, 1:n_batch], xP[1:n_batch], y_o[:, 1:n_batch], y_unc[:, 1:n_batch],
+        xM[:, i_sites], xP[i_sites], y_o[:, i_sites], y_unc[:, i_sites], i_sites,
         map(get_concrete, interpreters);
-        n_MC = 8, cor_ends)
+        cor_ends)
     @test cost isa Float64
     gr = Zygote.gradient(
         ϕ -> neg_elbo_transnorm_gf(rng, ϕ, g, transPMs_batch, f, py,
-            xM[:, 1:n_batch], xP[1:n_batch], y_o[:, 1:n_batch], y_unc[:, 1:n_batch],
+            xM[:, i_sites], xP[i_sites], y_o[:, i_sites], y_unc[:, i_sites], i_sites,
             map(get_concrete, interpreters);
-            n_MC = 8, cor_ends),
+            cor_ends),
         CA.getdata(ϕ_ini))
     @test gr[1] isa Vector
 end;
 
 if CUDA.functional()
     @testset "neg_elbo_transnorm_gf gpu" begin
+        i_sites = 1:n_batch
         ϕ = CuArray(CA.getdata(ϕ_ini))
-        xMg_batch = CuArray(xM[:, 1:n_batch])
-        xP_batch = xP[1:n_batch] # used in f which runs on CPU
+        xMg_batch = CuArray(xM[:, i_sites])
+        xP_batch = xP[i_sites] # used in f which runs on CPU
         cost = neg_elbo_transnorm_gf(rng, ϕ, g_gpu, transPMs_batch, f, py,
-            xMg_batch, xP_batch, y_o[:, 1:n_batch], y_unc[:, 1:n_batch],
+            xMg_batch, xP_batch, y_o[:, i_sites], y_unc[:, i_sites], i_sites,
             map(get_concrete, interpreters);
             n_MC = 8, cor_ends)
         @test cost isa Float64
         gr = Zygote.gradient(
             ϕ -> neg_elbo_transnorm_gf(rng, ϕ, g_gpu, transPMs_batch, f, py,
-                xMg_batch, xP_batch, y_o[:, 1:n_batch], y_unc[:, 1:n_batch],
+                xMg_batch, xP_batch, y_o[:, i_sites], y_unc[:, i_sites], i_sites,
                 map(get_concrete, interpreters);
                 n_MC = 8, cor_ends),
             ϕ)

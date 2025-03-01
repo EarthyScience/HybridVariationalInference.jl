@@ -11,7 +11,7 @@ using UnicodePlots
 using SimpleChains
 using Flux
 using MLUtils
-using MLDataDevices, CUDA, cuDNN, GPUArraysCore
+import MLDataDevices, CUDA, cuDNN, GPUArraysCore
 
 rng = StableRNG(115)
 scenario = NTuple{0, Symbol}()
@@ -24,14 +24,17 @@ gdev = :use_Flux ∈ scenario ? gpu_device() : cpu_device()
 
 #------ setup synthetic data and training data loader
 (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
-) = gen_hybridcase_synthetic(rng, DoubleMM.DoubleMMCase(); scenario);
+) = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); scenario);
+#n_site = get_hybridproblem_n_site(DoubleMM.DoubleMMCase(); scenario)
+i_sites = 1:n_site
 xM_cpu = xM; xM = xM_cpu |> gdev
-get_train_loader = (rng; n_batch, kwargs...) -> MLUtils.DataLoader((xM, xP, y_o, y_unc);
+get_train_loader = (;n_batch, kwargs...) -> MLUtils.DataLoader((xM, xP, y_o, y_unc, i_sites);
     batchsize = n_batch, partial = false)
 σ_o = exp(first(y_unc) / 2)
 
 # assign the train_loader, otherwise it eatch time creates another version of synthetic data
 prob0 = HVI.update(HybridProblem(DoubleMM.DoubleMMCase(); scenario); get_train_loader)
+#tmp = HVI.get_hybridproblem_ϕunc(prob0; scenario)
 
 #------- pointwise hybrid model fit
 solver = HybridPointSolver(; alg = Adam(0.01), n_batch = 30)
@@ -77,8 +80,7 @@ end
     prob2o.θP
 end
 
-#----------- fit g to true θMs 
-() -> begin
+() -> begin #----------- fit g to true θMs 
     # and fit gf starting from true parameters
     prob = prob0
     g, ϕg0_cpu = get_hybridproblem_MLapplicator(prob; scenario)
@@ -121,10 +123,10 @@ end
         int_ϕθP = ComponentArrayInterpreter(CA.ComponentVector(
             ϕg = 1:length(prob0.ϕg), θP = prob0.θP))
         loss_gf = get_loss_gf(prob0.g, prob0.transM, prob0.f, Float32[], int_ϕθP)
-        loss_gf(vcat(prob3.ϕg, prob3.θP), xM, xP, y_o, y_unc)[1]
-        loss_gf(vcat(prob3o.ϕg, prob3o.θP), xM, xP, y_o, y_unc)[1]
+        loss_gf(vcat(prob3.ϕg, prob3.θP), xM, xP, y_o, y_unc, i_sites)[1]
+        loss_gf(vcat(prob3o.ϕg, prob3o.θP), xM, xP, y_o, y_unc, i_sites)[1]
         #
-        loss_gf(vcat(prob2o.ϕg, prob2o.θP), xM, xP, y_o, y_unc)[1]
+        loss_gf(vcat(prob2o.ϕg, prob2o.θP), xM, xP, y_o, y_unc, i_sites)[1]
     end
 end
 
@@ -141,15 +143,39 @@ solver2 = HybridPosteriorSolver(; alg = Adam(0.01), n_batch = 40, n_MC = 3)
 #solver = HybridPointSolver(; alg = Adam(), n_batch = 200)
 n_epoch = 3
 (; ϕ, θP, resopt, interpreters) = solve(probh, solver2; scenario,
-    rng, callback = callback_loss(200), maxiters = n_site * n_epoch);
-# update the problem with optimized parameters
-prob1o = HVI.update(prob0o; ϕg = cpu_ca(ϕ).ϕg, θP = θP)
+    rng, callback = callback_loss(200), maxiters = n_site * n_epoch, θmean_quant = 0.05);
+# update the problem with optimized parameters, including uncertainty
+probo = prob1o = HVI.update(prob0o; ϕg = cpu_ca(ϕ).ϕg, θP = θP, ϕunc = cpu_ca(ϕ).unc)
+n_sample_pred = 400
+(; θ, y) = predict_gf(rng, prob1o, xM, xP; scenario, n_sample_pred);
+(θ1, y1) = (θ, y)
+
 () -> begin # prediction with fitted parameters  (should be smaller than mean)
     y_pred_global, y_pred2, θMs = gf(prob1o, xM, xP; scenario);
     scatterplot(θMs_true[1, :], θMs[1, :])
     scatterplot(θMs_true[2, :], θMs[2, :])
     hcat(θP_true, θP) # all parameters overestimated
     histogram(vec(y_pred2) - vec(y_true)) # predicts an unsymmytric distribution
+end
+
+# continue without strong prior on θmean
+prob2 = HVI.update(prob1o)
+n_in_epoch = n_site ÷ solver2.n_batch
+function fstate_ϕunc(state)
+    u = state.u |> cpu
+    #Main.@infiltrate_main
+    uc =interpreters.μP_ϕg_unc(u)
+    uc.unc.ρsM
+end
+(; ϕ, θP, resopt, interpreters) = solve(prob2, HVI.update(solver2, n_MC=12); scenario,
+    rng, maxiters = n_site * n_epoch,
+    callback = HVI.callback_loss_fstate(n_in_epoch*10, fstate_ϕunc));
+probo = prob2o = HVI.update(prob2; ϕg = cpu_ca(ϕ).ϕg, θP = θP, ϕunc = cpu_ca(ϕ).unc)
+
+() -> begin
+    using JLD2
+    fname_probos = "intermediate/probos.jld2"
+    JLD2.save(fname_probos, Dict("prob1o" =>prob1o, "prob2o" => prob2o))
 end
 
 # otpimize using LUX
@@ -185,7 +211,8 @@ exp.(ϕunc_VI.coef_logσ2_logMs[1,:])
 
 # test predicting correct obs-uncertainty of predictive posterior
 n_sample_pred = 400
-(; θ, y) = predict_gf(rng, prob1o, xM, xP; scenario, n_sample_pred);
+(; θ, y) = predict_gf(rng, probo, xM, xP; scenario, n_sample_pred);
+(θ2, y2) = (θ, y)
 size(y) # n_obs x n_site, n_sample_pred
 size(θ)  # n_θP + n_site * n_θM x n_sample
 σ_o_post = dropdims(std(y; dims = 3), dims = 3);
@@ -197,7 +224,7 @@ hcat(σ_o, # fill(mean_σ_o_MC, length(σ_o)),
 hcat(σ_o, fill(mean_σ_o_MC, length(σ_o)),
     mean(σ_o_post, dims = 2), sqrt.(mean(abs2, σ_o_post, dims = 2)))
 # VI predicted uncertainty is smaller than HMC predicted one
-mean_y_pred = map(mean, eachslice(y; dims = (1, 2)))
+mean_y_pred = map(mean, eachslice(y; dims = (1, 2)));
 #describe(mean_y_pred - y_o)
 histogram(vec(mean_y_pred) - vec(y_true)) # predictions centered around y_o (or y_true)
 plt = scatterplot(vec(y_true), vec(mean_y_pred)); lineplot!(plt, 0, 2)
@@ -207,6 +234,21 @@ mean_θ = CA.ComponentVector(mean(CA.getdata(θ); dims=2)[:,1], CA.getaxes(θ[:,
 plt = scatterplot(θMs_true[1, :], mean_θ.Ms[1, :]); lineplot!(plt, 0, 1)
 plt = scatterplot(θMs_true[2, :], mean_θ.Ms[2, :])
 #lineplot!(plt, 0, 1)
+#plt = scatterplot(θMs_true[1, :], mean_θ.Ms[1, :] - θMs_true[1, :])
+#plt = scatterplot(θMs_true[2, :], mean_θ.Ms[2, :] - θMs_true[2, :])
+#plt = scatterplot(mean_θ.Ms[2, :] - θMs_true[2, :], mean_θ.Ms[1, :] - θMs_true[1, :])
+
+# compare cost for fit with constrained θ and unconstrained θ
+solver_MC = HybridPosteriorSolver(; alg = Adam(0.01), n_batch = 30, n_MC = 300)
+n_in_epoch = n_site ÷ solver_MC.n_batch
+(; ϕ, θP, resopt, interpreters) = solve(prob2o, solver_MC; scenario,
+    rng, callback = callback_loss(n_in_epoch), maxiters = 14);
+resopt.objective
+(; ϕ, θP, resopt, interpreters) = solve(prob1o, solver_MC; scenario,
+    rng, callback = callback_loss(n_in_epoch), maxiters = 14);
+resopt.objective
+
+probo = prob2o = HVI.update(prob2; ϕg = cpu_ca(ϕ).ϕg, θP = θP, ϕunc = cpu_ca(ϕ).unc)
 
 
 
