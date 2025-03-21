@@ -119,6 +119,7 @@ struct NormalScalingModelApplicator{VF,A} <: AbstractModelApplicator
     μ::VF
     σ::VF
 end
+@functor NormalScalingModelApplicator
 
 function NormalScalingModelApplicator(
     app::AbstractModelApplicator, priors::AbstractVector{<:Distribution}, transM, ET::Type)

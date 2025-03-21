@@ -12,7 +12,7 @@ end
 
 function HVI.construct_ChainsApplicator(rng::AbstractRNG, m::Chain, float_type::DataType)
     # TODO: care fore rng and float_type
-    ϕ, rebuild = destructure(m)
+    ϕ, rebuild = Flux.destructure(m)
     FluxApplicator(rebuild), ϕ
 end
 

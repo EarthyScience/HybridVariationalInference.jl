@@ -121,7 +121,7 @@ using cuDNN: cuDNN
 using MLDataDevices, GPUArraysCore
 import Flux
 
-@testset "neg_elbo_transnorm_gf" begin
+@testset "neg_elbo_gtf" begin
     rng = StableRNG(111)
     g, ϕg0 = get_hybridproblem_MLapplicator(prob)
     train_loader = get_hybridproblem_train_dataloader(prob; n_batch=10)
@@ -140,12 +140,12 @@ import Flux
 
     py = get_hybridproblem_neg_logden_obs(prob)
 
-    cost = neg_elbo_transnorm_gf(rng, ϕ_ini, g, transPMs_batch, f, py,
+    cost = neg_elbo_gtf(rng, ϕ_ini, g, transPMs_batch, f, py,
         xM, xP, y_o, y_unc, i_sites, map(get_concrete, interpreters);
         n_MC=8, cor_ends)
     @test cost isa Float64
     gr = Zygote.gradient(
-        ϕ -> neg_elbo_transnorm_gf(rng, ϕ, g, transPMs_batch, f, py,
+        ϕ -> neg_elbo_gtf(rng, ϕ, g, transPMs_batch, f, py,
             xM, xP, y_o, y_unc, i_sites, map(get_concrete, interpreters);
             n_MC=8, cor_ends),
         CA.getdata(ϕ_ini))
@@ -153,7 +153,7 @@ import Flux
 
     gdev = gpu_device()
     if gdev isa MLDataDevices.AbstractGPUDevice 
-        @testset "neg_elbo_transnorm_gf gpu" begin
+        @testset "neg_elbo_gtf gpu" begin
             g, ϕg0 = begin
                 n_covar = size(xM, 1)
                 n_out = length(θM0)
@@ -170,12 +170,12 @@ import Flux
             ϕ = gdev(CA.getdata(ϕ_ini))
             xMg = gdev(xM)
             g_dev = gdev(g)
-            cost = neg_elbo_transnorm_gf(rng, ϕ, g_dev, transPMs_batch, f, py,
+            cost = neg_elbo_gtf(rng, ϕ, g_dev, transPMs_batch, f, py,
                 xMg, xP, y_o, y_unc, i_sites, map(get_concrete, interpreters);
                 n_MC=8, cor_ends)
             @test cost isa Float64
             gr = Zygote.gradient(
-                ϕ -> neg_elbo_transnorm_gf(rng, ϕ, g_dev, transPMs_batch, f, py,
+                ϕ -> neg_elbo_gtf(rng, ϕ, g_dev, transPMs_batch, f, py,
                     xMg, xP, y_o, y_unc, i_sites, map(get_concrete, interpreters);
                     n_MC=8, cor_ends),
                 ϕ)

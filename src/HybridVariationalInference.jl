@@ -18,6 +18,7 @@ using CommonSolve
 #using OptimizationOptimisers # default alg=Adam(0.02)
 using Optimization
 using Distributions, DistributionFits
+using Functors
 
 export ComponentArrayInterpreter, flatten1, get_concrete
 include("ComponentArrayInterpreter.jl")
@@ -66,7 +67,7 @@ include("logden_normal.jl")
 export get_ca_starts, get_ca_ends, get_cor_count
 include("cholesky.jl")
 
-export neg_elbo_transnorm_gf, predict_gf
+export neg_elbo_gtf, predict_gf
 include("elbo.jl")
 
 export init_hybrid_params, init_hybrid_ϕunc

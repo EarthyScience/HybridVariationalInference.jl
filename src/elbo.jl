@@ -27,53 +27,69 @@ expected value of the likelihood of observations.
 - `n_MC`: number of MonteCarlo samples from the distribution of parameters to simulate
   using the mechanistic model f.
 """
-function neg_elbo_transnorm_gf(rng, ϕ::AbstractVector, g, transPMs, f, py,
+function neg_elbo_gtf(args...; kwargs...)
+    nLy, entropy_ζ, nLmean_θ = neg_elbo_gtf_components(args...; kwargs...)
+    nLy - entropy_ζ + nLmean_θ
+end
+
+function neg_elbo_gtf_components(rng, ϕ::AbstractVector, g, transPMs, f, py,
         xM::AbstractMatrix, xP, y_ob, y_unc, i_sites::AbstractVector{<:Number},
         interpreters::NamedTuple;
-        n_MC = 12, n_MC_mean = 30, n_MC_cap = 2*n_MC ÷ 3,
+        n_MC = 12, n_MC_mean = 30, n_MC_cap = n_MC,
         gpu_data_handler = get_default_GPUHandler(),
         priors_θ_mean = [],
-        cor_ends, # =(P=(1,),M=(1,))
+        cor_ends # =(P=(1,),M=(1,))
 )
     n_MCr = isempty(priors_θ_mean) ? n_MC : max(n_MC, n_MC_mean)
     ζs, σ = generate_ζ(rng, g, ϕ, xM, interpreters; n_MC = n_MCr, cor_ends)
     ζs_cpu = gpu_data_handler(ζs) # differentiable fetch to CPU in Flux package extension
-    nLmean_θ = isempty(priors_θ_mean) ? 0.0 : begin
+    nLy, entropy_ζ = neg_elbo_ζtf(ζs_cpu, σ, transPMs, f, py,
+        xP, y_ob, y_unc, interpreters;
+        n_MC, n_MC_cap
+    )
+    nLmean_θ = isempty(priors_θ_mean) ? 0.0 :
+    begin
         # compute the mean of predicted and transformed site-parameters
         # avoid mapslices because of Zygote
         # θs0 = mapslices(transPMs, ζs_cpu, dims=[1])
         # θPs0 = mapslices(θ -> interpreters.PMs(θ).P, θs0, dims = 1) 
         #θs = (transPMs(ζ) for ζ in eachcol(ζs_cpu)) # does not work with Zygote
-        θs = map(transPMs, eachcol(ζs_cpu)) 
+        θs = map(transPMs, eachcol(ζs_cpu))
         θPs = map(θ -> CA.getdata(interpreters.PMs(θ).P), θs) |> stack
         # does not need to allocate vectors but does not work with Zygote: 
         # θPs = (CA.getdata(interpreters.PMs(θ).P) for θ in θs) |> stack
-        mean_θP = mean(CA.getdata(θPs); dims=(2))[:,1]
+        mean_θP = mean(CA.getdata(θPs); dims = (2))[:, 1]
         #nLmean_θP = map((d, θi) -> -logpdf(d, θi), CA.getdata(priors_θ_mean.P), mean_θP) 
         #workaround for Zygote failing on `priors_θ_mean.P`
         iθ = CA.ComponentArray(1:length(priors_θ_mean), CA.getaxes(priors_θ_mean))
-        nLmean_θP = map((d, θi) -> -logpdf(d, θi), priors_θ_mean[CA.getdata(iθ.P)], mean_θP) 
+        nLmean_θP = map((d, θi) -> -logpdf(d, θi), priors_θ_mean[CA.getdata(iθ.P)], mean_θP)
         θMss = map(θ -> interpreters.PMs(θ).Ms, θs) |> stack
-        mean_θMs = mean(θMss; dims=(3))[:,:,1]
-        nLmean_θMs = map((d, θi) -> -logpdf(d, θi), 
-            CA.getdata(priors_θ_mean[CA.getdata(iθ.Ms)])[:,i_sites], mean_θMs) 
+        mean_θMs = mean(θMss; dims = (3))[:, :, 1]
+        nLmean_θMs = map((d, θi) -> -logpdf(d, θi),
+            CA.getdata(priors_θ_mean[CA.getdata(iθ.Ms)])[:, i_sites], mean_θMs)
         nLmean_θ = sum(nLmean_θP) + sum(nLmean_θMs)
     end
-    #ζi = first(eachcol(ζs_cpu))
-    nLys = map(eachcol(ζs_cpu[:, 1:n_MC])) do ζi
+    nLy, entropy_ζ, nLmean_θ
+end
+
+function neg_elbo_ζtf(ζs, σ, transPMs, f, py,
+        xP, y_ob, y_unc, interpreters::NamedTuple;
+        n_MC = 12, n_MC_cap = n_MC
+)
+    nLys = map(eachcol(ζs[:, 1:n_MC])) do ζi
         θ_i, y_pred_i, logjac = predict_y(ζi, xP, f, transPMs, interpreters.PMs)
         # TODO nLogDen prior on \theta
         #nLy1 = neg_logden_indep_normal(y_ob, y_pred_i, y_unc)
         nLy1 = py(y_ob, y_pred_i, y_unc)
         nLy1 - logjac
     end
-    # For robustness compute the Expectation only on the  n_smallest values
+    # For robustness may compute the expectation only on the  n_smallest values
     # because its very sensitive to few large outliers
     #nLys_smallest = nsmallest(n_MC_cap, nLys) # does not work with Zygote
     if n_MC_cap == n_MC
         nLy = sum(nLys) / n_MC
     else
-        nLys_smallest = partialsort(nLys, 1:n_MC_cap) 
+        nLys_smallest = partialsort(nLys, 1:n_MC_cap)
         nLy = sum(nLys_smallest) / n_MC_cap
     end
     #  sum_log_σ = sum(log.(σ))
@@ -86,18 +102,18 @@ function neg_elbo_transnorm_gf(rng, ϕ::AbstractVector, g, transPMs, f, py,
     #     @show std(nLys), std(nLys)/abs(nLy)
     #     @show std(nLys_smallest), std(nLys_smallest)/abs(nLy)
     # end
-    nLy - entropy_ζ + nLmean_θ
+    nLy, entropy_ζ
 end
 
 () -> begin
-nLy = reduce(
-    +, map(eachcol(ζs_cpu[:, 1:n_MC])) do ζi
-        θ_i, y_pred_i, logjac = predict_y(ζi, xP, f, transPMs, interpreters.PMs)
-        # TODO nLogDen prior on \theta
-        #nLy1 = neg_logden_indep_normal(y_ob, y_pred_i, y_unc)
-        nLy1 = py(y_ob, y_pred_i, y_unc)
-        nLy1 - logjac
-    end) / n_MC
+    nLy = reduce(
+        +, map(eachcol(ζs_cpu[:, 1:n_MC])) do ζi
+            θ_i, y_pred_i, logjac = predict_y(ζi, xP, f, transPMs, interpreters.PMs)
+            # TODO nLogDen prior on \theta
+            #nLy1 = neg_logden_indep_normal(y_ob, y_pred_i, y_unc)
+            nLy1 = py(y_ob, y_pred_i, y_unc)
+            nLy1 - logjac
+        end) / n_MC
 end
 
 () -> begin
@@ -131,7 +147,7 @@ function predict_gf(rng, prob::AbstractHybridProblem, xM::AbstractMatrix, xP;
     f = get_hybridproblem_PBmodel(prob; scenario)
     (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
         θP, θM, cor_ends, ϕg0, n_site; transP, transM, ϕunc0)
-    g_dev, ϕ_dev = dev(g), dev(ϕ)    
+    g_dev, ϕ_dev = dev(g), dev(ϕ)
     # use_gpu = (:use_Flux ∈ scenario)
     # ϕ0 = use_gpu ? CuArray(ϕ) : ϕ # TODO replace CuArray by something more general
     predict_gf(rng, g_dev, f, ϕ_dev, xM, xP, interpreters;
@@ -147,20 +163,22 @@ function predict_gf(rng, g, f, ϕ::AbstractVector, xM::AbstractMatrix, xP, inter
     intm_PMs_gen = get_ca_int_PMs(n_site)
     trans_PMs_gen = get_transPMs(n_site)
     interpreters_gen = (; interpreters..., PMs = intm_PMs_gen)
-    ζs_gpu, _ = generate_ζ(rng, g, CA.getdata(ϕ), CA.getdata(xM), interpreters_gen;
+    ζs_gpu, σ = generate_ζ(rng, g, CA.getdata(ϕ), CA.getdata(xM), interpreters_gen;
         n_MC = n_sample_pred, cor_ends)
     ζs = gpu_data_handler(ζs_gpu)
+    logdetΣ = 2 * sum(log.(σ))
+    entropy_ζ = entropy_MvNormal(length(σ), logdetΣ)  # defined in logden_normal
     #y_pred_global, y_pred = f(θc.P, θc.Ms, xP)
     # TODO take care of y_pred_global
     θandy = map(eachcol(ζs)) do ζ
         predict_y(ζ, xP, f, trans_PMs_gen, interpreters_gen.PMs)[1:2]
-    end 
+    end
     θ1 = first(first(θandy))
     θ = CA.ComponentMatrix(
         stack(CA.getdata.(first.(θandy))), (CA.getaxes(θ1)[1], CA.FlatAxis()))
     #θ[:P,1]
     y = stack(last.(θandy))
-    (; θ, y)
+    (; θ, y, entropy_ζ)
 end
 
 """
@@ -173,7 +191,7 @@ model.
 """
 function generate_ζ(rng, g, ϕ::AbstractVector, xM::AbstractMatrix,
         interpreters::NamedTuple; n_MC = 3, cor_ends)
-    # see documentation of neg_elbo_transnorm_gf
+    # see documentation of neg_elbo_gtf
     ϕc = interpreters.μP_ϕg_unc(CA.getdata(ϕ))
     μ_ζP = ϕc.μP
     ϕg = ϕc.ϕg

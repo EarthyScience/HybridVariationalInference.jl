@@ -171,7 +171,7 @@ function ChainRulesCore.rrule(::typeof(uutri2vec), X::AbstractMatrix{T}) where {
     # -> put the components of vector Δy into matrix
     # make sure that the gradient of main diagonal is zero rather than one
     function uutri2vec_pullback(Δy)
-        (NoTangent(), vec2uutri(Δy; diag=zero(T)))
+        (NoTangent(), vec2uutri(unthunk(Δy); diag=zero(T)))
     end
     return uutri2vec(X), uutri2vec_pullback
 end

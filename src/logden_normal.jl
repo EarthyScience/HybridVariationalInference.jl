@@ -23,7 +23,7 @@ function neg_logden_indep_normal(obs::AbstractArray, μ::AbstractArray, logσ2::
     # optimize argument logσ2 rather than σs for performance
     #nlogL = sum(σfac .* (1/2) .* logσ2 .+ (1/2) .* exp.(.- logσ2) .* abs2.(obs .- μ))
     # specifying logσ2 instead of σ is not transforming a random variable -> no Jacobian
-    nlogL = sum(σfac .* logσ2 .+  abs2.(obs .- μ) .* exp.(.-logσ2)) / 2
+    nlogL = sum(σfac .* logσ2 .+ abs2.(obs .- μ) .* exp.(.-logσ2)) / 2
     return (nlogL)
 end
 # function neg_logden_indep_normal(obss::AbstractMatrix, preds::AbstractMatrix, logσ2::AbstractVector; kwargs...)
@@ -43,8 +43,10 @@ end
 # end
 
 
-entropy_MvNormal(K, logdetΣ) = (K*(1+log(2π)) + logdetΣ)/2
-entropy_MvNormal(Σ) = entropy_MvNormal(size(Σ,1), logdet(Σ))
+entropy_MvNormal(K, logdetΣ) = (K * log(2 * π * ℯ) + logdetΣ) / 2
+# compiler figures out log(2 * π * ℯ) already, no need to tinker
+#entropy_MvNormal(K, logdetΣ) = (K * (1 + log(2π)) + logdetΣ) / 2
+entropy_MvNormal(Σ) = entropy_MvNormal(size(Σ, 1), logdet(Σ))
 
 # struct MvNormalLogDensityProblem{T}
 #     y::AbstractVector{T}

@@ -85,15 +85,15 @@ if CUDA.functional()
     end
 end
 
-@testset "neg_elbo_transnorm_gf cpu" begin
+@testset "neg_elbo_gtf cpu" begin
     i_sites = 1:n_batch
-    cost = neg_elbo_transnorm_gf(rng, ϕ_ini, g, transPMs_batch, f, py,
+    cost = neg_elbo_gtf(rng, ϕ_ini, g, transPMs_batch, f, py,
         xM[:, i_sites], xP[i_sites], y_o[:, i_sites], y_unc[:, i_sites], i_sites,
         map(get_concrete, interpreters);
         cor_ends)
     @test cost isa Float64
     gr = Zygote.gradient(
-        ϕ -> neg_elbo_transnorm_gf(rng, ϕ, g, transPMs_batch, f, py,
+        ϕ -> neg_elbo_gtf(rng, ϕ, g, transPMs_batch, f, py,
             xM[:, i_sites], xP[i_sites], y_o[:, i_sites], y_unc[:, i_sites], i_sites,
             map(get_concrete, interpreters);
             cor_ends),
@@ -102,18 +102,18 @@ end
 end;
 
 if CUDA.functional()
-    @testset "neg_elbo_transnorm_gf gpu" begin
+    @testset "neg_elbo_gtf gpu" begin
         i_sites = 1:n_batch
         ϕ = CuArray(CA.getdata(ϕ_ini))
         xMg_batch = CuArray(xM[:, i_sites])
         xP_batch = xP[i_sites] # used in f which runs on CPU
-        cost = neg_elbo_transnorm_gf(rng, ϕ, g_gpu, transPMs_batch, f, py,
+        cost = neg_elbo_gtf(rng, ϕ, g_gpu, transPMs_batch, f, py,
             xMg_batch, xP_batch, y_o[:, i_sites], y_unc[:, i_sites], i_sites,
             map(get_concrete, interpreters);
             n_MC = 8, cor_ends)
         @test cost isa Float64
         gr = Zygote.gradient(
-            ϕ -> neg_elbo_transnorm_gf(rng, ϕ, g_gpu, transPMs_batch, f, py,
+            ϕ -> neg_elbo_gtf(rng, ϕ, g_gpu, transPMs_batch, f, py,
                 xMg_batch, xP_batch, y_o[:, i_sites], y_unc[:, i_sites], i_sites,
                 map(get_concrete, interpreters);
                 n_MC = 8, cor_ends),
