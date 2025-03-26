@@ -8,3 +8,4 @@ test/Manifest*.toml
 dev/Manifest*.toml
 tmp/
 **/tmp.svg
+dev/intermediate/*

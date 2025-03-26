@@ -16,11 +16,12 @@ import MLDataDevices, CUDA, cuDNN, GPUArraysCore
 rng = StableRNG(115)
 scenario = NTuple{0, Symbol}()
 scenario = (:omit_r0,)  # without omit_r0 ambiguous K2 estimated to high
-scenario = (:use_Flux,)
-scenario = (:use_Flux, :omit_r0)
+scenario = (:use_Flux, :use_gpu)
+scenario = (:use_Flux, :use_gpu, :omit_r0)
 # prob = DoubleMM.DoubleMMCase()
 
-gdev = :use_Flux ∈ scenario ? gpu_device() : cpu_device()
+gdev = :use_gpu ∈ scenario ? gpu_device() : identity
+cdev = gdev isa MLDataDevices.AbstractGPUDevice ? cpu_device() : identity
 
 #------ setup synthetic data and training data loader
 (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
@@ -30,7 +31,7 @@ i_sites = 1:n_site
 xM_cpu = xM; xM = xM_cpu |> gdev
 get_train_loader = (;n_batch, kwargs...) -> MLUtils.DataLoader((xM, xP, y_o, y_unc, i_sites);
     batchsize = n_batch, partial = false)
-σ_o = exp(first(y_unc) / 2)
+σ_o = exp.(y_unc[:, 1] / 2)
 
 # assign the train_loader, otherwise it eatch time creates another version of synthetic data
 prob0 = HVI.update(HybridProblem(DoubleMM.DoubleMMCase(); scenario); get_train_loader)
@@ -44,7 +45,8 @@ solver_point = HybridPointSolver(; alg = OptimizationOptimisers.Adam(0.01), n_ba
 n_batches_in_epoch = n_site ÷ solver_point.n_batch
 n_epoch = 80
 (; ϕ, resopt) = solve(prob0, solver_point; scenario,
-    rng, callback = callback_loss(n_batches_in_epoch*5), maxiters = n_batches_in_epoch * n_epoch);
+    rng, callback = callback_loss(n_batches_in_epoch*10), 
+    maxiters = n_batches_in_epoch * n_epoch);
 # update the problem with optimized parameters
 prob0o = HVI.update(prob0; ϕg = cpu_ca(ϕ).ϕg, θP = cpu_ca(ϕ).θP)
 y_pred_global, y_pred, θMs = gf(prob0o, xM, xP; scenario);
@@ -86,7 +88,7 @@ end
     # and fit gf starting from true parameters
     prob = prob0
     g, ϕg0_cpu = get_hybridproblem_MLapplicator(prob; scenario)
-    ϕg0 = (:use_Flux ∈ scenario) ? CuArray(ϕg0_cpu) : ϕg0_cpu
+    ϕg0 = (:use_Flux ∈ scenario) ? gdev(ϕg0_cpu) : ϕg0_cpu
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
 
     function loss_g(ϕg, x, g, transM; gpu_handler = HVI.default_GPU_DataHandler)
@@ -144,9 +146,9 @@ probh = prob0o  # start from point optimized to infer uncertainty
 solver_post = HybridPosteriorSolver(; alg = OptimizationOptimisers.Adam(0.01), n_batch = 40, n_MC = 3)
 #solver_point = HybridPointSolver(; alg = Adam(), n_batch = 200)
 n_batches_in_epoch = n_site ÷ solver_post.n_batch
-n_epoch = 120
+n_epoch = 80
 (; ϕ, θP, resopt, interpreters) = solve(probh, solver_post; scenario,
-    rng, callback = callback_loss(200), maxiters = n_batches_in_epoch * n_epoch, 
+    rng, callback = callback_loss(n_batches_in_epoch*10), maxiters = n_batches_in_epoch * n_epoch, 
     θmean_quant = 0.05);
 # update the problem with optimized parameters, including uncertainty
 probo = prob1o = HVI.update(prob0o; ϕg = cpu_ca(ϕ).ϕg, θP = θP, ϕunc = cpu_ca(ϕ).unc)
@@ -172,7 +174,7 @@ function fstate_ϕunc(state)
 end
 (; ϕ, θP, resopt, interpreters) = solve(prob2, HVI.update(solver_post, n_MC=12); 
     scenario, rng, maxiters = n_batches_in_epoch * 40,
-    callback = HVI.callback_loss_fstate(n_batches_in_epoch*2, fstate_ϕunc));
+    callback = HVI.callback_loss_fstate(n_batches_in_epoch*5, fstate_ϕunc));
 probo = prob2o = HVI.update(prob2; ϕg = cpu_ca(ϕ).ϕg, θP = θP, ϕunc = cpu_ca(ϕ).unc);
 
 () -> begin
@@ -369,7 +371,8 @@ end
     scatterplot(θ1c[:r0, :], θ1c[:K1, :])  # no correlation (modeled independent)
 end
 
-#---- do an DEMC inversion of the PBM model
+
+#---- do an DEMC inversion of the PBM model with parameters at log-scale
 using DistributionFits
 using PDMats
 using Turing
@@ -406,9 +409,10 @@ using Turing
         # assume σ_o known, see f_MM
         #σ_o ~ truncated(Normal(0, 1); lower=0)
         #TODO specify with transPM
-        y_pred = applyf(f, exp.(ζMs), exp.(ζP))
+        #Main.@infiltrate_main # step to second time 
+        y_pred = f(exp.(ζP), exp.(ζMs), xP)[2] # first is global
         for i_obs in 1:n_obs
-            y[i_obs, :] ~ MvNormal(y_pred[i_obs, :], σ_o) # single value σ instead of variance
+            y[i_obs,:] ~ MvNormal(y_pred[i_obs,:], σ_o[i_obs]) # single value σ instead of variance
         end
         #Main.@infiltrate_main # step to second time 
         # θMs_MCc[:,:,1] # checking row- or column-order of θMs
@@ -429,9 +433,146 @@ using Turing
     # takes ~ 25 minutes
     n_sample_NUTS = 400
     #n_sample_NUTS = 20
-    #chain = sample(model, NUTS(), n_sample_NUTS, init_params=ϕ_ini)
-    chain = sample(model, NUTS(), n_sample_NUTS, init_params=ζ_true .+ 0.001)
+    #chain = sample(model, NUTS(), n_sample_NUTS, initial_params=ϕ_ini)
+    chain = sample(model, NUTS(), n_sample_NUTS, initial_params=ζ_true .+ 0.001)
 
+
+    cor_ends = get_hybridproblem_cor_ends(prob; scenario)
+    g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
+    ϕunc0 = get_hybridproblem_ϕunc(prob; scenario)
+    (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
+    (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
+        θP, θM, cor_ends, ϕg0, n_site; transP, transM, ϕunc0)
+
+    # reshape θMs (site x par) -> (par x site)
+    _intm_PMs = ComponentArrayInterpreter(
+        CA.ComponentVector(P=θP_true, Ms=vec(CA.getdata(θMs_true))), (n_sample_NUTS,))
+    extract_parameters_fsites = (chain) -> begin
+        Ac = _intm_PMs(transpose(Array(chain)))
+        #θM = Ac[:Ms,:][:,1]
+        θMs = mapslices(CA.getdata(Ac[:Ms, :]), dims=1) do θM
+            # (site x par) -> (par x site)
+            vec(reshape(θM, n_site, :)')
+        end
+        vcat(Ac[:P, :], θMs)
+    end
+
+    #ζs_MC = transpose(max.(-10.0,Array(chain)))
+    #ζs_MC = transpose(Array(chain))
+    ζs_MC = extract_parameters_fsites(chain)
+    θs_MC = exp.(ζs_MC)
+
+    y_pred = y_pred_gen = stack(generated_quantities(model, chain)[:, 1])
+
+    #ax_θPMs =  _get_ComponentArrayInterpreter_axes(int_θPMs)
+    #intm_PMs = ComponentArrayInterpreter(ax_θPMs, n_sample_NUTS)
+    intm_PMs = ComponentArrayInterpreter(CA.ComponentVector(P=1:n_θP, Ms=1:(n_θM*n_site_batch)), (n_sample_NUTS,))
+    intm_Ps = ComponentArrayInterpreter(θP_true, (n_sample_NUTS,))
+    intm_Ms = ComponentArrayInterpreter(θM_true, (n_site_batch, n_sample_NUTS))
+    θs_MCc = intm_PMs(θs_MC)
+    θMs_MCc = intm_Ms(θs_MCc[:Ms, :])
+    θPs_MCc = intm_Ps(θs_MCc[:P, :])
+    ζs_MCc = intm_PMs(ζs_MC)
+    ζMs_MCc = intm_Ms(ζs_MCc[:Ms, :])
+    ζP_MCc = intm_Ps(ζs_MCc[:P, :])
+
+    # inspect correlation between physical parameter K and ML-parameter r at first (or ith) site
+
+    mean_ζP_MC = mapslices(mean, CA.getdata(ζP_MCc), dims=2)[:, 1]
+    var_ζP_MC = map(x -> var(x; corrected=false), eachrow(ζP_MCc))
+
+    mean_ζMs_MC = mapslices(mean, CA.getdata(ζMs_MCc), dims=3)[:, :, 1]
+    var_ζMs_MC = mapslices(x -> var(x; corrected=false), CA.getdata(ζMs_MCc), dims=3)[:, :, 1]
+
+
+#---- do an DEMC inversion of the PBM model with parameters at constrained scale
+using DistributionFits
+using PDMats
+using Turing
+    # construct a LogNormal prior that ranges roughly across 1e-2 to 10
+    # prior_θ = fit(LogNormal, @qp_ll(1e-2), @qp_uu(10))
+    # prior_θn = (n) -> MvLogNormal(fill(prior_θ.μ, n), PDiagMat(fill(abs2(prior_θ.σ), n)))
+    prior_θ = Normal(0, 10)
+    prior_θn = (n) -> MvLogNormal(fill(prior_θ.μ, n), PDiagMat(fill(abs2(prior_θ.σ), n)))
+    prior_θn(3)
+    prob = HVI.update(prob0o);
+
+    (;θM, θP) = get_hybridproblem_par_templates(prob; scenario)
+    n_θM, n_θP = length.((θM, θP))
+    f = get_hybridproblem_PBmodel(prob; scenario)
+
+    @model function fsites_uc(y, ::Type{T}=Float64; f, n_θP, n_θM, σ_o, n_obs=length(σ_o)) where {T}
+        n_obs, n_site = size(y)
+        prior_θP = prior_θn(n_θP)
+        prior_θM_sites = fill(prior_θn(n_site), n_θM)
+        θP ~ prior_θP #MvNormal(n_θP, 10.0)
+        # CAUTION: order of vectorizing matrix depends on order of ~
+        # need to assign each variable in first site first, then second site, ...
+        #   need to construct different MvNormal prior if std differs by variable
+        # or need to take care when extracting samples
+        θMs = Matrix{T}(undef, n_θM, n_site)
+        # the first loop vectorizes θMs by columns but is much slower
+        # for i_site in 1:n_site
+        #     ζMs[:, i_site] ~ prior_ζn(n_θM) #MvNormal(n_site, 10.0)
+        # end
+        # this loop is faster, but vectorizes θMs by rows in parameter vector
+        for i_par in 1:n_θM
+            θMs[i_par, :] ~ prior_θM_sites[i_par]
+        end
+        # this fills in rows first, but is also slower- why?    
+        #ζMs[:] ~ prior_ζn(n_θM * n_site) 
+        # assume σ_o known, see f_MM
+        #σ_o ~ truncated(Normal(0, 1); lower=0)
+        y_pred = f(θP, θMs, xP)[2] # first is global return
+        #i_obs = 1
+        for i_obs in 1:n_obs
+            #pdf(MvNormal(y_pred[i_obs,:], σ_o[i_obs]),y[i_obs,:])
+            y[i_obs,:] ~ MvNormal(y_pred[i_obs,:], σ_o[i_obs]) # single value σ instead of variance
+        end
+        #Main.@infiltrate_main # step to second time 
+        # θMs_MCc[:,:,1] # checking row- or column-order of θMs
+        # exp.(ζMs)
+        y_pred
+    end
+    model_uc = fsites_uc(y_o; f, n_θP, n_θM, σ_o)
+
+    θ_ini = vcat(θP_true, vec(θMs_true)) .* 1.2
+    θ_true = vcat(CA.getdata(θP_true), vec(CA.getdata(θMs_true)))
+
+
+    # mle_estimate = optimize(model, MLE(), θ_ini)
+    # mle_estimate.values
+
+    # takes ~ 25 minutes
+    n_sample_NUTS = 400
+    #n_sample_NUTS = 20
+    #chain = sample(model, NUTS(), n_sample_NUTS, initial_params=ϕ_ini)
+    chain = sample(model_uc, NUTS(), n_sample_NUTS, initial_params=θ_true .+ 0.001)
+
+    () -> begin
+        using JLD2
+        jldsave("intermediate/doubleMM_chain_theta.jld2", false, IOStream; chain)
+        chain = load("intermediate/doubleMM_chain_theta.jld2", "chain"; iotype = IOStream)
+    end
+
+    size(chain)
+    θc = Array(chain)'
+    θinv = CA.ComponentArray(θc, (CA.getaxes(θ[:,1])[1], CA.Axis(i=1:size(θc,2))))
+    mean_θinv = CA.ComponentVector(mean(CA.getdata(θinv); dims=2)[:,1], CA.getaxes(θ[:,1])[1])
+    
+    @assert chain[:,1,:1] == CA.getdata(θinv[:P,:][:K2,:])
+    θP_true
+    plot = histogram(CA.getdata(θinv[:P,:][:K2,:]))
+
+    plt = scatterplot(θMs_true[1, :], mean_θinv.Ms[1, :]); lineplot!(plt, 0, 1)
+    plt = scatterplot(θMs_true[2, :], mean_θinv.Ms[2, :])
+    
+    y_true = f(θP_true, θMs_true, xP)[2]
+    yinv = map(i -> f(θinv[:P,i], θinv[:Ms,i], xP)[2], axes(θinv,2)) |> stack
+    histogram(yinv[1,1,:])
+    y_true[1,1]
+
+    tmp = generated_quantities(model_uc, chain[1:10,:,:])
 
     cor_ends = get_hybridproblem_cor_ends(prob; scenario)
     g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)

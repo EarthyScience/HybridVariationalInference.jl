@@ -36,13 +36,13 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector, g, transPMs, f, py,
         xM::AbstractMatrix, xP, y_ob, y_unc, i_sites::AbstractVector{<:Number},
         interpreters::NamedTuple;
         n_MC = 12, n_MC_mean = 30, n_MC_cap = n_MC,
-        gpu_data_handler = get_default_GPUHandler(),
+        cdev = cpu_device(),
         priors_θ_mean = [],
         cor_ends # =(P=(1,),M=(1,))
 )
     n_MCr = isempty(priors_θ_mean) ? n_MC : max(n_MC, n_MC_mean)
     ζs, σ = generate_ζ(rng, g, ϕ, xM, interpreters; n_MC = n_MCr, cor_ends)
-    ζs_cpu = gpu_data_handler(ζs) # differentiable fetch to CPU in Flux package extension
+    ζs_cpu = cdev(ζs) # differentiable fetch to CPU in Flux package extension
     nLy, entropy_ζ = neg_elbo_ζtf(ζs_cpu, σ, transPMs, f, py,
         xP, y_ob, y_unc, interpreters;
         n_MC, n_MC_cap
@@ -123,8 +123,7 @@ end
 
 """
     predict_gf(rng, g, f, ϕ::AbstractVector, xM::AbstractMatrix, interpreters;
-        get_transPMs, get_ca_int_PMs, n_sample_pred=200, 
-        gpu_data_handler=get_default_GPUHandler())
+        get_transPMs, get_ca_int_PMs, n_sample_pred=200, gdev = identity)
 
 Prediction function for hybrid model. Returns an NamedTuple with entries
 - `θ`: ComponentArray `(n_θP + n_site * n_θM), n_sample_pred)` of PBM model parameters.
@@ -133,8 +132,8 @@ Prediction function for hybrid model. Returns an NamedTuple with entries
 function predict_gf(rng, prob::AbstractHybridProblem, xM::AbstractMatrix, xP;
         scenario,
         n_sample_pred = 200,
-        dev = gpu_device(),
-        gpu_data_handler = get_default_GPUHandler()
+        gdev = :use_gpu ∈ scenario ? gpu_device() : identity, 
+        cdev = gdev isa MLDataDevices.AbstractGPUDevice ? cpu_device() : identity,
 )
     n_site = length(xP)
     @assert size(xM, 2) == n_site
@@ -147,16 +146,14 @@ function predict_gf(rng, prob::AbstractHybridProblem, xM::AbstractMatrix, xP;
     f = get_hybridproblem_PBmodel(prob; scenario)
     (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
         θP, θM, cor_ends, ϕg0, n_site; transP, transM, ϕunc0)
-    g_dev, ϕ_dev = dev(g), dev(ϕ)
-    # use_gpu = (:use_Flux ∈ scenario)
-    # ϕ0 = use_gpu ? CuArray(ϕ) : ϕ # TODO replace CuArray by something more general
+    g_dev, ϕ_dev = gdev(g), gdev(ϕ)
     predict_gf(rng, g_dev, f, ϕ_dev, xM, xP, interpreters;
-        get_transPMs, get_ca_int_PMs, n_sample_pred, gpu_data_handler, cor_ends)
+        get_transPMs, get_ca_int_PMs, n_sample_pred, cdev, cor_ends)
 end
 
 function predict_gf(rng, g, f, ϕ::AbstractVector, xM::AbstractMatrix, xP, interpreters;
         get_transPMs, get_ca_int_PMs, n_sample_pred = 200,
-        gpu_data_handler = get_default_GPUHandler(),
+        cdev = cpu_device(),
         cor_ends        #cor_ends=(P=(1,),M=(1,))
 )
     n_site = size(xM, 2)
@@ -165,7 +162,7 @@ function predict_gf(rng, g, f, ϕ::AbstractVector, xM::AbstractMatrix, xP, inter
     interpreters_gen = (; interpreters..., PMs = intm_PMs_gen)
     ζs_gpu, σ = generate_ζ(rng, g, CA.getdata(ϕ), CA.getdata(xM), interpreters_gen;
         n_MC = n_sample_pred, cor_ends)
-    ζs = gpu_data_handler(ζs_gpu)
+    ζs = cdev(ζs_gpu)
     logdetΣ = 2 * sum(log.(σ))
     entropy_ζ = entropy_MvNormal(length(σ), logdetΣ)  # defined in logden_normal
     #y_pred_global, y_pred = f(θc.P, θc.Ms, xP)
@@ -230,7 +227,7 @@ function sample_ζ_norm0(urand::AbstractMatrix, ζP::AbstractVector{T}, ζMs::Ab
 ) where {T}
     ϕuncc = int_unc(CA.getdata(ϕunc))
     n_θP, n_θMs, (n_θM, n_batch) = length(ζP), length(ζMs), size(ζMs)
-    # make sure to not create a UpperTriangular Matrix of an CuArray in transformU_cholesky1
+    # do not create a UpperTriangular Matrix of an AbstractGÜUArray in transformU_cholesky1
     ρsP = isempty(ϕuncc.ρsP) ? similar(ϕuncc.ρsP) : ϕuncc.ρsP # required by zygote
     UP = transformU_block_cholesky1(ρsP, cor_ends.P)
     ρsM = isempty(ϕuncc.ρsM) ? similar(ϕuncc.ρsM) : ϕuncc.ρsM # required by zygote
@@ -246,7 +243,7 @@ function sample_ζ_norm0(urand::AbstractMatrix, ζP::AbstractVector{T}, ζMs::Ab
     Uσ = _create_blockdiag(UP, UM, σP, σMs, n_batch)
     ζ_resid = Uσ' * urand
     σ = diag(Uσ)   # elements of the diagonal: standard deviations
-    # returns CuArrays to either continue on GPU or need to transfer to CPU
+    # returns AbstractGPUuArrays to either continue on GPU or need to transfer to CPU
     ζ_resid, σ
 end
 
@@ -275,12 +272,10 @@ end
 function _create_random(rng, ::AbstractVector{T}, dims...) where {T}
     rand(rng, T, dims...)
 end
-function _create_random(rng, ::GPUArraysCore.AbstractGPUVector{T}, dims...) where {T}
-    # ignores rng
-    # https://discourse.julialang.org/t/help-using-cuda-zygote-and-random-numbers/123458/4?u=bgctw
-    # Zygote.@ignore CUDA.randn(rng, dims...)
-    ChainRulesCore.@ignore_derivatives CUDA.randn(dims...)
-end
+
+#moved to HybridVariationalInferenceCUDAExt
+#function _create_random(rng, ::CUDA.CuVector{T}, dims...) where {T}
+
 
 """ 
 Compute predictions and log-Determinant of the transformation at given

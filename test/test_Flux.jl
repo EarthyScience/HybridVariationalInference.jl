@@ -1,6 +1,7 @@
 using Test
 using StatsFuns: logistic
-using CUDA, GPUArraysCore
+import CUDA, GPUArraysCore, cuDNN
+using MLDataDevices
 using ComponentArrays: ComponentArrays as CA
 
 using HybridVariationalInference
@@ -14,18 +15,19 @@ using HybridVariationalInference
 # end;
 
 using Flux
-@testset "get_default_GPUHandler after loading Flux" begin
-    # difficult to  access type in ext
-    # HybridVariationalInferenceFluxExt.FluxGPUDataHandler
-    #typeof(HybridVariationalInference.default_GPU_DataHandler)
-    h = get_default_GPUHandler()
-    @test !(h isa NullGPUDataHandler)
-    if CUDA.functional()
-        x = CuArray(1:5)
-        xh = h(x)
-        @test xh isa Vector
-    end
-end;
+# @testset "get_default_GPUHandler after loading Flux" begin
+#     # difficult to  access type in ext
+#     # HybridVariationalInferenceFluxExt.FluxGPUDataHandler
+#     #typeof(HybridVariationalInference.default_GPU_DataHandler)
+#     h = get_default_GPUHandler()
+#     @test !(h isa NullGPUDataHandler)
+#     ggdev = gpu_device()
+#     if ggdev isa MLDataDevices.AbstractGPUDevice
+#         x = ggdev(collect(1:5))
+#         xh = h(x)
+#         @test xh isa Vector
+#     end
+# end;
 
 
 @testset "FluxModelApplicator" begin

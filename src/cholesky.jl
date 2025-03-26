@@ -19,26 +19,7 @@ function vec2utri(v::AbstractVector{T}; n=invsumn(length(v))) where {T}
     UpperTriangular(m)
 end
 
-function vec2utri(v::GPUArraysCore.AbstractGPUVector{T}; n=invsumn(length(v))) where {T}
-    z = zero(T)
-    k = 0
-    m = CUDA.allowscalar() do
-        CuArray([j >= i ? (k += 1; v[k]) : z for i in 1:n, j in 1:n])
-    end
-    # m = CUDA.zeros(T,n,n)
-    # @cuda threads = 256 vec2utri_gpu!(m, v) # planned to put v into positions of m
-    return (m)
-end
-
-function vec2utri_gpu!(m, v::AbstractVector)
-    index = threadIdx().x    # this example only requires linear indexing, so just use `x`
-    stride = blockDim().x
-    for i in index:stride:length(v)
-        row, col = vec2utri_pos(i)
-        @inbounds m[row, col] = v[i]
-    end
-    return nothing # important
-end
+# see ext/HybridVariationalInferenceCUDAExt for CUDA-specific implementations
 
 """ 
 Compute the (one-based) position `(row, col)` within an upper tridiagonal matrix for
@@ -88,32 +69,6 @@ function _vec2uutri(
     return (m)
 end
 
-#function vec2uutri(v::GPUArraysCore.AbstractGPUVector{T}; n=invsumn(length(v)) + one(T)) where {T}
-#TODO remove internal conversion to CuArray to generalize to AbstractGPUVector
-function vec2uutri(v::CuVector{T}; n=invsumn(length(v)) + 1, diag=one(T)) where {T}
-    # _one = one(T)
-    # z = zero(T)
-    # k = 0
-    # m = CUDA.allowscalar() do
-    #     CuArray([j > i ? (k += 1; v[k]) : i == j ? _one : z for i = 1:n, j = 1:n])
-    # end
-    m = CUDA.zeros(T, n, n)
-    m[1:(size(m, 1)+1):end] .= diag  # indexing trick for diag(m) .= one(T) 
-    @cuda threads = 256 vec2uutri_gpu!(m, v)
-    return (m)
-end
-
-function vec2uutri_gpu!(
-    m::Union{CuDeviceArray,GPUArraysCore.AbstractGPUMatrix}, v::AbstractVector)
-    index = threadIdx().x    # this example only requires linear indexing, so just use `x`
-    stride = blockDim().x
-    for i in index:stride:length(v)
-        row, col = vec2utri_pos(i)
-        # for unit-upper triangle shift the column position by  one
-        @inbounds m[row, col+1] = v[i]
-    end
-    return nothing # important
-end
 
 function ChainRulesCore.rrule(::typeof(vec2uutri), v::AbstractArray; kwargs...)
     # does not change the value or the derivative but just reshapes
@@ -176,48 +131,8 @@ function ChainRulesCore.rrule(::typeof(uutri2vec), X::AbstractMatrix{T}) where {
     return uutri2vec(X), uutri2vec_pullback
 end
 
-#function uutri2vec(X::GPUArraysCore.AbstractGPUMatrix; kwargs...)
-#TODO remove internal coercion to CuArray to extend to other AbstractGPUMatrix
-# function uutri2vec(X::CuArray; kwargs...)
-#     n = size(X, 1) - 1
-#     lv = sumn(n)
-#     i = 0
-#     j = 2
-#     CUDA.allowscalar() do
-#         CuArray([
-#             begin
-#                 if i == j - 1
-#                     i = 0
-#                     j += 1
-#                 end
-#                 i += 1
-#                 X[i, j]
-#             end for _ in 1:lv
-#         ])
-#     end
-# end
-function uutri2vec(X::CuMatrix{T}; kwargs...) where {T}
-    lv = sumn(size(X, 1) - 1)
-    v = CUDA.zeros(T, lv)
-    @cuda threads = (16, 16) uutri2vec_gpu!(v, X)
-    return v
-end
-
-function uutri2vec_gpu!(v::Union{CuVector,CuDeviceVector}, X::AbstractMatrix)
-    x = threadIdx().x
-    y = threadIdx().y
-    stride_x = blockDim().x
-    stride_y = blockDim().y
-    for row in x:stride_x:size(X, 1)
-        for col in y:stride_y:size(X, 2)
-            if row < col
-                i = utri2vec_pos_unsafe(row, col - 1)
-                @inbounds v[i] = X[row, col]
-            end
-        end
-    end
-    return nothing # important
-end
+# moved to HybridVariationalInferenceCUDAExt
+#function uutri2vec(X::CUDA.CuMatrix{T}; kwargs...) where {T}
 
 """
 Takes a vector of entries of a lower UnitUpperTriangular matrix

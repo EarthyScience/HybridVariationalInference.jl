@@ -36,10 +36,6 @@ function HVI.get_hybridproblem_MLapplicator(
         rng::AbstractRNG, prob::HVI.DoubleMM.DoubleMMCase; scenario = ())
     ml_engine = select_ml_engine(; scenario)
     g_nomag, ϕ_g0 = construct_3layer_MLApplicator(rng, prob, ml_engine; scenario)
-    # multiply by inverse of initial estimate on unconstrained scale
-    # ζM_cpu = inverse(transM)(θM)
-    # ζM = (:use_Flux ∈ scenario) ? CuArray(ζM_cpu) : ζM_cpu
-    # g = MagnitudeModelApplicator(g_nomag, ζM)
     # construct normal distribution from quantiles at unconstrained scale
     priors_dict = get_hybridproblem_priors(prob; scenario)
     priors = [priors_dict[k] for k in keys(θM)]
@@ -98,9 +94,10 @@ const xP_S2 = Float32[1.0, 3.0, 4.0, 5.0, 5.0, 5.0, 5.0, 5.0]
 HVI.get_hybridproblem_n_covar(prob::DoubleMMCase; scenario) = 5
 HVI.get_hybridproblem_n_site(prob::DoubleMMCase; scenario) = 800
 
-function HVI.get_hybridproblem_train_dataloader(prob::DoubleMMCase; scenario = (), n_batch)
-    rng::AbstractRNG = StableRNG(111)
-    construct_dataloader_from_synthetic(rng, prob; scenario, n_batch)
+function HVI.get_hybridproblem_train_dataloader(prob::DoubleMMCase; scenario = (), 
+    n_batch, rng::AbstractRNG = StableRNG(111), kwargs...
+    )
+    construct_dataloader_from_synthetic(rng, prob; scenario, n_batch, kwargs...)
 end
 
 function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;

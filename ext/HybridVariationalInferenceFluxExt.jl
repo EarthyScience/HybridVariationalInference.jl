@@ -21,13 +21,13 @@ function HVI.apply_model(app::FluxApplicator, x, ϕ)
     m(x)
 end
 
-struct FluxGPUDataHandler <: AbstractGPUDataHandler end
-HVI.handle_GPU_data(::FluxGPUDataHandler, x::AbstractArray) = cpu(x)
+# struct FluxGPUDataHandler <: AbstractGPUDataHandler end
+# HVI.handle_GPU_data(::FluxGPUDataHandler, x::AbstractArray) = cpu(x)
 
-function __init__()
-    #@info "HybridVariationalInference: setting FluxGPUDataHandler"
-    HVI.set_default_GPUHandler(FluxGPUDataHandler())
-end
+# function __init__()
+#     #@info "HybridVariationalInference: setting FluxGPUDataHandler"
+#     HVI.set_default_GPUHandler(FluxGPUDataHandler())
+# end
 
 # function HVI.HybridProblem(θP::CA.ComponentVector, θM::CA.ComponentVector, g_chain::Flux.Chain, 
 #     args...; kwargs...)

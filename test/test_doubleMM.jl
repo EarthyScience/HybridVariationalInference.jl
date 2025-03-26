@@ -10,6 +10,7 @@ using MLUtils
 import Zygote
 
 using OptimizationOptimisers
+using MLDataDevices
 
 const prob = DoubleMM.DoubleMMCase()
 scenario = (:default,)
@@ -80,6 +81,8 @@ end
     end
 end
 
+#redirect_stderr(open(touch(tempname()), "r"))
+
 @testset "loss_gf" begin
     #----------- fit g and θP to y_o  (without uncertainty, without transforming θP)
     g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
@@ -97,6 +100,7 @@ end
     # get_hybridproblem_train_dataloader recreates synthetic data different θ_true
     train_loader2 = get_hybridproblem_train_dataloader(prob; scenario, n_batch = n_site)
 
+    #loss_gf = get_loss_gf(g, transM, f, y_global_o, int_ϕθP; gdev = identity)
     loss_gf = get_loss_gf(g, transM, f, y_global_o, int_ϕθP)
     l1 = loss_gf(p0, first(train_loader)...)[1]
     (xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch) = first(train_loader)

@@ -8,10 +8,9 @@ using Combinatorics # gen_hybridproblem_synthetic/combinations
 using GPUArraysCore
 using LinearAlgebra
 using MLDataDevices
-using CUDA  #TODO avoid dependency
+#import CUDA #, cuDNN  # moved to HybridVariationalInferenceCUDAExt
 using ChainRulesCore
 using Bijectors
-using Zygote  # Zygote.@ignore CUDA.randn
 using BlockDiagonals
 using MLUtils  # dataloader
 using CommonSolve
@@ -28,8 +27,8 @@ export construct_3layer_MLApplicator, select_ml_engine
 export NullModelApplicator, MagnitudeModelApplicator, NormalScalingModelApplicator
 include("ModelApplicator.jl")
 
-export AbstractGPUDataHandler, NullGPUDataHandler, get_default_GPUHandler
-include("GPUDataHandler.jl")
+# export AbstractGPUDataHandler, NullGPUDataHandler, get_default_GPUHandler
+# include("GPUDataHandler.jl")
 
 export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_PBmodel,
        get_hybridproblem_ϕunc,

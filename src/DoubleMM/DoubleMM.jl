@@ -8,7 +8,7 @@ using StableRNGs
 using Combinatorics
 using StatsFuns: logistic
 using Bijectors
-using CUDA
+#using CUDA
 using Distributions, DistributionFits
 
 

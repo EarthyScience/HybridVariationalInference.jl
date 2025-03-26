@@ -10,8 +10,10 @@ using ComponentArrays: ComponentArrays as CA
 #using TransformVariables
 using Bijectors
 using Zygote
-using CUDA
-using GPUArraysCore: GPUArraysCore
+import GPUArraysCore: GPUArraysCore
+import CUDA, cuDNN
+using MLDataDevices
+
 
 #CUDA.device!(4)
 rng = StableRNG(111)
@@ -60,28 +62,30 @@ end;
 # setup g as FluxNN on gpu
 using Flux
 
-if CUDA.functional()
-    scenario_flux = (scenario..., :use_Flux)
+ggdev = gpu_device()
+
+if ggdev isa MLDataDevices.AbstractGPUDevice
+    scenario_flux = (scenario..., :use_Flux, :use_gpu)
     g_flux, ϕg0_flux_cpu = get_hybridproblem_MLapplicator(prob; scenario = scenario_flux)
-    g_gpu = gpu(g_flux)
+    g_gpu = ggdev(g_flux)
 end
 
-if CUDA.functional()
+if ggdev isa MLDataDevices.AbstractGPUDevice
     @testset "generate_ζ gpu" begin
-        ϕ = CuArray(CA.getdata(ϕ_ini))
+        ϕ = ggdev(CA.getdata(ϕ_ini))
         @test g_gpu.μ isa GPUArraysCore.AbstractGPUArray
-        xMg_batch = CuArray(xM[:, 1:n_batch])
+        xMg_batch = ggdev(xM[:, 1:n_batch])
         ζ, σ = CP.generate_ζ(
             rng, g_gpu, ϕ, xMg_batch, map(get_concrete, interpreters);
             n_MC = 8, cor_ends)
-        @test ζ isa CuMatrix
+        @test ζ isa GPUArraysCore.AbstractGPUMatrix
         @test eltype(ζ) == FT
         gr = Zygote.gradient(
             ϕ -> sum(CP.generate_ζ(
                 rng, g_gpu, ϕ, xMg_batch, map(get_concrete, interpreters);
                 n_MC = 8, cor_ends)[1]),
             ϕ)
-        @test gr[1] isa CuVector
+        @test gr[1] isa GPUArraysCore.AbstractGPUVector
     end
 end
 
@@ -101,24 +105,24 @@ end
     @test gr[1] isa Vector
 end;
 
-if CUDA.functional()
+if ggdev isa MLDataDevices.AbstractGPUDevice
     @testset "neg_elbo_gtf gpu" begin
         i_sites = 1:n_batch
-        ϕ = CuArray(CA.getdata(ϕ_ini))
-        xMg_batch = CuArray(xM[:, i_sites])
+        ϕ = ggdev(CA.getdata(ϕ_ini))
+        xMg_batch = ggdev(xM[:, i_sites])
         xP_batch = xP[i_sites] # used in f which runs on CPU
         cost = neg_elbo_gtf(rng, ϕ, g_gpu, transPMs_batch, f, py,
             xMg_batch, xP_batch, y_o[:, i_sites], y_unc[:, i_sites], i_sites,
             map(get_concrete, interpreters);
-            n_MC = 8, cor_ends)
+            n_MC = 3, cor_ends)
         @test cost isa Float64
         gr = Zygote.gradient(
             ϕ -> neg_elbo_gtf(rng, ϕ, g_gpu, transPMs_batch, f, py,
                 xMg_batch, xP_batch, y_o[:, i_sites], y_unc[:, i_sites], i_sites,
                 map(get_concrete, interpreters);
-                n_MC = 8, cor_ends),
+                n_MC = 3, cor_ends),
             ϕ)
-        @test gr[1] isa CuVector
+        @test gr[1] isa GPUArraysCore.AbstractGPUVector
         @test eltype(gr[1]) == FT
     end
 end
@@ -137,11 +141,11 @@ end
     @test size(y) == (size(y_o)..., n_sample_pred)
 end
 
-if CUDA.functional()
+if ggdev isa MLDataDevices.AbstractGPUDevice
     @testset "predict_gf gpu" begin
         n_sample_pred = 200
-        ϕ = CuArray(CA.getdata(ϕ_ini))
-        xMg = CuArray(xM)
+        ϕ = ggdev(CA.getdata(ϕ_ini))
+        xMg = ggdev(xM)
         (; θ, y) = predict_gf(rng, g_gpu, f, ϕ, xMg, xP, map(get_concrete, interpreters);
             get_transPMs, get_ca_int_PMs, n_sample_pred, cor_ends)
         @test θ isa CA.ComponentMatrix # only ML parameters are on gpu

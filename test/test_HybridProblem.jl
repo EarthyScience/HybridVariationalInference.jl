@@ -14,8 +14,10 @@ import Zygote
 
 using OptimizationOptimisers
 using MLDataDevices
+using Suppressor
 
 cdev = cpu_device()
+gdev = @suppress gpu_device()
 
 construct_problem = () -> begin
     FT = Float32
@@ -116,9 +118,8 @@ scenario = (:default,)
     end
 end
 
-using CUDA: CUDA
-using cuDNN: cuDNN
-using MLDataDevices, GPUArraysCore
+import CUDA, cuDNN
+using GPUArraysCore
 import Flux
 
 @testset "neg_elbo_gtf" begin
@@ -151,7 +152,6 @@ import Flux
         CA.getdata(ϕ_ini))
     @test gr[1] isa Vector
 
-    gdev = gpu_device()
     if gdev isa MLDataDevices.AbstractGPUDevice 
         @testset "neg_elbo_gtf gpu" begin
             g, ϕg0 = begin
@@ -193,7 +193,7 @@ end
         #maxiters = 1200
         #maxiters = 20
         maxiters=200,
-        dev = cdev,
+        gdev = identity,
         #gpu_handler = NullGPUDataHandler
     )
     (; θP) = get_hybridproblem_par_templates(prob; scenario)
@@ -208,10 +208,30 @@ end;
         #maxiters = 20 # too small so that it yields error
         #maxiters=200,
         θmean_quant = 0.01,   # test constraining mean to initial prediction     
-        dev = cdev
+        gdev = identity
     )
     θPt = get_hybridproblem_par_templates(prob; scenario).θP
     @test θP.r0 < 1.5 * θPt.r0
     θP
     prob.θP
 end;
+
+# need to construct entire new Problem to test, for now use dev/doubleMM.jl
+# if gdev isa MLDataDevices.AbstractGPUDevice 
+#     @testset "HybridPosteriorSolver gpu" begin
+#         scenario = (:use_Flux, :use_gpu)
+#         rng = StableRNG(111)
+#         solver = HybridPosteriorSolver(; alg=Adam(0.02), n_batch=11, n_MC=3)
+#         (; ϕ, θP, resopt) = solve(prob, solver; scenario, rng,
+#             callback = callback_loss(), maxiters = 14,
+#             #maxiters = 20 # too small so that it yields error
+#             #maxiters=200,
+#             θmean_quant = 0.01,   # test constraining mean to initial prediction     
+#             gdev = gpu_device()
+#         )
+#         θPt = get_hybridproblem_par_templates(prob; scenario).θP
+#         @test θP.r0 < 1.5 * θPt.r0
+#         θP
+#         prob.θP
+#     end;
+# end

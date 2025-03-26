@@ -167,14 +167,16 @@ function get_hybridproblem_train_dataloader end
 Construct a dataloader based on `gen_hybridproblem_synthetic`. 
 """
 function construct_dataloader_from_synthetic(rng::AbstractRNG, prob::AbstractHybridProblem;
-        scenario = (), n_batch)
+        scenario = (), n_batch, 
+        gdev = :use_gpu ∈ scenario ? gpu_device() : identity,
+        )
     (; xM, xP, y_o, y_unc) = gen_hybridproblem_synthetic(rng, prob; scenario)
     n_site = size(xM,2)
     @assert length(xP) == n_site
     @assert size(y_o,2) == n_site
     @assert size(y_unc,2) == n_site
     i_sites = 1:n_site
-    xM_gpu = :use_Flux ∈ scenario ? CuArray(xM) : xM # TODO 
+    xM_gpu = gdev(xM)
     train_loader = MLUtils.DataLoader((xM_gpu, xP, y_o, y_unc, i_sites);
         batchsize = n_batch, partial = false)
     return (train_loader)

@@ -20,25 +20,29 @@ end
 composition f ∘ transM ∘ g: mechanistic model after machine learning parameter prediction
 """
 function gf(prob::AbstractHybridProblem, xM, xP, args...; 
-    scenario = (), dev = gpu_device(), kwargs...)
+    scenario = (), 
+    gdev = :use_gpu ∈ scenario ? gpu_device() : identity, 
+    cdev = gdev isa MLDataDevices.AbstractGPUDevice ? cpu_device() : identity,
+    kwargs...)
     g, ϕg = get_hybridproblem_MLapplicator(prob; scenario)
     f = get_hybridproblem_PBmodel(prob; scenario)
     (; θP, θM) = get_hybridproblem_par_templates(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
-    g_dev, ϕg_dev, θP_dev =  (dev(g), dev(ϕg), dev(CA.getdata(θP))) 
-    gf(g_dev, transM, f, xM, xP, ϕg_dev, θP_dev; kwargs...)
+    g_dev, ϕg_dev, θP_dev =  (gdev(g), gdev(ϕg), gdev(CA.getdata(θP))) 
+
+    gf(g_dev, transM, f, xM, xP, ϕg_dev, θP_dev; cdev, kwargs...)
 end
 
 function gf(g, transM, f, xM, xP, ϕg, θP; 
-    gpu_handler = default_GPU_DataHandler)
+    cdev = identity)
     # @show first(xM,5)
     # @show first(ϕg,5)
-    if θP isa SubArray && !(gpu_handler isa NullGPUDataHandler) 
-        # otherwise Zyote fails on gpu_handler
+    if θP isa SubArray && (cdev isa MLDataDevices.AbstractCPUDevice) 
+        # otherwise Zyote fails on cpu_handler
         θP = copy(θP)
     end
-    θP_cpu = gpu_handler(CA.getdata(θP))
-    θMs = gtrans(g, transM, xM, ϕg; gpu_handler)
+    θP_cpu = cdev(CA.getdata(θP)) 
+    θMs = gtrans(g, transM, xM, ϕg; cdev)
     y_pred_global, y_pred = f(θP_cpu, θMs, xP)
     return y_pred_global, y_pred, θMs
 end
@@ -46,29 +50,38 @@ end
 """
 composition transM ∘ g: transformation after machine learning parameter prediction
 """
-function gtrans(g, transM, xM, ϕg; gpu_handler = default_GPU_DataHandler)
+function gtrans(g, transM, xM, ϕg; cdev = identity)
     ζMs = g(xM, ϕg) # predict the log of the parameters
-    ζMs_cpu = gpu_handler(ζMs)
+    ζMs_cpu = cdev(ζMs)
     # TODO move to gpu, Zygote needs to work with transM
     θMs = reduce(hcat, map(transM, eachcol(ζMs_cpu))) # transform each column
 end
 
 
 """
-Create a loss function for parameter vector p, given 
+Create a loss function for given
 - g(x, ϕ): machine learning model 
+- transM: transforamtion of parameters at unconstrained space
 - f(θMs, θP): mechanistic model 
-- xM: matrix of covariates, sites in columns
-- y_o: matrix of observations, sites in columns
+- y_o_global: site-independent observations
 - int_ϕθP: interpreter attachin axis with compponents ϕg and pc.θP
+- kwargs: additional keyword arguments passed to gf, such as gdev
+
+The loss function `loss_gf(p, xM, xP, y_o, y_unc, i_sites)` takes   
+- parameter vector p
+- xM: matrix of covariate, sites in the batch are in columns
+- xP: iteration of drivers for each site
+- y_o: matrix of observations, sites in columns
+- y_unc: vector of uncertainty information for each observation
+- i_sites: index of sites in the batch
 """
-function get_loss_gf(g, transM, f, y_o_global, int_ϕθP::AbstractComponentArrayInterpreter)
-    let g = g, transM = transM, f = f, int_ϕθP = int_ϕθP, y_o_global = y_o_global
+function get_loss_gf(g, transM, f, y_o_global, int_ϕθP::AbstractComponentArrayInterpreter; kwargs...)
+    let g = g, transM = transM, f = f, int_ϕθP = int_ϕθP, y_o_global = y_o_global, kwargs = kwargs
         function loss_gf(p, xM, xP, y_o, y_unc, i_sites)
             σ = exp.(y_unc ./ 2)
             pc = int_ϕθP(p)
             y_pred_global, y_pred, θMs = gf(
-                g, transM, f, xM, xP, CA.getdata(pc.ϕg), CA.getdata(pc.θP))
+                g, transM, f, xM, xP, CA.getdata(pc.ϕg), CA.getdata(pc.θP); kwargs...)
             loss = sum(abs2, (y_pred .- y_o) ./ σ) + sum(abs2, y_pred_global .- y_o_global)
             return loss, y_pred_global, y_pred, θMs
         end
