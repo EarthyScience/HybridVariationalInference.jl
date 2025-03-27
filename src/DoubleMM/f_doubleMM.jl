@@ -15,9 +15,16 @@ const int_θdoubleMM = ComponentArrayInterpreter(flatten1(CA.ComponentVector(; �
 
 function f_doubleMM(θ::AbstractVector, x)
     # extract parameters not depending on order, i.e whether they are in θP or θM
-    θc = int_θdoubleMM(θ)
-    r0, r1, K1, K2 = θc[(:r0, :r1, :K1, :K2)]
-    y = r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
+    y = GPUArraysCore.allowscalar() do 
+        θc = int_θdoubleMM(θ)
+        #using ComponentArrays: ComponentArrays as CA
+        #r0, r1, K1, K2 = θc[(:r0, :r1, :K1, :K2)] # does not work on Zygote+GPU
+        r0 = θc[:r0]
+        r1 = θc[:r1]
+        K1 = θc[:K1]
+        K2 = θc[:K2]
+        y = r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
+    end
     return (y)
 end
 
@@ -62,12 +69,14 @@ end
 #     (; n_covar, n_batch, n_θM, n_θP)
 # end
 
-function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario::NTuple = ())
+function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario::NTuple = (),
+    gdev = :f_on_gpu ∈ scenario ? gpu_device() : identity, 
+    )
     #fsite = (θ, x_site) -> f_doubleMM(θ)  # omit x_site drivers
     par_templates = get_hybridproblem_par_templates(prob; scenario)
     keys_fixed = ((k for k in keys(θall) if
     (k ∉ keys(par_templates.θP)) & (k ∉ keys(par_templates.θM)))...,)
-    let θFix = θall[keys_fixed]
+    let θFix = gdev(θall[keys_fixed])
         function f_doubleMM_with_global(θP::AbstractVector, θMs::AbstractMatrix, x)
             pred_sites = applyf(f_doubleMM, θMs, θP, θFix, x)
             pred_global = eltype(pred_sites)[]
@@ -113,7 +122,7 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     int_θMs_sites = ComponentArrayInterpreter(θM, (n_site,))
     # normalize to be distributed around the prescribed true values
     θMs_true = int_θMs_sites(scale_centered_at(θMs_true0, θM, FloatType(0.1)))
-    f = get_hybridproblem_PBmodel(prob; scenario)
+    f = get_hybridproblem_PBmodel(prob; scenario, gdev=identity)
     xP = fill((; S1 = xP_S1, S2 = xP_S2), n_site)
     θP = par_templates.θP
     y_global_true, y_true = f(θP, θMs_true, xP)

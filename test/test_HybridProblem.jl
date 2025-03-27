@@ -1,5 +1,6 @@
 using Test
 using HybridVariationalInference
+using HybridVariationalInference: HybridVariationalInference as HVI
 using StableRNGs
 using Random
 using Statistics
@@ -76,7 +77,7 @@ construct_problem = () -> begin
     HybridProblem(θP, θM, g_chain_scaled, ϕg0, ϕunc0, f_doubleMM_with_global, priors_dict, py,
         transM, transP, get_train_loader, n_covar, n_site, cor_ends)
 end
-prob = construct_problem();
+prob = probc = construct_problem();
 #@descend construct_problem()
 scenario = (:default,)
 
@@ -121,6 +122,9 @@ end
 import CUDA, cuDNN
 using GPUArraysCore
 import Flux
+
+gdev = gpu_device()
+#methods(HVI.vec2uutri)
 
 @testset "neg_elbo_gtf" begin
     rng = StableRNG(111)
@@ -216,22 +220,37 @@ end;
     prob.θP
 end;
 
-# need to construct entire new Problem to test, for now use dev/doubleMM.jl
-# if gdev isa MLDataDevices.AbstractGPUDevice 
-#     @testset "HybridPosteriorSolver gpu" begin
-#         scenario = (:use_Flux, :use_gpu)
-#         rng = StableRNG(111)
-#         solver = HybridPosteriorSolver(; alg=Adam(0.02), n_batch=11, n_MC=3)
-#         (; ϕ, θP, resopt) = solve(prob, solver; scenario, rng,
-#             callback = callback_loss(), maxiters = 14,
-#             #maxiters = 20 # too small so that it yields error
-#             #maxiters=200,
-#             θmean_quant = 0.01,   # test constraining mean to initial prediction     
-#             gdev = gpu_device()
-#         )
-#         θPt = get_hybridproblem_par_templates(prob; scenario).θP
-#         @test θP.r0 < 1.5 * θPt.r0
-#         θP
-#         prob.θP
-#     end;
-# end
+if gdev isa MLDataDevices.AbstractGPUDevice 
+    @testset "HybridPosteriorSolver gpu" begin
+        scenario = (:use_Flux, :use_gpu, :omit_r0)
+        rng = StableRNG(111)
+        prob = probg = HybridProblem(DoubleMM.DoubleMMCase(); scenario)
+        solver = HybridPosteriorSolver(; alg=Adam(0.02), n_batch=11, n_MC=3)
+        n_batches_in_epoch = get_hybridproblem_n_site(prob; scenario) ÷ solver.n_batch
+        (; ϕ, θP, resopt) = solve(prob, solver; scenario, rng,
+            maxiters = 37, # smallest value by trial and error
+            #maxiters = 20 # too small so that it yields error
+            θmean_quant = 0.01,   # test constraining mean to initial prediction     
+        )
+        @test CA.getdata(ϕ) isa GPUArraysCore.AbstractGPUVector
+        @test cdev(ϕ.unc.ρsM)[1] > 0
+    end;
+    # does not work with general Bijector:
+    # @testset "HybridPosteriorSolver also f on gpu" begin
+    #     scenario = (:use_Flux, :use_gpu, :omit_r0, :f_on_gpu)
+    #     rng = StableRNG(111)
+    #     probg = HybridProblem(DoubleMM.DoubleMMCase(); scenario)
+    #     prob = HVI.update(probg)
+    #     #prob = HVI.update(probg, transM = identity, transP = identity)
+    #     solver = HybridPosteriorSolver(; alg=Adam(0.02), n_batch=11, n_MC=3)
+    #     n_batches_in_epoch = get_hybridproblem_n_site(prob; scenario) ÷ solver.n_batch
+    #     (; ϕ, θP, resopt) = solve(prob, solver; scenario, rng,
+    #         maxiters = 37, # smallest value by trial and error
+    #         #maxiters = 20 # too small so that it yields error
+    #         #θmean_quant = 0.01,   # TODO make possible on gpu
+    #         cdev = identity # do not move ζ to cpu # TODO infer in solve from scenario
+    #     )
+    #     @test CA.getdata(ϕ) isa GPUArraysCore.AbstractGPUVector
+    #     @test cdev(ϕ.unc.ρsM)[1] > 0
+    # end;    
+end

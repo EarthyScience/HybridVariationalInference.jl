@@ -165,6 +165,11 @@ function get_hybridproblem_train_dataloader end
         scenario = (), n_batch)
 
 Construct a dataloader based on `gen_hybridproblem_synthetic`. 
+gdev is applied to xM.
+If :f_on_gpu is in scenario tuple, gdev is also applied to `xP`, `y_o`, and `y_unc`,
+to put the entire data to gpu.
+Alternatively, gdev could be applied to the dataloader, then for each
+iteration the subset of data is separatly transferred to gpu.
 """
 function construct_dataloader_from_synthetic(rng::AbstractRNG, prob::AbstractHybridProblem;
         scenario = (), n_batch, 
@@ -176,8 +181,10 @@ function construct_dataloader_from_synthetic(rng::AbstractRNG, prob::AbstractHyb
     @assert size(y_o,2) == n_site
     @assert size(y_unc,2) == n_site
     i_sites = 1:n_site
-    xM_gpu = gdev(xM)
-    train_loader = MLUtils.DataLoader((xM_gpu, xP, y_o, y_unc, i_sites);
+    xM_dev = gdev(xM)
+    xP_dev, y_o_dev, y_unc_dev = :f_on_gpu ∈ scenario ? 
+        (gdev(xP), gdev(y_o), gdev(y_unc)) : (xP, y_o, y_unc)
+    train_loader = MLUtils.DataLoader((xM_dev, xP_dev, y_o_dev, y_unc_dev, i_sites);
         batchsize = n_batch, partial = false)
     return (train_loader)
 end

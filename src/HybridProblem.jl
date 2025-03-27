@@ -52,7 +52,7 @@ function HybridProblem(prob::AbstractHybridProblem; scenario = ())
     py = get_hybridproblem_neg_logden_obs(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     get_train_loader = let prob = prob, scenario = scenario
-        function inner_get_train_loader(kwargs...)
+        function inner_get_train_loader(;kwargs...)
             get_hybridproblem_train_dataloader(prob; scenario, kwargs...)
         end
     end

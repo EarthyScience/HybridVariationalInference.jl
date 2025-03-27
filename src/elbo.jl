@@ -300,6 +300,8 @@ function transform_ζ(ζi, transPMs::Bijectors.Transform,
         int_PMs::AbstractComponentArrayInterpreter)
     # θtup, logjac = transform_and_logjac(transPMs, ζi) # both allocating
     # θc = CA.ComponentVector(θtup)
+    #replace with more flexible transPMs after trying CUDA/Zygote            
+    #θ, logjac = exp.(ζi), sum(ζi)
     θ, logjac = Bijectors.with_logabsdet_jacobian(transPMs, ζi) # both allocating
     θc = int_PMs(θ)
     θc, logjac

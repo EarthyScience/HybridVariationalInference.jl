@@ -436,6 +436,13 @@ using Turing
     #chain = sample(model, NUTS(), n_sample_NUTS, initial_params=ϕ_ini)
     chain = sample(model, NUTS(), n_sample_NUTS, initial_params=ζ_true .+ 0.001)
 
+    () -> begin
+        using JLD2
+        jldsave("intermediate/doubleMM_chain_zeta.jld2", false, IOStream; chain)
+        chain = load("intermediate/doubleMM_chain_zeta.jld2", "chain"; iotype = IOStream)
+    end
+
+
 
     cor_ends = get_hybridproblem_cor_ends(prob; scenario)
     g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
