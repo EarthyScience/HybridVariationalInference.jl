@@ -132,8 +132,8 @@ Prediction function for hybrid model. Returns an NamedTuple with entries
 function predict_gf(rng, prob::AbstractHybridProblem, xM::AbstractMatrix, xP;
         scenario,
         n_sample_pred = 200,
-        gdev = :use_gpu ∈ scenario ? gpu_device() : identity, 
-        cdev = gdev isa MLDataDevices.AbstractGPUDevice ? cpu_device() : identity,
+        gdev = :use_gpu ∈ scenario ? gpu_device() : identity,
+        cdev = gdev isa MLDataDevices.AbstractGPUDevice ? cpu_device() : identity
 )
     n_site = length(xP)
     @assert size(xM, 2) == n_site
@@ -165,17 +165,20 @@ function predict_gf(rng, g, f, ϕ::AbstractVector, xM::AbstractMatrix, xP, inter
     ζs = cdev(ζs_gpu)
     logdetΣ = 2 * sum(log.(σ))
     entropy_ζ = entropy_MvNormal(length(σ), logdetΣ)  # defined in logden_normal
-    #y_pred_global, y_pred = f(θc.P, θc.Ms, xP)
-    # TODO take care of y_pred_global
+    (; θ, y) = predict_ζf(ζs, f, xP, trans_PMs_gen, interpreters_gen.PMs)
+    (; θ, y, entropy_ζ)
+end
+
+function predict_ζf(ζs, f, xP, trans_PMs, interpreter_PMs)
     θandy = map(eachcol(ζs)) do ζ
-        predict_y(ζ, xP, f, trans_PMs_gen, interpreters_gen.PMs)[1:2]
+        predict_y(ζ, xP, f, trans_PMs, interpreter_PMs)[1:2]
     end
     θ1 = first(first(θandy))
     θ = CA.ComponentMatrix(
         stack(CA.getdata.(first.(θandy))), (CA.getaxes(θ1)[1], CA.FlatAxis()))
     #θ[:P,1]
     y = stack(last.(θandy))
-    (; θ, y, entropy_ζ)
+    (; θ, y)
 end
 
 """
@@ -275,7 +278,6 @@ end
 
 #moved to HybridVariationalInferenceCUDAExt
 #function _create_random(rng, ::CUDA.CuVector{T}, dims...) where {T}
-
 
 """ 
 Compute predictions and log-Determinant of the transformation at given
