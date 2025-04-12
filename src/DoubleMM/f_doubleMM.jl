@@ -13,10 +13,10 @@ const transMS = Stacked(elementwise(identity), elementwise(exp))
 
 const int_θdoubleMM = ComponentArrayInterpreter(flatten1(CA.ComponentVector(; θP, θM)))
 
-function f_doubleMM(θ::AbstractVector, x)
+function f_doubleMM(θ::AbstractVector, x, intθ)
     # extract parameters not depending on order, i.e whether they are in θP or θM
     y = GPUArraysCore.allowscalar() do 
-        θc = int_θdoubleMM(θ)
+        θc = intθ(θ)
         #using ComponentArrays: ComponentArrays as CA
         #r0, r1, K1, K2 = θc[(:r0, :r1, :K1, :K2)] # does not work on Zygote+GPU
         r0 = θc[:r0]
@@ -30,8 +30,10 @@ end
 
 function HVI.get_hybridproblem_par_templates(::DoubleMMCase; scenario::NTuple = ())
     if (:omit_r0 ∈ scenario)
+        #return ((; θP = θP_nor0, θM, θf = θP[(:K2r)]))
         return ((; θP = θP_nor0, θM))
     end
+    #(; θP, θM, θf = eltype(θP)[])
     (; θP, θM)
 end
 
@@ -74,11 +76,10 @@ function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario::NTuple = ()
     )
     #fsite = (θ, x_site) -> f_doubleMM(θ)  # omit x_site drivers
     par_templates = get_hybridproblem_par_templates(prob; scenario)
-    keys_fixed = ((k for k in keys(θall) if
-    (k ∉ keys(par_templates.θP)) & (k ∉ keys(par_templates.θM)))...,)
-    let θFix = gdev(θall[keys_fixed])
+    intθ, θFix = setup_PBMpar_interpreter(par_templates.θP, par_templates.θM, θall)
+    let θFix = gdev(θFix), intθ = get_concrete(intθ)
         function f_doubleMM_with_global(θP::AbstractVector, θMs::AbstractMatrix, x)
-            pred_sites = applyf(f_doubleMM, θMs, θP, θFix, x)
+            pred_sites = applyf(f_doubleMM, θMs, θP, θFix, x, intθ)
             pred_global = eltype(pred_sites)[]
             return pred_global, pred_sites
         end
@@ -101,7 +102,12 @@ const xP_S2 = Float32[1.0, 3.0, 4.0, 5.0, 5.0, 5.0, 5.0, 5.0]
 # const xP_S2 = Float32[1.0, 2.0, 3.0, 4.0, 5.0, 5.0, 5.0, 5.0]
 
 HVI.get_hybridproblem_n_covar(prob::DoubleMMCase; scenario) = 5
-HVI.get_hybridproblem_n_site(prob::DoubleMMCase; scenario) = 800
+function HVI.get_hybridproblem_n_site(prob::DoubleMMCase; scenario) 
+    if (:few_sites ∈ scenario)
+         return(100) 
+    end
+    800
+end
 
 function HVI.get_hybridproblem_train_dataloader(prob::DoubleMMCase; scenario = (), 
     n_batch, rng::AbstractRNG = StableRNG(111), kwargs...

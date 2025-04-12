@@ -1,15 +1,15 @@
-function applyf(f, θMs::AbstractMatrix, θP::AbstractVector, θFix::AbstractVector, xP)
+function applyf(f, θMs::AbstractMatrix, θP::AbstractVector, θFix::AbstractVector, xP, args...; kwargs...)
     # predict several sites with same global parameters θP and fixed parameters θFix
     yv = map(eachcol(θMs), xP) do θM, x_site
-        f(vcat(θP, θM, θFix), x_site)
+        f(vcat(θP, θM, θFix), x_site, args...; kwargs...)
     end
     y = stack(yv)
     return(y)
 end
-function applyf(f, θMs::AbstractMatrix, θPs::AbstractMatrix, θFix::AbstractVector, xP)
+function applyf(f, θMs::AbstractMatrix, θPs::AbstractMatrix, θFix::AbstractVector, xP, args...; kwargs...)
     # do not call f with matrix θ, because .* with vectors S1 would go wrong
     yv = map(eachcol(θMs), eachcol(θPs), xP) do θM, θP, xP_site
-        f(vcat(θP, θM, θFix), xP_site)
+        f(vcat(θP, θM, θFix), xP_site, args...; kwargs...)
     end
     y = stack(yv)
     return(y)

@@ -9,3 +9,4 @@ dev/Manifest*.toml
 tmp/
 **/tmp.svg
 dev/intermediate/*
+dev/tmp.pdf

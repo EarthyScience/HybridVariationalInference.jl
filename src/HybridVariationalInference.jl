@@ -42,7 +42,8 @@ export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_
        get_hybridproblem_priors,
 #update,
        gen_cov_pred,
-       construct_dataloader_from_synthetic
+       construct_dataloader_from_synthetic,
+       setup_PBMpar_interpreter
 include("AbstractHybridProblem.jl")
 
 export HybridProblem

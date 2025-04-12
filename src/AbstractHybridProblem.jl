@@ -227,3 +227,11 @@ function get_hybridproblem_cor_ends(prob::AbstractHybridProblem; scenario = ())
     pt = get_hybridproblem_par_templates(prob; scenario)
     (P = [length(pt.θP)], M = [length(pt.θM)])
 end
+
+
+function setup_PBMpar_interpreter(θP, θM, θall = vcat(θP, θM))
+    keys_fixed = ((k for k in keys(θall) if (k ∉ keys(θP)) & (k ∉ keys(θM)))...,)
+    θFix = θall[keys_fixed]
+    intθ = ComponentArrayInterpreter(flatten1(CA.ComponentVector(; θP, θM, θFix)))
+    intθ, θFix
+end
