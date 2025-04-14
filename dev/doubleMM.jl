@@ -504,7 +504,7 @@ end
 (; θ, y) = HVI.predict_ζf(ζs, f, xP, trans_PMs_gen, intm_PMs_gen);
 (ζs_hmc, θ_hmc, y_hmc) = (ζs, θ, y);
 
-mean_y_invζ = map(mean, eachslice(y; dims = (1, 2)));
+mean_y_invζ = mean_y_hmc = map(mean, eachslice(y_hmc; dims = (1, 2)));
 #describe(mean_y_pred - y_o)
 histogram(vec(mean_y_invζ) - vec(y_true)) # predictions centered around y_o (or y_true)
 plt = scatterplot(vec(y_true), vec(mean_y_invζ));
@@ -534,7 +534,7 @@ lineplot!(plt, 0, 1)
     ζs_hvi = log.(θ2)
     int_pms = interpreters.PMs
     par_pos = int_pms(1:length(int_pms))
-    #i_sites = 1:5
+    i_sites = 1:10
     #i_sites = 6:10
     #i_sites = 11:15
     scen = vcat(fill(:hvi,size(ζs_hvi,2)),fill(:hmc,size(ζs_hmc,2)))
@@ -582,9 +582,94 @@ lineplot!(plt, 0, 1)
     plt = (data(df) * mapping(color=:Method) * density(datalimits=extrema) +
            data(df_true) * visual(VLines; color=:blue, linestyle=:dash)) * 
         mapping(:value=>"", col=:variable => sorter(vcat(keys(θP)..., keys(θM)...)), row = (:site => nonnumeric)) 
-    fig = draw(plt, facet=(; linkxaxes=:minimal, linkyaxes=:none,), axis=(xlabelvisible=false,)).figure
+    fig = Figure(size = get_fig_size(makie_config, xfac=1, width2height = 1/2));
+    f = draw!(fig, plt, facet=(; linkxaxes=:minimal, linkyaxes=:none,), axis=(xlabelvisible=false,));
+    fig
     save("tmp.svg", fig)
     save_with_config("intermediate/compare_hmc_hvi_sites", fig; makie_config)
+    # 
+    # compare density of predictions
+    y_hvi = y2
+    i_obss = [1,4,8]
+    #i_obss = 1:8
+    dfy = mapreduce(vcat, i_obss) do i_obs
+            mapreduce(vcat, i_sites) do i_site
+                vcat(
+                    DataFrame(
+                        value = y_hmc[i_obs,i_site,:], 
+                        site = i_site,
+                        Method = :hmc,
+                        variable = :y,
+                        i_obs = i_obs,
+                    ),
+                    DataFrame(
+                        value = y_hvi[i_obs,i_site,:], 
+                        site = i_site,
+                        Method = :hvi,
+                        variable = :y,
+                        i_obs = i_obs,
+                    )
+                )# vcat
+            end
+    end
+    dfyt = mapreduce(vcat, i_obss) do i_obs
+            mapreduce(vcat, i_sites) do i_site
+                vcat(
+                    DataFrame(
+                        value = y_true[i_obs,i_site], 
+                        site = i_site,
+                        Method = :truth,
+                        variable = :y,
+                        i_obs = i_obs,
+                    ),
+                    DataFrame(
+                        value = y_o[i_obs,i_site,:], 
+                        site = i_site,
+                        Method = :obs,
+                        variable = :y,
+                        i_obs = i_obs,
+                    )
+                )# vcat
+            end
+    end
+
+    plt = (data(dfy) * mapping(color=:Method) * density(datalimits=extrema) +
+            data(dfyt) * mapping(color=:Method) * visual(VLines;  linestyle=:dash)) * 
+            #data(dfyt) * mapping(color=:Method, linestyle=:Method) * visual(VLines;  linestyle=:dash)) * 
+        mapping(:value=>"", col=:i_obs => nonnumeric, row = :site => nonnumeric)
+
+    function get_fig_size(cfg; width2height=golden_ratio, xfac=1.0)    
+        cfg = makie_config
+        x_inch = first(cfg.size_inches) * xfac
+        y_inch = x_inch / width2height
+        72 .* (x_inch, y_inch) ./ cfg.pt_per_unit # size_pt        
+    end
+    fig = Figure(size = get_fig_size(makie_config, xfac=1, width2height = 1/2));
+    f = draw!(fig, plt, 
+        facet=(; linkxaxes=:minimal, linkyaxes=:none,), 
+        axis=(xlabelvisible=false,yticklabelsvisible=false));
+    legend!(fig[1,3], f, ; tellwidth=false, halign=:right, valign=:top) # , margin=(-10, -10, 10, 10)
+    fig
+    save_with_config("intermediate/compare_hmc_hvi_sites_y", fig; makie_config)
+    # hvi predicts y better, hmc fails for quite a few obs: 3,5,6
+
+    # todo compare mean_predictions
+    mean_y_hvi = map(mean, eachslice(y_hvi; dims = (1, 2)));
+
+    
+end
+
+() -> begin # inspect correlation of residuals
+    mean_ζ_hvi = map(mean, eachrow(CA.getdata(ζs_hvi)))
+    r_hvi = ζs_hvi .- mean_ζ_hvi
+    cor_hvi = cor(CA.getdata(r_hvi)')
+    mean_ζ_hmc = map(mean, eachrow(CA.getdata(ζs_hmc)))
+    r_hmc = ζs_hmc .- mean_ζ_hmc
+    cor_hmc = cor(CA.getdata(r_hmc)')
+    #
+    hcat(cor_hvi[:,1], cor_hmc[:,1])
+    # positive correlations of K2(1) in θP with K1(3) in θMs
+
 end
     
 
