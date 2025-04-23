@@ -172,9 +172,9 @@ test_with_flux = (scenario) -> begin
         rng = StableRNG(111)
         solver = HybridPosteriorSolver(; alg=Adam(0.02), n_batch=11, n_MC=3)
         (; ϕ, θP, resopt) = solve(prob, solver; scenario, rng,
-            callback = callback_loss(100), maxiters = 1200,
+            #callback = callback_loss(100), maxiters = 1200,
             #maxiters = 20 # too small so that it yields error
-            #maxiters=200,
+            maxiters=37,
             θmean_quant = 0.01,   # test constraining mean to initial prediction     
             gdev = identity
         )
@@ -199,6 +199,25 @@ test_with_flux = (scenario) -> begin
             );
             @test CA.getdata(ϕ) isa GPUArraysCore.AbstractGPUVector
             @test cdev(ϕ.unc.ρsM)[1] > 0
+            #
+            solver = HybridPosteriorSolver(; alg=Adam(0.02), n_batch=11, n_MC=3)
+            test_correlation = () -> begin
+                n_epoch = 100 # requires 
+                (; ϕ, θP, resopt, probo) = solve(prob, solver; scenario = scenf,
+                    maxiters = n_batches_in_epoch * n_epoch, 
+                    callback = callback_loss(n_batches_in_epoch*5)
+                );
+                (; θ, y, entropy_ζ) = predict_gf(rng, probo; scenario = scenf, n_sample_pred = 400);            
+                mean_θ = CA.ComponentVector(mean(CA.getdata(θ); dims = 2)[:, 1], CA.getaxes(θ[:, 1])[1])
+                residθ = θ .- mean_θ
+                cr = cor(CA.getdata(residθ));
+                i_sites = [1,2,3]
+                tmp = CA.ComponentArray(collect(axes(θ[:,1],1)), CA.getaxes(θ[:,1]));
+                #ax = map(x -> axes(x,1), get_hybridproblem_par_templates(probo; scenario = scenf))
+                is = vcat(tmp.P, vec(tmp.Ms[:,i_sites]))
+                cr[is,is]
+            end
+
         end;
         # does not work with general Bijector:
         # @testset "HybridPosteriorSolver also f on gpu" begin

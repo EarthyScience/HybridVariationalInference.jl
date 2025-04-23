@@ -29,17 +29,18 @@ function gf(prob::AbstractHybridProblem, xM, xP, args...;
     (; θP, θM) = get_hybridproblem_par_templates(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     intP = ComponentArrayInterpreter(θP)
-    pbm_covar_indices = intP(1:length(intP))[pbm_covars]
+    pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
+    pbm_covar_indices = CA.getdata(intP(1:length(intP))[pbm_covars])
     ζP = inverse(transP)(θP)
     g_dev, ϕg_dev, ζP_dev =  (gdev(g), gdev(ϕg), gdev(CA.getdata(ζP))) 
-    gf(g_dev, transM, transP, f, xM, xP, ϕg_dev, ζP_dev; cdev, pbm_covar_indices, kwargs...)
+    gf(g_dev, transM, transP, f, xM, xP, ϕg_dev, ζP_dev, pbm_covar_indices; cdev, kwargs...)
 end
 
 function gf(g, transM, transP, f, xM, xP, ϕg, ζP; 
     cdev = identity, pbm_covars, 
-    intP = ComponentArrayInterpreter(ζP))
+    intP = ComponentArrayInterpreter(ζP), kwargs...)
     pbm_covar_indices = intP(1:length(intP))[pbm_covars]
-    gf(g, transM, transP, f, xM, xP, ϕg, ζP, pbm_covar_indices)
+    gf(g, transM, transP, f, xM, xP, ϕg, ζP, pbm_covar_indices; kwargs...)
 end
 
 
@@ -52,7 +53,6 @@ function gf(g, transM, transP, f, xM, xP, ϕg, ζP, pbm_covar_indices::AbstractV
     #     # otherwise Zyote fails on cpu_handler
     #     ζP = copy(ζP)
     # end
-    #Main.@infiltrate_main
     #xMP = _append_PBM_covars(xM, intP(ζP), pbm_covars) 
     xMP = _append_each_covars(xM, CA.getdata(ζP), pbm_covar_indices)
     θMs = gtrans(g, transM, xMP, ϕg; cdev)
@@ -99,7 +99,7 @@ function get_loss_gf(g, transM, transP, f, y_o_global,
 
     let g = g, transM = transM, transP = transP, f = f, y_o_global = y_o_global, 
         intϕ = get_concrete(intϕ),
-        pbm_covar_indices = intP(1:length(intP))[pbm_covars]
+        pbm_covar_indices = CA.getdata(intP(1:length(intP))[pbm_covars])
         #, intP = get_concrete(intP)
         #inv_transP = inverse(transP), kwargs = kwargs
         function loss_gf(p, xM, xP, y_o, y_unc, i_sites)

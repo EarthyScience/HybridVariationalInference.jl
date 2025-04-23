@@ -48,7 +48,10 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
         Optimization.AutoZygote())
     optprob = OptimizationProblem(optf, CA.getdata(ϕ0_dev), train_loader)
     res = Optimization.solve(optprob, solver.alg; kwargs...)
-    (; ϕ = intϕ(res.u), resopt = res)
+    ϕ = intϕ(res.u)
+    θP = cpu_ca(apply_preserve_axes(transP, cpu_ca(ϕ).ϕP))
+    probo = update(prob; ϕg = cpu_ca(ϕ).ϕg, θP)
+    (; ϕ, resopt = res, probo)
 end
 
 struct HybridPosteriorSolver{A} <: AbstractHybridSolver
@@ -107,7 +110,9 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     optprob = OptimizationProblem(optf, CA.getdata(ϕ0_dev), train_loader)
     res = Optimization.solve(optprob, solver.alg; kwargs...)
     ϕc = interpreters.μP_ϕg_unc(res.u)
-    (; ϕ = ϕc, θP = cpu_ca(apply_preserve_axes(transP, ϕc.μP)), resopt = res, interpreters)
+    θP = cpu_ca(apply_preserve_axes(transP, ϕc.μP))
+    probo = update(prob; ϕg = cpu_ca(ϕ).ϕg, θP = θP, ϕunc = cpu_ca(ϕ).unc);
+    (; ϕ = ϕc, θP, resopt = res, interpreters, probo)
 end
 
 function fit_narrow_normal(θi, prior, θmean_quant)
