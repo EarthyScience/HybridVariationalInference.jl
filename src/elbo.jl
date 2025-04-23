@@ -130,6 +130,11 @@ Prediction function for hybrid model. Returns an NamedTuple with entries
 - `θ`: ComponentArray `(n_θP + n_site * n_θM), n_sample_pred)` of PBM model parameters.
 - `y`: Array `(n_obs, n_site, n_sample_pred)` of model predictions.
 """
+function predict_gf(rng, prob::AbstractHybridProblem; scenario, kwargs...)
+    n_batch = get_hybridproblem_n_site(prob; scenario)
+    data = first(get_hybridproblem_train_dataloader(prob; scenario, n_batch))
+    predict_gf(rng, prob, data[1], data[2]; scenario, kwargs...)
+end
 function predict_gf(rng, prob::AbstractHybridProblem, xM::AbstractMatrix, xP;
         scenario,
         n_sample_pred = 200,
@@ -146,11 +151,12 @@ function predict_gf(rng, prob::AbstractHybridProblem, xM::AbstractMatrix, xP;
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     f = get_hybridproblem_PBmodel(prob; scenario)
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
+    pbm_covar_indices = get_pbm_covar_indices(θP, pbm_covars)
     (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
         θP, θM, cor_ends, ϕg0, n_site; transP, transM, ϕunc0)
     g_dev, ϕ_dev = gdev(g), gdev(ϕ)
     predict_gf(rng, g_dev, f, ϕ_dev, xM, xP, interpreters;
-        get_transPMs, get_ca_int_PMs, n_sample_pred, cdev, cor_ends, pbm_covars)
+        get_transPMs, get_ca_int_PMs, n_sample_pred, cdev, cor_ends, pbm_covar_indices)
 end
 
 function predict_gf(rng, g, f, ϕ::AbstractVector, xM::AbstractMatrix, xP, interpreters;
