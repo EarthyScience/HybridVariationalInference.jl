@@ -17,35 +17,38 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
     FT = get_hybridproblem_float_type(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
-    int_ϕθP = ComponentArrayInterpreter(CA.ComponentVector(
-        ϕg = 1:length(ϕg0), θP = par_templates.θP))
-    #p0_cpu = vcat(ϕg0, par_templates.θP .* FT(0.9))  # slightly disturb θP_true
-    p0_cpu = vcat(ϕg0, par_templates.θP)
-    p0 = p0_cpu
-    g_dev = g
+    intϕ = ComponentArrayInterpreter(CA.ComponentVector(
+        ϕg = 1:length(ϕg0), ϕP = par_templates.θP))
+    #ϕ0_cpu = vcat(ϕg0, par_templates.θP .* FT(0.9))  # slightly disturb θP_true
+    ϕ0_cpu = vcat(ϕg0, apply_preserve_axes(inverse(transP),par_templates.θP))
     if gdev isa MLDataDevices.AbstractGPUDevice
-        p0 = gdev(p0_cpu)
+        ϕ0_dev = gdev(ϕ0_cpu)
         g_dev = gdev(g)
+    else
+        ϕ0_dev = ϕ0_cpu
+        g_dev = g
     end
     train_loader = get_hybridproblem_train_dataloader(
         prob; scenario, n_batch = solver.n_batch)
     f = get_hybridproblem_PBmodel(prob; scenario)
     y_global_o = FT[] # TODO
-    loss_gf = get_loss_gf(g_dev, transM, f, y_global_o, int_ϕθP; cdev)
+    pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
+    #intP = ComponentArrayInterpreter(par_templates.θP)
+    loss_gf = get_loss_gf(g_dev, transM, transP, f, y_global_o, intϕ; cdev, pbm_covars)
     # call loss function once
-    l1 = loss_gf(p0, first(train_loader)...)[1]
+    l1 = loss_gf(ϕ0_dev, first(train_loader)...)[1]
     # and gradient
     # xMg, xP, y_o, y_unc = first(train_loader)
     # gr1 = Zygote.gradient(
     #             p -> loss_gf(p, xMg, xP, y_o, y_unc)[1],
-    #             p0)
+    #             ϕ0_dev)
     # data1 = first(train_loader)
-    # Zygote.gradient(p0 -> loss_gf(p0, data1...)[1], p0)
+    # Zygote.gradient(ϕ0_dev -> loss_gf(ϕ0_dev, data1...)[1], ϕ0_dev)
     optf = Optimization.OptimizationFunction((ϕ, data) -> loss_gf(ϕ, data...)[1],
         Optimization.AutoZygote())
-    optprob = OptimizationProblem(optf, CA.getdata(p0), train_loader)
+    optprob = OptimizationProblem(optf, CA.getdata(ϕ0_dev), train_loader)
     res = Optimization.solve(optprob, solver.alg; kwargs...)
-    (; ϕ = int_ϕθP(res.u), resopt = res)
+    (; ϕ = intϕ(res.u), resopt = res)
 end
 
 struct HybridPosteriorSolver{A} <: AbstractHybridSolver
@@ -77,6 +80,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
     ϕunc0 = get_hybridproblem_ϕunc(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
+    pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
     (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
         θP, θM, cor_ends, ϕg0, solver.n_batch; transP, transM, ϕunc0)
     if gdev isa MLDataDevices.AbstractGPUDevice
@@ -90,12 +94,12 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     f = get_hybridproblem_PBmodel(prob; scenario)
     py = get_hybridproblem_neg_logden_obs(prob; scenario)
     priors_θ_mean = construct_priors_θ_mean(
-        prob, ϕ0_dev.ϕg, keys(θM), θP, θmean_quant, g_dev, transM;
-        scenario, get_ca_int_PMs, cdev)
+        prob, ϕ0_dev.ϕg, keys(θM), θP, θmean_quant, g_dev, transM, transP;
+        scenario, get_ca_int_PMs, cdev, pbm_covars)
     y_global_o = Float32[] # TODO
     loss_elbo = get_loss_elbo(
         g_dev, transPMs_batch, f, py, y_global_o, interpreters;
-        solver.n_MC, solver.n_MC_cap, cor_ends, priors_θ_mean, cdev)
+        solver.n_MC, solver.n_MC_cap, cor_ends, priors_θ_mean, cdev, pbm_covars, θP)
     # test loss function once
     l0 = loss_elbo(ϕ0_dev, rng, first(train_loader)...)
     optf = Optimization.OptimizationFunction((ϕ, data) -> loss_elbo(ϕ, rng, data...)[1],
@@ -116,28 +120,32 @@ end
 
 """
 Create a loss function for parameter vector ϕ, given 
-- g(x, ϕ): machine learning model 
-- transPMS: transformation from unconstrained space to parameter space
-- f(θMs, θP): mechanistic model 
-- interpreters: assigning structure to pure vectors, see neg_elbo_gtf
-- n_MC: number of Monte-Carlo sample to approximate the expected value across distribution
+- `g(x, ϕ)`: machine learning model 
+- `transPMS`: transformation from unconstrained space to parameter space
+- `f(θMs, θP)`: mechanistic model 
+- `interpreters`: assigning structure to pure vectors, see `neg_elbo_gtf`
+- `n_MC`: number of Monte-Carlo sample to approximate the expected value across distribution
+- `pbm_covars`: tuple of symbols of process-based parameters provided to the ML model
+- `θP`: CompoenntVector as a template to select indices of pbm_covars
 
 The loss function takes in addition to ϕ, data that changes with minibatch
-- rng: random generator
-- xM: matrix of covariates, sites in columns
-- xP: drivers for the processmodel: Iterator of size n_site
-- y_o, y_unc: matrix of observations and uncertainties, sites in columns
+- `rng`: random generator
+- `xM`: matrix of covariates, sites in columns
+- `xP`: drivers for the processmodel: Iterator of size n_site
+- `y_o`, `y_unc`: matrix of observations and uncertainties, sites in columns
 """
 function get_loss_elbo(g, transPMs, f, py, y_o_global, interpreters;
-        n_MC, n_MC_cap = n_MC, cor_ends, priors_θ_mean, cdev)
+        n_MC, n_MC_cap = n_MC, cor_ends, priors_θ_mean, cdev, pbm_covars, θP,
+        )
     let g = g, transPMs = transPMs, f = f, py = py, y_o_global = y_o_global, n_MC = n_MC,
         cor_ends = cor_ends, interpreters = map(get_concrete, interpreters),
-        priors_θ_mean = priors_θ_mean, cdev = cdev
+        priors_θ_mean = priors_θ_mean, cdev = cdev, 
+        pbm_covar_indices = get_pbm_covar_indices(θP, pbm_covars)
 
         function loss_elbo(ϕ, rng, xM, xP, y_o, y_unc, i_sites)
             neg_elbo_gtf(
                 rng, ϕ, g, transPMs, f, py, xM, xP, y_o, y_unc, i_sites, interpreters;
-                n_MC, n_MC_cap, cor_ends, priors_θ_mean, cdev)
+                n_MC, n_MC_cap, cor_ends, priors_θ_mean, cdev, pbm_covar_indices)
         end
     end
 end
@@ -183,16 +191,19 @@ end
 In order to let mean of θ stay close to initial point parameter estimates 
 construct a prior on mean θ to a Normal around initial prediction.
 """
-function construct_priors_θ_mean(prob, ϕg, keysθM, θP, θmean_quant, g_dev, transM;
-        scenario, get_ca_int_PMs, cdev)
+function construct_priors_θ_mean(prob, ϕg, keysθM, θP, θmean_quant, g_dev, transM, transP;
+        scenario, get_ca_int_PMs, cdev, pbm_covars)
     iszero(θmean_quant) ? [] :
     begin
         n_site = get_hybridproblem_n_site(prob; scenario)
         all_loader = get_hybridproblem_train_dataloader(prob; scenario, n_batch = n_site)
         xM_all = first(all_loader)[1]
-        θMs = gtrans(g_dev, transM, xM_all, CA.getdata(ϕg); cdev)
-        priors_dict = get_hybridproblem_priors(prob; scenario)
         #Main.@infiltrate_main
+        ζP = apply_preserve_axes(inverse(transP), θP)
+        pbm_covar_indices = get_pbm_covar_indices(θP, pbm_covars)
+        xMP_all = _append_each_covars(xM_all, CA.getdata(ζP), pbm_covar_indices) 
+        θMs = gtrans(g_dev, transM, xMP_all, CA.getdata(ϕg); cdev)
+        priors_dict = get_hybridproblem_priors(prob; scenario)
         priorsP = [priors_dict[k] for k in keys(θP)]
         priors_θP_mean = map(priorsP, θP) do priorsP, θPi
             fit_narrow_normal(θPi, priorsP, θmean_quant)

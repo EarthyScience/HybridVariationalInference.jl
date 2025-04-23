@@ -42,16 +42,18 @@ function HVI.construct_3layer_MLApplicator(
     (;θM) = get_hybridproblem_par_templates(prob; scenario)
     n_out = length(θM)
     n_covar = get_hybridproblem_n_covar(prob; scenario)
+    n_pbm_covars = length(get_hybridproblem_pbmpar_covars(prob; scenario))
+    n_input = n_covar + n_pbm_covars
     #(; n_covar, n_θM) = get_hybridproblem_sizes(prob; scenario)
     float_type = get_hybridproblem_float_type(prob; scenario)
     is_using_dropout = :use_dropout ∈ scenario
     is_using_dropout && error("dropout scenario not supported with Flux yet.")
     g_chain = Flux.Chain(
         # dense layer with bias that maps to 8 outputs and applies `tanh` activation
-        Flux.Dense(n_covar => n_covar * 4, tanh),
-        Flux.Dense(n_covar * 4 => n_covar * 4, tanh),
+        Flux.Dense(n_input => n_input * 4, tanh),
+        Flux.Dense(n_input * 4 => n_input * 4, tanh),
         # dense layer without bias that maps to n outputs and `logistic` activation
-        Flux.Dense(n_covar * 4 => n_out, logistic, bias = false)
+        Flux.Dense(n_input * 4 => n_out, logistic, bias = false)
     )
     construct_ChainsApplicator(rng, g_chain, float_type)
 end

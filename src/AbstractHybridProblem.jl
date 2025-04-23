@@ -18,6 +18,8 @@ optionally
 - `get_hybridproblem_float_type` (defaults to `eltype(θM)`)
 - `get_hybridproblem_cor_ends` (defaults to include all correlations: 
   `(P = [length(θP)], M = [length(θM)])`)
+- `get_hybridproblem_pbmpar_covars` (defaults to empty tuple)
+
 
 The initial value of parameters to estimate is spread
 - `ϕg`: parameter of the MLapplicator: returned by `get_hybridproblem_MLapplicator`
@@ -116,6 +118,11 @@ function get_hybridproblem_n_covar(::AbstractHybridProblem; scenario) end
 #     n_covar = size(xM, 1)
 #     return (n_covar)
 # end
+
+
+function get_hybridproblem_pbmpar_covars(::AbstractHybridProblem; scenario) 
+    ()
+end
 
 """
     get_hybridproblem_n_site(::AbstractHybridProblem; scenario)

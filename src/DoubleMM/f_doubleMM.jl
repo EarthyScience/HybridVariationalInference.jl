@@ -41,6 +41,11 @@ function HVI.get_hybridproblem_priors(::DoubleMMCase; scenario = ())
     Dict(keys(θall) .=> fit.(LogNormal, θall, QuantilePoint.(θall .* 3, 0.95)))
 end
 
+function HVI.get_hybridproblem_MLapplicator(prob::HVI.DoubleMM.DoubleMMCase; scenario = ())
+    rng = StableRNGs.StableRNG(111)
+    get_hybridproblem_MLapplicator(rng, prob; scenario)
+end
+
 function HVI.get_hybridproblem_MLapplicator(
         rng::AbstractRNG, prob::HVI.DoubleMM.DoubleMMCase; scenario = ())
     ml_engine = select_ml_engine(; scenario)
@@ -52,6 +57,14 @@ function HVI.get_hybridproblem_MLapplicator(
     g = NormalScalingModelApplicator(g_nomag, priors, transM, eltype(ϕ_g0))
     return g, ϕ_g0
 end
+
+function HVI.get_hybridproblem_pbmpar_covars(::DoubleMMCase; scenario) 
+    if (:covarK2 ∈ scenario)
+        return (:K2,)
+    end
+    ()
+end
+
 
 function HVI.get_hybridproblem_transforms(::DoubleMMCase; scenario::NTuple = ())
     if (:stackedMS ∈ scenario)

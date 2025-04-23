@@ -17,6 +17,7 @@ using CommonSolve
 #using OptimizationOptimisers # default alg=Adam(0.02)
 using Optimization
 using Distributions, DistributionFits
+using StaticArrays: StaticArrays as SA
 using Functors
 
 export ComponentArrayInterpreter, flatten1, get_concrete
@@ -40,6 +41,7 @@ export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_
        get_hybridproblem_n_site,
        get_hybridproblem_cor_ends,
        get_hybridproblem_priors,
+       get_hybridproblem_pbmpar_covars,
 #update,
        gen_cov_pred,
        construct_dataloader_from_synthetic,

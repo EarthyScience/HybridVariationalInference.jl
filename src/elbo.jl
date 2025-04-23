@@ -38,10 +38,11 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector, g, transPMs, f, py,
         n_MC = 12, n_MC_mean = 30, n_MC_cap = n_MC,
         cdev = cpu_device(),
         priors_θ_mean = [],
-        cor_ends # =(P=(1,),M=(1,))
+        cor_ends, # =(P=(1,),M=(1,))
+        pbm_covar_indices
 )
     n_MCr = isempty(priors_θ_mean) ? n_MC : max(n_MC, n_MC_mean)
-    ζs, σ = generate_ζ(rng, g, ϕ, xM, interpreters; n_MC = n_MCr, cor_ends)
+    ζs, σ = generate_ζ(rng, g, ϕ, xM, interpreters; n_MC = n_MCr, cor_ends, pbm_covar_indices)
     ζs_cpu = cdev(ζs) # differentiable fetch to CPU in Flux package extension
     nLy, entropy_ζ = neg_elbo_ζtf(ζs_cpu, σ, transPMs, f, py,
         xP, y_ob, y_unc, interpreters;
@@ -144,24 +145,26 @@ function predict_gf(rng, prob::AbstractHybridProblem, xM::AbstractMatrix, xP;
     ϕunc0 = get_hybridproblem_ϕunc(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     f = get_hybridproblem_PBmodel(prob; scenario)
+    pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
     (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
         θP, θM, cor_ends, ϕg0, n_site; transP, transM, ϕunc0)
     g_dev, ϕ_dev = gdev(g), gdev(ϕ)
     predict_gf(rng, g_dev, f, ϕ_dev, xM, xP, interpreters;
-        get_transPMs, get_ca_int_PMs, n_sample_pred, cdev, cor_ends)
+        get_transPMs, get_ca_int_PMs, n_sample_pred, cdev, cor_ends, pbm_covars)
 end
 
 function predict_gf(rng, g, f, ϕ::AbstractVector, xM::AbstractMatrix, xP, interpreters;
         get_transPMs, get_ca_int_PMs, n_sample_pred = 200,
         cdev = cpu_device(),
-        cor_ends        #cor_ends=(P=(1,),M=(1,))
+        cor_ends,        #cor_ends=(P=(1,),M=(1,))
+        pbm_covar_indices
 )
     n_site = size(xM, 2)
     intm_PMs_gen = get_ca_int_PMs(n_site)
     trans_PMs_gen = get_transPMs(n_site)
     interpreters_gen = (; interpreters..., PMs = intm_PMs_gen)
     ζs_gpu, σ = generate_ζ(rng, g, CA.getdata(ϕ), CA.getdata(xM), interpreters_gen;
-        n_MC = n_sample_pred, cor_ends)
+        n_MC = n_sample_pred, cor_ends, pbm_covar_indices)
     ζs = cdev(ζs_gpu)
     logdetΣ = 2 * sum(log.(σ))
     entropy_ζ = entropy_MvNormal(length(σ), logdetΣ)  # defined in logden_normal
@@ -190,25 +193,88 @@ to the means extracted from parameters and predicted by the machine learning
 model. 
 """
 function generate_ζ(rng, g, ϕ::AbstractVector, xM::AbstractMatrix,
-        interpreters::NamedTuple; n_MC = 3, cor_ends)
-    # see documentation of neg_elbo_gtf
-    ϕc = interpreters.μP_ϕg_unc(CA.getdata(ϕ))
-    μ_ζP = ϕc.μP
-    ϕg = ϕc.ϕg
-    μ_ζMs0 = g(xM, ϕg) # TODO provide μ_ζP to g
-    ζ_resid, σ = sample_ζ_norm0(rng, μ_ζP, μ_ζMs0, ϕc.unc; n_MC, cor_ends)
-    #ζ_resid, σ = sample_ζ_norm0(rng, ϕ[1:2], reshape(ϕ[2 .+ (1:20)],2,:), ϕ[(end-length(interpreters.unc)+1):end], interpreters.unc; n_MC)
-    # @show size(ζ_resid)
-    # @show length(interpreters.PMs)
-    ζ = stack(map(eachcol(ζ_resid)) do r
-        rc = interpreters.PMs(r)
-        ζP = μ_ζP .+ rc.P
-        μ_ζMs = μ_ζMs0 # g(xM, ϕc.ϕ) # TODO provide ζP to g
-        ζMs = μ_ζMs .+ rc.Ms
-        vcat(ζP, vec(ζMs))
-    end)
-    ζ, σ
+    interpreters::NamedTuple; n_MC = 3, cor_ends, pbm_covar_indices)
+# see documentation of neg_elbo_gtf
+ϕc = interpreters.μP_ϕg_unc(CA.getdata(ϕ))
+μ_ζP = ϕc.μP
+ϕg = ϕc.ϕg
+# first pass: append μ_ζP_to covars, need ML prediction for magnitude of ζMs
+xMP = _append_each_covars(xM, CA.getdata(μ_ζP), pbm_covar_indices) 
+μ_ζMs0 = g(xMP, ϕg) 
+ζ_resid, σ = sample_ζ_norm0(rng, μ_ζP, μ_ζMs0, ϕc.unc; n_MC, cor_ends)
+#ζ_resid, σ = sample_ζ_norm0(rng, ϕ[1:2], reshape(ϕ[2 .+ (1:20)],2,:), ϕ[(end-length(interpreters.unc)+1):end], interpreters.unc; n_MC)
+# @show size(ζ_resid)
+# @show length(interpreters.PMs)
+ζ = stack(map(eachcol(ζ_resid)) do r
+    rc = interpreters.PMs(r)
+    ζP = μ_ζP .+ rc.P
+    # second pass: append ζP rather than μ_ζP to covarss to xM
+    μ_ζMs = _predict_μ_ζMs(xM, ζP, pbm_covar_indices, g, ϕg, μ_ζMs0)
+    ζMs = μ_ζMs .+ rc.Ms
+    vcat(ζP, vec(ζMs))
+end)
+ζ, σ
 end
+
+
+# function _append_PBM_covars(xM, ζP, pbm_covars::NTuple{N,Symbol}) where N
+#     #@show ζP, typeof(ζP)
+#     vcat(xM, hcat(fill(
+#         convert(Array{eltype(xM)}, CA.getdata(ζP[pbm_covars])),
+#         #similar(CA.getdata(ζP[pbm_covars]), eltype(xM)), # 
+#         size(xM,2))...))
+# end
+# function _append_PBM_covars(xM, ζP, pbm_covars::NTuple{0}) 
+#     xM
+# end
+
+function _append_each_covars(xM, ζP::AbstractVector, pbm_covar_indices::SA.StaticVector{0}) 
+    xM
+end
+function _append_each_covars(xM, ζP::AbstractVector, pbm_covar_indices::AbstractVector) 
+    ζP_covar = ζP[pbm_covar_indices]
+    _append_each_covars(xM, ζP_covar)
+end
+function _append_each_covars(xM, ζP_covar::AbstractVector) 
+    #@show ζP, typeof(ζP)
+    @assert eltype(xM) == eltype(ζP_covar)
+    #Main.@infiltrate_main
+    ζP_rep =  reduce(hcat, fill(ζP_covar, size(xM,2)))
+    vcat(xM,ζP_rep)
+end
+
+
+function get_pbm_covar_indices(ζP, pbm_covars::NTuple{N,Symbol},  
+    intP::AbstractComponentArrayInterpreter = ComponentArrayInterpreter(ζP)) where N
+    #SA.SVector{N}(CA.getdata(intP(1:length(intP))[pbm_covars])) # can not index into GPUarr
+    CA.getdata(intP(1:length(intP))[pbm_covars])
+end
+function get_pbm_covar_indices(ζP, pbm_covars::NTuple{0},  
+    intP::AbstractComponentArrayInterpreter = ComponentArrayInterpreter(ζP)) 
+    SA.SA[]
+end
+
+# function _predict_μ_ζMs(xM, ζP, pbm_covars::NTuple{N,Symbol}, g, ϕg, μ_ζMs0) where N
+#     xMP2 = _append_PBM_covars(xM, ζP, pbm_covars) # need different variable name?
+#     μ_ζMs = g(xMP2, ϕg)
+# end
+# function _predict_μ_ζMs(xM, ζP, pbm_covars::NTuple{0}, g, ϕg, μ_ζMs0)
+#     # if pbm_covars is the empty tuple, just return the original prediction on xM only
+#     # rather than calling the ML model
+#     μ_ζMs0
+# end
+
+function _predict_μ_ζMs(xM, ζP, pbm_covar_indices::AbstractVector, g, ϕg, μ_ζMs0)
+    xMP2 = _append_each_covars(xM, CA.getdata(ζP), pbm_covar_indices) 
+    μ_ζMs = g(xMP2, ϕg)
+end
+function _predict_μ_ζMs(xM, ζP, pbm_covars_indices::SA.StaticVector{0}, g, ϕg, μ_ζMs0)
+    # if pbm_covars is the empty tuple, just return the original prediction on xM only
+    # rather than calling the ML model
+    μ_ζMs0
+end
+
+
 
 """
 Extract relevant parameters from θ and return n_MC generated draws
@@ -252,7 +318,6 @@ end
 
 function _create_blockdiag(UP::AbstractMatrix{T}, UM, σP, σMs, n_batch) where {T}
     v = [i == 0 ? UP * Diagonal(σP) : UM * Diagonal(σMs[:, i]) for i in 0:n_batch]
-    #Main.@infiltrate_main
     BlockDiagonal(v)
 end
 function _create_blockdiag(

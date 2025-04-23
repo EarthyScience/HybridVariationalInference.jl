@@ -1,9 +1,11 @@
 using Test
 using HybridVariationalInference
+using HybridVariationalInference: HybridVariationalInference as HVI
 using StableRNGs
 using Random
 using Statistics
 using ComponentArrays: ComponentArrays as CA
+using Bijectors
 
 using SimpleChains
 using MLUtils
@@ -89,9 +91,10 @@ end
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     f = get_hybridproblem_PBmodel(prob; scenario)
 
-    int_ϕθP = ComponentArrayInterpreter(CA.ComponentVector(
-        ϕg = 1:length(ϕg0), θP = par_templates.θP))
-    p = p0 = vcat(ϕg0, par_templates.θP .* convert(eltype(ϕg0), 0.8))  # slightly disturb θP_true
+    intϕ = ComponentArrayInterpreter(CA.ComponentVector(
+        ϕg = 1:length(ϕg0), ϕP = par_templates.θP))
+    p = p0 = vcat(ϕg0, HVI.apply_preserve_axes(inverse(transP), par_templates.θP) .- 
+        convert(eltype(ϕg0), 0.1))  # slightly disturb θP_true
     #p = p0 = vcat(ϕg_opt1, par_templates.θP);  # almost true
 
     # Pass the site-data for the batches as separate vectors wrapped in a tuple
@@ -99,9 +102,10 @@ end
     train_loader = MLUtils.DataLoader((xM, xP, y_o, y_unc, i_sites), batchsize = n_batch)
     # get_hybridproblem_train_dataloader recreates synthetic data different θ_true
     train_loader2 = get_hybridproblem_train_dataloader(prob; scenario, n_batch = n_site)
+    pbm_covars =  get_hybridproblem_pbmpar_covars(prob; scenario)
 
-    #loss_gf = get_loss_gf(g, transM, f, y_global_o, int_ϕθP; gdev = identity)
-    loss_gf = get_loss_gf(g, transM, f, y_global_o, int_ϕθP)
+    #loss_gf = get_loss_gf(g, transM, f, y_global_o, intϕ; gdev = identity)
+    loss_gf = get_loss_gf(g, transM, transP, f, y_global_o, intϕ; pbm_covars)
     l1 = loss_gf(p0, first(train_loader)...)[1]
     (xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch) = first(train_loader)
     Zygote.gradient(
@@ -116,13 +120,15 @@ end
         #optprob, Adam(0.02), callback = callback_loss(100), maxiters = 5000);
         optprob, Adam(0.02), maxiters = 1000)
 
-    l1, y_pred_global, y_pred, θMs_pred = loss_gf(res.u, train_loader.data...)
+    l1, y_pred_global, y_pred, θMs_pred, θP_pred = loss_gf(res.u, train_loader.data...)
     #l1, y_pred_global, y_pred, θMs_pred = loss_gf(p0, xM, xP, y_o, y_unc);
     θMs_pred = CA.ComponentArray(θMs_pred, CA.getaxes(θMs_true))
-    #TODO @test isapprox(par_templates.θP, int_ϕθP(res.u).θP, rtol = 0.15)
+    #TODO @test isapprox(par_templates.θP, intϕ(res.u).ϕP, rtol = 0.15)
     #@test cor(vec(θMs_true), vec(θMs_pred)) > 0.8
     @test cor(θMs_true[:, 1], θMs_pred[:, 1]) > 0.8
     @test cor(θMs_true[:, 2], θMs_pred[:, 2]) > 0.8
+    # started from low values -> increased but not too much above true values
+    @test all(transP(intϕ(p0).ϕP) .< θP_pred .< (1.2 .* par_templates.θP))
 
     () -> begin
         #@usingany UnicodePlots
@@ -131,7 +137,7 @@ end
         scatterplot(θMs_true[2, :], θMs_pred[2, :])
         scatterplot(log.(vec(θMs_true)), log.(vec(θMs_pred)))
         scatterplot(vec(y_pred), vec(y_o))
-        hcat(par_templates.θP, int_ϕθP(p0).θP, int_ϕθP(res.u).θP)
+        hcat(par_templates.θP, intϕ(p0).ϕP, intϕ(res.u).ϕP, transP(intϕ(p0).ϕP), θP_pred)
     end
 end
 

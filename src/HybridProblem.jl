@@ -13,6 +13,7 @@ struct HybridProblem <: AbstractHybridProblem
     get_train_loader::Any
     n_covar::Int
     n_site::Int
+    pbm_covars::NTuple
     # inner constructor to constrain the types
     function HybridProblem(
             θP::CA.ComponentVector, θM::CA.ComponentVector,
@@ -28,10 +29,11 @@ struct HybridProblem <: AbstractHybridProblem
             n_covar::Int,
             n_site::Int,
             cor_ends::NamedTuple = (P = [length(θP)], M = [length(θM)]),
-    )
+            pbm_covars::NTuple{N,Symbol} = (),
+    ) where N
         new(
             θP, θM, f, g, ϕg, ϕunc, priors, py, transM, transP, cor_ends, get_train_loader,
-            n_covar, n_site)
+            n_covar, n_site, pbm_covars)
     end
 end
 
@@ -57,11 +59,12 @@ function HybridProblem(prob::AbstractHybridProblem; scenario = ())
         end
     end
     cor_ends = get_hybridproblem_cor_ends(prob; scenario)
+    pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
     priors = get_hybridproblem_priors(prob; scenario)
     n_covar = get_hybridproblem_n_covar(prob; scenario)
     n_site = get_hybridproblem_n_site(prob; scenario)
     HybridProblem(θP, θM, g, ϕg, ϕunc, f, priors, py, transP, transM, get_train_loader,
-        n_covar, n_site, cor_ends)
+        n_covar, n_site, cor_ends, pbm_covars)
 end
 
 function update(prob::HybridProblem;
@@ -76,12 +79,13 @@ function update(prob::HybridProblem;
         transM::Union{Function, Bijectors.Transform} = prob.transM,
         transP::Union{Function, Bijectors.Transform} = prob.transP,
         cor_ends::NamedTuple = prob.cor_ends,
+        pbm_covars::NTuple{N,Symbol} = prob.pbm_covars,
         get_train_loader::Function = prob.get_train_loader,
         n_covar::Integer = prob.n_covar,
         n_site::Integer = prob.n_site
-)
+) where N
     HybridProblem(θP, θM, g, ϕg, ϕunc, f, priors, py, transP, transM, get_train_loader,
-        n_covar, n_site, cor_ends)
+        n_covar, n_site, cor_ends, pbm_covars)
 end
 
 function get_hybridproblem_par_templates(prob::HybridProblem; scenario::NTuple = ())
@@ -120,6 +124,9 @@ end
 
 function get_hybridproblem_cor_ends(prob::HybridProblem; scenario = ())
     prob.cor_ends
+end
+function get_hybridproblem_pbmpar_covars(prob::HybridProblem; scenario = ()) 
+    prob.pbm_covars
 end
 function get_hybridproblem_n_covar(prob::HybridProblem; scenario = ())
     prob.n_covar

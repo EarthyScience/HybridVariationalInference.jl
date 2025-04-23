@@ -129,7 +129,7 @@ end
     () -> begin # optimized loss is indeed lower than with true parameters
         int_ϕθP = ComponentArrayInterpreter(CA.ComponentVector(
             ϕg = 1:length(prob0.ϕg), θP = prob0.θP))
-        loss_gf = get_loss_gf(prob0.g, prob0.transM, prob0.f, Float32[], int_ϕθP)
+        loss_gf = get_loss_gf(prob0.g, prob0.transM, prob0.transP, prob0.f, Float32[], int_ϕθP)
         loss_gf(vcat(prob3.ϕg, prob3.θP), xM, xP, y_o, y_unc, i_sites)[1]
         loss_gf(vcat(prob3o.ϕg, prob3o.θP), xM, xP, y_o, y_unc, i_sites)[1]
         #
