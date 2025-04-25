@@ -1,2 +1,3 @@
 [default.extend-words]
 SOM = "SOM"
+negLogLik = "negLogLik"

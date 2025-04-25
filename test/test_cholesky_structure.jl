@@ -7,7 +7,8 @@ using ComponentArrays: ComponentArrays as CA
 #using SymmetricFormats
 using GPUArraysCore: GPUArraysCore
 #using Flux
-using CUDA
+import CUDA, cuDNN
+using MLDataDevices
 
 A = [1.0 2.0 3.0
      2.0 1.0 4.0
@@ -22,6 +23,8 @@ C = [1.0 2.0 3.2
 LC = cholesky(C).L
 
 Z = zeros(3, 3)
+ggdev = gpu_device()
+
 
 @testset "cholesky of blockdiagonal" begin
     # cholesky factorization of a BlockDiagonal equals BlockDiagonal of Choleskies
@@ -110,9 +113,9 @@ end;
 end
 
 @testset "vec2uutri gpu" begin
-    if CUDA.functional() # only run the test, if CUDA is working (not on Github ci)
+    if ggdev isa MLDataDevices.AbstractGPUDevice # only run the test, if CUDA is working (not on Github ci)
         v_orig = 1.0f0:6.0f0
-        v = CuArray(collect(v_orig))
+        v = ggdev(collect(v_orig))
         U1v = CP.vec2uutri(v)
         @test !(U1v isa UnitUpperTriangular) # on CUDA work with normal matrix
         @test U1v isa GPUArraysCore.AbstractGPUMatrix
@@ -139,8 +142,8 @@ end;
     ch = CP.transformU_cholesky1(vcpu)
     gr1 = Zygote.gradient(v -> sum(CP.transformU_cholesky1(v)), vcpu)[1] # works nice
     @test all(diag(ch' * ch) .≈ 1)
-    if CUDA.functional() # only run the test, if CUDA is working (not on Github ci)
-        v = CuArray(collect(v_orig))
+    if ggdev isa MLDataDevices.AbstractGPUDevice # only run the test, if CUDA is working (not on Github ci)
+        v = ggdev(collect(v_orig))
         U1v = CP.transformU_cholesky1(v)
         @test !(U1v isa UnitUpperTriangular) # on CUDA work with normal matrix
         @test U1v isa GPUArraysCore.AbstractGPUMatrix
@@ -173,21 +176,22 @@ end;
     @test diag(U) == [1f0]
     gr1 = Zygote.gradient(v -> sum(CP.transformU_block_cholesky1(ρ0, cor_ends0)), v)[1]; # works nice
 
-    if CUDA.functional() # only run the test, if CUDA is working (not on Github ci)
-        vc = v_orig = CA.ComponentVector(b1 = CuArray(1.0f0:3.0f0), b2 = CuArray([5.0f0]))
+    if ggdev isa MLDataDevices.AbstractGPUDevice # only run the test, if CUDA is working (not on Github ci)
+        vc = v_orig = CA.ComponentVector(b1 = ggdev(1.0f0:3.0f0), b2 = ggdev([5.0f0]))
+        vc = v_orig = ggdev(CA.ComponentVector(b1 = 1.0f0:3.0f0, b2 = [5.0f0]))
         v = CA.getdata(vc)
         cor_ends = get_ca_ends(vc)
-        ρ = CuArray(1f0:get_cor_count(cor_ends))
+        ρ = ggdev(collect(1f0:get_cor_count(cor_ends)))
         U = CP.transformU_block_cholesky1(ρ, cor_ends)
-        @test U isa CuArray
+        @test U isa GPUArraysCore.AbstractGPUArray
         @test diag(Array(U' * U)) ≈ ones(4)
         @test Array(U[1:3, 4:4]) ≈ zeros(3, 1)
         gr1 = Zygote.gradient(v -> sum(CP.transformU_block_cholesky1(v, cor_ends)), v)[1] # works nice
         #
         cor_ends0 = Int64[]
-        ρ0 = CuArray(1f0:get_cor_count(cor_ends0))
+        ρ0 = ggdev(collect(1f0:get_cor_count(cor_ends0)))
         U = CP.transformU_block_cholesky1(ρ0, cor_ends0)
-        @test U isa CuArray
+        @test U isa GPUArraysCore.AbstractGPUArray
         @test Array(diag(U)) == [1f0]
     end
 end;

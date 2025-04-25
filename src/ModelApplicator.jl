@@ -54,6 +54,8 @@ end
         rng::AbstractRNG, prob::HVI.AbstractHybridProblem, <ml_engine>;
         scenario::NTuple = ())
 
+Construct a machine learning model for given Proglem and machine learning engine.
+Implemented for machine learning extensions, such as Flux or SimpleChains.
 `ml_engine` usually is of type `Val{Symbol}`, e.g. Val(:Flux). See `select_ml_engine`.       
 """
 function construct_3layer_MLApplicator end
@@ -119,6 +121,7 @@ struct NormalScalingModelApplicator{VF,A} <: AbstractModelApplicator
     μ::VF
     σ::VF
 end
+@functor NormalScalingModelApplicator
 
 function NormalScalingModelApplicator(
     app::AbstractModelApplicator, priors::AbstractVector{<:Distribution}, transM, ET::Type)

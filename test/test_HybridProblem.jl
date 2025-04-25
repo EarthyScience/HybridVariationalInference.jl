@@ -1,5 +1,6 @@
 using Test
 using HybridVariationalInference
+using HybridVariationalInference: HybridVariationalInference as HVI
 using StableRNGs
 using Random
 using Statistics
@@ -14,10 +15,15 @@ import Zygote
 
 using OptimizationOptimisers
 using MLDataDevices
+using Suppressor
 
 cdev = cpu_device()
 
-construct_problem = () -> begin
+#scenario = (:default,)
+#scenario = (:covarK2,)
+
+
+construct_problem = (;scenario=(:default,)) -> begin
     FT = Float32
     θP = CA.ComponentVector{FT}(r0=0.3, K2=2.0)
     θM = CA.ComponentVector{FT}(r1=0.5, K1=0.2)
@@ -42,13 +48,14 @@ construct_problem = () -> begin
     rng = StableRNG(111)
     # dependency on DeoubleMMCase -> take care of changes in covariates
     (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
-    ) = gen_hybridcase_synthetic(rng, DoubleMM.DoubleMMCase())
+    ) = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase())
     n_covar = size(xM,1)
+    n_input = (:covarK2 ∈ scenario) ? n_covar +1 : n_covar
     g_chain = SimpleChain(
-        static(n_covar), # input dimension (optional)
+        static(n_input), # input dimension (optional)
         # dense layer with bias that maps to 8 outputs and applies `tanh` activation
-        TurboDense{true}(tanh, n_covar * 4),
-        TurboDense{true}(tanh, n_covar * 4),
+        TurboDense{true}(tanh, n_input * 4),
+        TurboDense{true}(tanh, n_input * 4),
         # dense layer without bias that maps to n outputs and `identity` activation
         TurboDense{false}(logistic, n_out)
     )
@@ -56,9 +63,10 @@ construct_problem = () -> begin
     #
     py = neg_logden_indep_normal
     n_batch = 10
-    get_train_loader = let xM = xM, xP = xP, y_o = y_o, y_unc = y_unc
-        function inner_get_train_loader(rng; n_batch, kwargs...)
-            MLUtils.DataLoader((xM, xP, y_o, y_unc), batchsize=n_batch, partial=false)
+    i_sites = 1:n_site
+    get_train_loader = let xM = xM, xP = xP, y_o = y_o, y_unc = y_unc, i_sites = i_sites
+        function inner_get_train_loader(; n_batch, kwargs...)
+            MLUtils.DataLoader((xM, xP, y_o, y_unc, i_sites), batchsize=n_batch, partial=false)
         end
     end
     θall = vcat(θP, θM)
@@ -69,143 +77,170 @@ construct_problem = () -> begin
     app, ϕg0 = construct_ChainsApplicator(rng, g_chain)
     g_chain_scaled = NormalScalingModelApplicator(app, priorsM, transM, FT)
     #g_chain_scaled = app
-    HybridProblem(θP, θM, g_chain_scaled, ϕg0, f_doubleMM_with_global, priors_dict, py,
-        transM, transP, get_train_loader, cor_ends)
+    ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(FT)) 
+    pbm_covars = (:covarK2 ∈ scenario) ? (:K2,) : ()
+    HybridProblem(θP, θM, g_chain_scaled, ϕg0, ϕunc0, f_doubleMM_with_global, priors_dict, py,
+        transM, transP, get_train_loader, n_covar, n_site, cor_ends, pbm_covars)
 end
-prob = construct_problem();
-scenario = (:default,)
 
-@testset "loss_gf" begin
-    #----------- fit g and θP to y_o
-    rng = StableRNG(111)
-    g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
-    train_loader = get_hybridproblem_train_dataloader(rng, prob; n_batch=10, scenario)
-    (xM, xP, y_o, y_unc) = first(train_loader)
-    f = get_hybridproblem_PBmodel(prob; scenario)
-    par_templates = get_hybridproblem_par_templates(prob; scenario)
-    #f(par_templates.θP, hcat(par_templates.θM, par_templates.θM), xP[1:2])
-    (; transM, transP) = get_hybridproblem_transforms(prob; scenario)
+test_without_flux = (scenario) -> begin
+    gdev = @suppress gpu_device()
 
-    int_ϕθP = ComponentArrayInterpreter(CA.ComponentVector(
-        ϕg=1:length(ϕg0), θP=par_templates.θP))
-    # slightly disturb θP_true
-    p = p0 = vcat(ϕg0, par_templates.θP .* convert(eltype(ϕg0), 0.8))  
+    prob = probc = construct_problem(;scenario);
+    #@descend construct_problem(;scenario)
 
-    # Pass the site-data for the batches as separate vectors wrapped in a tuple
-
-    y_global_o = Float64[]
-    loss_gf = get_loss_gf(g, transM, f, y_global_o, int_ϕθP)
-    l1 = loss_gf(p0, first(train_loader)...)
-    gr = Zygote.gradient(p -> loss_gf(p, train_loader.data...)[1], CA.getdata(p0))
-    @test gr[1] isa Vector
-
-    () -> begin
-        optf = Optimization.OptimizationFunction((ϕ, data) -> loss_gf(ϕ, data...)[1],
-            Optimization.AutoZygote())
-        optprob = OptimizationProblem(optf, p0, train_loader)
-
-        res = Optimization.solve(
-            #        optprob, Adam(0.02), callback = callback_loss(100), maxiters = 1000);
-            optprob, Adam(0.02), maxiters=1000)
-
-        l1, y_pred_global, y_pred, θMs_pred = loss_gf(res.u, train_loader.data...)
-        @test isapprox(par_templates.θP, int_ϕθP(res.u).θP, rtol=0.11)
+    @testset "n_input and pbm_covars" begin
+        g, ϕ_g = get_hybridproblem_MLapplicator(prob; scenario);
+        if :covarK2 ∈ scenario
+            @test g.app.m.inputdim == (static(6),) # 5 + 1 (ncovar + n_pbm)
+            @test get_hybridproblem_pbmpar_covars(prob; scenario) == (:K2,)
+        else
+            @test g.app.m.inputdim == (static(5),) 
+            @test get_hybridproblem_pbmpar_covars(prob; scenario) == ()
+        end
     end
-end
 
-using CUDA: CUDA
-using cuDNN: cuDNN
-using MLDataDevices, GPUArraysCore
-import Flux
+    @testset "loss_gf" begin
+        #----------- fit g and θP to y_o
+        rng = StableRNG(111)
+        g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
+        train_loader = get_hybridproblem_train_dataloader(prob; n_batch=10, scenario)
+        (xM, xP, y_o, y_unc, i_sites) = first(train_loader)
+        f = get_hybridproblem_PBmodel(prob; scenario)
+        par_templates = get_hybridproblem_par_templates(prob; scenario)
+        #f(par_templates.θP, hcat(par_templates.θM, par_templates.θM), xP[1:2])
+        (; transM, transP) = get_hybridproblem_transforms(prob; scenario)
+        pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
+        intϕ = ComponentArrayInterpreter(CA.ComponentVector(
+            ϕg=1:length(ϕg0), ϕP=par_templates.θP))
+        # slightly disturb θP_true
+        p = p0 = vcat(ϕg0, par_templates.θP .* convert(eltype(ϕg0), 0.8))  
 
-@testset "neg_elbo_transnorm_gf" begin
-    rng = StableRNG(111)
-    g, ϕg0 = get_hybridproblem_MLapplicator(prob)
-    train_loader = get_hybridproblem_train_dataloader(rng, prob; n_batch=10)
-    (xM, xP, y_o, y_unc) = first(train_loader)
-    n_batch = size(y_o, 2)
-    f = get_hybridproblem_PBmodel(prob)
-    (θP0, θM0) = get_hybridproblem_par_templates(prob)
-    (; transP, transM) = get_hybridproblem_transforms(prob)
-    py = get_hybridproblem_neg_logden_obs(prob)
-    cor_ends = get_hybridproblem_cor_ends(prob)
+        # Pass the site-data for the batches as separate vectors wrapped in a tuple
+        y_global_o = Float64[]
+        loss_gf = get_loss_gf(g, transM, transP, f, y_global_o, intϕ; pbm_covars)
+        l1 = loss_gf(p0, first(train_loader)...)
+        tld = train_loader.data
+        gr = Zygote.gradient(p -> loss_gf(p, tld...)[1], CA.getdata(p0))
+        @test gr[1] isa Vector
 
-    (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
-        θP0, θM0, cor_ends, ϕg0, n_batch; transP, transM)
-    ϕ_ini = ϕ
-    ϕ.unc
+        () -> begin
+            optf = Optimization.OptimizationFunction((ϕ, data) -> loss_gf(ϕ, data...)[1],
+                Optimization.AutoZygote())
+            optprob = OptimizationProblem(optf, p0, train_loader)
 
-    py = get_hybridproblem_neg_logden_obs(prob)
+            res = Optimization.solve(
+                #        optprob, Adam(0.02), callback = callback_loss(100), maxiters = 1000);
+                optprob, Adam(0.02), maxiters=1000)
 
-    cost = neg_elbo_transnorm_gf(rng, ϕ_ini, g, transPMs_batch, f, py,
-        xM, xP, y_o, y_unc, map(get_concrete, interpreters);
-        n_MC=8, cor_ends)
-    @test cost isa Float64
-    gr = Zygote.gradient(
-        ϕ -> neg_elbo_transnorm_gf(rng, ϕ, g, transPMs_batch, f, py,
-            xM, xP, y_o, y_unc, map(get_concrete, interpreters);
-            n_MC=8, cor_ends),
-        CA.getdata(ϕ_ini))
-    @test gr[1] isa Vector
-
-    gdev = gpu_device()
-    if gdev isa MLDataDevices.AbstractGPUDevice 
-        @testset "neg_elbo_transnorm_gf gpu" begin
-            g, ϕg0 = begin
-                n_covar = size(xM, 1)
-                n_out = length(θM0)
-                g_chain = Flux.Chain(
-                    # dense layer with bias that maps to 8 outputs and applies `tanh` activation
-                    Flux.Dense(n_covar => n_covar * 4, tanh),
-                    Flux.Dense(n_covar * 4 => n_covar * 4, tanh),
-                    # dense layer without bias that maps to n outputs and `identity` activation
-                    Flux.Dense(n_covar * 4 => n_out, logistic, bias=false)
-                )
-                construct_ChainsApplicator(g_chain, eltype(θM0))
-            end
-            ϕ_ini.ϕg = ϕg0
-            ϕ = gdev(CA.getdata(ϕ_ini))
-            xMg = gdev(xM)
-            g_dev = gdev(g)
-            cost = neg_elbo_transnorm_gf(rng, ϕ, g_dev, transPMs_batch, f, py,
-                xMg, xP, y_o, y_unc, map(get_concrete, interpreters);
-                n_MC=8, cor_ends)
-            @test cost isa Float64
-            gr = Zygote.gradient(
-                ϕ -> neg_elbo_transnorm_gf(rng, ϕ, g_dev, transPMs_batch, f, py,
-                    xMg, xP, y_o, y_unc, map(get_concrete, interpreters);
-                    n_MC=8, cor_ends),
-                ϕ)
-            @test gr[1] isa GPUArraysCore.AbstractGPUArray
-            @test eltype(gr[1]) == get_hybridproblem_float_type(prob)
+            l1, y_pred_global, y_pred, θMs_pred = loss_gf(res.u, train_loader.data...)
+            @test isapprox(par_templates.θP, intϕ(res.u).θP, rtol=0.11)
         end
     end
 end
 
-@testset "HybridPointSolver" begin
-    rng = StableRNG(111)
-    solver = HybridPointSolver(; alg=Adam(0.02), n_batch=11)
-    (; ϕ, resopt) = solve(prob, solver; scenario, rng,
-        #callback = callback_loss(100), maxiters = 1200
-        #maxiters = 1200
-        #maxiters = 20
-        maxiters=200,
-        dev = cdev,
-        #gpu_handler = NullGPUDataHandler
-    )
-    (; θP) = get_hybridproblem_par_templates(prob; scenario)
-    @test ϕ.θP.r0 < 1.5 * θP.r0
-end;
+test_without_flux((:default,))
+test_without_flux((:covarK2,))
 
-@testset "HybridPosteriorSolver" begin
-    rng = StableRNG(111)
-    solver = HybridPosteriorSolver(; alg=Adam(0.02), n_batch=11, n_MC=3)
-    (; ϕ, θP, resopt) = solve(prob, solver; scenario, rng,
-        #callback = callback_loss(100), maxiters = 1200
-        #maxiters = 20 # yields error
-        maxiters=200,
-        dev = cdev
-    )
-    θPt = get_hybridproblem_par_templates(prob; scenario).θP
-    @test θP.r0 < 1.5 * θPt.r0
-end;
+import CUDA, cuDNN
+using GPUArraysCore
+import Flux
+
+gdev = gpu_device()
+#methods(HVI.vec2uutri)
+
+test_with_flux = (scenario) -> begin
+    prob = probc = construct_problem(;scenario);
+
+    @testset "HybridPointSolver" begin
+        rng = StableRNG(111)
+        solver = HybridPointSolver(; alg=Adam(0.02), n_batch=11)
+        (; ϕ, resopt) = solve(prob, solver; scenario, rng,
+            #callback = callback_loss(100), maxiters = 1200
+            #maxiters = 1200
+            #maxiters = 20
+            maxiters=200,
+            gdev = identity,
+            #gpu_handler = NullGPUDataHandler
+        )
+        (; θP) = get_hybridproblem_par_templates(prob; scenario)
+        @test ϕ.ϕP.r0 < 1.5 * θP.r0
+        @test ϕ.ϕP.K2 < 1.5 * log(θP.K2)
+    end;
+
+    @testset "HybridPosteriorSolver" begin
+        rng = StableRNG(111)
+        solver = HybridPosteriorSolver(; alg=Adam(0.02), n_batch=11, n_MC=3)
+        (; ϕ, θP, resopt) = solve(prob, solver; scenario, rng,
+            #callback = callback_loss(100), maxiters = 1200,
+            #maxiters = 20 # too small so that it yields error
+            maxiters=37,
+            θmean_quant = 0.01,   # test constraining mean to initial prediction     
+            gdev = identity
+        )
+        θPt = get_hybridproblem_par_templates(prob; scenario).θP
+        @test θP.r0 < 1.5 * θPt.r0
+        @test exp(ϕ.μP.K2) == θP.K2 < 1.5 * θP.K2
+        θP
+        prob.θP
+    end;
+
+    if gdev isa MLDataDevices.AbstractGPUDevice 
+        @testset "HybridPosteriorSolver gpu" begin
+            scenf = (scenario..., :use_Flux, :use_gpu, :omit_r0)
+            rng = StableRNG(111)
+            prob = probg = HybridProblem(DoubleMM.DoubleMMCase(); scenario = scenf)
+            solver = HybridPosteriorSolver(; alg=Adam(0.02), n_batch=11, n_MC=3)
+            n_batches_in_epoch = get_hybridproblem_n_site(prob; scenario) ÷ solver.n_batch
+            (; ϕ, θP, resopt) = solve(prob, solver; scenario = scenf, rng,
+                maxiters = 37, # smallest value by trial and error
+                #maxiters = 20 # too small so that it yields error
+                θmean_quant = 0.01,   # test constraining mean to initial prediction     
+            );
+            @test CA.getdata(ϕ) isa GPUArraysCore.AbstractGPUVector
+            #@test cdev(ϕ.unc.ρsM)[1] > 0 # too few iterations in test -> may fail
+            #
+            solver = HybridPosteriorSolver(; alg=Adam(0.02), n_batch=11, n_MC=3)
+            test_correlation = () -> begin
+                n_epoch = 100 # requires 
+                (; ϕ, θP, resopt, probo) = solve(prob, solver; scenario = scenf,
+                    maxiters = n_batches_in_epoch * n_epoch, 
+                    callback = callback_loss(n_batches_in_epoch*5)
+                );
+                @test cdev(ϕ.unc.ρsM)[1] > 0 
+                # predict using problem and its associated dataloader
+                (; θ, y, entropy_ζ) = predict_gf(rng, probo; scenario = scenf, n_sample_pred = 200);            
+                mean_θ = CA.ComponentVector(mean(CA.getdata(θ); dims = 2)[:, 1], CA.getaxes(θ[:, 1])[1])
+                residθ = θ .- mean_θ
+                cr = cor(CA.getdata(residθ));
+                i_sites = [1,2,3]
+                tmp = CA.ComponentArray(collect(axes(θ[:,1],1)), CA.getaxes(θ[:,1]));
+                #ax = map(x -> axes(x,1), get_hybridproblem_par_templates(probo; scenario = scenf))
+                is = vcat(tmp.P, vec(tmp.Ms[:,i_sites]))
+                cr[is,is]
+            end
+
+        end;
+        # does not work with general Bijector:
+        # @testset "HybridPosteriorSolver also f on gpu" begin
+        #     scenario = (:use_Flux, :use_gpu, :omit_r0, :f_on_gpu)
+        #     rng = StableRNG(111)
+        #     probg = HybridProblem(DoubleMM.DoubleMMCase(); scenario)
+        #     prob = HVI.update(probg)
+        #     #prob = HVI.update(probg, transM = identity, transP = identity)
+        #     solver = HybridPosteriorSolver(; alg=Adam(0.02), n_batch=11, n_MC=3)
+        #     n_batches_in_epoch = get_hybridproblem_n_site(prob; scenario) ÷ solver.n_batch
+        #     (; ϕ, θP, resopt) = solve(prob, solver; scenario, rng,
+        #         maxiters = 37, # smallest value by trial and error
+        #         #maxiters = 20 # too small so that it yields error
+        #         #θmean_quant = 0.01,   # TODO make possible on gpu
+        #         cdev = identity # do not move ζ to cpu # TODO infer in solve from scenario
+        #     )
+        #     @test CA.getdata(ϕ) isa GPUArraysCore.AbstractGPUVector
+        #     @test cdev(ϕ.unc.ρsM)[1] > 0
+        # end;    
+    end # if gdev isa MLDataDevices.AbstractGPUDevice 
+end # test_with flux
+
+test_with_flux((:default,))
+test_with_flux((:covarK2,))

@@ -5,7 +5,7 @@ Setup ComponentVector of parameters to optimize, and associated tools.
 Returns a NamedTuple of
 - ϕ: A ComponentVector of parameters to optimize
 - transPMs_batch, interpreters: Transformations and interpreters as 
-  required by `neg_elbo_transnorm_gf`.
+  required by `neg_elbo_gtf`.
 - get_transPMs: a function returning transformations `(n_site) -> (;P,Ms)`
 - get_ca_int_PMs: a function returning ComponentArrayInterpreter for PMs vector 
   with PMs shaped as a matrix of `n_site` columns of `θM`

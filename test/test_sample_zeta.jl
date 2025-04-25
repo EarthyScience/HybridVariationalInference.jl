@@ -5,8 +5,9 @@ using Zygote
 using HybridVariationalInference
 using HybridVariationalInference: HybridVariationalInference as CP
 using StableRNGs
-using CUDA
+import CUDA, cuDNN
 using GPUArraysCore: GPUArraysCore
+using MLDataDevices
 using Random
 #using SimpleChains
 using ComponentArrays: ComponentArrays as CA
@@ -15,6 +16,7 @@ using StableRNGs
 
 #CUDA.device!(4)
 rng = StableRNG(111)
+ggdev = gpu_device()
 
 const prob = DoubleMM.DoubleMMCase()
 scenario = (:default,)
@@ -22,7 +24,7 @@ scenario = (:default,)
 n_θM, n_θP = length.(values(get_hybridproblem_par_templates(prob; scenario)))
 
 (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o
-) = gen_hybridcase_synthetic(rng, prob; scenario)
+) = gen_hybridproblem_synthetic(rng, prob; scenario)
 
 FT = get_hybridproblem_float_type(prob; scenario)
 
@@ -60,12 +62,16 @@ n_MC = 3
 end
 #
 
-if CUDA.functional()
+if ggdev isa MLDataDevices.AbstractGPUDevice
     @testset "sample_ζ_norm0 gpu" begin
-        ϕ = CuArray(CA.getdata(ϕ_cpu))
+        # sample only n_batch of 50
+        n_batch = 40
+        ϕb = CA.ComponentVector(P = ϕ_cpu.P, Ms = ϕ_cpu.Ms[:,1:n_batch], unc = ϕ_cpu.unc)
+        intb = ComponentArrayInterpreter(ϕb)
+        ϕ = ggdev(CA.getdata(ϕb))
         #tmp = ϕ[1:6]
         #vec2uutri(tmp)
-        ϕc = interpreters.pmu(ϕ)
+        ϕc = intb(ϕ)
         @test CA.getdata(ϕc) isa GPUArraysCore.AbstractGPUArray
         #ζP, ζMs, ϕunc = ϕc.P, ϕc.Ms, ϕc.unc
         #urand = CUDA.randn(length(ϕc.P) + length(ϕc.Ms), n_MC) |> gpu
@@ -77,7 +83,7 @@ if CUDA.functional()
             rng, CA.getdata(ϕc.P), CA.getdata(ϕc.Ms), CA.getdata(ϕc.unc), int_unc;
             n_MC, cor_ends)
         @test ζ_resid isa GPUArraysCore.AbstractGPUArray
-        @test size(ζ_resid) == (length(ϕc.P) + n_θM * n_site, n_MC)
+        @test size(ζ_resid) == (length(ϕc.P) + n_θM * n_batch, n_MC)
         gr = Zygote.gradient(
             ϕc -> sum(CP.sample_ζ_norm0(
                 rng, CA.getdata(ϕc.P), CA.getdata(ϕc.Ms), CA.getdata(ϕc.unc), int_unc;
