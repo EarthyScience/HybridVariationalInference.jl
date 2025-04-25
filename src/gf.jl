@@ -36,7 +36,7 @@ function gf(prob::AbstractHybridProblem, xM, xP, args...;
     gf(g_dev, transM, transP, f, xM, xP, ϕg_dev, ζP_dev, pbm_covar_indices; cdev, kwargs...)
 end
 
-function gf(g, transM, transP, f, xM, xP, ϕg, ζP; 
+function gf(g::AbstractModelApplicator, transM, transP, f, xM, xP, ϕg, ζP; 
     cdev = identity, pbm_covars, 
     intP = ComponentArrayInterpreter(ζP), kwargs...)
     pbm_covar_indices = intP(1:length(intP))[pbm_covars]
