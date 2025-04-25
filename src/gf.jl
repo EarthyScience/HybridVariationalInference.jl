@@ -44,7 +44,7 @@ function gf(g::AbstractModelApplicator, transM, transP, f, xM, xP, ϕg, ζP;
 end
 
 
-function gf(g, transM, transP, f, xM, xP, ϕg, ζP, pbm_covar_indices::AbstractVector{<:Integer}; 
+function gf(g::AbstractModelApplicator, transM, transP, f, xM, xP, ϕg, ζP, pbm_covar_indices::AbstractVector{<:Integer}; 
     cdev = identity)
     # @show first(xM,5)
     # @show first(ϕg,5)
