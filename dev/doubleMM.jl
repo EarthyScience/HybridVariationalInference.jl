@@ -381,7 +381,7 @@ end
     save("ys_density.pdf", fig)
     save("tmp.svg", fig)
 
-    #slighly worse (higher) negLogLik
+    #slightly worse (higher) negLogLikelihood
     df = DataFrame(nL = vcat(nLs, nLsc),
         scenario = vcat(fill.(["unconstrained", "meanθ"], n_sample_pred)...))
     plt = data(df) * mapping(:nL => "-logDensity", color = :scenario => "Scenario") *

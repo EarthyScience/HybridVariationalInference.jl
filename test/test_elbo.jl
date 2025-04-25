@@ -173,7 +173,7 @@ test_scenario = (scenario) -> begin
         #     # currently only works with identity transformations but not elementwise(exp)
         #     transPM_ident = get_hybridproblem_transforms(prob; scenario = (scenario..., :transIdent))
         #     get_transPMs_ident = (() -> begin
-        #         # wrap in function to not overide get_transPMs
+        #         # wrap in function to not override get_transPMs
         #         (; get_transPMs) = init_hybrid_params(
         #             θP_true, θMs_true[:, 1], cor_ends, ϕg0, n_batch; 
         #             transP = transPM_ident.transP, transM = transPM_ident.transM);

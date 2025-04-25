@@ -131,7 +131,7 @@ Create a loss function for parameter vector ϕ, given
 - `interpreters`: assigning structure to pure vectors, see `neg_elbo_gtf`
 - `n_MC`: number of Monte-Carlo sample to approximate the expected value across distribution
 - `pbm_covars`: tuple of symbols of process-based parameters provided to the ML model
-- `θP`: CompoenntVector as a template to select indices of pbm_covars
+- `θP`: ComponentVector as a template to select indices of pbm_covars
 
 The loss function takes in addition to ϕ, data that changes with minibatch
 - `rng`: random generator

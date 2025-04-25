@@ -176,7 +176,7 @@ gdev is applied to xM.
 If :f_on_gpu is in scenario tuple, gdev is also applied to `xP`, `y_o`, and `y_unc`,
 to put the entire data to gpu.
 Alternatively, gdev could be applied to the dataloader, then for each
-iteration the subset of data is separatly transferred to gpu.
+iteration the subset of data is separately transferred to gpu.
 """
 function construct_dataloader_from_synthetic(rng::AbstractRNG, prob::AbstractHybridProblem;
         scenario = (), n_batch, 
