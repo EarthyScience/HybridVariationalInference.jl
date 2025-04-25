@@ -28,6 +28,26 @@ function f_doubleMM(θ::AbstractVector, x, intθ)
     return (y)
 end
 
+function f_doubleMM(θ::AbstractMatrix, x::NTuple{N, AbstractMatrix}, intθ) where N
+    # provide θ for n_row sites
+    # provide x.S1 as Matrix n_site x n_obs
+    # extract parameters not depending on order, i.e whether they are in θP or θM
+        θc = intθ(θ)
+        #using ComponentArrays: ComponentArrays as CA
+        #r0, r1, K1, K2 = θc[(:r0, :r1, :K1, :K2)] # does not work on Zygote+GPU
+        @assert size(x.S1,1) == size(θ,1)  # same number of sites
+        @assert size(x.S1) == size(x.S2)   # same number of observations
+        #@assert length(x.s2 == n_obs)
+        r0 = θc[:,:r0]  # vector will be repeated when broadcasted by a matrix
+        r1 = θc[:,:r1]
+        K1 = θc[:,:K1]
+        K2 = θc[:,:K2]
+        y = r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
+    return (y)
+end
+
+
+
 function HVI.get_hybridproblem_par_templates(::DoubleMMCase; scenario::NTuple = ())
     if (:omit_r0 ∈ scenario)
         #return ((; θP = θP_nor0, θM, θf = θP[(:K2r)]))
@@ -66,9 +86,14 @@ function HVI.get_hybridproblem_pbmpar_covars(::DoubleMMCase; scenario)
 end
 
 
-function HVI.get_hybridproblem_transforms(::DoubleMMCase; scenario::NTuple = ())
+function HVI.get_hybridproblem_transforms(prob::DoubleMMCase; scenario::NTuple = ())
     if (:stackedMS ∈ scenario)
         return ((; transP, transM = transMS))
+    elseif (:transIdent ∈ scenario)
+        # identity transformations, should AD on GPU
+        _θP, _θM = get_hybridproblem_par_templates(prob; scenario)
+        return (; transP = Stacked((identity,),(1:length(_θP),)),
+            transM = Stacked((identity,),(1:length(_θM),)))
     end
     (; transP, transM)
 end
@@ -96,6 +121,12 @@ function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario::NTuple = ()
             pred_global = eltype(pred_sites)[]
             return pred_global, pred_sites
         end
+        # function f_doubleMM_with_global(θP::AbstractVector, θMs::AbstractMatrix, xP)
+        #     # TODO
+        #     pred_sites = f_doubleMM(θMs, θP, θFix, xP, intθ)
+        #     pred_global = eltype(pred_sites)[]
+        #     return pred_global, pred_sites
+        # end
     end
 end
 
@@ -118,6 +149,8 @@ HVI.get_hybridproblem_n_covar(prob::DoubleMMCase; scenario) = 5
 function HVI.get_hybridproblem_n_site(prob::DoubleMMCase; scenario) 
     if (:few_sites ∈ scenario)
          return(100) 
+    elseif (:sites20 ∈ scenario)
+        return(20) 
     end
     800
 end

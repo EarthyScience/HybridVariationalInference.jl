@@ -84,7 +84,7 @@ function neg_elbo_ζtf(ζs, σ, transPMs, f, py,
         nLy1 = py(y_ob, y_pred_i, y_unc)
         nLy1 - logjac
     end
-    # For robustness may compute the expectation only on the  n_smallest values
+    # For robustness may compute the expectation only on the n_smallest values
     # because its very sensitive to few large outliers
     #nLys_smallest = nsmallest(n_MC_cap, nLys) # does not work with Zygote
     if n_MC_cap == n_MC
@@ -180,7 +180,7 @@ end
 
 function predict_ζf(ζs, f, xP, trans_PMs, interpreter_PMs)
     θandy = map(eachcol(ζs)) do ζ
-        predict_y(ζ, xP, f, trans_PMs, interpreter_PMs)[1:2]
+        θandy_i= predict_y(ζ, xP, f, trans_PMs, interpreter_PMs)[1:2];
     end
     θ1 = first(first(θandy))
     θ = CA.ComponentMatrix(
@@ -364,7 +364,11 @@ Steps:
 function predict_y(ζi, xP, f, transPMs::Bijectors.Transform,
         int_PMs::AbstractComponentArrayInterpreter)
     θc, logjac = transform_ζ(ζi, transPMs, int_PMs)
+    #θc, logjac = int_PMs(ζi), eltype(ζi)(0)
     y_pred_global, y_pred = f(θc.P, θc.Ms, xP)
+    # Main.@infiltrate_main
+    # @benchmark f(θc.P, θc.Ms, xP)
+    #y_pred_global, y_pred = f(θc.P, θc.Ms, xPg)
     # TODO take care of y_pred_global
     θc, y_pred, logjac
 end

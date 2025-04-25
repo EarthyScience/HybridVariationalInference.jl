@@ -198,7 +198,7 @@ test_with_flux = (scenario) -> begin
                 θmean_quant = 0.01,   # test constraining mean to initial prediction     
             );
             @test CA.getdata(ϕ) isa GPUArraysCore.AbstractGPUVector
-            @test cdev(ϕ.unc.ρsM)[1] > 0
+            #@test cdev(ϕ.unc.ρsM)[1] > 0 # too few iterations in test -> may fail
             #
             solver = HybridPosteriorSolver(; alg=Adam(0.02), n_batch=11, n_MC=3)
             test_correlation = () -> begin
@@ -207,7 +207,9 @@ test_with_flux = (scenario) -> begin
                     maxiters = n_batches_in_epoch * n_epoch, 
                     callback = callback_loss(n_batches_in_epoch*5)
                 );
-                (; θ, y, entropy_ζ) = predict_gf(rng, probo; scenario = scenf, n_sample_pred = 400);            
+                @test cdev(ϕ.unc.ρsM)[1] > 0 
+                # predict using problem and its associated dataloader
+                (; θ, y, entropy_ζ) = predict_gf(rng, probo; scenario = scenf, n_sample_pred = 200);            
                 mean_θ = CA.ComponentVector(mean(CA.getdata(θ); dims = 2)[:, 1], CA.getaxes(θ[:, 1])[1])
                 residθ = θ .- mean_θ
                 cr = cor(CA.getdata(residθ));

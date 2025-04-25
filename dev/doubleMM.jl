@@ -17,8 +17,11 @@ rng = StableRNG(115)
 scenario = NTuple{0, Symbol}()
 scenario = (:omit_r0,)  # without omit_r0 ambiguous K2 estimated to high
 scenario = (:use_Flux, :use_gpu)
-scenario = (:use_Flux, :use_gpu, :omit_r0)
 scenario = (:use_Flux, :use_gpu, :omit_r0, :few_sites)
+scenario = (:use_Flux, :use_gpu, :omit_r0, :few_sites, :covarK2)
+scenario = (:use_Flux, :use_gpu, :omit_r0, :sites20, :covarK2)
+scenario = (:use_Flux, :use_gpu, :omit_r0)
+scenario = (:use_Flux, :use_gpu, :omit_r0, :covarK2)
 # prob = DoubleMM.DoubleMMCase()
 
 gdev = :use_gpu ∈ scenario ? gpu_device() : identity
@@ -48,11 +51,11 @@ solver_point = HybridPointSolver(; alg = OptimizationOptimisers.Adam(0.01), n_ba
 #solver_point = HybridPointSolver(; alg = Adam(), n_batch = 200)
 n_batches_in_epoch = n_site ÷ solver_point.n_batch
 n_epoch = 80
-(; ϕ, resopt) = solve(prob0, solver_point; scenario,
+(; ϕ, resopt, probo) = solve(prob0, solver_point; scenario,
     rng, callback = callback_loss(n_batches_in_epoch * 10),
     maxiters = n_batches_in_epoch * n_epoch);
 # update the problem with optimized parameters
-prob0o = HVI.update(prob0; ϕg = cpu_ca(ϕ).ϕg, θP = cpu_ca(ϕ).θP)
+prob0o = probo;
 y_pred_global, y_pred, θMs = gf(prob0o, xM, xP; scenario);
 plt = scatterplot(θMs_true[1, :], θMs[1, :]);
 lineplot!(plt, 0, 1)
@@ -146,20 +149,21 @@ probh = prob0o  # start from point optimized to infer uncertainty
 #probh = prob1o  # start from point optimized to infer uncertainty
 #probh = prob0  # start from no information
 solver_post = HybridPosteriorSolver(;
-    alg = OptimizationOptimisers.Adam(0.01), n_batch = 50, n_MC = 3)
+    alg = OptimizationOptimisers.Adam(0.01), n_batch = min(50, n_site), n_MC = 3)
 #solver_point = HybridPointSolver(; alg = Adam(), n_batch = 200)
 n_batches_in_epoch = n_site ÷ solver_post.n_batch
 n_epoch = 80
-(; ϕ, θP, resopt, interpreters) = solve(probh, solver_post; scenario,
-    rng, callback = callback_loss(n_batches_in_epoch * n_epoch),
+(; ϕ, θP, resopt, interpreters, probo) = solve(probh, solver_post; scenario,
+    rng, callback = callback_loss(n_batches_in_epoch * 5),
     maxiters = n_batches_in_epoch * n_epoch,
     θmean_quant = 0.05);
-probh.get_train_loader(;n_batch = 50, scenario)
+#probh.get_train_loader(;n_batch = 50, scenario)
 # update the problem with optimized parameters, including uncertainty
-probo = prob1o = HVI.update(prob0o; ϕg = cpu_ca(ϕ).ϕg, θP = θP, ϕunc = cpu_ca(ϕ).unc)
+prob1o = probo;
 n_sample_pred = 400
-(; θ, y) = predict_gf(rng, prob1o, xM, xP; scenario, n_sample_pred);
-(θ1, y1) = (θ, y)
+#(; θ, y) = predict_gf(rng, prob1o, xM, xP; scenario, n_sample_pred);
+(; θ, y) = predict_gf(rng, prob1o; scenario, n_sample_pred);
+(θ1, y1) = (θ, y);
 
 () -> begin # prediction with fitted parameters  (should be smaller than mean)
     y_pred_global, y_pred2, θMs = gf(prob1o, xM, xP; scenario)
@@ -170,7 +174,7 @@ n_sample_pred = 400
 end
 
 #----------- continue HVI without strong prior on θmean
-prob2 = HVI.update(prob1o)
+prob2 = HVI.update(prob1o);  # copy
 function fstate_ϕunc(state)
     u = state.u |> cpu
     #Main.@infiltrate_main
@@ -179,15 +183,36 @@ function fstate_ϕunc(state)
 end
 n_epoch = 100
 #n_epoch = 400
-(; ϕ, θP, resopt, interpreters) = solve(prob2, HVI.update(solver_post, n_MC = 12);
+(; ϕ, θP, resopt, interpreters, probo) = solve(prob2, 
+    HVI.update(solver_post, n_MC = 12);
+    #HVI.update(solver_post, n_MC = 30);
     scenario, rng, maxiters = n_batches_in_epoch * n_epoch,
     callback = HVI.callback_loss_fstate(n_batches_in_epoch*5, fstate_ϕunc));
-probo = prob2o = HVI.update(prob2; ϕg = cpu_ca(ϕ).ϕg, θP = θP, ϕunc = cpu_ca(ϕ).unc);
+prob2o = probo;
 
 () -> begin
     using JLD2
-    fname_probos = "intermediate/probos.jld2"
+    #fname_probos = "intermediate/probos_$(last(scenario)).jld2"
+    fname_probos = "intermediate/probos800_$(last(scenario)).jld2"
     JLD2.save(fname_probos, Dict("prob1o" => prob1o, "prob2o" => prob2o))
+    tmp = JLD2.load(fname_probos)
+    # get_train_loader function could not be restored with JLD2
+    prob1o = HVI.update(tmp["prob1o"], get_train_loader = prob0.get_train_loader);
+    prob2o = HVI.update(tmp["prob2o"], get_train_loader = prob0.get_train_loader);
+end
+
+() -> begin # load the non-covar scenario
+    using JLD2
+    #fname_probos = "intermediate/probos_$(last(scenario)).jld2"
+    fname_probos = "intermediate/probos800_omit_r0.jld2"
+    tmp = JLD2.load(fname_probos)
+    # get_train_loader function could not be restored with JLD2
+    prob1o_indep = HVI.update(tmp["prob1o"], get_train_loader = prob0.get_train_loader);
+    prob2o_indep = HVI.update(tmp["prob2o"], get_train_loader = prob0.get_train_loader);
+    # test predicting correct obs-uncertainty of predictive posterior
+    n_sample_pred = 400
+    (; θ, y, entropy_ζ) = predict_gf(rng, prob2o_indep, xM, xP; scenario, n_sample_pred);
+    (θ2_indep, y2_indep) = (θ, y)
 end
 
 () -> begin # otpimize using LUX
@@ -221,7 +246,7 @@ exp.(ϕunc_VI.coef_logσ2_logMs[1, :])
 
 # test predicting correct obs-uncertainty of predictive posterior
 n_sample_pred = 400
-(; θ, y, entropy_ζ) = predict_gf(rng, probo, xM, xP; scenario, n_sample_pred);
+(; θ, y, entropy_ζ) = predict_gf(rng, prob2o, xM, xP; scenario, n_sample_pred);
 (θ2, y2) = (θ, y)
 size(y) # n_obs x n_site, n_sample_pred
 size(θ)  # n_θP + n_site * n_θM x n_sample
@@ -243,6 +268,7 @@ mean_θ = CA.ComponentVector(mean(CA.getdata(θ); dims = 2)[:, 1], CA.getaxes(θ
 plt = scatterplot(θMs_true[1, :], mean_θ.Ms[1, :]);
 lineplot!(plt, 0, 1)
 plt = scatterplot(θMs_true[2, :], mean_θ.Ms[2, :])
+histogram(θ[:P,:])
 #scatter(fig[1,1], CA.getdata(θMs_true[1, :]), CA.getdata(mean_θ.Ms[1, :])); ablines!(fig[1,1], 0, 1)
 #@usingany AlgebraOfGraphices
 #fig = Figure()
@@ -332,9 +358,9 @@ end
     fig = Figure(; size = (640, 480))
     fig = Figure(; size = (320, 240))
     gp = fig[1, 1]
-    f = draw!(gp, plt + plth)
+    fd = draw!(gp, plt + plth)
     legend!(
-        gp, f; tellwidth = false, halign = :right, valign = :top, margin = (10, 10, 10, 10))
+        gp, fd; tellwidth = false, halign = :right, valign = :top, margin = (10, 10, 10, 10))
     save("r1_density.pdf", fig)
     save("tmp.svg", fig)
 
@@ -349,9 +375,9 @@ end
     plth = mapping([0.0]) * visual(VLines; linestyle = :dash)
     fig = Figure(; size = (640, 480))
     gp = fig[1, 1]
-    f = draw!(gp, plt + plth)
+    fg = draw!(gp, plt + plth)
     legend!(
-        gp, f; tellwidth = false, halign = :right, valign = :top, margin = (10, 10, 10, 10))
+        gp, fg; tellwidth = false, halign = :right, valign = :top, margin = (10, 10, 10, 10))
     save("ys_density.pdf", fig)
     save("tmp.svg", fig)
 
@@ -362,9 +388,9 @@ end
           aog.density()
     fig = Figure()
     gp = fig[1, 1]
-    f = draw!(gp, plt)
+    fg = draw!(gp, plt)
     legend!(
-        gp, f; tellwidth = false, halign = :right, valign = :top, margin = (10, 10, 10, 10))
+        gp, fg; tellwidth = false, halign = :right, valign = :top, margin = (10, 10, 10, 10))
     save("negLogDensity.pdf", fig)
     save("tmp.svg", fig)
 end
@@ -444,7 +470,9 @@ g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
     θP, θM, cor_ends, ϕg0, n_site; transP, transM, ϕunc0);
 
 intm_PMs_gen = get_ca_int_PMs(n_site);
+#intm_PMs_gen = get_ca_int_PMs(100);
 trans_PMs_gen = get_transPMs(n_site);
+#trans_PMs_gen = get_transPMs(100);
 
 """
 ζMs in chain are all first parameter, all second parameters, ...
@@ -465,7 +493,8 @@ end
 # mle_estimate.values
 
 # takes ~ 25 minutes
-n_sample_NUTS = 800
+#n_sample_NUTS = 800
+n_sample_NUTS = 2000
 #chain = sample(model, NUTS(), n_sample_NUTS, initial_params = ζ0_true .+ 0.001)
 #n_sample_NUTS = 24
 n_threads = 8
@@ -475,10 +504,15 @@ chain = sample(model, NUTS(), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_thread
 
 () -> begin
     using JLD2
-    jldsave("intermediate/doubleMM_chain_zeta.jld2", false, IOStream; chain)
-    chain = load("intermediate/doubleMM_chain_zeta.jld2", "chain"; iotype = IOStream)
+    fname = "intermediate/doubleMM_chain_zeta_$(last(scenario)).jld2"
+    jldsave(fname, false, IOStream; chain)
+    chain = load(fname, "chain"; iotype = IOStream)
 end
 
+#ζi = first(eachrow(Array(chain)))
+ζs = mapreduce(ζi -> transposeMs(ζi, intm_PMs_gen, true), hcat, eachrow(Array(chain)));
+(; θ, y) = HVI.predict_ζf(ζs, f, xP, trans_PMs_gen, intm_PMs_gen);
+(ζs_hmc, θ_hmc, y_hmc) = (ζs, θ, y);
 
     
 () -> begin # check that the model predicts the same as HVI-code
@@ -494,21 +528,18 @@ end
 
 () -> begin # plot chain
     #@usingany TwMakieHelpers, CairoMakie
-    ch = chain[:,vcat(1:2,n_θP+n_site+1),:];
+    # θP and first θMs 
+    ch = chain[:,vcat(1:n_θP, n_θP+1, n_θP+n_site+1),:];
     fig = plot_chn(ch)
     save("tmp.svg", fig)
 end
 
-#ζi = first(eachrow(Array(chain)))
-ζs = mapreduce(ζi -> transposeMs(ζi, intm_PMs_gen, true), hcat, eachrow(Array(chain)));
-(; θ, y) = HVI.predict_ζf(ζs, f, xP, trans_PMs_gen, intm_PMs_gen);
-(ζs_hmc, θ_hmc, y_hmc) = (ζs, θ, y);
 
 mean_y_invζ = mean_y_hmc = map(mean, eachslice(y_hmc; dims = (1, 2)));
 #describe(mean_y_pred - y_o)
 histogram(vec(mean_y_invζ) - vec(y_true)) # predictions centered around y_o (or y_true)
 plt = scatterplot(vec(y_true), vec(mean_y_invζ));
-lineplot!(plt, 0, 2)
+lineplot!(plt, 0, 1)
 mean(mean_y_invζ - y_true) # still ok
 
 # first site, first prediction
@@ -531,17 +562,25 @@ lineplot!(plt, 0, 1)
 () -> begin   # compare against HVI sample 
     #@usingany AlgebraOfGraphics, TwPrototypes, CairoMakie, DataFrames
     makie_config = ppt_MakieConfig()
+    function get_fig_size(cfg; width2height=golden_ratio, xfac=1.0)    
+        cfg = makie_config
+        x_inch = first(cfg.size_inches) * xfac
+        y_inch = x_inch / width2height
+        72 .* (x_inch, y_inch) ./ cfg.pt_per_unit # size_pt        
+    end
+
     ζs_hvi = log.(θ2)
+    ζs_hvi_indep = log.(θ2_indep)
     int_pms = interpreters.PMs
     par_pos = int_pms(1:length(int_pms))
     i_sites = 1:10
     #i_sites = 6:10
     #i_sites = 11:15
-    scen = vcat(fill(:hvi,size(ζs_hvi,2)),fill(:hmc,size(ζs_hmc,2)))
+    scen = vcat(fill(:hvi,size(ζs_hvi,2)),fill(:hmc,size(ζs_hmc,2)),fill(:hvi_indep,size(ζs_hvi_indep,2)))
     dfP = mapreduce(vcat, axes(θP,1)) do i_par
         pos = par_pos.P[i_par]
         DataFrame(
-            value = vcat(ζs_hvi[pos,:], ζs_hmc[pos,:]), 
+            value = vcat(ζs_hvi[pos,:], ζs_hmc[pos,:], ζs_hvi_indep[pos,:]), 
             variable = keys(θP)[i_par],
             site = i_sites[1],
             Method = scen
@@ -551,7 +590,7 @@ lineplot!(plt, 0, 1)
         mapreduce(vcat, axes(θM,1)) do i_par
             pos = par_pos.Ms[i_par, i_site]
             DataFrame(
-                value = vcat(ζs_hvi[pos,:],  ζs_hmc[pos,:]),
+                value = vcat(ζs_hvi[pos,:], ζs_hmc[pos,:], ζs_hvi_indep[pos,:]),
                 variable = keys(θM)[i_par],
                 site = i_site,
                 Method = scen
@@ -579,14 +618,25 @@ lineplot!(plt, 0, 1)
             end
         end        
     ) # vcat
-    plt = (data(df) * mapping(color=:Method) * density(datalimits=extrema) +
-           data(df_true) * visual(VLines; color=:blue, linestyle=:dash)) * 
-        mapping(:value=>"", col=:variable => sorter(vcat(keys(θP)..., keys(θM)...)), row = (:site => nonnumeric)) 
+    #cf90 = (x) -> quantile(x, [0.05,0.95])
+    plt = (data(subset(df, :Method => ByRow(∈((:hvi,:hmc))))) * mapping(:value=> (x -> x ) => "", color=:Method) * AlgebraOfGraphics.density(datalimits=extrema) +
+           data(df_true) * mapping(:value) * visual(VLines; color=:blue, linestyle=:dash)) * 
+        mapping(col=:variable => sorter(vcat(keys(θP)..., keys(θM)...)), row = (:site => nonnumeric)) 
     fig = Figure(size = get_fig_size(makie_config, xfac=1, width2height = 1/2));
-    f = draw!(fig, plt, facet=(; linkxaxes=:minimal, linkyaxes=:none,), axis=(xlabelvisible=false,));
+    fg = draw!(fig, plt, facet=(; linkxaxes=:minimal, linkyaxes=:none,), axis=(xlabelvisible=false,));
     fig
     save("tmp.svg", fig)
-    save_with_config("intermediate/compare_hmc_hvi_sites", fig; makie_config)
+    save_with_config("intermediate/compare_hmc_hvi_sites_$(last(scenario))", fig; makie_config)
+
+    plt = (data(subset(df, :Method => ByRow(∈((:hvi, :hvi_indep))))) * mapping(:value=> (x -> x ) => "", color=:Method) * AlgebraOfGraphics.density(datalimits=extrema) +
+           data(df_true) * mapping(:value) * visual(VLines; color=:blue, linestyle=:dash)) * 
+        mapping(col=:variable => sorter(vcat(keys(θP)..., keys(θM)...)), row = (:site => nonnumeric)) 
+    fig = Figure(size = get_fig_size(makie_config, xfac=1, width2height = 1/2));
+    fg = draw!(fig, plt, facet=(; linkxaxes=:minimal, linkyaxes=:none,), axis=(xlabelvisible=false,));
+    fig
+    save("tmp.svg", fig)
+    save_with_config("intermediate/compare_hvi_indep_sites_$(last(scenario))", fig; makie_config)
+
     # 
     # compare density of predictions
     y_hvi = y2
@@ -633,24 +683,18 @@ lineplot!(plt, 0, 1)
             end
     end
 
-    plt = (data(dfy) * mapping(color=:Method) * density(datalimits=extrema) +
+    plt = (data(dfy) * mapping(color=:Method) * AlgebraOfGraphics.density(datalimits=extrema) +
             data(dfyt) * mapping(color=:Method) * visual(VLines;  linestyle=:dash)) * 
             #data(dfyt) * mapping(color=:Method, linestyle=:Method) * visual(VLines;  linestyle=:dash)) * 
         mapping(:value=>"", col=:i_obs => nonnumeric, row = :site => nonnumeric)
 
-    function get_fig_size(cfg; width2height=golden_ratio, xfac=1.0)    
-        cfg = makie_config
-        x_inch = first(cfg.size_inches) * xfac
-        y_inch = x_inch / width2height
-        72 .* (x_inch, y_inch) ./ cfg.pt_per_unit # size_pt        
-    end
     fig = Figure(size = get_fig_size(makie_config, xfac=1, width2height = 1/2));
     f = draw!(fig, plt, 
         facet=(; linkxaxes=:minimal, linkyaxes=:none,), 
         axis=(xlabelvisible=false,yticklabelsvisible=false));
     legend!(fig[1,3], f, ; tellwidth=false, halign=:right, valign=:top) # , margin=(-10, -10, 10, 10)
     fig
-    save_with_config("intermediate/compare_hmc_hvi_sites_y", fig; makie_config)
+    save_with_config("intermediate/compare_hmc_hvi_sites_y_$(last(scenario))", fig; makie_config)
     # hvi predicts y better, hmc fails for quite a few obs: 3,5,6
 
     # todo compare mean_predictions

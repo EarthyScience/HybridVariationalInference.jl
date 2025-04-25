@@ -59,6 +59,11 @@ test_scenario = (scenario) -> begin
         θP_true, θMs_true[:, 1], cor_ends, ϕg0, n_batch; transP, transM);
     ϕ_ini = ϕ
 
+    if ggdev isa MLDataDevices.AbstractGPUDevice
+        scenario_flux = (scenario..., :use_Flux, :use_gpu)
+        g_flux, ϕg0_flux_cpu = get_hybridproblem_MLapplicator(prob; scenario = scenario_flux)
+        g_gpu = ggdev(g_flux)
+    end;
 
     @testset "generate_ζ" begin
         # xMtest = vcat(xM, xM[1:1,:])
@@ -80,11 +85,6 @@ test_scenario = (scenario) -> begin
         @test gr[1] isa Vector
     end;
 
-    if ggdev isa MLDataDevices.AbstractGPUDevice
-        scenario_flux = (scenario..., :use_Flux, :use_gpu)
-        g_flux, ϕg0_flux_cpu = get_hybridproblem_MLapplicator(prob; scenario = scenario_flux)
-        g_gpu = ggdev(g_flux)
-    end
 
     if ggdev isa MLDataDevices.AbstractGPUDevice
         @testset "generate_ζ gpu" begin
@@ -169,6 +169,30 @@ test_scenario = (scenario) -> begin
             @test y isa Array
             @test size(y) == (size(y_o)..., n_sample_pred)
         end
+        # @testset "predict_gf also f on gpu" begin
+        #     # currently only works with identity transformations but not elementwise(exp)
+        #     transPM_ident = get_hybridproblem_transforms(prob; scenario = (scenario..., :transIdent))
+        #     get_transPMs_ident = (() -> begin
+        #         # wrap in function to not overide get_transPMs
+        #         (; get_transPMs) = init_hybrid_params(
+        #             θP_true, θMs_true[:, 1], cor_ends, ϕg0, n_batch; 
+        #             transP = transPM_ident.transP, transM = transPM_ident.transM);
+        #         get_transPMs
+        #     end)()
+        #     n_sample_pred = 200
+        #     ϕ = ggdev(CA.getdata(ϕ_ini))
+        #     xMg = ggdev(xM)
+        #     (; θ, y) = predict_gf(rng, g_gpu, f, ϕ, xMg, ggdev(xP), map(get_concrete, interpreters);
+        #         get_ca_int_PMs, n_sample_pred, cor_ends, pbm_covar_indices,
+        #         get_transPMs = get_transPMs_ident, 
+        #         cdev = identity); # keep on gpu
+        #     @test θ isa CA.ComponentMatrix 
+        #     @test CA.getdata(θ) isa GPUArraysCore.AbstractGPUArray
+        #     #@test CUDA.@allowscalar θ[:, 1].P.r0 > 0 # did not update ζP
+        #     @test y isa GPUArraysCore.AbstractGPUArray
+        #     @test size(y) == (size(y_o)..., n_sample_pred)
+        # end
+
     end
 end # test_scenario
 
