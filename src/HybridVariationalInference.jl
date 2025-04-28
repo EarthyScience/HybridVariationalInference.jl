@@ -20,7 +20,7 @@ using Distributions, DistributionFits
 using StaticArrays: StaticArrays as SA
 using Functors
 
-export ComponentArrayInterpreter, flatten1, get_concrete
+export ComponentArrayInterpreter, flatten1, get_concrete, get_positions
 include("ComponentArrayInterpreter.jl")
 
 export AbstractModelApplicator, construct_ChainsApplicator

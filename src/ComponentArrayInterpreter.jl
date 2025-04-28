@@ -5,9 +5,12 @@
 
 Interface for Type that implements
 - `as_ca(::AbstractArray, interpreter) -> ComponentArray`
+- `CompoentArrays.getaxes(interpeter)`
 - `Base.length(interpreter) -> Int`
 
 When called on a vector, forwards to `as_ca`.
+
+There is a default implementation for Base.length based on CompoentArrays.getaxes.
 """
 abstract type AbstractComponentArrayInterpreter end
 
@@ -17,6 +20,11 @@ abstract type AbstractComponentArrayInterpreter end
 Returns a ComponentArray with underlying data `v`.
 """
 function as_ca end
+
+function Base.length(cai::AbstractComponentArrayInterpreter) 
+    prod(_axis_length.(CA.getaxes(cai)))
+end
+
 
 (interpreter::AbstractComponentArrayInterpreter)(v::AbstractArray) = as_ca(v, interpreter)
 
@@ -36,9 +44,13 @@ function as_ca(v::AbstractArray, ::StaticComponentArrayInterpreter{AX}) where {A
     CA.ComponentArray(vr, AX)
 end
 
-function Base.length(::StaticComponentArrayInterpreter{AX}) where {AX}
-    #sum(length, typeof(AX).parameters[1])
-    prod(_axis_length.(AX))
+# function Base.length(::StaticComponentArrayInterpreter{AX}) where {AX}
+#     #sum(length, typeof(AX).parameters[1])
+#     prod(_axis_length.(AX))
+# end
+
+function CA.getaxes(int::StaticComponentArrayInterpreter{AX}) where {AX}
+    AX
 end
 
 get_concrete(cai::StaticComponentArrayInterpreter) = cai
@@ -63,9 +75,10 @@ function as_ca(v::AbstractArray, cai::ComponentArrayInterpreter)
     CA.ComponentArray(vr, cai.axes)
 end
 
-function Base.length(cai::ComponentArrayInterpreter) 
-    prod(_axis_length.(cai.axes))
+function CA.getaxes(cai::ComponentArrayInterpreter) 
+    cai.axes
 end
+
 
 get_concrete(cai::ComponentArrayInterpreter) = StaticComponentArrayInterpreter{cai.axes}()
 
@@ -121,6 +134,10 @@ function ComponentArrayInterpreter(
     ComponentArrayInterpreter(CA.getaxes(ca), n_dims)
 end
 function ComponentArrayInterpreter(
+    cai::AbstractComponentArrayInterpreter, n_dims::NTuple{N,<:Integer}) where N
+    ComponentArrayInterpreter(CA.getaxes(cai), n_dims)
+end
+function ComponentArrayInterpreter(
     axes::NTuple{M, <:CA.AbstractAxis}, n_dims::NTuple{N,<:Integer}) where {M,N}
     axes_ext = (axes..., map(n_dim -> CA.Axis(i=1:n_dim), n_dims)...)
     ComponentArrayInterpreter(axes_ext)
@@ -132,10 +149,15 @@ function ComponentArrayInterpreter(
     ComponentArrayInterpreter(n_dims, CA.getaxes(ca))
 end
 function ComponentArrayInterpreter(
+    n_dims::NTuple{N,<:Integer}, cai::AbstractComponentArrayInterpreter) where N
+    ComponentArrayInterpreter(n_dims, CA.getaxes(cai))
+end
+function ComponentArrayInterpreter(
     n_dims::NTuple{N,<:Integer}, axes::NTuple{M, <:CA.AbstractAxis}) where {N,M}
     axes_ext = (map(n_dim -> CA.Axis(i=1:n_dim), n_dims)..., axes...)
     ComponentArrayInterpreter(axes_ext)
 end
+
 
 # ambuiguity with two empty Tuples (edge prob that does not make sense)
 # Empty ComponentVector with no other array dimensions -> empty componentVector
@@ -156,6 +178,8 @@ _axis_length(::CA.FlatAxis) = 0
 _axis_length(::CA.UnitRange) = 0
 
 """
+    flatten1(cv::CA.ComponentVector)
+
 Removes the highest level of keys.
 Keeps the reference to the underlying data, but changes the axis.
 If first-level vector has no sub-names, an error (Aguement Error tuple must be non-empty)
@@ -173,4 +197,17 @@ function flatten1(cv::CA.ComponentVector)
         cv_new = reduce(vcat, gen_cvs)
         CA.ComponentVector(cv, first(CA.getaxes(cv_new)))
     end
+end
+
+
+"""
+    get_positions(cai::AbstractComponentArrayInterpreter)
+
+Create a NamedTuple of integer indices for each component.
+Assumes that interpreter results in a one-dimensional array, i.e. in a ComponentVector.
+"""
+function get_positions(cai::AbstractComponentArrayInterpreter)
+    @assert length(CA.getaxes(cai)) == 1
+    cv = cai(1:length(cai))
+    (; (k => cv[k] for k in keys(cv))... )
 end

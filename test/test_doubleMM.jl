@@ -14,6 +14,14 @@ import Zygote
 using OptimizationOptimisers
 using MLDataDevices
 
+using CUDA: CUDA
+using Flux
+using GPUArraysCore
+
+gdev = gpu_device()
+cdev = cpu_device()
+
+
 const prob = DoubleMM.DoubleMMCase()
 scenario = (:default,)
 #using Flux
@@ -32,6 +40,8 @@ rng = StableRNG(111)
 (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
 ) = gen_hybridproblem_synthetic(rng, prob; scenario);
 i_sites = 1:n_site
+fneglogden = get_hybridproblem_neg_logden_obs(prob; scenario)
+
 
 @testset "gen_hybridproblem_synthetic" begin
     @test isapprox(
@@ -44,6 +54,76 @@ i_sites = 1:n_site
     gen2 = gen_hybridproblem_synthetic(rng2, prob; scenario)
     @test gen2.y_o == y_o
 end
+
+@testset "f_doubleMM_Matrix" begin
+    is = repeat(axes(θP_true,1)', n_site)
+    θvec = CA.ComponentVector(P = θP_true, Ms = θMs_true)
+    xPM = map(xP1s -> repeat(xP1s', n_site), xP[1]) 
+    #θ = hcat(θP_true[is], θMs_true')
+    intθ1 = get_concrete(ComponentArrayInterpreter(vcat(θP_true, θMs_true[:,1])))
+    #θpos = get_positions(intθ1)
+    intθ = get_concrete(ComponentArrayInterpreter((n_site,), intθ1))
+    fcost = (θvec, xPM, y_o, y_unc) -> begin
+        θ = hcat(CA.getdata(θvec.P[is]), CA.getdata(θvec.Ms'))
+        y = HVI.DoubleMM.f_doubleMM(θ, xPM, intθ)
+        #y = HVI.DoubleMM.f_doubleMM(θ, xPM, θpos)
+        fneglogden(y_o, y', y_unc)
+    end
+    cost = fcost(θvec, xPM, y_o, y_unc)
+    ygrad = Zygote.gradient(θv -> fcost(θv, xPM), θvec)[1];
+    if gdev isa MLDataDevices.AbstractGPUDevice
+        # θg = gdev(θ)
+        # xPMg = gdev(xPM)
+        # yg = HVI.DoubleMM.f_doubleMM(θg, xPMg, intθ);
+        θvecg = gdev(θvec);
+        xPMg = gdev(xPM)
+        y_og = gdev(y_o)
+        y_uncg = gdev(y_unc)
+        costg = fcost(θvecg, xPMg, y_og, y_uncg);
+        ygradg = Zygote.gradient(θv -> fcost(θv, xPMg, y_og, y_uncg), θvecg)[1]; # erros without ";"
+        @test ygradg isa CA.ComponentArray
+        @test CA.getdata(ygradg) isa GPUArraysCore.AbstractGPUArray
+        ygradgc = HVI.apply_preserve_axes(cdev, ygradg) # can print the cpu version
+        # ygradgc.P .- ygrad.P
+        # ygradgc.Ms
+    end
+end
+
+@testset "neg_logden_obs Matrix" begin
+    is = repeat(axes(θP_true,1)', n_site)
+    θvec = CA.ComponentVector(P = θP_true, Ms = θMs_true)
+    xPM = map(xP1s -> repeat(xP1s', n_site), xP[1]) 
+    #θ = hcat(θP_true[is], θMs_true')
+    intθ1 = get_concrete(ComponentArrayInterpreter(vcat(θP_true, θMs_true[:,1])))
+    #θpos = get_positions(intθ1)
+    intθ = get_concrete(ComponentArrayInterpreter((n_site,), intθ1))
+    fl = (θvec, xPM) -> begin
+        θ = hcat(CA.getdata(θvec.P[is]), CA.getdata(θvec.Ms'))
+        y = HVI.DoubleMM.f_doubleMM(θ, xPM, intθ)
+        #y = HVI.DoubleMM.f_doubleMM(θ, xPM, θpos)
+
+    end
+    y = fy(θvec, xPM)
+    y_exp = applyf(HVI.DoubleMM.f_doubleMM, θMs_true, θP_true, Vector{eltype(θP_true)}(undef, 0), xP, intθ1)
+    @test y == y_exp'
+    ygrad = Zygote.gradient(θv -> sum(fy(θv, xPM)), θvec)[1];
+    if gdev isa MLDataDevices.AbstractGPUDevice
+        # θg = gdev(θ)
+        # xPMg = gdev(xPM)
+        # yg = HVI.DoubleMM.f_doubleMM(θg, xPMg, intθ);
+        θvecg = gdev(θvec);
+        xPMg = gdev(xPM)
+        yg = fy(θvecg, xPMg);
+        @test cdev(yg) == y_exp'
+        ygradg = Zygote.gradient(θv -> sum(fy(θv, xPMg)), θvecg)[1]; # erros without ";"
+        @test ygradg isa CA.ComponentArray
+        @test CA.getdata(ygradg) isa GPUArraysCore.AbstractGPUArray
+        ygradgc = HVI.apply_preserve_axes(cdev, ygradg) # can print the cpu version
+        # ygradgc.P .- ygrad.P
+        # ygradgc.Ms
+    end
+end
+
 
 @testset "loss_g" begin
     g, ϕg0 = get_hybridproblem_MLapplicator(rng, prob; scenario)
@@ -141,12 +221,7 @@ end
     end
 end
 
-using CUDA: CUDA
-using Flux
-using GPUArraysCore
 
-gdev = gpu_device()
-cdev = cpu_device()
 if gdev isa MLDataDevices.AbstractGPUDevice
     @testset "transfer NormalScalingModelApplicator to gpu" begin
         scenario = (:use_Flux,)

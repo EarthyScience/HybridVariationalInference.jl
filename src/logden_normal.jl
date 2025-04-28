@@ -13,7 +13,8 @@ a low uncertainty estimate and means closer to the observations to help
 an initial fit. The obtained parameters then can be used as starting values
 for a the proper fit with `σfac=1.0`.
 """
-function neg_logden_indep_normal(obs::AbstractArray, μ::AbstractArray, logσ2::AbstractArray; σfac=1.0)
+function neg_logden_indep_normal(obs::AbstractArray, μ::AbstractArray, logσ2::AbstractArray{ET}; 
+    σfac=one(ET)) where ET
     # log of independent Normal distributions 
     # estimate independent uncertainty of each θM, rather than full covariance
     #nlogL = sum(σfac .* log.(σs) .+ 1 / 2 .* abs2.((obs .- μ) ./ σs))

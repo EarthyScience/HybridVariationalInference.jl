@@ -19,34 +19,61 @@ function f_doubleMM(θ::AbstractVector, x, intθ)
         θc = intθ(θ)
         #using ComponentArrays: ComponentArrays as CA
         #r0, r1, K1, K2 = θc[(:r0, :r1, :K1, :K2)] # does not work on Zygote+GPU
-        r0 = θc[:r0]
-        r1 = θc[:r1]
-        K1 = θc[:K1]
-        K2 = θc[:K2]
+        (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
+            # vector will be repeated when broadcasted by a matrix
+            CA.getdata(θc[par])
+        end        
+        # r0 = θc[:r0]
+        # r1 = θc[:r1]
+        # K1 = θc[:K1]
+        # K2 = θc[:K2]
         y = r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
     end
     return (y)
 end
 
-function f_doubleMM(θ::AbstractMatrix, x::NTuple{N, AbstractMatrix}, intθ) where N
+function f_doubleMM(θ::AbstractMatrix, x::NamedTuple, intθ::HVI.AbstractComponentArrayInterpreter) 
     # provide θ for n_row sites
     # provide x.S1 as Matrix n_site x n_obs
     # extract parameters not depending on order, i.e whether they are in θP or θM
         θc = intθ(θ)
-        #using ComponentArrays: ComponentArrays as CA
-        #r0, r1, K1, K2 = θc[(:r0, :r1, :K1, :K2)] # does not work on Zygote+GPU
         @assert size(x.S1,1) == size(θ,1)  # same number of sites
         @assert size(x.S1) == size(x.S2)   # same number of observations
         #@assert length(x.s2 == n_obs)
-        r0 = θc[:,:r0]  # vector will be repeated when broadcasted by a matrix
-        r1 = θc[:,:r1]
-        K1 = θc[:,:K1]
-        K2 = θc[:,:K2]
+        # problems on AD on GPU with indexing CA may be related to printing result, use ";"
+        (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
+            # vector will be repeated when broadcasted by a matrix
+            CA.getdata(θc[:,par])
+        end        
+        # r0 = CA.getdata(θc[:,:r0])  # vector will be repeated when broadcasted by a matrix
+        # r1 = CA.getdata(θc[:,:r1])
+        # K1 = CA.getdata(θc[:,:K1])
+        # K2 = CA.getdata(θc[:,:K2])
         y = r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
-    return (y)
+        return (y)
 end
 
-
+# function f_doubleMM(θ::AbstractMatrix, x::NamedTuple, θpos::NamedTuple) 
+#     # provide θ for n_row sites
+#     # provide x.S1 as Matrix n_site x n_obs
+#     # extract parameters not depending on order, i.e whether they are in θP or θM
+#         @assert size(x.S1,1) == size(θ,1)  # same number of sites
+#         @assert size(x.S1) == size(x.S2)   # same number of observations
+#         (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
+#               # vector will be repeated when broadcasted by a matrix
+#               CA.getdata(θ[:,θpos[par]])
+#         end        
+#         # r0 = CA.getdata(θ[:,θpos.r0])  # vector will be repeated when broadcasted by a matrix
+#         # r1 = CA.getdata(θ[:,θpos.r1])
+#         # K1 = CA.getdata(θ[:,θpos.K1])
+#         # K2 = CA.getdata(θ[:,θpos.K2])
+#         #y = r0 .+ r1
+#         #y = x.S1 + x.S2
+#         #y = (K1 .+ x.S1)
+#         #y = r1 .* x.S1 ./ (K1 .+ x.S1) 
+#         y = r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
+#         return (y)
+# end
 
 function HVI.get_hybridproblem_par_templates(::DoubleMMCase; scenario::NTuple = ())
     if (:omit_r0 ∈ scenario)
