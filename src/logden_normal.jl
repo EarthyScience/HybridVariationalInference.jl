@@ -24,7 +24,9 @@ function neg_logden_indep_normal(obs::AbstractArray, μ::AbstractArray, logσ2::
     # optimize argument logσ2 rather than σs for performance
     #nlogL = sum(σfac .* (1/2) .* logσ2 .+ (1/2) .* exp.(.- logσ2) .* abs2.(obs .- μ))
     # specifying logσ2 instead of σ is not transforming a random variable -> no Jacobian
-    nlogL = sum(σfac .* logσ2 .+ abs2.(obs .- μ) .* exp.(.-logσ2)) / 2
+    obs_data = CA.getdata(obs)
+    μ_data = CA.getdata(μ)
+    nlogL = sum(σfac .* logσ2 .+ abs2.(obs_data .- μ_data) .* exp.(.-logσ2)) / convert(eltype(μ),2)
     return (nlogL)
 end
 # function neg_logden_indep_normal(obss::AbstractMatrix, preds::AbstractMatrix, logσ2::AbstractVector; kwargs...)

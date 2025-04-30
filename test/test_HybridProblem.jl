@@ -39,8 +39,10 @@ construct_problem = (;scenario=(:default,)) -> begin
         y = r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
         return (y)
     end
-    function f_doubleMM_with_global(θP::AbstractVector, θMs::AbstractMatrix, x)
-        pred_sites = applyf(f_doubleMM, θMs, θP, CA.ComponentVector{FT}(), x)
+    function f_doubleMM_with_global(θP::AbstractVector, θMs::AbstractMatrix, xP)
+        #Main.@infiltrate_main
+        #first(eachcol(xP))
+        pred_sites = applyf(f_doubleMM, θMs, θP, CA.ComponentVector{FT}(), eachcol(xP))
         pred_global = eltype(pred_sites)[]
         return pred_global, pred_sites
     end
@@ -93,7 +95,7 @@ test_without_flux = (scenario) -> begin
     prob = probc = construct_problem(;scenario);
     #@descend construct_problem(;scenario)
 
-    @testset "n_input and pbm_covars" begin
+    @testset "n_input and pbm_covars  $(last(scenario))" begin
         g, ϕ_g = get_hybridproblem_MLapplicator(prob; scenario);
         if :covarK2 ∈ scenario
             @test g.app.m.inputdim == (static(6),) # 5 + 1 (ncovar + n_pbm)
@@ -104,7 +106,7 @@ test_without_flux = (scenario) -> begin
         end
     end
 
-    @testset "loss_gf" begin
+    @testset "loss_gf  $(last(scenario))" begin
         #----------- fit g and θP to y_o
         rng = StableRNG(111)
         g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
@@ -157,7 +159,7 @@ gdev = gpu_device()
 test_with_flux = (scenario) -> begin
     prob = probc = construct_problem(;scenario);
 
-    @testset "HybridPointSolver" begin
+    @testset "HybridPointSolver $(last(scenario))" begin
         rng = StableRNG(111)
         solver = HybridPointSolver(; alg=Adam(0.02))
         (; ϕ, resopt, probo) = solve(prob, solver; scenario, rng,
@@ -177,7 +179,7 @@ test_with_flux = (scenario) -> begin
         @test ϕ.ϕP.K2 < 1.5 * log(θP.K2)
     end;
 
-    @testset "HybridPosteriorSolver" begin
+    @testset "HybridPosteriorSolver  $(last(scenario))" begin
         rng = StableRNG(111)
         solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)
         (; ϕ, θP, resopt) = solve(prob, solver; scenario, rng,
@@ -195,7 +197,7 @@ test_with_flux = (scenario) -> begin
     end;
 
     if gdev isa MLDataDevices.AbstractGPUDevice 
-        @testset "HybridPosteriorSolver gpu" begin
+        @testset "HybridPosteriorSolver gpu  $(last(scenario))" begin
             scenf = (scenario..., :use_Flux, :use_gpu, :omit_r0)
             rng = StableRNG(111)
             # here using DoubleMMCase() directly rather than construct_problem
@@ -239,7 +241,7 @@ test_with_flux = (scenario) -> begin
             end
 
         end;
-        @testset "HybridPosteriorSolver also f on gpu" begin
+        @testset "HybridPosteriorSolver also f on gpu  $(last(scenario))" begin
             scenf = (scenario..., :use_Flux, :use_gpu, :omit_r0, :f_on_gpu)
             rng = StableRNG(111)
             probg = HybridProblem(DoubleMM.DoubleMMCase(); scenario = scenf);

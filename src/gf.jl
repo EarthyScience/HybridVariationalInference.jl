@@ -1,5 +1,6 @@
 function applyf(f, θMs::AbstractMatrix, θP::AbstractVector, θFix::AbstractVector, xP, args...; kwargs...)
     # predict several sites with same global parameters θP and fixed parameters θFix
+    #θM, x_site = first(zip(eachcol(θMs), xP))
     yv = map(eachcol(θMs), xP) do θM, x_site
         f(vcat(θP, θM, θFix), x_site, args...; kwargs...)
     end

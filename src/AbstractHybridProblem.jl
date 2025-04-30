@@ -179,7 +179,7 @@ function construct_dataloader_from_synthetic(rng::AbstractRNG, prob::AbstractHyb
         )
     (; xM, xP, y_o, y_unc) = gen_hybridproblem_synthetic(rng, prob; scenario)
     n_site = size(xM,2)
-    @assert length(xP) == n_site
+    @assert size(xP,2) == n_site
     @assert size(y_o,2) == n_site
     @assert size(y_unc,2) == n_site
     i_sites = 1:n_site

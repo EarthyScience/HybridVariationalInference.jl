@@ -47,7 +47,7 @@ fneglogden = get_hybridproblem_neg_logden_obs(prob; scenario)
         vec(mean(CA.getdata(θMs_true); dims = 2)), CA.getdata(par_templates.θM), rtol = 0.02)
     @test isapprox(vec(std(CA.getdata(θMs_true); dims = 2)),
         CA.getdata(par_templates.θM) .* 0.1, rtol = 0.02)
-    @test size(xP) == (n_site,)
+    @test size(xP) == (16, n_site)
     @test size(y_o) == (8, n_site)
 
     # test same results for same rng
@@ -57,9 +57,10 @@ fneglogden = get_hybridproblem_neg_logden_obs(prob; scenario)
 end
 
 @testset "f_doubleMM_Matrix" begin
-    is = repeat(axes(θP_true, 1)', n_site)
+    is = repeat((1:length(θP_true))', n_site)
     θvec = CA.ComponentVector(P = θP_true, Ms = θMs_true)
-    xPM = map(xP1s -> repeat(xP1s', n_site), xP[1])
+    #xPM = map(xP1s -> repeat(xP1s', n_site), xP[1])
+    xPM = (S1 = CA.getdata(xP[:S1,:])', S2 = CA.getdata(xP[:S2,:])')
     #θ = hcat(θP_true[is], θMs_true')
     intθ1 = get_concrete(ComponentArrayInterpreter(vcat(θP_true, θMs_true[:, 1])))
     #θpos = get_positions(intθ1)
@@ -71,18 +72,18 @@ end
     end
     y = fy(θvec, xPM)
     y_exp = applyf(HVI.DoubleMM.f_doubleMM, θMs_true, θP_true,
-        Vector{eltype(θP_true)}(undef, 0), xP, intθ1)
+        Vector{eltype(θP_true)}(undef, 0), eachcol(xP), intθ1)
     @test y == y_exp'
     ygrad = Zygote.gradient(θv -> sum(fy(θv, xPM)), θvec)[1]
     if gdev isa MLDataDevices.AbstractGPUDevice
         # θg = gdev(θ)
         # xPMg = gdev(xPM)
         # yg = HVI.DoubleMM.f_doubleMM(θg, xPMg, intθ);
-        θvecg = gdev(θvec)
+        θvecg = gdev(θvec); # errors without ";"
         xPMg = gdev(xPM)
         yg = fy(θvecg, xPMg)
         @test cdev(yg) == y_exp'
-        ygradg = Zygote.gradient(θv -> sum(fy(θv, xPMg)), θvecg)[1] # errors without ";"
+        ygradg = Zygote.gradient(θv -> sum(fy(θv, xPMg)), θvecg)[1] 
         @test ygradg isa CA.ComponentArray
         @test CA.getdata(ygradg) isa GPUArraysCore.AbstractGPUArray
         ygradgc = HVI.apply_preserve_axes(cdev, ygradg) # can print the cpu version
@@ -94,7 +95,7 @@ end
 @testset "neg_logden_obs Matrix" begin
     is = repeat(axes(θP_true, 1)', n_site)
     θvec = CA.ComponentVector(P = θP_true, Ms = θMs_true)
-    xPM = map(xP1s -> repeat(xP1s', n_site), xP[1])
+    xPM = (S1 = CA.getdata(xP[:S1,:])', S2 = CA.getdata(xP[:S2,:])')
     #θ = hcat(θP_true[is], θMs_true')
     intθ1 = get_concrete(ComponentArrayInterpreter(vcat(θP_true, θMs_true[:, 1])))
     #θpos = get_positions(intθ1)
@@ -111,13 +112,13 @@ end
         # θg = gdev(θ)
         # xPMg = gdev(xPM)
         # yg = HVI.DoubleMM.f_doubleMM(θg, xPMg, intθ);
-        θvecg = gdev(θvec)
+        θvecg = gdev(θvec);
         xPMg = gdev(xPM)
-        y_og = gdev(y_o)
+        y_og = gdev(y_o);
         y_uncg = gdev(y_unc)
         costg = fcost(θvecg, xPMg, y_og, y_uncg)
         @test costg ≈ cost
-        ygradg = Zygote.gradient(θv -> fcost(θv, xPMg, y_og, y_uncg), θvecg)[1] # errors without ";"
+        ygradg = Zygote.gradient(θv -> fcost(θv, xPMg, y_og, y_uncg), θvecg)[1]; # errors without ";"
         @test ygradg isa CA.ComponentArray
         @test CA.getdata(ygradg) isa GPUArraysCore.AbstractGPUArray
         ygradgc = HVI.apply_preserve_axes(cdev, ygradg) # can print the cpu version

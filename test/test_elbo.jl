@@ -110,13 +110,13 @@ test_scenario = (scenario) -> begin
     @testset "neg_elbo_gtf cpu" begin
         i_sites = 1:n_batch
         cost = neg_elbo_gtf(rng, ϕ_ini, g, transPMs_batch, f, py,
-            xM[:, i_sites], xP[i_sites], y_o[:, i_sites], y_unc[:, i_sites], i_sites,
+            xM[:, i_sites], xP[:,i_sites], y_o[:, i_sites], y_unc[:, i_sites], i_sites,
             map(get_concrete, interpreters);
             cor_ends, pbm_covar_indices)
         @test cost isa Float64
         gr = Zygote.gradient(
             ϕ -> neg_elbo_gtf(rng, ϕ, g, transPMs_batch, f, py,
-                xM[:, i_sites], xP[i_sites], y_o[:, i_sites], y_unc[:, i_sites], i_sites,
+                xM[:, i_sites], xP[:,i_sites], y_o[:, i_sites], y_unc[:, i_sites], i_sites,
                 map(get_concrete, interpreters);
                 cor_ends, pbm_covar_indices),
             CA.getdata(ϕ_ini))
@@ -128,7 +128,7 @@ test_scenario = (scenario) -> begin
             i_sites = 1:n_batch
             ϕ = ggdev(CA.getdata(ϕ_ini))
             xMg_batch = ggdev(xM[:, i_sites])
-            xP_batch = xP[i_sites] # used in f which runs on CPU
+            xP_batch = xP[:,i_sites] # used in f which runs on CPU
             cost = neg_elbo_gtf(rng, ϕ, g_gpu, transPMs_batch, f, py,
                 xMg_batch, xP_batch, y_o[:, i_sites], y_unc[:, i_sites], i_sites,
                 map(get_concrete, interpreters);

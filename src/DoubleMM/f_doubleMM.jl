@@ -6,6 +6,11 @@ const θall = vcat(θP, θM)
 
 const θP_nor0 = θP[(:K2,)]
 
+const xP_S1 = Float32[0.5, 0.5, 0.5, 0.5, 0.4, 0.3, 0.2, 0.1]
+const xP_S2 = Float32[1.0, 3.0, 4.0, 5.0, 5.0, 5.0, 5.0, 5.0]
+
+int_xP1 = ComponentArrayInterpreter(CA.ComponentVector(S1=xP_S1, S2=xP_S2))
+
 # const transP = elementwise(exp)
 # const transM = elementwise(exp)
 
@@ -164,20 +169,29 @@ function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario::NTuple = ()
     intθ1, θFix1 = setup_PBMpar_interpreter(par_templates.θP, par_templates.θM, θall)
     θFix = repeat(θFix1', n_site_batch)
     intθ = get_concrete(ComponentArrayInterpreter((n_site_batch,), intθ1))
+    #int_xPb = ComponentArrayInterpreter((n_site_batch,), int_xP1)
     isP = repeat(axes(par_templates.θP,1)', n_site_batch)  
-    let θFix = θFix, θFix_dev = gdev(θFix), intθ = get_concrete(intθ), isP=isP, n_site_batch=n_site_batch
+    let θFix = θFix, θFix_dev = gdev(θFix), intθ = get_concrete(intθ), isP=isP, 
+        n_site_batch=n_site_batch, 
+        #int_xPb=get_concrete(int_xPb),
+        pos_xP = get_positions(int_xP1)
         function f_doubleMM_with_global(θP::AbstractVector, θMs::AbstractMatrix, xP)
-            @assert length(xP) == n_site_batch
+            @assert size(xP,2) == n_site_batch
             @assert size(θMs,2) == n_site_batch
-            # convert vector of tuples to tuple of matricesByRows
-            # need to supply xP as vectorOfTuples to work with DataLoader
-            # k = first(keys(xP[1]))
-            xPM = (; zip(keys(xP[1]), map(keys(xP[1])) do k
-                #stack(map(r -> r[k], xP))' 
-                stack(map(r -> r[k], xP); dims = 1)
-            end)...)
+            # # convert vector of tuples to tuple of matricesByRows
+            # # need to supply xP as vectorOfTuples to work with DataLoader
+            # # k = first(keys(xP[1]))
+            # xPM = (; zip(keys(xP[1]), map(keys(xP[1])) do k
+            #     #stack(map(r -> r[k], xP))' 
+            #     stack(map(r -> r[k], xP); dims = 1)
+            # end)...)
             #xPM = map(transpose, xPM1)
+            #xPc = int_xPb(CA.getdata(xP))
+            #xPM = (S1 = xPc[:,:S1], S2 = xPc[:,:S2]) # problems with Zygote
             # make sure the same order of columns as in intθ
+            # reshape big matrix into NamedTuple of drivers S1 and S2 
+            #   for broadcasting need sites in rows
+            xPM = map(p -> CA.getdata(xP[p,:])', pos_xP)
             θFixd = (θP isa GPUArraysCore.AbstractGPUVector) ? θFix_dev : θFix
             θ = hcat(CA.getdata(θP[isP]), CA.getdata(θMs)', θFixd)
             pred_sites = f_doubleMM(θ, xPM, intθ)'
@@ -202,8 +216,6 @@ end
 #     return Float32
 # end
 
-const xP_S1 = Float32[0.5, 0.5, 0.5, 0.5, 0.4, 0.3, 0.2, 0.1]
-const xP_S2 = Float32[1.0, 3.0, 4.0, 5.0, 5.0, 5.0, 5.0, 5.0]
 
 # two observations more?
 # const xP_S1 = Float32[0.5, 0.5, 0.5, 0.5, 0.5, 0.4, 0.3, 0.1]
@@ -242,7 +254,10 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     # normalize to be distributed around the prescribed true values
     θMs_true = int_θMs_sites(scale_centered_at(θMs_true0, θM, FloatType(0.1)))
     f = get_hybridproblem_PBmodel(prob; scenario, gdev=identity, use_all_sites = true)
-    xP = fill((; S1 = xP_S1, S2 = xP_S2), n_site)
+    #xP = fill((; S1 = xP_S1, S2 = xP_S2), n_site)
+    int_xPn = ComponentArrayInterpreter(int_xP1, (n_site,))
+    xP = int_xPn(vcat(repeat(xP_S1,1,n_site),repeat(xP_S2,1,n_site)))
+    #xP[:S1,:]
     θP = par_templates.θP
     y_global_true, y_true = f(θP, θMs_true, xP)
     σ_o = FloatType(0.01)
