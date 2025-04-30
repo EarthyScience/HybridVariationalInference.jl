@@ -38,7 +38,7 @@ test_scenario = (scenario) -> begin
     #θsite_true = get_hybridproblem_par_templates(prob; scenario)
     n_covar = 5
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-    (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
+    (; xM, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
     ) = gen_hybridproblem_synthetic(rng, prob; scenario);
 
     g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario);

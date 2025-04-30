@@ -36,8 +36,9 @@ par_templates = get_hybridproblem_par_templates(prob; scenario)
 end
 
 rng = StableRNG(111) # make sure to be the same as when constructing train_dataloader
-(; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
+(; xM, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
 ) = gen_hybridproblem_synthetic(rng, prob; scenario);
+n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
 i_sites = 1:n_site
 fneglogden = get_hybridproblem_neg_logden_obs(prob; scenario)
 

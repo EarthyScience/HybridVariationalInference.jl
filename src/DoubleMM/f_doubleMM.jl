@@ -253,7 +253,6 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     y_o = y_true .+ randn(rng, FloatType, size(y_true)) .* σ_o
     (;
         xM,
-        n_site,
         θP_true = θP,
         θMs_true,
         xP,

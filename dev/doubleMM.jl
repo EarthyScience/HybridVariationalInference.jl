@@ -29,8 +29,8 @@ cdev = gdev isa MLDataDevices.AbstractGPUDevice ? cpu_device() : identity
 
 #------ setup synthetic data and training data loader
 prob0_ = HybridProblem(DoubleMM.DoubleMMCase(); scenario);
-(; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
-) = gen_hybridproblem_synthetic(rng, prob0_; scenario);
+(; xM, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
+) = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); scenario);
 n_site, n_batch = get_hybridproblem_n_site_and_batch(prob0_; scenario)
 ζP_true, ζMs_true = log.(θP_true), log.(θMs_true)
 i_sites = 1:n_site

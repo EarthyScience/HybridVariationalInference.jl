@@ -49,7 +49,7 @@ construct_problem = (;scenario=(:default,)) -> begin
     # n_batch = 10
     n_site, n_batch = get_hybridproblem_n_site_and_batch(CP.DoubleMM.DoubleMMCase(); scenario)
     # dependency on DeoubleMMCase -> take care of changes in covariates
-    (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
+    (; xM, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
     ) = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase())
     n_covar = size(xM,1)
     n_input = (:covarK2 ∈ scenario) ? n_covar +1 : n_covar
