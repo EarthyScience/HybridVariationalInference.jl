@@ -19,13 +19,24 @@ end
 """
 composition f ∘ transM ∘ g: mechanistic model after machine learning parameter prediction
 """
-function gf(prob::AbstractHybridProblem, xM, xP, args...; 
+function gf(prob::AbstractHybridProblem, args...; scenario = (), kwargs...)
+    train_loader = get_hybridproblem_train_dataloader(prob; scenario)
+    train_loader_dev = gdev_hybridproblem_dataloader(train_loader; scenario)
+    xM, xP = train_loader_dev.data[1:2]
+    gf(prob, xM, xP, args...; kwargs...)
+end
+function gf(prob::AbstractHybridProblem, xM::AbstractMatrix, xP::AbstractVector, args...; 
     scenario = (), 
     gdev = :use_gpu ∈ scenario ? gpu_device() : identity, 
     cdev = gdev isa MLDataDevices.AbstractGPUDevice ? cpu_device() : identity,
     kwargs...)
     g, ϕg = get_hybridproblem_MLapplicator(prob; scenario)
-    f = get_hybridproblem_PBmodel(prob; scenario)
+    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    is_predict_batch = (n_batch == length(xP))
+    n_site_pred = is_predict_batch ? n_batch : n_site
+    @assert length(xP) == n_site_pred
+    @assert size(xM, 2) == n_site_pred
+    f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = !is_predict_batch)
     (; θP, θM) = get_hybridproblem_par_templates(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     intP = ComponentArrayInterpreter(θP)

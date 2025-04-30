@@ -136,15 +136,49 @@ end
 #     (; n_covar, n_batch, n_θM, n_θP)
 # end
 
+# function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario::NTuple = (),
+#     gdev = :f_on_gpu ∈ scenario ? gpu_device() : identity, 
+#     )
+#     #fsite = (θ, x_site) -> f_doubleMM(θ)  # omit x_site drivers
+#     par_templates = get_hybridproblem_par_templates(prob; scenario)
+#     intθ, θFix = setup_PBMpar_interpreter(par_templates.θP, par_templates.θM, θall)
+#     let θFix = gdev(θFix), intθ = get_concrete(intθ)
+#         function f_doubleMM_with_global(θP::AbstractVector, θMs::AbstractMatrix, xP)
+#             pred_sites = applyf(f_doubleMM, θMs, θP, θFix, xP, intθ)
+#             pred_global = eltype(pred_sites)[]
+#             return pred_global, pred_sites
+#         end
+#     end
+# end
+
 function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario::NTuple = (),
+    use_all_sites = false,
     gdev = :f_on_gpu ∈ scenario ? gpu_device() : identity, 
     )
+    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    n_site_batch = use_all_sites ? n_site : n_batch
     #fsite = (θ, x_site) -> f_doubleMM(θ)  # omit x_site drivers
     par_templates = get_hybridproblem_par_templates(prob; scenario)
-    intθ, θFix = setup_PBMpar_interpreter(par_templates.θP, par_templates.θM, θall)
-    let θFix = gdev(θFix), intθ = get_concrete(intθ)
-        function f_doubleMM_with_global(θP::AbstractVector, θMs::AbstractMatrix, x)
-            pred_sites = applyf(f_doubleMM, θMs, θP, θFix, x, intθ)
+    intθ1, θFix1 = setup_PBMpar_interpreter(par_templates.θP, par_templates.θM, θall)
+    θFix = repeat(θFix1', n_site_batch)
+    intθ = get_concrete(ComponentArrayInterpreter((n_site_batch,), intθ1))
+    isP = repeat(axes(par_templates.θP,1)', n_site_batch)  
+    let θFix = θFix, θFix_dev = gdev(θFix), intθ = get_concrete(intθ), isP=isP, n_site_batch=n_site_batch
+        function f_doubleMM_with_global(θP::AbstractVector, θMs::AbstractMatrix, xP)
+            @assert length(xP) == n_site_batch
+            @assert size(θMs,2) == n_site_batch
+            # convert vector of tuples to tuple of matricesByRows
+            # need to supply xP as vectorOfTuples to work with DataLoader
+            # k = first(keys(xP[1]))
+            xPM = (; zip(keys(xP[1]), map(keys(xP[1])) do k
+                #stack(map(r -> r[k], xP))' 
+                stack(map(r -> r[k], xP); dims = 1)
+            end)...)
+            #xPM = map(transpose, xPM1)
+            # make sure the same order of columns as in intθ
+            θFixd = (θP isa GPUArraysCore.AbstractGPUVector) ? θFix_dev : θFix
+            θ = hcat(CA.getdata(θP[isP]), CA.getdata(θMs)', θFixd)
+            pred_sites = f_doubleMM(θ, xPM, intθ)'
             pred_global = eltype(pred_sites)[]
             return pred_global, pred_sites
         end
@@ -156,6 +190,7 @@ function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario::NTuple = ()
         # end
     end
 end
+
 
 function HVI.get_hybridproblem_neg_logden_obs(::DoubleMMCase; scenario::NTuple = ())
     neg_logden_indep_normal
@@ -173,25 +208,28 @@ const xP_S2 = Float32[1.0, 3.0, 4.0, 5.0, 5.0, 5.0, 5.0, 5.0]
 # const xP_S2 = Float32[1.0, 2.0, 3.0, 4.0, 5.0, 5.0, 5.0, 5.0]
 
 HVI.get_hybridproblem_n_covar(prob::DoubleMMCase; scenario) = 5
-function HVI.get_hybridproblem_n_site(prob::DoubleMMCase; scenario) 
+function HVI.get_hybridproblem_n_site_and_batch(prob::DoubleMMCase; scenario) 
+    n_batch = 20
+    n_site = 800
     if (:few_sites ∈ scenario)
-         return(100) 
+         n_site = 100
     elseif (:sites20 ∈ scenario)
-        return(20) 
+            n_site = 20
     end
-    800
+    (n_site, n_batch)
 end
 
 function HVI.get_hybridproblem_train_dataloader(prob::DoubleMMCase; scenario = (), 
-    n_batch, rng::AbstractRNG = StableRNG(111), kwargs...
+    rng::AbstractRNG = StableRNG(111), kwargs...
     )
+    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     construct_dataloader_from_synthetic(rng, prob; scenario, n_batch, kwargs...)
 end
 
 function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
         scenario = ())
     n_covar_pc = 2
-    n_site = get_hybridproblem_n_site(prob; scenario)
+    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     n_covar = get_hybridproblem_n_covar(prob; scenario)
     n_θM = length(θM)
     FloatType = get_hybridproblem_float_type(prob; scenario)
@@ -201,7 +239,7 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     int_θMs_sites = ComponentArrayInterpreter(θM, (n_site,))
     # normalize to be distributed around the prescribed true values
     θMs_true = int_θMs_sites(scale_centered_at(θMs_true0, θM, FloatType(0.1)))
-    f = get_hybridproblem_PBmodel(prob; scenario, gdev=identity)
+    f = get_hybridproblem_PBmodel(prob; scenario, gdev=identity, use_all_sites = true)
     xP = fill((; S1 = xP_S1, S2 = xP_S2), n_site)
     θP = par_templates.θP
     y_global_true, y_true = f(θP, θMs_true, xP)

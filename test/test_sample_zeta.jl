@@ -65,7 +65,7 @@ end
 if ggdev isa MLDataDevices.AbstractGPUDevice
     @testset "sample_ζ_norm0 gpu" begin
         # sample only n_batch of 50
-        n_batch = 40
+        n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
         ϕb = CA.ComponentVector(P = ϕ_cpu.P, Ms = ϕ_cpu.Ms[:,1:n_batch], unc = ϕ_cpu.unc)
         intb = ComponentArrayInterpreter(ϕb)
         ϕ = ggdev(CA.getdata(ϕb))

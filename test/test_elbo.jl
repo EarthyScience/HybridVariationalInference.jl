@@ -36,15 +36,17 @@ test_scenario = (scenario) -> begin
 
 
     #θsite_true = get_hybridproblem_par_templates(prob; scenario)
-    g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario);
-    f = get_hybridproblem_PBmodel(prob; scenario)
-
     n_covar = 5
-    n_batch = 10
-    n_θM, n_θP = values(map(length, get_hybridproblem_par_templates(prob; scenario)))
-
+    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
     ) = gen_hybridproblem_synthetic(rng, prob; scenario);
+
+    g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario);
+    f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = false)
+    f_pred = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = true)
+
+    n_θM, n_θP = values(map(length, get_hybridproblem_par_templates(prob; scenario)))
+
 
     py = neg_logden_indep_normal
 
@@ -149,7 +151,7 @@ test_scenario = (scenario) -> begin
         trans_PMs_gen = get_transPMs(n_site)
         @test length(intm_PMs_gen) == 402
         @test trans_PMs_gen.length_in == 402
-        (; θ, y) = predict_gf(rng, g, f, ϕ_ini, xM, xP, map(get_concrete, interpreters);
+        (; θ, y) = predict_gf(rng, g, f_pred, ϕ_ini, xM, xP, map(get_concrete, interpreters);
             get_transPMs, get_ca_int_PMs, n_sample_pred, cor_ends, pbm_covar_indices)
         @test θ isa CA.ComponentMatrix
         @test θ[:, 1].P.r0 > 0
@@ -162,7 +164,7 @@ test_scenario = (scenario) -> begin
             n_sample_pred = 200
             ϕ = ggdev(CA.getdata(ϕ_ini))
             xMg = ggdev(xM)
-            (; θ, y) = predict_gf(rng, g_gpu, f, ϕ, xMg, xP, map(get_concrete, interpreters);
+            (; θ, y) = predict_gf(rng, g_gpu, f_pred, ϕ, xMg, xP, map(get_concrete, interpreters);
                 get_transPMs, get_ca_int_PMs, n_sample_pred, cor_ends, pbm_covar_indices)
             @test θ isa CA.ComponentMatrix # only ML parameters are on gpu
             @test θ[:, 1].P.r0 > 0
@@ -182,7 +184,7 @@ test_scenario = (scenario) -> begin
         #     n_sample_pred = 200
         #     ϕ = ggdev(CA.getdata(ϕ_ini))
         #     xMg = ggdev(xM)
-        #     (; θ, y) = predict_gf(rng, g_gpu, f, ϕ, xMg, ggdev(xP), map(get_concrete, interpreters);
+        #     (; θ, y) = predict_gf(rng, g_gpu, f_pred, ϕ, xMg, ggdev(xP), map(get_concrete, interpreters);
         #         get_ca_int_PMs, n_sample_pred, cor_ends, pbm_covar_indices,
         #         get_transPMs = get_transPMs_ident, 
         #         cdev = identity); # keep on gpu

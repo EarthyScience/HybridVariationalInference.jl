@@ -28,35 +28,34 @@ gdev = :use_gpu ∈ scenario ? gpu_device() : identity
 cdev = gdev isa MLDataDevices.AbstractGPUDevice ? cpu_device() : identity
 
 #------ setup synthetic data and training data loader
+prob0_ = HybridProblem(DoubleMM.DoubleMMCase(); scenario);
 (; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
-) = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); scenario);
-#n_site = get_hybridproblem_n_site(DoubleMM.DoubleMMCase(); scenario)
+) = gen_hybridproblem_synthetic(rng, prob0_; scenario);
+n_site, n_batch = get_hybridproblem_n_site_and_batch(prob0_; scenario)
 ζP_true, ζMs_true = log.(θP_true), log.(θMs_true)
 i_sites = 1:n_site
-xM_cpu = xM;
-xM = xM_cpu |> gdev;
-get_train_loader = (; n_batch, kwargs...) -> MLUtils.DataLoader(
+n_site, n_batch = get_hybridproblem_n_site_and_batch(prob0_; scenario)
+train_dataloader = MLUtils.DataLoader(
     (xM, xP, y_o, y_unc, 1:n_site);
     batchsize = n_batch, partial = false)
 σ_o = exp.(y_unc[:, 1] / 2)
-
 # assign the train_loader, otherwise it eatch time creates another version of synthetic data
-prob0 = HVI.update(HybridProblem(DoubleMM.DoubleMMCase(); scenario); get_train_loader)
+prob0 = HVI.update(prob0_; train_dataloader);
 #tmp = HVI.get_hybridproblem_ϕunc(prob0; scenario)
 
 #------- pointwise hybrid model fit
-solver_point = HybridPointSolver(; alg = OptimizationOptimisers.Adam(0.01), n_batch = 30)
+solver_point = HybridPointSolver(; alg = OptimizationOptimisers.Adam(0.01))
 #solver_point = HybridPointSolver(; alg = Adam(0.01), n_batch = 30)
 #solver_point = HybridPointSolver(; alg = Adam(0.01), n_batch = 10)
 #solver_point = HybridPointSolver(; alg = Adam(), n_batch = 200)
-n_batches_in_epoch = n_site ÷ solver_point.n_batch
+n_batches_in_epoch = n_site ÷ n_batch
 n_epoch = 80
 (; ϕ, resopt, probo) = solve(prob0, solver_point; scenario,
     rng, callback = callback_loss(n_batches_in_epoch * 10),
     maxiters = n_batches_in_epoch * n_epoch);
 # update the problem with optimized parameters
 prob0o = probo;
-y_pred_global, y_pred, θMs = gf(prob0o, xM, xP; scenario);
+y_pred_global, y_pred, θMs = gf(prob0o, scenario);
 plt = scatterplot(θMs_true[1, :], θMs[1, :]);
 lineplot!(plt, 0, 1)
 scatterplot(θMs_true[2, :], θMs[2, :])
@@ -149,10 +148,10 @@ probh = prob0o  # start from point optimized to infer uncertainty
 #probh = prob1o  # start from point optimized to infer uncertainty
 #probh = prob0  # start from no information
 solver_post = HybridPosteriorSolver(;
-    alg = OptimizationOptimisers.Adam(0.01), n_batch = min(50, n_site), n_MC = 3)
+    alg = OptimizationOptimisers.Adam(0.01), n_MC = 3)
 #solver_point = HybridPointSolver(; alg = Adam(), n_batch = 200)
-n_batches_in_epoch = n_site ÷ solver_post.n_batch
-n_epoch = 80
+n_batches_in_epoch = n_site ÷ n_batch
+n_epoch = 40
 (; ϕ, θP, resopt, interpreters, probo) = solve(probh, solver_post; scenario,
     rng, callback = callback_loss(n_batches_in_epoch * 5),
     maxiters = n_batches_in_epoch * n_epoch,
@@ -213,6 +212,7 @@ end
     n_sample_pred = 400
     (; θ, y, entropy_ζ) = predict_gf(rng, prob2o_indep, xM, xP; scenario, n_sample_pred);
     (θ2_indep, y2_indep) = (θ, y)
+    #(θ2_indep, y2_indep) = (θ2, y2)  # workaround to use covarK2 when loading failed
 end
 
 () -> begin # otpimize using LUX
@@ -246,7 +246,7 @@ exp.(ϕunc_VI.coef_logσ2_logMs[1, :])
 
 # test predicting correct obs-uncertainty of predictive posterior
 n_sample_pred = 400
-(; θ, y, entropy_ζ) = predict_gf(rng, prob2o, xM, xP; scenario, n_sample_pred);
+(; θ, y, entropy_ζ) = predict_gf(rng, prob2o; scenario, n_sample_pred);
 (θ2, y2) = (θ, y)
 size(y) # n_obs x n_site, n_sample_pred
 size(θ)  # n_θP + n_site * n_θM x n_sample
@@ -506,12 +506,13 @@ chain = sample(model, NUTS(), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_thread
     using JLD2
     fname = "intermediate/doubleMM_chain_zeta_$(last(scenario)).jld2"
     jldsave(fname, false, IOStream; chain)
-    chain = load(fname, "chain"; iotype = IOStream)
+    chain = load(fname, "chain"; iotype = IOStream);
 end
 
 #ζi = first(eachrow(Array(chain)))
+f_allsites = get_hybridproblem_PBmodel(prob0; scenario, use_all_sites = true)
 ζs = mapreduce(ζi -> transposeMs(ζi, intm_PMs_gen, true), hcat, eachrow(Array(chain)));
-(; θ, y) = HVI.predict_ζf(ζs, f, xP, trans_PMs_gen, intm_PMs_gen);
+(; θ, y) = HVI.predict_ζf(ζs, f_allsites, xP, trans_PMs_gen, intm_PMs_gen);
 (ζs_hmc, θ_hmc, y_hmc) = (ζs, θ, y);
 
     
