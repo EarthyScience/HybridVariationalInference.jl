@@ -22,6 +22,7 @@ b2 = elementwise(exp)
 b2s = Stacked((b2,b2),(1:3,4:4))
 b3 = HybridVariationalInference.Exp()
 b3s = Stacked((b3,b3), (1:3,4:4))
+#b3s = Stacked((b3,),(1:4,))
 
 
 y = trans(x, b2)
@@ -35,6 +36,10 @@ dy = Zygote.gradient(x -> trans(x,b2), x)
 end;
 
 @testset "Exp" begin
+    y1 = b3(x)
+    y2 = b3s(x)
+    @test all(inverse(b3)(y2) .≈ x)
+    @test all(inverse(b3s)(y2) .≈ x)
     ye = trans(x, b3)
     dye = Zygote.gradient(x -> trans(x,b3), x)
     @test ye == y

@@ -6,10 +6,10 @@ const θall = vcat(θP, θM)
 
 const θP_nor0 = θP[(:K2,)]
 
-const transP = elementwise(exp)
-const transM = elementwise(exp)
+# const transP = elementwise(exp)
+# const transM = elementwise(exp)
 
-const transMS = Stacked(elementwise(identity), elementwise(exp))
+# const transMS = Stacked(elementwise(identity), elementwise(exp))
 
 const int_θdoubleMM = ComponentArrayInterpreter(flatten1(CA.ComponentVector(; θP, θM)))
 
@@ -114,15 +114,17 @@ end
 
 
 function HVI.get_hybridproblem_transforms(prob::DoubleMMCase; scenario::NTuple = ())
+    _θP, _θM = get_hybridproblem_par_templates(prob; scenario)
     if (:stackedMS ∈ scenario)
-        return ((; transP, transM = transMS))
+        return (; transP = Stacked((HVI.Exp(),),(1:length(_θP),)),
+        transM = Stacked((identity,HVI.Exp(),),(1:1, 2:length(_θM),))) 
     elseif (:transIdent ∈ scenario)
         # identity transformations, should AD on GPU
-        _θP, _θM = get_hybridproblem_par_templates(prob; scenario)
         return (; transP = Stacked((identity,),(1:length(_θP),)),
             transM = Stacked((identity,),(1:length(_θM),)))
     end
-    (; transP, transM)
+    (; transP = Stacked((HVI.Exp(),),(1:length(_θP),)),
+    transM = Stacked((HVI.Exp(),),(1:length(_θM),)))    
 end
 
 # function HVI.get_hybridproblem_sizes(::DoubleMMCase; scenario = ())

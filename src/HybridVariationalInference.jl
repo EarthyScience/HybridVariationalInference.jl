@@ -21,7 +21,7 @@ using StaticArrays: StaticArrays as SA
 using Functors
 
 #export Exp
-include("bijectors_exp.jl") 
+include("bijectors_utils.jl") 
 
 export ComponentArrayInterpreter, flatten1, get_concrete, get_positions
 include("ComponentArrayInterpreter.jl")

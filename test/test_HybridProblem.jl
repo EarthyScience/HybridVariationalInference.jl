@@ -199,6 +199,7 @@ test_with_flux = (scenario) -> begin
             scenf = (scenario..., :use_Flux, :use_gpu, :omit_r0)
             rng = StableRNG(111)
             # here using DoubleMMCase() directly rather than construct_problem
+            #(;transP, transM) = get_hybridproblem_transforms(DoubleMM.DoubleMMCase(); scenario = scenf)
             prob = probg = HybridProblem(DoubleMM.DoubleMMCase(); scenario = scenf);
             solver = HybridPosteriorSolver(; alg=Adam(0.02),  n_MC=3)
             n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario = scenf)
@@ -216,13 +217,15 @@ test_with_flux = (scenario) -> begin
                 maxiters = 37, 
             );
             @test cdev(ϕ.unc.ρsM)[1] > 0 
+            @test probo.ϕunc == cdev(ϕ.unc)
             test_correlation = () -> begin
-                n_epoch = 100 # requires 
+                n_epoch = 20 # requires 
                 (; ϕ, θP, resopt, probo) = solve(prob, solver; scenario = scenf,
                     maxiters = n_batches_in_epoch * n_epoch, 
                     callback = callback_loss(n_batches_in_epoch*5)
                 );
                 @test cdev(ϕ.unc.ρsM)[1] > 0 
+                @test probo.ϕunc == cdev(ϕ.unc)
                 # predict using problem and its associated dataloader
                 (; θ, y, entropy_ζ) = predict_gf(rng, probo; scenario = scenf, n_sample_pred = 200);            
                 mean_θ = CA.ComponentVector(mean(CA.getdata(θ); dims = 2)[:, 1], CA.getaxes(θ[:, 1])[1])
@@ -240,8 +243,7 @@ test_with_flux = (scenario) -> begin
             scenf = (scenario..., :use_Flux, :use_gpu, :omit_r0, :f_on_gpu)
             rng = StableRNG(111)
             probg = HybridProblem(DoubleMM.DoubleMMCase(); scenario = scenf);
-            # TODO replace exp by Exp Transformer
-            prob = CP.update(probg, transM = identity, transP = identity);
+            #prob = CP.update(probg, transM = identity, transP = identity);
             solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)
             n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario = scenf)
             n_batches_in_epoch = n_site ÷ n_batch
