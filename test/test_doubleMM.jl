@@ -82,7 +82,7 @@ end
         xPMg = gdev(xPM)
         yg = fy(θvecg, xPMg)
         @test cdev(yg) == y_exp'
-        ygradg = Zygote.gradient(θv -> sum(fy(θv, xPMg)), θvecg)[1] # erros without ";"
+        ygradg = Zygote.gradient(θv -> sum(fy(θv, xPMg)), θvecg)[1] # errors without ";"
         @test ygradg isa CA.ComponentArray
         @test CA.getdata(ygradg) isa GPUArraysCore.AbstractGPUArray
         ygradgc = HVI.apply_preserve_axes(cdev, ygradg) # can print the cpu version
@@ -117,7 +117,7 @@ end
         y_uncg = gdev(y_unc)
         costg = fcost(θvecg, xPMg, y_og, y_uncg)
         @test costg ≈ cost
-        ygradg = Zygote.gradient(θv -> fcost(θv, xPMg, y_og, y_uncg), θvecg)[1] # erros without ";"
+        ygradg = Zygote.gradient(θv -> fcost(θv, xPMg, y_og, y_uncg), θvecg)[1] # errors without ";"
         @test ygradg isa CA.ComponentArray
         @test CA.getdata(ygradg) isa GPUArraysCore.AbstractGPUArray
         ygradgc = HVI.apply_preserve_axes(cdev, ygradg) # can print the cpu version
@@ -186,7 +186,6 @@ end
     #     (xM, xP, y_o, y_unc, i_sites), batchsize = n_site_batch)
     train_loader = get_hybridproblem_train_dataloader(prob; scenario)
     @assert train_loader.data == (xM, xP, y_o, y_unc, i_sites)
-    train_lodaer2 = MLUtils.DataLoader(train_loader.data, batchsize = n_site)
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
 
     #loss_gf = get_loss_gf(g, transM, f, y_global_o, intϕ; gdev = identity)

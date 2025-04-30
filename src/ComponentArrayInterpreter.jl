@@ -5,12 +5,12 @@
 
 Interface for Type that implements
 - `as_ca(::AbstractArray, interpreter) -> ComponentArray`
-- `CompoentArrays.getaxes(interpeter)`
+- `ComponentArrays.getaxes(interpreter)`
 - `Base.length(interpreter) -> Int`
 
 When called on a vector, forwards to `as_ca`.
 
-There is a default implementation for Base.length based on CompoentArrays.getaxes.
+There is a default implementation for Base.length based on ComponentArrays.getaxes.
 """
 abstract type AbstractComponentArrayInterpreter end
 
