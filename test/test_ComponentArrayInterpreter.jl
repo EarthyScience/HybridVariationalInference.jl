@@ -57,6 +57,8 @@ end;
     testm(mm)
     mmc = get_concrete(mm)
     testm(mmc)
+    mmi = ComponentArrayInterpreter(mv, (n_col,)) # construct on interpreter itself
+    testm(mmi)
     #
     n_z = 3
     mm = ComponentArrayInterpreter(cv, (n_col, n_z))
@@ -67,6 +69,8 @@ end;
     end
     testm(mm)
     testm(get_concrete(mm))
+    mmi = ComponentArrayInterpreter(mv, (n_col, n_z)) # construct on interpreter itself
+    testm(mmi)
     #
     n_row = 3
     mm = ComponentArrayInterpreter((n_row,), cv)
@@ -77,6 +81,8 @@ end;
     end
     testm(mm)
     testm(get_concrete(mm))
+    mm = ComponentArrayInterpreter((n_row,), mv) # construct on interpreter itself
+    testm(mmi)
 end;
 
 @testset "empty ComponentVector" begin

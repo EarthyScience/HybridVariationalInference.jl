@@ -20,7 +20,10 @@ using Distributions, DistributionFits
 using StaticArrays: StaticArrays as SA
 using Functors
 
-export ComponentArrayInterpreter, flatten1, get_concrete
+#export Exp
+include("bijectors_utils.jl") 
+
+export ComponentArrayInterpreter, flatten1, get_concrete, get_positions
 include("ComponentArrayInterpreter.jl")
 
 export AbstractModelApplicator, construct_ChainsApplicator
@@ -38,13 +41,14 @@ export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_
        get_hybridproblem_train_dataloader,
        get_hybridproblem_neg_logden_obs,
        get_hybridproblem_n_covar,
-       get_hybridproblem_n_site,
+       get_hybridproblem_n_site_and_batch,
        get_hybridproblem_cor_ends,
        get_hybridproblem_priors,
        get_hybridproblem_pbmpar_covars,
 #update,
        gen_cov_pred,
        construct_dataloader_from_synthetic,
+       gdev_hybridproblem_dataloader,
        setup_PBMpar_interpreter
 include("AbstractHybridProblem.jl")
 

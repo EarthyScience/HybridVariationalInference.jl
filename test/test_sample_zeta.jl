@@ -23,8 +23,10 @@ scenario = (:default,)
 
 n_θM, n_θP = length.(values(get_hybridproblem_par_templates(prob; scenario)))
 
-(; xM, n_site, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o
+(; xM, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o
 ) = gen_hybridproblem_synthetic(rng, prob; scenario)
+n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+
 
 FT = get_hybridproblem_float_type(prob; scenario)
 
@@ -65,7 +67,7 @@ end
 if ggdev isa MLDataDevices.AbstractGPUDevice
     @testset "sample_ζ_norm0 gpu" begin
         # sample only n_batch of 50
-        n_batch = 40
+        n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
         ϕb = CA.ComponentVector(P = ϕ_cpu.P, Ms = ϕ_cpu.Ms[:,1:n_batch], unc = ϕ_cpu.unc)
         intb = ComponentArrayInterpreter(ϕb)
         ϕ = ggdev(CA.getdata(ϕb))

@@ -63,6 +63,8 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector, g, transPMs, f, py,
         #nLmean_θP = map((d, θi) -> -logpdf(d, θi), CA.getdata(priors_θ_mean.P), mean_θP) 
         #workaround for Zygote failing on `priors_θ_mean.P`
         iθ = CA.ComponentArray(1:length(priors_θ_mean), CA.getaxes(priors_θ_mean))
+        # need to apply different dist to each entry in θP and mean_θMs -> @allowscalar
+        #   but does not work with Zygote
         nLmean_θP = map((d, θi) -> -logpdf(d, θi), priors_θ_mean[CA.getdata(iθ.P)], mean_θP)
         θMss = map(θ -> interpreters.PMs(θ).Ms, θs) |> stack
         mean_θMs = mean(θMss; dims = (3))[:, :, 1]
@@ -131,9 +133,10 @@ Prediction function for hybrid model. Returns an NamedTuple with entries
 - `y`: Array `(n_obs, n_site, n_sample_pred)` of model predictions.
 """
 function predict_gf(rng, prob::AbstractHybridProblem; scenario, kwargs...)
-    n_batch = get_hybridproblem_n_site(prob; scenario)
-    data = first(get_hybridproblem_train_dataloader(prob; scenario, n_batch))
-    predict_gf(rng, prob, data[1], data[2]; scenario, kwargs...)
+    dl = get_hybridproblem_train_dataloader(prob; scenario)
+    dl_dev = gdev_hybridproblem_dataloader(dl; scenario)
+    xM, xP = dl_dev.data[1:2]
+    predict_gf(rng, prob, xM, xP; scenario, kwargs...)
 end
 function predict_gf(rng, prob::AbstractHybridProblem, xM::AbstractMatrix, xP;
         scenario,
@@ -141,19 +144,22 @@ function predict_gf(rng, prob::AbstractHybridProblem, xM::AbstractMatrix, xP;
         gdev = :use_gpu ∈ scenario ? gpu_device() : identity,
         cdev = gdev isa MLDataDevices.AbstractGPUDevice ? cpu_device() : identity
 )
-    n_site = length(xP)
-    @assert size(xM, 2) == n_site
+    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    is_predict_batch = (n_batch == length(xP))
+    n_site_pred = is_predict_batch ? n_batch : n_site
+    @assert length(xP) == n_site_pred
+    @assert size(xM, 2) == n_site_pred
+    f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = !is_predict_batch)
     par_templates = get_hybridproblem_par_templates(prob; scenario)
     (; θP, θM) = par_templates
     cor_ends = get_hybridproblem_cor_ends(prob; scenario)
     g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
     ϕunc0 = get_hybridproblem_ϕunc(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
-    f = get_hybridproblem_PBmodel(prob; scenario)
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
     pbm_covar_indices = get_pbm_covar_indices(θP, pbm_covars)
     (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
-        θP, θM, cor_ends, ϕg0, n_site; transP, transM, ϕunc0)
+        θP, θM, cor_ends, ϕg0, n_site_pred; transP, transM, ϕunc0)
     g_dev, ϕ_dev = gdev(g), gdev(ϕ)
     predict_gf(rng, g_dev, f, ϕ_dev, xM, xP, interpreters;
         get_transPMs, get_ca_int_PMs, n_sample_pred, cdev, cor_ends, pbm_covar_indices)
