@@ -20,6 +20,7 @@ using Distributions, DistributionFits
 using StaticArrays: StaticArrays as SA
 using Functors
 
+export extend_stacked_nrow
 #export Exp
 include("bijectors_utils.jl") 
 

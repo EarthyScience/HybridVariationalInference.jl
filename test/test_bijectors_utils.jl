@@ -9,6 +9,8 @@ import CUDA, cuDNN
 using Zygote
 
 
+
+
 x = [0.1, 0.2, 0.3, 0.4]
 gdev = gpu_device()
 cdev = cpu_device()
@@ -70,4 +72,36 @@ if gdev isa MLDataDevices.AbstractGPUDevice
         @test all(cdev(dys) .≈ dy)
     end;
 end
+
+@testset "extend_stacked_nrow" begin
+    nrow = 50    # faster on CPU by factor of 20
+    #nrow = 20000 # faster on GPU
+    X = reduce(hcat, ([x + y for x in 0:nrow] for y in 0:10:30))
+    b1 = CP.Exp()
+    b2 = identity
+    b = Stacked((b1,b2), (1:1,2:size(X,2)))
+    bs = extend_stacked_nrow(b, size(X,1))
+    Xt = reshape(bs(vec(X)), size(X))
+    @test Xt[:,1] == b1(X[:,1])
+    @test Xt[:,2] == b2(X[:,2])
+    if gdev isa MLDataDevices.AbstractGPUDevice
+        Xd = gdev(X)
+        Xtd = reshape(bs(vec(Xd)), size(Xd))
+        # test transpose in gradient function
+        dys = Zygote.gradient(x -> sum(bs(vec(x'))), Xd')[1]
+    #     () -> begin
+    #         #@usingany BenchmarkTools
+    #         @benchmark reshape(bs(vec(Xd)), size(Xd)) # macro not definedmetho
+    #         vecXd = vec(Xd)
+    #         @benchmark bs(vecXd)
+    #         vecX = vec(X)
+    #         @benchmark bs(vecX)
+    #         Xdtrans = Xd'
+    #         Xtrans = X'
+    #         @benchmark Zygote.gradient(x -> sum(bs(vec(x'))), Xdtrans)[1]
+    #         @benchmark Zygote.gradient(x -> sum(bs(vec(x'))), Xtrans)[1]
+    #    end
+    end
+end
+
     

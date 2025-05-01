@@ -71,7 +71,7 @@ struct ComponentArrayInterpreter <: AbstractComponentArrayInterpreter
 end
 
 function as_ca(v::AbstractArray, cai::ComponentArrayInterpreter) 
-    vr = reshape(v, _axis_length.(cai.axes))
+    vr = reshape(CA.getdata(v), _axis_length.(cai.axes))
     CA.ComponentArray(vr, cai.axes)
 end
 

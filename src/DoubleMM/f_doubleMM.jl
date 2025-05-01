@@ -191,7 +191,8 @@ function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario::NTuple = ()
             # make sure the same order of columns as in intθ
             # reshape big matrix into NamedTuple of drivers S1 and S2 
             #   for broadcasting need sites in rows
-            xPM = map(p -> CA.getdata(xP[p,:])', pos_xP)
+            #xPM = map(p -> CA.getdata(xP[p,:])', pos_xP)
+            xPM = map(p -> CA.getdata(xP)'[:,p], pos_xP)
             θFixd = (θP isa GPUArraysCore.AbstractGPUVector) ? θFix_dev : θFix
             θ = hcat(CA.getdata(θP[isP]), CA.getdata(θMs)', θFixd)
             pred_sites = f_doubleMM(θ, xPM, intθ)'
