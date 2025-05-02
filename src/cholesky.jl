@@ -15,7 +15,9 @@ function vec2utri(v::AbstractVector{T}; n=invsumn(length(v))) where {T}
     #https://groups.google.com/g/julia-users/c/UARlZBCNlng/m/6tKKxIeoEY8J
     z = zero(T)
     k = 0
-    m = [j >= i ? (k += 1; v[k]) : z for i in 1:n, j in 1:n]
+    #m = T[j >= i ? (k += 1; v[k]) : z for i in 1:n, j in 1:n] # no Zygote
+    #m = [j >= i ? (k += 1; convert(T,v[k])) : convert(T,z) for i in 1:n, j in 1:n] # no Zygote
+    m = [j >= i ? (k += 1; v[k]) : z for i in 1:n, j in 1:n]::AbstractMatrix{T} # for typestability
     UpperTriangular(m)
 end
 
@@ -65,7 +67,7 @@ function _vec2uutri(
     v::AbstractVector{T}; n=invsumn(length(v)) + one(T), diag=one(T)) where {T}
     z = zero(T)
     k = 0
-    m = [j > i ? (k += 1; v[k]) : i == j ? diag : z for i in 1:n, j in 1:n]
+    m = [j > i ? (k += 1; v[k]) : i == j ? diag : z for i in 1:n, j in 1:n]::AbstractMatrix{T}
     return (m)
 end
 
@@ -97,7 +99,7 @@ function utri2vec(X::AbstractMatrix{T}) where {T}
             X[i, j]
         end
         for _ in 1:lv
-    ]
+    ]::AbstractVector{T}
 end
 
 """
@@ -108,17 +110,18 @@ function uutri2vec(X::AbstractMatrix{T}) where {T}
     lv = sumn(n)
     i = 0
     j = 2
-    [
+    if n == 0; return T[]; end # otherwise Any[] is returned
+    v = [
         begin
             if i == j - 1
                 i = 0
                 j += 1
             end
             i += 1
-            X[i, j]
+            convert(T,X[i, j])
         end
         for _ in 1:lv
-    ]
+    ]::AbstractVector{T}
 end
 
 function ChainRulesCore.rrule(::typeof(uutri2vec), X::AbstractMatrix{T}) where {T}
@@ -194,7 +197,7 @@ Useful for providing information on correlactions among subranges in a vector.
 """
 function get_ca_ends(vc::CA.ComponentVector)
     #(cumsum(length(vc[k]) for k in keys(vc))...,)
-    length(vc) == 0 ? Int[] : cumsum(length(vc[k]) for k in keys(vc))
+    length(keys(vc)) == 0 ? Int[] : cumsum(length(vc[k])::Int for k in keys(vc))
 end
 
 
@@ -209,7 +212,7 @@ function get_cor_count(cor_ends::AbstractVector)
     sum(get_cor_counts(cor_ends))
 end
 function get_cor_counts(cor_ends::AbstractVector{T}) where {T}
-    isempty(cor_ends) && return (zero(T))
+    isempty(cor_ends) && return (zeros(T,1))
     cnt_blocks = (
         begin
             i == 1 ? cor_ends[i] : cor_ends[i] - cor_ends[i-1]
@@ -233,9 +236,9 @@ the blocks start at columns (3,5,6). It defaults to a single entire block.
 """
 function transformU_block_cholesky1(
     v::AbstractVector{T}, cor_ends::AbstractVector{TI}=Int[]) where {T,TI<:Integer}
-    #@show v, cor_ends
     if length(cor_ends) <= 1 # if there is only one block, return it 
-        return transformU_cholesky1(v)
+        # for type stability create a BlockDiagonal of a single block
+        return _create_blockdiag(v, [transformU_cholesky1(v)])
     end
     cor_counts = get_cor_counts(cor_ends) # number of correlation parameters
     #@show cor_counts

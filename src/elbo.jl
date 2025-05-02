@@ -346,12 +346,12 @@ function sample_ζ_norm0(rng::Random.AbstractRNG, ζP::AbstractVector, ζMs::Abs
         args...; n_MC, cor_ends, int_unc)
     n_θP, n_θMs = length(ζP), length(ζMs)
     urand = _create_random(rng, CA.getdata(ζP), n_θP + n_θMs, n_MC)
-    sample_ζ_norm0(urand, ζP, ζMs, args...; cor_ends, int_unc = get_concrete(int_unc))
+    sample_ζ_norm0(urand, CA.getdata(ζP), CA.getdata(ζMs), args...; cor_ends, int_unc = get_concrete(int_unc))
 end
 
-function sample_ζ_norm0(urand::AbstractMatrix, ζP::AbstractVector{T}, ζMs::AbstractMatrix,
+function sample_ζ_norm0(urand::AbstractMatrix, ζP::TP, ζMs::TM,
         ϕunc::AbstractVector; int_unc = get_concrete(ComponentArrayInterpreter(ϕunc)), cor_ends
-) where {T}
+) where {T, TP <: AbstractVector{T}, TM <:AbstractMatrix{T}}
     ϕuncc = int_unc(CA.getdata(ϕunc))
     n_θP, n_θMs, (n_θM, n_batch) = length(ζP), length(ζMs), size(ζMs)
     # do not create a UpperTriangular Matrix of an AbstractGÜUArray in transformU_cholesky1

@@ -7,7 +7,7 @@ using HybridVariationalInference: HybridVariationalInference as CP
 using StableRNGs
 import CUDA, cuDNN
 using GPUArraysCore: GPUArraysCore
-using MLDataDevices
+using MLDataDevices, Suppressor
 using Random
 #using SimpleChains
 using ComponentArrays: ComponentArrays as CA
@@ -16,7 +16,8 @@ using StableRNGs
 
 #CUDA.device!(4)
 rng = StableRNG(111)
-ggdev = gpu_device()
+ggdev = Suppressor.@suppress gpu_device()
+cdev = cpu_device()
 
 const prob = DoubleMM.DoubleMMCase()
 scenario = (:default,)
@@ -26,7 +27,6 @@ n_θM, n_θP = length.(values(get_hybridproblem_par_templates(prob; scenario)))
 (; xM, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o
 ) = gen_hybridproblem_synthetic(rng, prob; scenario)
 n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-
 
 FT = get_hybridproblem_float_type(prob; scenario)
 
@@ -49,17 +49,26 @@ transPMs = elementwise(exp) # all parameters on LogNormal scale
 ϕ_true = vcat(ζ_true, CA.ComponentVector(unc = ϕunc))
 ϕ_cpu = vcat(ζ_true .+ FT(0.01), CA.ComponentVector(unc = ϕunc))
 
-interpreters = (; pmu = ComponentArrayInterpreter(ϕ_true)) #, M=int_θM, PMs=int_θPMs)
+interpreters = (; pmu = ComponentArrayInterpreter(ϕ_true),
+    unc = ComponentArrayInterpreter(ϕ_true.unc)
+) #, M=int_θM, PMs=int_θPMs)
 
 n_MC = 3
 @testset "sample_ζ_norm0 cpu" begin
     ϕ = CA.getdata(ϕ_cpu)
     ϕc = interpreters.pmu(ϕ)
-    ζ_resid, σ = CP.sample_ζ_norm0(rng, ϕc.P, ϕc.Ms, ϕc.unc; n_MC, cor_ends)
+    ζ_resid, σ = @inferred CP.sample_ζ_norm0(rng, ϕc.P, ϕc.Ms, ϕc.unc;
+        n_MC, cor_ends, int_unc = get_concrete(interpreters.unc))
+    # ζ_resid, σ = @inferred CP.sample_ζ_norm0(rng, ϕc.P, ϕc.Ms, ϕc.unc; 
+    #     n_MC, cor_ends, int_unc = interpreters.unc)
+    #@usingany Cthulhu
+    #@descend_code_warntype CP.sample_ζ_norm0(rng, ϕc.P, ϕc.Ms, ϕc.unc; n_MC, cor_ends, int_unc = get_concrete(interpreters.unc))
+    #@descend_code_warntype CP.sample_ζ_norm0(rng, ϕc.P, ϕc.Ms, ϕc.unc; n_MC, cor_ends, int_unc = interpreters.unc)
     @test size(ζ_resid) == (length(ϕc.P) + n_θM * n_site, n_MC)
     gr = Zygote.gradient(
         ϕc -> sum(CP.sample_ζ_norm0(
-            rng, ϕc.P, ϕc.Ms, ϕc.unc; n_MC, cor_ends)[1]), ϕc)[1]
+            rng, ϕc.P, ϕc.Ms, ϕc.unc;
+            n_MC, cor_ends, int_unc = get_concrete(interpreters.unc))[1]), ϕc)[1]
     @test length(gr) == length(ϕ)
 end
 #
@@ -68,7 +77,7 @@ if ggdev isa MLDataDevices.AbstractGPUDevice
     @testset "sample_ζ_norm0 gpu" begin
         # sample only n_batch of 50
         n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-        ϕb = CA.ComponentVector(P = ϕ_cpu.P, Ms = ϕ_cpu.Ms[:,1:n_batch], unc = ϕ_cpu.unc)
+        ϕb = CA.ComponentVector(P = ϕ_cpu.P, Ms = ϕ_cpu.Ms[:, 1:n_batch], unc = ϕ_cpu.unc)
         intb = ComponentArrayInterpreter(ϕb)
         ϕ = ggdev(CA.getdata(ϕb))
         #tmp = ϕ[1:6]
@@ -80,24 +89,20 @@ if ggdev isa MLDataDevices.AbstractGPUDevice
         #include(joinpath(@__DIR__, "uncNN", "elbo.jl")) # callback_loss
         #ζ_resid, σ = sample_ζ_norm0(urand, ϕc.P, ϕc.Ms, ϕc.unc; n_MC)
         #Zygote.gradient(ϕc -> sum(sample_ζ_norm0(urand, ϕc.P, ϕc.Ms, ϕc.unc; n_MC)[1]), ϕc)[1]; 
-        int_unc = ComponentArrayInterpreter(ϕc.unc)
-        ζ_resid, σ = CP.sample_ζ_norm0(
-            rng, CA.getdata(ϕc.P), CA.getdata(ϕc.Ms), CA.getdata(ϕc.unc), int_unc;
-            n_MC, cor_ends)
+        int_unc = get_concrete(ComponentArrayInterpreter(ϕc.unc))
+        ζ_resid, σ = @inferred CP.sample_ζ_norm0(
+            rng, CA.getdata(ϕc.P), CA.getdata(ϕc.Ms), CA.getdata(ϕc.unc);
+            n_MC, cor_ends, int_unc)
+        #@descend_code_warntype CP.sample_ζ_norm0(rng, CA.getdata(ϕc.P), CA.getdata(ϕc.Ms), CA.getdata(ϕc.unc); n_MC, cor_ends, int_unc)
         @test ζ_resid isa GPUArraysCore.AbstractGPUArray
         @test size(ζ_resid) == (length(ϕc.P) + n_θM * n_batch, n_MC)
         gr = Zygote.gradient(
             ϕc -> sum(CP.sample_ζ_norm0(
-                rng, CA.getdata(ϕc.P), CA.getdata(ϕc.Ms), CA.getdata(ϕc.unc), int_unc;
-                n_MC, cor_ends)[1]), ϕc)[1];
+                rng, CA.getdata(ϕc.P), CA.getdata(ϕc.Ms), CA.getdata(ϕc.unc);
+                n_MC, cor_ends, int_unc)[1]), ϕc)[1]
         @test length(gr) == length(ϕ)
         @test CA.getdata(gr) isa GPUArraysCore.AbstractGPUArray
-        Array(gr)
-        int_unc = ComponentArrayInterpreter(ϕc.unc)
-        gr2 = Zygote.gradient(
-            ϕc -> sum(CP.sample_ζ_norm0(rng, CA.getdata(ϕc.P), CA.getdata(ϕc.Ms),
-                CA.getdata(ϕc.unc), int_unc; n_MC, cor_ends)[1]),
-            ϕc)[1];
+        CP.apply_preserve_axes(cdev,gr)
     end
 end
 
