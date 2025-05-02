@@ -177,7 +177,7 @@ function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario::NTuple = ()
         pos_xP = get_positions(int_xP1)
         function f_doubleMM_with_global(θP::AbstractVector, θMs::AbstractMatrix, xP)
             @assert size(xP,2) == n_site_batch
-            @assert size(θMs,2) == n_site_batch
+            @assert size(θMs,1) == n_site_batch
             # # convert vector of tuples to tuple of matricesByRows
             # # need to supply xP as vectorOfTuples to work with DataLoader
             # # k = first(keys(xP[1]))
@@ -194,7 +194,7 @@ function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario::NTuple = ()
             #xPM = map(p -> CA.getdata(xP[p,:])', pos_xP)
             xPM = map(p -> CA.getdata(xP)'[:,p], pos_xP)
             θFixd = (θP isa GPUArraysCore.AbstractGPUVector) ? θFix_dev : θFix
-            θ = hcat(CA.getdata(θP[isP]), CA.getdata(θMs)', θFixd)
+            θ = hcat(CA.getdata(θP[isP]), CA.getdata(θMs), θFixd)
             pred_sites = f_doubleMM(θ, xPM, intθ)'
             pred_global = eltype(pred_sites)[]
             return pred_global, pred_sites
@@ -260,7 +260,7 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     xP = int_xPn(vcat(repeat(xP_S1,1,n_site),repeat(xP_S2,1,n_site)))
     #xP[:S1,:]
     θP = par_templates.θP
-    y_global_true, y_true = f(θP, θMs_true, xP)
+    y_global_true, y_true = f(θP, θMs_true', xP) # TODO transpose θMs_true generally
     σ_o = FloatType(0.01)
     #σ_o = FloatType(0.002)
     logσ2_o = FloatType(2) .* log.(σ_o)

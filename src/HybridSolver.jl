@@ -138,17 +138,19 @@ The loss function takes in addition to ϕ, data that changes with minibatch
 - `xP`: drivers for the processmodel: Iterator of size n_site
 - `y_o`, `y_unc`: matrix of observations and uncertainties, sites in columns
 """
-function get_loss_elbo(g, transPMs, f, py, y_o_global, interpreters;
+function get_loss_elbo(g, transP, transM, f, py, y_o_global, interpreters;
         n_MC, n_MC_cap = n_MC, cor_ends, priors_θ_mean, cdev, pbm_covars, θP,
         )
-    let g = g, transPMs = transPMs, f = f, py = py, y_o_global = y_o_global, n_MC = n_MC,
+    let g = g, transP = transP, transM = transM, f = f, py = py, y_o_global = y_o_global, n_MC = n_MC,
         cor_ends = cor_ends, interpreters = map(get_concrete, interpreters),
         priors_θ_mean = priors_θ_mean, cdev = cdev, 
-        pbm_covar_indices = get_pbm_covar_indices(θP, pbm_covars)
+        pbm_covar_indices = get_pbm_covar_indices(θP, pbm_covars),
+        transform_tools = setup_transform_ζ(transP, transM, interpreters.PMs)
 
         function loss_elbo(ϕ, rng, xM, xP, y_o, y_unc, i_sites)
             neg_elbo_gtf(
-                rng, ϕ, g, transPMs, f, py, xM, xP, y_o, y_unc, i_sites, interpreters;
+                rng, ϕ, g, f, py, xM, xP, y_o, y_unc, i_sites, interpreters, 
+                transform_tools;
                 n_MC, n_MC_cap, cor_ends, priors_θ_mean, cdev, pbm_covar_indices)
         end
     end

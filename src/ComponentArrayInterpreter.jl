@@ -21,10 +21,9 @@ Returns a ComponentArray with underlying data `v`.
 """
 function as_ca end
 
-function Base.length(cai::AbstractComponentArrayInterpreter) 
+function Base.length(cai::AbstractComponentArrayInterpreter)
     prod(_axis_length.(CA.getaxes(cai)))
 end
-
 
 (interpreter::AbstractComponentArrayInterpreter)(v::AbstractArray) = as_ca(v, interpreter)
 
@@ -39,10 +38,20 @@ Use `get_concrete(cai::ComponentArrayInterpreter)` to pass a concrete version to
 performance-critical functions.
 """
 struct StaticComponentArrayInterpreter{AX} <: AbstractComponentArrayInterpreter end
-function as_ca(v::AbstractArray, ::StaticComponentArrayInterpreter{AX}) where {AX} 
+function as_ca(v::AbstractArray, ::StaticComponentArrayInterpreter{AX}) where {AX}
     vr = reshape(v, _axis_length.(AX))
-    CA.ComponentArray(vr, AX)
+    CA.ComponentArray(vr, AX)::CA.ComponentArray{eltype(v)}
 end
+
+# concatenate from several other ArrayInterpreters, keep static
+# did not manage to get it inferred, better use get_concrete(ComponentArrayInterpreter)
+# also does not save allocations
+# function StaticComponentArrayInterpreter(; kwargs...)
+#     ints = values(kwargs)
+#     axc = combine_axes(ints)
+#     intc = StaticComponentArrayInterpreter{(axc,)}()
+#     return(intc)
+# end
 
 # function Base.length(::StaticComponentArrayInterpreter{AX}) where {AX}
 #     #sum(length, typeof(AX).parameters[1])
@@ -55,7 +64,6 @@ end
 
 get_concrete(cai::StaticComponentArrayInterpreter) = cai
 
-
 """
 Non-Concrete version of `AbstractComponentArrayInterpreter` that avoids storing
 additional type parameters.
@@ -66,22 +74,20 @@ not allow compiler-inferred `length` to construct StaticArrays.
 Use `get_concrete(cai::ComponentArrayInterpreter)` to pass a concrete version to 
 performance-critical functions.
 """
-struct ComponentArrayInterpreter <: AbstractComponentArrayInterpreter 
+struct ComponentArrayInterpreter <: AbstractComponentArrayInterpreter
     axes::Tuple  #{T, <:CA.AbstractAxis}
 end
 
-function as_ca(v::AbstractArray, cai::ComponentArrayInterpreter) 
+function as_ca(v::AbstractArray, cai::ComponentArrayInterpreter)
     vr = reshape(CA.getdata(v), _axis_length.(cai.axes))
-    CA.ComponentArray(vr, cai.axes)
+    CA.ComponentArray(vr, cai.axes)::CA.ComponentArray{eltype(v)}
 end
 
-function CA.getaxes(cai::ComponentArrayInterpreter) 
+function CA.getaxes(cai::ComponentArrayInterpreter)
     cai.axes
 end
 
-
 get_concrete(cai::ComponentArrayInterpreter) = StaticComponentArrayInterpreter{cai.axes}()
-
 
 """
     ComponentArrayInterpreter(; kwargs...)
@@ -108,54 +114,82 @@ The other constructors allow constructing arrays with additional dimensions.
 """
 function ComponentArrayInterpreter(; kwargs...)
     ComponentArrayInterpreter(values(kwargs))
-end,
-function ComponentArrayInterpreter(component_shapes::NamedTuple)
-    component_counts = map(prod, component_shapes)
-    n = sum(component_counts)
-    x = 1:n
-    is_end = cumsum(component_counts)
-    is_start = (0, is_end[1:(end-1)]...) .+ 1
-    #g = (x[i_start:i_end] for (i_start, i_end) in zip(is_start, is_end))
-    g = (reshape(x[i_start:i_end], shape) for (i_start, i_end, shape) in zip(is_start, is_end, component_shapes))
-    xc = CA.ComponentVector(; zip(propertynames(component_counts), g)...)
-    ComponentArrayInterpreter(xc)
 end
+# function ComponentArrayInterpreter(component_shapes::NamedTuple)
+#     component_counts = map(prod, component_shapes)
+#     n = sum(component_counts)
+#     x = 1:n
+#     is_end = cumsum(component_counts)
+#     is_start = (0, is_end[1:(end-1)]...) .+ 1
+#     #g = (x[i_start:i_end] for (i_start, i_end) in zip(is_start, is_end))
+#     g = (reshape(x[i_start:i_end], shape) for (i_start, i_end, shape) in zip(is_start, is_end, component_shapes))
+#     xc = CA.ComponentVector(; zip(propertynames(component_counts), g)...)
+#     ComponentArrayInterpreter(xc)
+# end
 
 function ComponentArrayInterpreter(vc::CA.AbstractComponentArray)
     ComponentArrayInterpreter(CA.getaxes(vc))
 end
 
-
-
 # Attach axes to matrices and arrays of ComponentArrays
 # with ComponentArrays in the first dimensions (e.g. rownames of a matrix or array)
 function ComponentArrayInterpreter(
-    ca::CA.AbstractComponentArray, n_dims::NTuple{N,<:Integer}) where N
+    ca::CA.AbstractComponentArray, n_dims::NTuple{N,<:Integer}) where {N}
     ComponentArrayInterpreter(CA.getaxes(ca), n_dims)
 end
 function ComponentArrayInterpreter(
-    cai::AbstractComponentArrayInterpreter, n_dims::NTuple{N,<:Integer}) where N
+    cai::AbstractComponentArrayInterpreter, n_dims::NTuple{N,<:Integer}) where {N}
     ComponentArrayInterpreter(CA.getaxes(cai), n_dims)
 end
 function ComponentArrayInterpreter(
-    axes::NTuple{M, <:CA.AbstractAxis}, n_dims::NTuple{N,<:Integer}) where {M,N}
+    axes::NTuple{M,<:CA.AbstractAxis}, n_dims::NTuple{N,<:Integer}) where {M,N}
     axes_ext = (axes..., map(n_dim -> CA.Axis(i=1:n_dim), n_dims)...)
     ComponentArrayInterpreter(axes_ext)
 end
 
+# support also for other AbstractComponentArrayInterpreter types
+# in a type-stable way by providing the Tuple of dimensions as a value type
+"""
+    stack_ca_int(cai::AbstractComponentArrayInterpreter, ::Val{n_dims})
+
+Interpret the first dimension of an Array as a ComponentArray. Provide the Tuple
+of following dimesions by a value type, e.g. `Val((n_col, n_z))`.
+"""
+function stack_ca_int(
+    cai::IT, ::Val{n_dims}) where {IT<:AbstractComponentArrayInterpreter,n_dims}
+    @assert n_dims isa NTuple{N,<:Integer} where {N}
+    IT.name.wrapper(CA.getaxes(cai), n_dims)::IT.name.wrapper
+end
+function StaticComponentArrayInterpreter(
+    axes::NTuple{M,<:CA.AbstractAxis}, n_dims::NTuple{N,<:Integer}) where {M,N}
+    axes_ext = (axes..., map(n_dim -> CA.Axis(i=1:n_dim), n_dims)...)
+    StaticComponentArrayInterpreter{axes_ext}()
+end
+
 # with ComponentArrays in the last dimensions (e.g. columnnames of a matrix)
 function ComponentArrayInterpreter(
-    n_dims::NTuple{N,<:Integer}, ca::CA.AbstractComponentArray) where N
+    n_dims::NTuple{N,<:Integer}, ca::CA.AbstractComponentArray) where {N}
     ComponentArrayInterpreter(n_dims, CA.getaxes(ca))
 end
 function ComponentArrayInterpreter(
-    n_dims::NTuple{N,<:Integer}, cai::AbstractComponentArrayInterpreter) where N
+    n_dims::NTuple{N,<:Integer}, cai::AbstractComponentArrayInterpreter) where {N}
     ComponentArrayInterpreter(n_dims, CA.getaxes(cai))
 end
 function ComponentArrayInterpreter(
-    n_dims::NTuple{N,<:Integer}, axes::NTuple{M, <:CA.AbstractAxis}) where {N,M}
+    n_dims::NTuple{N,<:Integer}, axes::NTuple{M,<:CA.AbstractAxis}) where {N,M}
     axes_ext = (map(n_dim -> CA.Axis(i=1:n_dim), n_dims)..., axes...)
     ComponentArrayInterpreter(axes_ext)
+end
+
+function stack_ca_int(
+    ::Val{n_dims}, cai::IT) where {IT<:AbstractComponentArrayInterpreter,n_dims}
+    @assert n_dims isa NTuple{N,<:Integer} where {N}
+    IT.name.wrapper(n_dims, CA.getaxes(cai))::IT.name.wrapper
+end
+function StaticComponentArrayInterpreter(
+    n_dims::NTuple{N,<:Integer}, axes::NTuple{M,<:CA.AbstractAxis}) where {N,M}
+    axes_ext = (map(n_dim -> CA.Axis(i=1:n_dim), n_dims)..., axes...)
+    StaticComponentArrayInterpreter{axes_ext}()
 end
 
 
@@ -165,13 +199,58 @@ function ComponentArrayInterpreter(n_dims1::Tuple{}, n_dims2::Tuple{})
     ComponentArrayInterpreter(CA.ComponentVector())
 end
 
+# concatenate several 1d ComponentArrayInterpreters
+function ComponentArrayInterpreter(ints::NamedTuple)
+    axtuples = map(x -> CA.getaxes(x), ints)
+    axc = combine_axes(axtuples)
+    intc = ComponentArrayInterpreter((axc,))
+    return (intc)
+end
 
+"""
+    combine_axes(axtuples::NamedTuple)
 
+Create a new 1d-axis that combines several other named axes-tuples
+such as of `key = getaxes(::AbstractComponentArray)`.
+
+The new axis consits of several ViewAxes. If an axis-tuple consists only of one axis, it is used for the view.
+Otherwise a ShapedAxis is created wiht the axes-length of the others, essentially dropping
+component information that might be present in the dimensions.
+"""
+function combine_axes(axtuples::NamedTuple)
+    # generator-based solution is slower and has more allocations than map-based one
+    # gen_l_ax = (begin
+    #     ax1 = CA.getaxes(x)[1]
+    #     l = axis_length(ax1)
+    #     (l, ax1)
+    # end for x in ints)
+    # #return collect(gen_l_ax)
+    # let x = -first(gen_l_ax)[1]  # cannot get type-inferred, revert to map that works on gpu
+    #     #g = (begin x = x+l;k => CA.ViewAxis(x .+ (1:l), ax) end for (k,(l,ax)) in zip(keys(ls), ls, axtuples))
+    #     g = (begin x = x+l;k => CA.ViewAxis(x .+ (1:l), ax) end for (k,(l,ax)) in zip(keys(ints), gen_l_ax))
+    #     #(;g...)
+    #     CA.Axis(;g...)
+    # end
+    #axtuples = map(x -> CA.getaxes(x)[1], ints)
+    ls = map(axtuple -> prod(axis_length.(axtuple)), axtuples)
+    axc = begin
+        x = 0
+        CA.Axis(;
+            map(ls, axtuples) do l, axtuple
+                ax = length(axtuple) == 1 ? axtuple[1] : CA.ShapedAxis(axis_length.(axtuple))
+                #global x
+                #@show x
+                vax = CA.ViewAxis(x .+ (1:l), ax)
+                x = x + l
+                vax
+            end...)
+    end
+    axc
+end
 
 # not exported, but required for testing
 _get_ComponentArrayInterpreter_axes(::StaticComponentArrayInterpreter{AX}) where {AX} = AX
 _get_ComponentArrayInterpreter_axes(cai::ComponentArrayInterpreter) = cai.axes
-
 
 _axis_length(ax::CA.AbstractAxis) = lastindex(ax) - firstindex(ax) + 1
 _axis_length(::CA.FlatAxis) = 0
@@ -199,7 +278,6 @@ function flatten1(cv::CA.ComponentVector)
     end
 end
 
-
 """
     get_positions(cai::AbstractComponentArrayInterpreter)
 
@@ -207,7 +285,34 @@ Create a NamedTuple of integer indices for each component.
 Assumes that interpreter results in a one-dimensional array, i.e. in a ComponentVector.
 """
 function get_positions(cai::AbstractComponentArrayInterpreter)
-    @assert length(CA.getaxes(cai)) == 1
+    #@assert length(CA.getaxes(cai)) == 1
     cv = cai(1:length(cai))
-    (; (k => cv[k] for k in keys(cv))... )
+    keys_cv = keys(cv)
+    keys_cv isa Tuple ? (; (k => CA.getdata(cv[k]) for k in keys_cv)...) : CA.getdata(cv)
+end
+
+function tmpf(v;
+    cv,
+    cai::AbstractComponentArrayInterpreter=get_concrete(ComponentArrayInterpreter(cv)))
+    cai(v)
+end
+
+function tmpf1(v; cai)
+    caic = get_concrete(cai)
+    #caic(v)
+    Test.@inferred tmpf(v, cv=nothing, cai=caic)
+end
+
+function tmpf2(v; cai::AbstractComponentArrayInterpreter)
+    caic = get_concrete(cai)
+    #caic = cai
+    cv = Test.@inferred caic(v) # inferred inside tmpf2
+    #cv = caic(v) # inferred inside tmpf2
+    vv = tmpf(v; cv=nothing, cai=caic)
+    #vv = tmpf(v; cv)
+    #cv.x
+    #sum(cv) # not inferred on Union cv (axis not know)
+    #cv.x::AbstractVector{eltype(vv)} # not sufficient
+    # need to specify concrete return type, but can rely on eltype
+    sum(vv)::eltype(vv)  # need to specify return type 
 end

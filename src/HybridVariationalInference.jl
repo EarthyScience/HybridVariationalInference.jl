@@ -19,12 +19,14 @@ using Optimization
 using Distributions, DistributionFits
 using StaticArrays: StaticArrays as SA
 using Functors
+using Test: Test # @inferred
 
 export extend_stacked_nrow
 #export Exp
 include("bijectors_utils.jl") 
 
-export ComponentArrayInterpreter, flatten1, get_concrete, get_positions
+export AbstractComponentArrayInterpreter, ComponentArrayInterpreter, flatten1 
+export get_concrete, get_positions, stack_ca_int
 include("ComponentArrayInterpreter.jl")
 
 export AbstractModelApplicator, construct_ChainsApplicator

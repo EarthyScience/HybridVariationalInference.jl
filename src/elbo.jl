@@ -32,9 +32,9 @@ function neg_elbo_gtf(args...; kwargs...)
     nLy - entropy_ζ + nLmean_θ
 end
 
-function neg_elbo_gtf_components(rng, ϕ::AbstractVector, g, transPMs, f, py,
+function neg_elbo_gtf_components(rng, ϕ::AbstractVector, g, f, py,
         xM::AbstractMatrix, xP, y_ob, y_unc, i_sites::AbstractVector{<:Number},
-        interpreters::NamedTuple;
+        interpreters::NamedTuple, transform_tools;
         n_MC = 12, n_MC_mean = 30, n_MC_cap = n_MC,
         cdev = cpu_device(),
         priors_θ_mean = [],
@@ -42,10 +42,14 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector, g, transPMs, f, py,
         pbm_covar_indices
 )
     n_MCr = isempty(priors_θ_mean) ? n_MC : max(n_MC, n_MC_mean)
-    ζs, σ = generate_ζ(rng, g, ϕ, xM, interpreters; n_MC = n_MCr, cor_ends, pbm_covar_indices)
-    ζs_cpu = cdev(ζs) # differentiable fetch to CPU in Flux package extension
-    nLy, entropy_ζ = neg_elbo_ζtf(ζs_cpu, σ, transPMs, f, py,
-        xP, y_ob, y_unc, interpreters;
+    ζs, σ = generate_ζ(rng, g, ϕ, xM; n_MC = n_MCr, cor_ends, pbm_covar_indices,
+        int_unc = interpreters.unc, int_μP_ϕg_unc=interpreters.μP_ϕg_unc, int_PMs=interpreters.PMs
+    )
+    ζs_cpu = cdev(ζs) # fetch to CPU, because for <1000 sites (n_batch) this is faster
+    # translate in batch 
+
+    nLy, entropy_ζ = neg_elbo_ζtf(ζs_cpu, σ, f, py,
+        xP, y_ob, y_unc, transform_tools;
         n_MC, n_MC_cap
     )
     nLmean_θ = isempty(priors_θ_mean) ? 0.0 :
@@ -75,12 +79,15 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector, g, transPMs, f, py,
     nLy, entropy_ζ, nLmean_θ
 end
 
-function neg_elbo_ζtf(ζs, σ, transPMs, f, py,
-        xP, y_ob, y_unc, interpreters::NamedTuple;
+function neg_elbo_ζtf(ζs, σ, f, py,
+        xP, y_ob, y_unc, 
+        transform_tools;
+        #interpreters::NamedTuple; 
         n_MC = 12, n_MC_cap = n_MC
 )
     nLys = map(eachcol(ζs[:, 1:n_MC])) do ζi
-        θ_i, y_pred_i, logjac = predict_y(ζi, xP, f, transPMs, interpreters.PMs)
+        θP, θMs, logjac = transform_ζ(ζi, transform_tools...)
+        y_pred_global, y_pred_i = f(θP, θMs, xP)
         # TODO nLogDen prior on \theta
         #nLy1 = neg_logden_indep_normal(y_ob, y_pred_i, y_unc)
         nLy1 = py(y_ob, y_pred_i, y_unc)
@@ -165,35 +172,70 @@ function predict_gf(rng, prob::AbstractHybridProblem, xM::AbstractMatrix, xP;
         get_transPMs, get_ca_int_PMs, n_sample_pred, cdev, cor_ends, pbm_covar_indices)
 end
 
-function predict_gf(rng, g, f, ϕ::AbstractVector, xM::AbstractMatrix, xP, interpreters;
-        get_transPMs, get_ca_int_PMs, n_sample_pred = 200,
+function predict_gf(rng, g, f, ϕ::AbstractVector, xM::AbstractMatrix, xP, interpreters,
+    int_P::AbstractComponentArrayInterpreter, 
+    int_M::AbstractComponentArrayInterpreter;
+        #get_transPMs, 
+        transP, transM,
+        get_ca_int_PMs, n_sample_pred = 200,
         cdev = cpu_device(),
         cor_ends,        #cor_ends=(P=(1,),M=(1,))
-        pbm_covar_indices
+        pbm_covar_indices,
+        int_PMs = get_concrete(construct_int_PMs_parfirst(int_P, int_M, size(xP,2))),
+        intm_PMs = get_concrete(ComponentArrayInterpreter(int_PMs, (n_sample_pred,))),
+        int_unc, 
+        kwargs...
 )
     n_site = size(xM, 2)
-    intm_PMs_gen = get_ca_int_PMs(n_site)
-    trans_PMs_gen = get_transPMs(n_site)
-    interpreters_gen = (; interpreters..., PMs = intm_PMs_gen)
-    ζs_gpu, σ = generate_ζ(rng, g, CA.getdata(ϕ), CA.getdata(xM), interpreters_gen;
-        n_MC = n_sample_pred, cor_ends, pbm_covar_indices)
+    #trans_PMs_gen = get_transPMs(n_site)
+    ζs_gpu, σ = generate_ζ(rng, g, CA.getdata(ϕ), CA.getdata(xM); 
+        int_PMs, int_μP_ϕg_unc = interpreters.μP_ϕg_unc,
+        n_MC = n_sample_pred, cor_ends, pbm_covar_indices, int_unc)
     ζs = cdev(ζs_gpu)
     logdetΣ = 2 * sum(log.(σ))
     entropy_ζ = entropy_MvNormal(length(σ), logdetΣ)  # defined in logden_normal
-    (; θ, y) = predict_ζf(ζs, f, xP, trans_PMs_gen, interpreters_gen.PMs)
-    (; θ, y, entropy_ζ)
+    #(; θs, y, intm_PMst) = predict_ζf(ζs, f, xP, transP, transM, interpreters_gen.PMs, int_P, int_Ms)
+    #(; θs, y, intm_PMst) = predict_ζf(ζs, f, xP, transP, transM, int_P, int_M; int_PMs = intm_PMs_gen)
+    #(; θs, y, intm_PMst) = 
+    return predict_ζf(ζs, f, xP, transP, transM, int_P, int_M; int_PMs, kwargs...)
+    #(; θs, y, entropy_ζ, intm_PMst)
 end
 
-function predict_ζf(ζs, f, xP, trans_PMs, interpreter_PMs)
-    θandy = map(eachcol(ζs)) do ζ
-        θandy_i= predict_y(ζ, xP, f, trans_PMs, interpreter_PMs)[1:2];
+function predict_ζf(ζs, f, xP, transP, transM::Stacked, 
+    int_P::AbstractComponentArrayInterpreter, int_M; 
+    int_PMs = get_concrete(construct_int_PMs_parfirst(int_P, int_M, size(xP,2))),
+    int_PMst = get_concrete(construct_int_PMs_sitefirst(int_P, int_M, size(xP,2))),
+    intm_PMst = get_concrete(ComponentArrayInterpreter(int_PMst, (size(ζs,2),))),
+    )
+    # MAYBE transform entirey ζs at once for performance, since no logdetjac needed here
+    n_site_batch = size(xP,2)
+    int_Ms = ComponentArrayInterpreter((n_site_batch,), int_M)
+    θP_θMs_y = map(eachcol(ζs)) do ζ
+        θP_θMs_y_i= predict_y(ζ, xP, f, transP, transM, int_PMs, int_P, int_Ms)[1:3];
     end
-    θ1 = first(first(θandy))
-    θ = CA.ComponentMatrix(
-        stack(CA.getdata.(first.(θandy))), (CA.getaxes(θ1)[1], CA.FlatAxis()))
-    #θ[:P,1]
-    y = stack(last.(θandy))
-    (; θ, y)
+    # θP_θMs_y_1 = first(θP_θMs_y)
+    # int1 = ComponentArrayInterpreter(CA.ComponentVector(P = θP_θMs_y_1[1], Ms = θP_θMs_y_1[2]))
+    # #int_PMst = ComponentArrayInterpreter((length(θP_θMs_y),), int1)
+    # int_PMst = ComponentArrayInterpreter(int1, (length(θP_θMs_y),))
+    #θP_θMs_y_i = θP_θMs_y_1
+    θsv = stack(map(θP_θMs_y) do θP_θMs_y_i
+        vcat(CA.getdata(θP_θMs_y_i[1]), vec(CA.getdata(θP_θMs_y_i[2])))
+    end)
+    θs = intm_PMst(θsv)
+    #θs[:P,1]
+    #θs[:Ms,1]
+    y = stack(x -> x[3], θP_θMs_y)
+    (; θs, y, intm_PMst)
+end
+
+function construct_int_PMs_parfirst(int_P, int_M, n_site)
+    int_Ms = ComponentArrayInterpreter(int_M, (n_site,))
+    intm_Ms = ComponentArrayInterpreter(P = int_P, Ms = int_Ms)
+    #XXTODO
+end
+function construct_int_PMs_sitefirst(int_P, int_M, n_site)
+    int_Ms = ComponentArrayInterpreter((n_site,), int_M)
+    ComponentArrayInterpreter(P = int_P, Ms = int_Ms)
 end
 
 """
@@ -204,21 +246,25 @@ Adds the MV-normally distributed residuals, retrieved by `sample_ζ_norm0`
 to the means extracted from parameters and predicted by the machine learning
 model. 
 """
-function generate_ζ(rng, g, ϕ::AbstractVector, xM::AbstractMatrix,
-    interpreters::NamedTuple; n_MC = 3, cor_ends, pbm_covar_indices)
+function generate_ζ(rng, g, ϕ::AbstractVector, xM::AbstractMatrix;
+    int_μP_ϕg_unc::AbstractComponentArrayInterpreter, 
+    int_PMs::AbstractComponentArrayInterpreter,
+    int_unc::AbstractComponentArrayInterpreter,
+    n_MC = 3, cor_ends, pbm_covar_indices, )
 # see documentation of neg_elbo_gtf
-ϕc = interpreters.μP_ϕg_unc(CA.getdata(ϕ))
+ϕc = int_μP_ϕg_unc(CA.getdata(ϕ))
 μ_ζP = ϕc.μP
 ϕg = ϕc.ϕg
 # first pass: append μ_ζP_to covars, need ML prediction for magnitude of ζMs
+# TODO replace pbm_covar_indices by ComponentArray? dimensions to be type-inferred?
 xMP = _append_each_covars(xM, CA.getdata(μ_ζP), pbm_covar_indices) 
 μ_ζMs0 = g(xMP, ϕg) 
-ζ_resid, σ = sample_ζ_norm0(rng, μ_ζP, μ_ζMs0, ϕc.unc; n_MC, cor_ends)
+ζ_resid, σ = sample_ζ_norm0(rng, μ_ζP, μ_ζMs0, ϕc.unc; n_MC, cor_ends, int_unc)
 #ζ_resid, σ = sample_ζ_norm0(rng, ϕ[1:2], reshape(ϕ[2 .+ (1:20)],2,:), ϕ[(end-length(interpreters.unc)+1):end], interpreters.unc; n_MC)
 # @show size(ζ_resid)
 # @show length(interpreters.PMs)
 ζ = stack(map(eachcol(ζ_resid)) do r
-    rc = interpreters.PMs(r)
+    rc = int_PMs(r)
     ζP = μ_ζP .+ rc.P
     # second pass: append ζP rather than μ_ζP to covarss to xM
     μ_ζMs = _predict_μ_ζMs(xM, ζP, pbm_covar_indices, g, ϕg, μ_ζMs0)
@@ -293,18 +339,18 @@ Extract relevant parameters from θ and return n_MC generated draws
 together with the vector of standard deviations, σ.
 
 ## Arguments
-`int_unc`: Interpret vector as ComponentVector with components
+* `int_unc`: Interpret vector as ComponentVector with components
    ρsP, ρsM, logσ2_logP, coef_logσ2_logMs(intercept + slope), 
 """
 function sample_ζ_norm0(rng::Random.AbstractRNG, ζP::AbstractVector, ζMs::AbstractMatrix,
-        args...; n_MC, cor_ends)
+        args...; n_MC, cor_ends, int_unc)
     n_θP, n_θMs = length(ζP), length(ζMs)
     urand = _create_random(rng, CA.getdata(ζP), n_θP + n_θMs, n_MC)
-    sample_ζ_norm0(urand, ζP, ζMs, args...; cor_ends)
+    sample_ζ_norm0(urand, ζP, ζMs, args...; cor_ends, int_unc = get_concrete(int_unc))
 end
 
 function sample_ζ_norm0(urand::AbstractMatrix, ζP::AbstractVector{T}, ζMs::AbstractMatrix,
-        ϕunc::AbstractVector, int_unc = ComponentArrayInterpreter(ϕunc); cor_ends
+        ϕunc::AbstractVector; int_unc = get_concrete(ComponentArrayInterpreter(ϕunc)), cor_ends
 ) where {T}
     ϕuncc = int_unc(CA.getdata(ϕunc))
     n_θP, n_θMs, (n_θM, n_batch) = length(ζP), length(ζMs), size(ζMs)
@@ -367,20 +413,24 @@ Steps:
 - transform the parameters to original constrained space
 - Applies the mechanistic model for each site
 """
-function predict_y(ζi, xP, f, transPMs::Bijectors.Transform,
-        int_PMs::AbstractComponentArrayInterpreter)
-    θc, logjac = transform_ζ(ζi, transPMs, int_PMs)
+function predict_y(ζi, xP, f, transP, transM::Stacked,
+        int_PMs::AbstractComponentArrayInterpreter, 
+        int_P::AbstractComponentArrayInterpreter, 
+        int_Ms::AbstractComponentArrayInterpreter)
+    θP, θMs, logjac = transform_ζ(ζi, transP, transM, int_PMs)
     #θc, logjac = int_PMs(ζi), eltype(ζi)(0)
-    y_pred_global, y_pred = f(θc.P, θc.Ms, xP)
+    y_pred_global, y_pred = f(θP, θMs, xP)
     # Main.@infiltrate_main
     # @benchmark f(θc.P, θc.Ms, xP)
     #y_pred_global, y_pred = f(θc.P, θc.Ms, xPg)
     # TODO take care of y_pred_global
-    θc, y_pred, logjac
+    # TODO interpret θP and θMs 
+    int_P(θP), int_Ms(θMs), y_pred, logjac
 end
 
 function transform_ζ(ζi, transPMs::Bijectors.Transform,
         int_PMs::AbstractComponentArrayInterpreter)
+    @warn("replace by transform_ζ with pos_int_P, pos_int_Mst")
     # θtup, logjac = transform_and_logjac(transPMs, ζi) # both allocating
     # θc = CA.ComponentVector(θtup)
     #replace with more flexible transPMs after trying CUDA/Zygote            
@@ -389,3 +439,30 @@ function transform_ζ(ζi, transPMs::Bijectors.Transform,
     θc = int_PMs(θ)
     θc, logjac
 end
+
+function transform_ζ(ζ::AbstractArray, 
+    transP, transM::Stacked, int_PMs::AbstractComponentArrayInterpreter)
+    transP, transMM, pos_int_P, pos_int_Mst = setup_transform_ζ(transP, transM, int_PMs)
+    transform_ζ(ζ, transP, transMM, pos_int_P, pos_int_Mst)
+end
+
+function setup_transform_ζ(
+    transP, transM::Stacked, int_PMs::AbstractComponentArrayInterpreter)
+    pos_PMs = get_positions(int_PMs)
+    pos_int_Mst = CA.getdata(pos_PMs.Ms)'
+    pos_int_P = CA.getdata(pos_PMs.P)
+    n_batch = size(pos_int_Mst,1)
+    transMM = extend_stacked_nrow(transM, n_batch)
+    (transP, transMM, pos_int_P, pos_int_Mst)
+end
+
+function transform_ζ(ζ::AbstractArray, transP, transMM::Stacked,
+    pos_int_P::AbstractVector{<:Integer}, 
+    pos_int_Mst::AbstractMatrix{<:Integer}, 
+    )
+    θP, logjac_P = Bijectors.with_logabsdet_jacobian(transP, ζ[pos_int_P])
+    θMsvec, logjac_M = Bijectors.with_logabsdet_jacobian(transMM, vec(ζ[pos_int_Mst]))
+    θMs = reshape(θMsvec, size(pos_int_Mst))
+    θP, θMs, logjac_P + logjac_M
+end
+

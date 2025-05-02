@@ -31,12 +31,12 @@ scenario = (:default,)
 test_scenario = (scenario) -> begin
     FT = get_hybridproblem_float_type(prob; scenario)
     par_templates = get_hybridproblem_par_templates(prob; scenario)
+    int_P, int_M = map(ComponentArrayInterpreter, par_templates)
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
     pbm_covar_indices = CP.get_pbm_covar_indices(par_templates.θP, pbm_covars)
 
 
     #θsite_true = get_hybridproblem_par_templates(prob; scenario)
-    n_covar = 5
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     (; xM, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
     ) = gen_hybridproblem_synthetic(rng, prob; scenario);
@@ -45,7 +45,7 @@ test_scenario = (scenario) -> begin
     f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = false)
     f_pred = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = true)
 
-    n_θM, n_θP = values(map(length, get_hybridproblem_par_templates(prob; scenario)))
+    n_θM, n_θP = values(map(length, par_templates))
 
 
     py = neg_logden_indep_normal
@@ -60,6 +60,7 @@ test_scenario = (scenario) -> begin
     (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
         θP_true, θMs_true[:, 1], cor_ends, ϕg0, n_batch; transP, transM);
     ϕ_ini = ϕ
+    transform_tools = CP.setup_transform_ζ(transP, transM, interpreters.PMs)
 
     if ggdev isa MLDataDevices.AbstractGPUDevice
         scenario_flux = (scenario..., :use_Flux, :use_gpu)
@@ -67,77 +68,122 @@ test_scenario = (scenario) -> begin
         g_gpu = ggdev(g_flux)
     end;
 
-    @testset "generate_ζ" begin
+    ζs, σ = CP.generate_ζ(
+        rng, g, ϕ_ini, xM[:, 1:n_batch];
+        n_MC = 8, cor_ends, pbm_covar_indices, 
+        int_unc = interpreters.unc, int_μP_ϕg_unc=interpreters.μP_ϕg_unc, int_PMs=interpreters.PMs)
+
+    @testset "generate_ζ $(last(scenario))" begin
         # xMtest = vcat(xM, xM[1:1,:])
         # ζ, σ = CP.generate_ζ(
         #     rng, g, ϕ_ini, xMtest[:, 1:n_batch], map(get_concrete, interpreters);
         #     n_MC = 8, cor_ends, pbm_covar_indices)
-        ζ, σ = CP.generate_ζ(
-            rng, g, ϕ_ini, xM[:, 1:n_batch], map(get_concrete, interpreters);
-            n_MC = 8, cor_ends, pbm_covar_indices)
-        @test ζ isa Matrix
+        @test ζs isa Matrix
         gr = Zygote.gradient(
             # ϕ -> sum(CP.generate_ζ(
             #     rng, g, ϕ, xMtest[:, 1:n_batch], map(get_concrete, interpreters);
             #     n_MC = 8, cor_ends, pbm_covar_indices)[1]),
             ϕ -> sum(CP.generate_ζ(
-                rng, g, ϕ, xM[:, 1:n_batch], map(get_concrete, interpreters);
-                n_MC = 8, cor_ends, pbm_covar_indices)[1]),
+                rng, g, ϕ, xM[:, 1:n_batch];
+                n_MC = 8, cor_ends, pbm_covar_indices,
+                int_unc = interpreters.unc, int_μP_ϕg_unc=interpreters.μP_ϕg_unc, int_PMs=interpreters.PMs
+                )[1]),
             CA.getdata(ϕ_ini))
         @test gr[1] isa Vector
     end;
 
-
     if ggdev isa MLDataDevices.AbstractGPUDevice
-        @testset "generate_ζ gpu" begin
+        @testset "generate_ζ gpu $(last(scenario))" begin
             ϕ = ggdev(CA.getdata(ϕ_ini))
             @test g_gpu.μ isa GPUArraysCore.AbstractGPUArray
             xMg_batch = ggdev(xM[:, 1:n_batch])
             ζ, σ = CP.generate_ζ(
-                rng, g_gpu, ϕ, xMg_batch, map(get_concrete, interpreters);
-                n_MC = 8, cor_ends, pbm_covar_indices)
+                rng, g_gpu, ϕ, xMg_batch;
+                n_MC = 8, cor_ends, pbm_covar_indices,
+                int_unc = interpreters.unc, int_μP_ϕg_unc=interpreters.μP_ϕg_unc, int_PMs=interpreters.PMs
+                )
             @test ζ isa GPUArraysCore.AbstractGPUMatrix
             @test eltype(ζ) == FT
             gr = Zygote.gradient(
                 ϕ -> sum(CP.generate_ζ(
-                    rng, g_gpu, ϕ, xMg_batch, map(get_concrete, interpreters);
-                    n_MC = 8, cor_ends, pbm_covar_indices)[1]),
+                    rng, g_gpu, ϕ, xMg_batch;
+                    n_MC = 8, cor_ends, pbm_covar_indices,
+                    int_unc = interpreters.unc, int_μP_ϕg_unc=interpreters.μP_ϕg_unc, int_PMs=interpreters.PMs
+                    )[1]),
                 ϕ)
             @test gr[1] isa GPUArraysCore.AbstractGPUVector
         end
     end
 
-    @testset "neg_elbo_gtf cpu" begin
+    @testset "transform ζs" begin
+        n_MC = 3 #size(ζs,2)
+        # reorder Ms columns so that first parameter of all sites is first
+        # # transforming entire parameter set across n_MC most efficient but
+        # # does not yield logdetjac
+        # intm_PMs_gen = get_ca_int_PMs(n_batch);
+        # pos_intm_PMs = get_positions(intm_PMs_gen)
+        # function trans_ζs_crossMC(ζs::AbstractMatrix, pos_intm_PMs::NamedTuple; n_MC = size(ζs,2))
+        #     ζstMs = ζs'[1:n_MC, pos_intm_PMs.Ms'] # n_MC x n_site_batch x n_par
+        #     ζstP = ζs'[1:n_MC, pos_intm_PMs.P] # n_MC x n_par
+        #     transPM = extend_stacked_nrow(transP, n_MC)
+        #     θsP = reshape(transPM(vec(ζstP)), size(ζstP))
+        #     transMM = extend_stacked_nrow(transM, n_MC * n_batch)
+        #     θsMs = reshape(transMM(vec(ζstMs)), size(ζstMs))
+        #     (θsP, θsMs)            
+        # end
+        # (θsP, θsMs) = trans_ζs(ζs, pos_intm_PMs; n_MC)
+        # @test size(θsP) == (n_MC, n_θP)
+        # @test size(θsMs) == (n_MC, n_batch, n_θM)
+        # map by rows
+        ζ = ζs[:,1]
+        θP, θMs, logjac = CP.transform_ζ(ζ, transP, transM, interpreters.PMs)
+        @test size(θP) == (n_θP,)
+        @test size(θMs) == (n_batch, n_θM)
+        if ggdev isa MLDataDevices.AbstractGPUDevice
+            ζdev = ggdev(ζ)
+            θP, θMs, logjac = CP.transform_ζ(ζdev, transP, transM, interpreters.PMs)
+            _transform_tools = CP.setup_transform_ζ(
+                transP, transM, interpreters.PMs)
+            gr = Zygote.gradient(ζdev) do ζdev
+                θP, θMs, logjac = CP.transform_ζ(ζdev, _transform_tools...)
+                sum(θP) + sum(θMs) + logjac
+            end
+            @test eltype(gr[1]) == eltype(ζ)
+        end
+    end
+
+
+    @testset "neg_elbo_gtf cpu $(last(scenario))" begin
         i_sites = 1:n_batch
-        cost = neg_elbo_gtf(rng, ϕ_ini, g, transPMs_batch, f, py,
+        cost = neg_elbo_gtf(rng, ϕ_ini, g, f, py,
             xM[:, i_sites], xP[:,i_sites], y_o[:, i_sites], y_unc[:, i_sites], i_sites,
-            map(get_concrete, interpreters);
+            map(get_concrete, interpreters), transform_tools;
             cor_ends, pbm_covar_indices)
         @test cost isa Float64
         gr = Zygote.gradient(
-            ϕ -> neg_elbo_gtf(rng, ϕ, g, transPMs_batch, f, py,
+            ϕ -> neg_elbo_gtf(rng, ϕ, g, f, py,
                 xM[:, i_sites], xP[:,i_sites], y_o[:, i_sites], y_unc[:, i_sites], i_sites,
-                map(get_concrete, interpreters);
+                map(get_concrete, interpreters), transform_tools;
                 cor_ends, pbm_covar_indices),
             CA.getdata(ϕ_ini))
         @test gr[1] isa Vector
     end;
 
     if ggdev isa MLDataDevices.AbstractGPUDevice
-        @testset "neg_elbo_gtf gpu" begin
+        @testset "neg_elbo_gtf gpu $(last(scenario))" begin
             i_sites = 1:n_batch
             ϕ = ggdev(CA.getdata(ϕ_ini))
             xMg_batch = ggdev(xM[:, i_sites])
             xP_batch = xP[:,i_sites] # used in f which runs on CPU
-            cost = neg_elbo_gtf(rng, ϕ, g_gpu, transPMs_batch, f, py,
+            cost = neg_elbo_gtf(rng, ϕ, g_gpu, f, py,
                 xMg_batch, xP_batch, y_o[:, i_sites], y_unc[:, i_sites], i_sites,
-                map(get_concrete, interpreters);
+                map(get_concrete, interpreters), transform_tools;
                 n_MC = 3, cor_ends, pbm_covar_indices)
             @test cost isa Float64
             gr = Zygote.gradient(
-                ϕ -> neg_elbo_gtf(rng, ϕ, g_gpu, transPMs_batch, f, py,
+                ϕ -> neg_elbo_gtf(rng, ϕ, g_gpu, f, py,
                     xMg_batch, xP_batch, y_o[:, i_sites], y_unc[:, i_sites], i_sites,
-                    map(get_concrete, interpreters);
+                    map(get_concrete, interpreters), transform_tools;
                     n_MC = 3, cor_ends, pbm_covar_indices),
                 ϕ)
             @test gr[1] isa GPUArraysCore.AbstractGPUVector
@@ -145,29 +191,51 @@ test_scenario = (scenario) -> begin
         end
     end
 
-    @testset "predict_gf cpu" begin
-        n_sample_pred = n_site = 200
-        intm_PMs_gen = get_ca_int_PMs(n_site)
-        trans_PMs_gen = get_transPMs(n_site)
-        @test length(intm_PMs_gen) == 402
-        @test trans_PMs_gen.length_in == 402
-        (; θ, y) = predict_gf(rng, g, f_pred, ϕ_ini, xM, xP, map(get_concrete, interpreters);
-            get_transPMs, get_ca_int_PMs, n_sample_pred, cor_ends, pbm_covar_indices)
-        @test θ isa CA.ComponentMatrix
-        @test θ[:, 1].P.r0 > 0
+    n_sample_pred = 200
+    int_PMs = get_concrete(CP.construct_int_PMs_parfirst(int_P, int_M, size(xP,2)))
+    intm_PMs = get_concrete(ComponentArrayInterpreter(int_PMs, (n_sample_pred,)))
+    int_PMst = get_concrete(CP.construct_int_PMs_sitefirst(int_P, int_M, size(xP,2)))
+    intm_PMst = get_concrete(ComponentArrayInterpreter(int_PMst, (n_sample_pred,)))
+    int_unc = get_concrete(interpreters.unc)
+
+    @testset "predict_gf cpu $(last(scenario))" begin
+        # intm_PMs_gen = get_ca_int_PMs(n_site)
+        # trans_PMs_gen = get_transPMs(n_site)
+        # @test length(intm_PMs_gen) == 402
+        # @test trans_PMs_gen.length_in == 402
+        (; θs, y, intm_PMst) = 
+        #Cthulhu.@descend_code_warntype (
+        #@inferred (
+        predict_gf(rng, g, f_pred, ϕ_ini, xM, xP, map(get_concrete, interpreters),
+            int_P, int_M;
+            #get_transPMs, 
+            transP, transM, 
+            get_ca_int_PMs, n_sample_pred, cor_ends, pbm_covar_indices,
+            int_PMs, int_PMst, intm_PMst, int_unc
+            )
+        #)
+        @test θs isa CA.ComponentMatrix
+        @test θs[:,1].P.r0 > 0
+        @test size(θs,2) == n_sample_pred
         @test y isa Array
         @test size(y) == (size(y_o)..., n_sample_pred)
     end
 
     if ggdev isa MLDataDevices.AbstractGPUDevice
-        @testset "predict_gf gpu" begin
+        @testset "predict_gf gpu $(last(scenario))" begin
             n_sample_pred = 200
-            ϕ = ggdev(CA.getdata(ϕ_ini))
+            ϕ_ini_g = ggdev(CA.getdata(ϕ_ini))
             xMg = ggdev(xM)
-            (; θ, y) = predict_gf(rng, g_gpu, f_pred, ϕ, xMg, xP, map(get_concrete, interpreters);
-                get_transPMs, get_ca_int_PMs, n_sample_pred, cor_ends, pbm_covar_indices)
-            @test θ isa CA.ComponentMatrix # only ML parameters are on gpu
-            @test θ[:, 1].P.r0 > 0
+            (; θs, y, intm_PMst) = predict_gf(rng, g_gpu, f_pred, ϕ_ini_g, xMg, xP, map(get_concrete, interpreters),
+            int_P, int_M;
+            #get_transPMs, 
+            transP, transM, 
+            get_ca_int_PMs, n_sample_pred, cor_ends, pbm_covar_indices,
+            int_PMs, int_PMst, intm_PMst, int_unc
+            )
+            @test θs isa CA.ComponentMatrix # only ML parameters are on gpu
+            @test θs[:,1].P.r0 > 0
+            @test size(θs,2) == n_sample_pred
             @test y isa Array
             @test size(y) == (size(y_o)..., n_sample_pred)
         end

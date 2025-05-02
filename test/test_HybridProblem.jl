@@ -106,7 +106,7 @@ test_without_flux = (scenario) -> begin
         end
     end
 
-    @testset "loss_gf  $(last(scenario))" begin
+    @testset "loss_gf $(last(scenario))" begin
         #----------- fit g and θP to y_o
         rng = StableRNG(111)
         g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
