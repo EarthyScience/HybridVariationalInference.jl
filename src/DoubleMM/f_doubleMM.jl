@@ -1,7 +1,7 @@
 struct DoubleMMCase <: AbstractHybridProblem end
 
-const θP = CA.ComponentVector{Float32}(r0 = 0.3, K2 = 2.0)
-const θM = CA.ComponentVector{Float32}(r1 = 0.5, K1 = 0.2)
+const θP = CA.ComponentVector{Float32}(r0=0.3, K2=2.0)
+const θM = CA.ComponentVector{Float32}(r1=0.5, K1=0.2)
 const θall = vcat(θP, θM)
 
 const θP_nor0 = θP[(:K2,)]
@@ -20,14 +20,14 @@ const int_θdoubleMM = ComponentArrayInterpreter(flatten1(CA.ComponentVector(; �
 
 function f_doubleMM(θ::AbstractVector, x, intθ)
     # extract parameters not depending on order, i.e whether they are in θP or θM
-    y = GPUArraysCore.allowscalar() do 
+    y = GPUArraysCore.allowscalar() do
         θc = intθ(θ)
         #using ComponentArrays: ComponentArrays as CA
         #r0, r1, K1, K2 = θc[(:r0, :r1, :K1, :K2)] # does not work on Zygote+GPU
         (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
             # vector will be repeated when broadcasted by a matrix
             CA.getdata(θc[par])
-        end        
+        end
         # r0 = θc[:r0]
         # r1 = θc[:r1]
         # K1 = θc[:K1]
@@ -37,25 +37,25 @@ function f_doubleMM(θ::AbstractVector, x, intθ)
     return (y)
 end
 
-function f_doubleMM(θ::AbstractMatrix, x::NamedTuple, intθ::HVI.AbstractComponentArrayInterpreter) 
+function f_doubleMM(θ::AbstractMatrix, x::NamedTuple, intθ::HVI.AbstractComponentArrayInterpreter)
     # provide θ for n_row sites
     # provide x.S1 as Matrix n_site x n_obs
     # extract parameters not depending on order, i.e whether they are in θP or θM
-        θc = intθ(θ)
-        @assert size(x.S1,1) == size(θ,1)  # same number of sites
-        @assert size(x.S1) == size(x.S2)   # same number of observations
-        #@assert length(x.s2 == n_obs)
-        # problems on AD on GPU with indexing CA may be related to printing result, use ";"
-        (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
-            # vector will be repeated when broadcasted by a matrix
-            CA.getdata(θc[:,par])
-        end        
-        # r0 = CA.getdata(θc[:,:r0])  # vector will be repeated when broadcasted by a matrix
-        # r1 = CA.getdata(θc[:,:r1])
-        # K1 = CA.getdata(θc[:,:K1])
-        # K2 = CA.getdata(θc[:,:K2])
-        y = r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
-        return (y)
+    θc = intθ(θ)
+    @assert size(x.S1, 1) == size(θ, 1)  # same number of sites
+    @assert size(x.S1) == size(x.S2)   # same number of observations
+    #@assert length(x.s2 == n_obs)
+    # problems on AD on GPU with indexing CA may be related to printing result, use ";"
+    (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
+        # vector will be repeated when broadcasted by a matrix
+        CA.getdata(θc[:, par])
+    end
+    # r0 = CA.getdata(θc[:,:r0])  # vector will be repeated when broadcasted by a matrix
+    # r1 = CA.getdata(θc[:,:r1])
+    # K1 = CA.getdata(θc[:,:K1])
+    # K2 = CA.getdata(θc[:,:K2])
+    y = r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
+    return (y)
 end
 
 # function f_doubleMM(θ::AbstractMatrix, x::NamedTuple, θpos::NamedTuple) 
@@ -80,26 +80,35 @@ end
 #         return (y)
 # end
 
-function HVI.get_hybridproblem_par_templates(::DoubleMMCase; scenario::NTuple = ())
-    if (:omit_r0 ∈ scenario)
+function HVI.get_hybridproblem_par_templates(::DoubleMMCase; scenario::Val{scen}) where {scen}
+    if (:omit_r0 ∈ scen)
         #return ((; θP = θP_nor0, θM, θf = θP[(:K2r)]))
-        return ((; θP = θP_nor0, θM))
+        return ((; θP=θP_nor0, θM))
     end
     #(; θP, θM, θf = eltype(θP)[])
     (; θP, θM)
 end
 
-function HVI.get_hybridproblem_priors(::DoubleMMCase; scenario = ())
+# function HVI.get_hybridproblem_par_templates(::DoubleMMCase; scenario::NTuple = ())
+#     if (:omit_r0 ∈ scenario)
+#         #return ((; θP = θP_nor0, θM, θf = θP[(:K2r)]))
+#         return ((; θP = θP_nor0, θM))
+#     end
+#     #(; θP, θM, θf = eltype(θP)[])
+#     (; θP, θM)
+# end
+
+function HVI.get_hybridproblem_priors(::DoubleMMCase; scenario::Val{scen}) where {scen}
     Dict(keys(θall) .=> fit.(LogNormal, θall, QuantilePoint.(θall .* 3, 0.95)))
 end
 
-function HVI.get_hybridproblem_MLapplicator(prob::HVI.DoubleMM.DoubleMMCase; scenario = ())
+function HVI.get_hybridproblem_MLapplicator(prob::HVI.DoubleMM.DoubleMMCase; scenario::Val{scen}) where {scen}
     rng = StableRNGs.StableRNG(111)
     get_hybridproblem_MLapplicator(rng, prob; scenario)
 end
 
 function HVI.get_hybridproblem_MLapplicator(
-        rng::AbstractRNG, prob::HVI.DoubleMM.DoubleMMCase; scenario = ())
+    rng::AbstractRNG, prob::HVI.DoubleMM.DoubleMMCase; scenario::Val{scen}) where {scen}
     ml_engine = select_ml_engine(; scenario)
     g_nomag, ϕ_g0 = construct_3layer_MLApplicator(rng, prob, ml_engine; scenario)
     # construct normal distribution from quantiles at unconstrained scale
@@ -110,29 +119,29 @@ function HVI.get_hybridproblem_MLapplicator(
     return g, ϕ_g0
 end
 
-function HVI.get_hybridproblem_pbmpar_covars(::DoubleMMCase; scenario) 
-    if (:covarK2 ∈ scenario)
+function HVI.get_hybridproblem_pbmpar_covars(::DoubleMMCase; scenario::Val{scen}) where {scen}
+    if (:covarK2 ∈ scen)
         return (:K2,)
     end
     ()
 end
 
 
-function HVI.get_hybridproblem_transforms(prob::DoubleMMCase; scenario::NTuple = ())
+function HVI.get_hybridproblem_transforms(prob::DoubleMMCase; scenario::Val{scen}) where {scen}
     _θP, _θM = get_hybridproblem_par_templates(prob; scenario)
-    if (:stackedMS ∈ scenario)
-        return (; transP = Stacked((HVI.Exp(),),(1:length(_θP),)),
-        transM = Stacked((identity,HVI.Exp(),),(1:1, 2:length(_θM),))) 
-    elseif (:transIdent ∈ scenario)
+    if (:stackedMS ∈ scen)
+        return (; transP=Stacked((HVI.Exp(),), (1:length(_θP),)),
+            transM=Stacked((identity, HVI.Exp(),), (1:1, 2:length(_θM),)))
+    elseif (:transIdent ∈ scen)
         # identity transformations, should AD on GPU
-        return (; transP = Stacked((identity,),(1:length(_θP),)),
-            transM = Stacked((identity,),(1:length(_θM),)))
+        return (; transP=Stacked((identity,), (1:length(_θP),)),
+            transM=Stacked((identity,), (1:length(_θM),)))
     end
-    (; transP = Stacked((HVI.Exp(),),(1:length(_θP),)),
-    transM = Stacked((HVI.Exp(),),(1:length(_θM),)))    
+    (; transP=Stacked((HVI.Exp(),), (1:length(_θP),)),
+        transM=Stacked((HVI.Exp(),), (1:length(_θM),)))
 end
 
-# function HVI.get_hybridproblem_sizes(::DoubleMMCase; scenario = ())
+# function HVI.get_hybridproblem_sizes(::DoubleMMCase; scenario::Val{scen}) where scen
 #     n_covar_pc = 2
 #     n_covar = n_covar_pc + 3 # linear dependent
 #     #n_site = 10^n_covar_pc
@@ -158,10 +167,10 @@ end
 #     end
 # end
 
-function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario::NTuple = (),
-    use_all_sites = false,
-    gdev = :f_on_gpu ∈ scenario ? gpu_device() : identity, 
-    )
+function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario::Val{scen},
+    use_all_sites=false,
+    gdev=:f_on_gpu ∈ scen ? gpu_device() : identity,
+) where {scen}
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     n_site_batch = use_all_sites ? n_site : n_batch
     #fsite = (θ, x_site) -> f_doubleMM(θ)  # omit x_site drivers
@@ -170,14 +179,15 @@ function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario::NTuple = ()
     θFix = repeat(θFix1', n_site_batch)
     intθ = get_concrete(ComponentArrayInterpreter((n_site_batch,), intθ1))
     #int_xPb = ComponentArrayInterpreter((n_site_batch,), int_xP1)
-    isP = repeat(axes(par_templates.θP,1)', n_site_batch)  
-    let θFix = θFix, θFix_dev = gdev(θFix), intθ = get_concrete(intθ), isP=isP, 
-        n_site_batch=n_site_batch, 
+    isP = repeat(axes(par_templates.θP, 1)', n_site_batch)
+    let θFix = θFix, θFix_dev = gdev(θFix), intθ = get_concrete(intθ), isP = isP,
+        n_site_batch = n_site_batch,
         #int_xPb=get_concrete(int_xPb),
         pos_xP = get_positions(int_xP1)
+
         function f_doubleMM_with_global(θP::AbstractVector, θMs::AbstractMatrix, xP)
-            @assert size(xP,2) == n_site_batch
-            @assert size(θMs,1) == n_site_batch
+            @assert size(xP, 2) == n_site_batch
+            @assert size(θMs, 1) == n_site_batch
             # # convert vector of tuples to tuple of matricesByRows
             # # need to supply xP as vectorOfTuples to work with DataLoader
             # # k = first(keys(xP[1]))
@@ -192,7 +202,7 @@ function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario::NTuple = ()
             # reshape big matrix into NamedTuple of drivers S1 and S2 
             #   for broadcasting need sites in rows
             #xPM = map(p -> CA.getdata(xP[p,:])', pos_xP)
-            xPM = map(p -> CA.getdata(xP)'[:,p], pos_xP)
+            xPM = map(p -> CA.getdata(xP)'[:, p], pos_xP)
             θFixd = (θP isa GPUArraysCore.AbstractGPUVector) ? θFix_dev : θFix
             θ = hcat(CA.getdata(θP[isP]), CA.getdata(θMs), θFixd)
             pred_sites = f_doubleMM(θ, xPM, intθ)'
@@ -209,7 +219,7 @@ function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario::NTuple = ()
 end
 
 
-function HVI.get_hybridproblem_neg_logden_obs(::DoubleMMCase; scenario::NTuple = ())
+function HVI.get_hybridproblem_neg_logden_obs(::DoubleMMCase; scenario::Val)
     neg_logden_indep_normal
 end
 
@@ -222,27 +232,28 @@ end
 # const xP_S1 = Float32[0.5, 0.5, 0.5, 0.5, 0.5, 0.4, 0.3, 0.1]
 # const xP_S2 = Float32[1.0, 2.0, 3.0, 4.0, 5.0, 5.0, 5.0, 5.0]
 
-HVI.get_hybridproblem_n_covar(prob::DoubleMMCase; scenario) = 5
-function HVI.get_hybridproblem_n_site_and_batch(prob::DoubleMMCase; scenario) 
+HVI.get_hybridproblem_n_covar(prob::DoubleMMCase; scenario::Val) = 5
+function HVI.get_hybridproblem_n_site_and_batch(prob::DoubleMMCase;
+    scenario::Val{scen}) where {scen}
     n_batch = 20
     n_site = 800
-    if (:few_sites ∈ scenario)
-         n_site = 100
-    elseif (:sites20 ∈ scenario)
-            n_site = 20
+    if (:few_sites ∈ scen)
+        n_site = 100
+    elseif (:sites20 ∈ scen)
+        n_site = 20
     end
     (n_site, n_batch)
 end
 
-function HVI.get_hybridproblem_train_dataloader(prob::DoubleMMCase; scenario = (), 
-    rng::AbstractRNG = StableRNG(111), kwargs...
-    )
+function HVI.get_hybridproblem_train_dataloader(prob::DoubleMMCase; scenario::Val,
+    rng::AbstractRNG=StableRNG(111), kwargs...
+)
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     construct_dataloader_from_synthetic(rng, prob; scenario, n_batch, kwargs...)
 end
 
 function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
-        scenario = ())
+    scenario::Val{scen}) where {scen}
     n_covar_pc = 2
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     n_covar = get_hybridproblem_n_covar(prob; scenario)
@@ -250,14 +261,14 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     FloatType = get_hybridproblem_float_type(prob; scenario)
     par_templates = get_hybridproblem_par_templates(prob; scenario)
     xM, θMs_true0 = gen_cov_pred(rng, FloatType, n_covar_pc, n_covar, n_site, n_θM;
-        rhodec = 8, is_using_dropout = false)
+        rhodec=8, is_using_dropout=false)
     int_θMs_sites = ComponentArrayInterpreter(θM, (n_site,))
     # normalize to be distributed around the prescribed true values
     θMs_true = int_θMs_sites(scale_centered_at(θMs_true0, θM, FloatType(0.1)))
-    f = get_hybridproblem_PBmodel(prob; scenario, gdev=identity, use_all_sites = true)
+    f = get_hybridproblem_PBmodel(prob; scenario, gdev=identity, use_all_sites=true)
     #xP = fill((; S1 = xP_S1, S2 = xP_S2), n_site)
     int_xPn = ComponentArrayInterpreter(int_xP1, (n_site,))
-    xP = int_xPn(vcat(repeat(xP_S1,1,n_site),repeat(xP_S2,1,n_site)))
+    xP = int_xPn(vcat(repeat(xP_S1, 1, n_site), repeat(xP_S2, 1, n_site)))
     #xP[:S1,:]
     θP = par_templates.θP
     y_global_true, y_true = f(θP, θMs_true', xP) # TODO transpose θMs_true generally
@@ -269,13 +280,13 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     y_o = y_true .+ randn(rng, FloatType, size(y_true)) .* σ_o
     (;
         xM,
-        θP_true = θP,
+        θP_true=θP,
         θMs_true,
         xP,
         y_global_true,
         y_true,
         y_global_o,
         y_o,
-        y_unc = fill(logσ2_o, size(y_o))
+        y_unc=fill(logσ2_o, size(y_o))
     )
 end

@@ -25,7 +25,9 @@ function Base.length(cai::AbstractComponentArrayInterpreter)
     prod(_axis_length.(CA.getaxes(cai)))
 end
 
-(interpreter::AbstractComponentArrayInterpreter)(v::AbstractArray) = as_ca(v, interpreter)
+function (interpreter::AbstractComponentArrayInterpreter)(v::AbstractArray{ET}) where ET
+    as_ca(v, interpreter)::CA.ComponentArray{ET}
+end
 
 """
 Concrete version of `AbstractComponentArrayInterpreter` that stores an axis
@@ -207,46 +209,15 @@ function ComponentArrayInterpreter(ints::NamedTuple)
     return (intc)
 end
 
-"""
-    combine_axes(axtuples::NamedTuple)
-
-Create a new 1d-axis that combines several other named axes-tuples
-such as of `key = getaxes(::AbstractComponentArray)`.
-
-The new axis consits of several ViewAxes. If an axis-tuple consists only of one axis, it is used for the view.
-Otherwise a ShapedAxis is created wiht the axes-length of the others, essentially dropping
-component information that might be present in the dimensions.
-"""
-function combine_axes(axtuples::NamedTuple)
-    # generator-based solution is slower and has more allocations than map-based one
-    # gen_l_ax = (begin
-    #     ax1 = CA.getaxes(x)[1]
-    #     l = axis_length(ax1)
-    #     (l, ax1)
-    # end for x in ints)
-    # #return collect(gen_l_ax)
-    # let x = -first(gen_l_ax)[1]  # cannot get type-inferred, revert to map that works on gpu
-    #     #g = (begin x = x+l;k => CA.ViewAxis(x .+ (1:l), ax) end for (k,(l,ax)) in zip(keys(ls), ls, axtuples))
-    #     g = (begin x = x+l;k => CA.ViewAxis(x .+ (1:l), ax) end for (k,(l,ax)) in zip(keys(ints), gen_l_ax))
-    #     #(;g...)
-    #     CA.Axis(;g...)
-    # end
-    #axtuples = map(x -> CA.getaxes(x)[1], ints)
-    ls = map(axtuple -> prod(axis_length.(axtuple)), axtuples)
-    axc = begin
-        x = 0
-        CA.Axis(;
-            map(ls, axtuples) do l, axtuple
-                ax = length(axtuple) == 1 ? axtuple[1] : CA.ShapedAxis(axis_length.(axtuple))
-                #global x
-                #@show x
-                vax = CA.ViewAxis(x .+ (1:l), ax)
-                x = x + l
-                vax
-            end...)
-    end
-    axc
+function _construct_invervals(;lengths) 
+    reduce((agg,length) -> _add_interval(;agg, length), 
+        Iterators.tail(lengths), init=Val((1:_val_value(first(lengths)),)))    
 end
+function _add_interval(;agg::Val{ranges}, length::Val{l}) where {ranges,l}
+    ind_before = last(last(ranges))
+    Val((ranges...,ind_before .+ (1:l)))
+end
+_val_value(::Val{x}) where x = x
 
 # not exported, but required for testing
 _get_ComponentArrayInterpreter_axes(::StaticComponentArrayInterpreter{AX}) where {AX} = AX

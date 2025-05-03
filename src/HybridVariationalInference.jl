@@ -55,6 +55,12 @@ export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_
        setup_PBMpar_interpreter
 include("AbstractHybridProblem.jl")
 
+export AbstractHybridProblemInterpreters, HybridProblemInterpreters, 
+       get_int_P, get_int_M, 
+       get_int_Ms_batch, get_int_Ms_site, get_int_Mst_batch, get_int_Mst_site,
+       get_int_PMs_batch, get_int_PMs_site, get_int_PMst_batch, get_int_PMst_site
+include("hybridprobleminterpreters.jl")
+
 export HybridProblem
 include("HybridProblem.jl")
 
