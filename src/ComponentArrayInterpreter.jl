@@ -209,15 +209,6 @@ function ComponentArrayInterpreter(ints::NamedTuple)
     return (intc)
 end
 
-function _construct_invervals(;lengths) 
-    reduce((agg,length) -> _add_interval(;agg, length), 
-        Iterators.tail(lengths), init=Val((1:_val_value(first(lengths)),)))    
-end
-function _add_interval(;agg::Val{ranges}, length::Val{l}) where {ranges,l}
-    ind_before = last(last(ranges))
-    Val((ranges...,ind_before .+ (1:l)))
-end
-_val_value(::Val{x}) where x = x
 
 # not exported, but required for testing
 _get_ComponentArrayInterpreter_axes(::StaticComponentArrayInterpreter{AX}) where {AX} = AX

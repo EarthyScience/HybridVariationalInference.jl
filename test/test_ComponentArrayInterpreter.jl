@@ -101,9 +101,9 @@ end;
 end;
 
 @testset "combine_axes" begin
-    @test (@inferred CP._add_interval(;agg=Val((1:3,)), length = Val(2))) == Val((1:3, 4:5))
+    @test (@inferred CP._add_interval(;ranges=(Val(1:3),), length = Val(2))) == (Val(1:3), Val(4:5))
     ls = Val.((3,1,2))
-    @test (@inferred CP._construct_invervals(;lengths=ls)) == Val((1:3, 4:4, 5:6))
+    @test (@inferred CP._construct_invervals(;lengths=ls)) == Val.((1:3, 4:4, 5:6))
     v1 = CA.ComponentVector(A=1:3)
     v2 = CA.ComponentVector(B=1:2)
     v3 = CA.ComponentVector(P=(x=1, y=2), Ms=zeros(3,2))

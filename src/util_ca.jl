@@ -24,13 +24,24 @@ function combine_axes(axtuples::NamedTuple)
     ls = map(axtuple -> Val(prod(axis_length.(axtuple))), axtuples)
     # to work on types, need to construct value types of intervals
     intervals = _construct_invervals(;lengths=ls)
-    named_intervals = (;zip(keys(axtuples),_val_value(intervals))...)
+    named_intervals = (;zip(keys(axtuples),intervals)...)
     axc = map(named_intervals, axtuples) do interval, axtuple
         ax = length(axtuple) == 1 ? axtuple[1] : CA.ShapedAxis(axis_length.(axtuple))
-        CA.ViewAxis(interval, ax)
+        CA.ViewAxis(_val_value(interval), ax)
     end
     CA.Axis(; axc...)
 end
+
+function _construct_invervals(;lengths) 
+    reduce((ranges,length) -> _add_interval(;ranges, length), 
+        Iterators.tail(lengths), init=(Val(1:_val_value(first(lengths))),))    
+end
+function _add_interval(;ranges, length::Val{l}) where {l}
+    ind_before = last(_val_value(last(ranges)))
+    (ranges...,Val(ind_before .+ (1:l)))
+end
+_val_value(::Val{x}) where x = x
+
 
 axis_length(ax::CA.AbstractAxis) = CA.lastindex(ax) - CA.firstindex(ax) + 1
 axis_length(::CA.FlatAxis) = 0
