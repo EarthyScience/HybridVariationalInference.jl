@@ -26,7 +26,7 @@ export extend_stacked_nrow
 include("bijectors_utils.jl") 
 
 export AbstractComponentArrayInterpreter, ComponentArrayInterpreter, flatten1 
-export get_concrete, get_positions, stack_ca_int
+export get_concrete, get_positions, stack_ca_int, compose_interpreters
 include("ComponentArrayInterpreter.jl")
 
 export AbstractModelApplicator, construct_ChainsApplicator

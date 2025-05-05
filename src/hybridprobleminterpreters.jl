@@ -42,22 +42,22 @@ end
 
 function get_int_PMs_batch(ints::HPInts{AXP,AXM, NS, NB}) where {AXP,AXM,NS,NB}
     AX_MS = CA.getaxes(get_int_Ms_batch(ints))
-    AX_PMs = combine_axes((;P=AXP, Ms=AX_MS))
+    AX_PMs = compose_axes((;P=AXP, Ms=AX_MS))
     StaticComponentArrayInterpreter{(AX_PMs,)}()
 end
 function get_int_PMst_batch(ints::HPInts{AXP,AXM, NS, NB}) where {AXP,AXM,NS,NB}
     AX_MS = CA.getaxes(get_int_Mst_batch(ints)) # note the t after Ms
-    AX_PMs = combine_axes((;P=AXP, Ms=AX_MS))
+    AX_PMs = compose_axes((;P=AXP, Ms=AX_MS))
     StaticComponentArrayInterpreter{(AX_PMs,)}()
 end
 function get_int_PMs_site(ints::HPInts{AXP,AXM, NS, NB}) where {AXP,AXM,NS,NB}
     AX_MS = CA.getaxes(get_int_Ms_site(ints))
-    AX_PMs = combine_axes((;P=AXP, Ms=AX_MS))
+    AX_PMs = compose_axes((;P=AXP, Ms=AX_MS))
     StaticComponentArrayInterpreter{(AX_PMs,)}()
 end
 function get_int_PMst_site(ints::HPInts{AXP,AXM, NS, NB}) where {AXP,AXM,NS,NB}
     AX_MS = CA.getaxes(get_int_Mst_site(ints)) # note the t after Ms
-    AX_PMs = combine_axes((;P=AXP, Ms=AX_MS))
+    AX_PMs = compose_axes((;P=AXP, Ms=AX_MS))
     StaticComponentArrayInterpreter{(AX_PMs,)}()
 end
 

@@ -15,8 +15,8 @@ cdev = cpu_device()
 
 
 @testset "ComponentArrayInterpreter cv-vector" begin
-    #component_counts = comp_cnts = (; P=2, M=3, Unc=5)
-    component_counts = comp_cnts = CA.ComponentVector(P=1:2, M=1:3, Unc=1:5)
+    component_counts = comp_cnts = (; P=2, M=3, Unc=5)
+    #component_counts = comp_cnts = CA.ComponentVector(P=1:2, M=1:3, Unc=1:5)
     
     m = ComponentArrayInterpreter(comp_cnts)
     testm = (m) -> begin
@@ -44,8 +44,8 @@ end;
 # end
 
 @testset "ComponentArrayInterpreter matrix in vector" begin
-    #component_shapes = (; P=2, M=(2, 3), Unc=5)
-    component_shapes = CA.ComponentVector(P=1:2, M=reshape(1:6,2, 3), Unc=1:5)
+    component_shapes = (; P=2, M=(2, 3), Unc=5)
+    #component_shapes = CA.ComponentVector(P=1:2, M=reshape(1:6,2, 3), Unc=1:5)
     m = ComponentArrayInterpreter(component_shapes)
     testm = (m) -> begin
         @test length(m) == 13
@@ -58,8 +58,8 @@ end;
 end;
 
 @testset "ComponentArrayInterpreter matrix and array" begin
-    #mv = ComponentArrayInterpreter(; c1=2, c2=3)
-    mv = ComponentArrayInterpreter(CA.ComponentVector(c1=1:2, c2=1:3))
+    mv = ComponentArrayInterpreter(; c1=2, c2=3)
+    #mv = ComponentArrayInterpreter(CA.ComponentVector(c1=1:2, c2=1:3))
     cv = mv(1:length(mv))
     n_col = 4
     mm = ComponentArrayInterpreter(cv, (n_col,)) # 1-tuple
@@ -99,20 +99,6 @@ end;
     mm = ComponentArrayInterpreter((n_row,), mv) # construct on interpreter itself
     testm(mmi)
 end;
-
-@testset "combine_axes" begin
-    @test (@inferred CP._add_interval(;ranges=(Val(1:3),), length = Val(2))) == (Val(1:3), Val(4:5))
-    ls = Val.((3,1,2))
-    @test (@inferred CP._construct_invervals(;lengths=ls)) == Val.((1:3, 4:4, 5:6))
-    v1 = CA.ComponentVector(A=1:3)
-    v2 = CA.ComponentVector(B=1:2)
-    v3 = CA.ComponentVector(P=(x=1, y=2), Ms=zeros(3,2))
-    nt = (;C1=v1, C2=v2, C3=v3)
-    vt = CA.ComponentVector(; nt...)
-    axs = map(CA.getaxes, nt)
-    axc = @inferred CP.combine_axes(axs)
-    @test axc == CA.getaxes(vt)[1] 
-end
 
 @testset "stack_ca_int" begin
     mv = get_concrete(ComponentArrayInterpreter(CA.ComponentVector(c1=1:2, c2=1:3)))
@@ -179,16 +165,16 @@ end;
     @test int3 == int1
 end;
 
-@testset "combine ComponentArrayInterpreters" begin
+@testset "compose_interpreters" begin
     int1 = get_concrete(ComponentArrayInterpreter(CA.ComponentVector(x1=1:3, x2=4:5)))
     int2 = get_concrete(ComponentArrayInterpreter(CA.ComponentVector(y1=1:2, y2=3:5)))
     intm2 = get_concrete(ComponentArrayInterpreter(int2, (3,)))
     #intc = ComponentArrayInterpreter((a=int1, b=int2))
     ints = (a=int1, b=intm2)
-    intc = @inferred ComponentArrayInterpreter(;ints...)
+    intc = @inferred compose_interpreters(;ints...)
     # @usingany Cthulhu
     # @descend_code_warntype CP.StaticComponentArrayInterpreter(a=int1, b=int2)
-    # @descend_code_warntype CP.combine_axes(map(x -> CA.getaxes(x), ints))
+    # @descend_code_warntype CP.compose_axes(map(x -> CA.getaxes(x), ints))
     () -> begin
         nt = (a=int1, b=int2)
         nt isa NamedTuple{keys, <:NTuple{N, <:AbstractComponentArrayInterpreter}} where {keys, N}
@@ -204,14 +190,15 @@ end;
     #@usingany BenchmarkTools
     #@benchmark ComponentArrayInterpreter(a=int1, b=int2) # 6 allocations?
     #@benchmark CP.StaticComponentArrayInterpreter(a=int1, b=int2) # still 5 allocations?
-    #@benchmark CP.combine_axes((a=int1, b=int2)) # still 5 allocations?
+    #@benchmark CP.compose_axes((a=int1, b=int2)) # still 5 allocations?
     #@usingany Cthulhu
     # Cthulhu.@descend_code_typed ComponentArrayInterpreter(a=int1, b=int2)
     # @code_typed get_concrete(ComponentArrayInterpreter(a=int1, b=int2))
     if gdev isa MLDataDevices.AbstractGPUDevice 
         vd = gdev(CA.getdata(v3))
         f1 = (v) -> begin
-            intc = get_concrete(ComponentArrayInterpreter(a=int1, b=intm2))
+            #intc = @inferred compose_interpreters(a=int1, b=intm2) # fails on Zygote
+            intc = compose_interpreters(a=int1, b=intm2) 
             vc = intc(v)
             sum(vc.a.x1)::eltype(vc) # eltype necessary
             #sum(vc.a.x1)
@@ -224,7 +211,7 @@ end;
 end;
 
 @testset "type inference concrete Array interpreter" begin
-    cai0 = ComponentArrayInterpreter(CA.ComponentVector(x = 1:3))
+    cai0 = ComponentArrayInterpreter(x=(3,2))
     cai = get_concrete(cai0)
     v = collect(1:length(cai))
     cv = cai(v)
@@ -256,8 +243,5 @@ end;
     #     cv2 = CP.tmpf2(v; cai=cai0) #
     # end
 end
-
-tmpf = () -> 4::Integer
-tmp = @inferred tmpf()
 
 

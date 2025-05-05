@@ -50,7 +50,7 @@ end
 # also does not save allocations
 # function StaticComponentArrayInterpreter(; kwargs...)
 #     ints = values(kwargs)
-#     axc = combine_axes(ints)
+#     axc = compose_axes(ints)
 #     intc = StaticComponentArrayInterpreter{(axc,)}()
 #     return(intc)
 # end
@@ -117,17 +117,17 @@ The other constructors allow constructing arrays with additional dimensions.
 function ComponentArrayInterpreter(; kwargs...)
     ComponentArrayInterpreter(values(kwargs))
 end
-# function ComponentArrayInterpreter(component_shapes::NamedTuple)
-#     component_counts = map(prod, component_shapes)
-#     n = sum(component_counts)
-#     x = 1:n
-#     is_end = cumsum(component_counts)
-#     is_start = (0, is_end[1:(end-1)]...) .+ 1
-#     #g = (x[i_start:i_end] for (i_start, i_end) in zip(is_start, is_end))
-#     g = (reshape(x[i_start:i_end], shape) for (i_start, i_end, shape) in zip(is_start, is_end, component_shapes))
-#     xc = CA.ComponentVector(; zip(propertynames(component_counts), g)...)
-#     ComponentArrayInterpreter(xc)
-# end
+function ComponentArrayInterpreter(component_shapes::NamedTuple)
+    component_counts = map(prod, component_shapes)
+    n = sum(component_counts)
+    x = 1:n
+    is_end = cumsum(component_counts)
+    is_start = (0, is_end[1:(end-1)]...) .+ 1
+    #g = (x[i_start:i_end] for (i_start, i_end) in zip(is_start, is_end))
+    g = (reshape(x[i_start:i_end], shape) for (i_start, i_end, shape) in zip(is_start, is_end, component_shapes))
+    xc = CA.ComponentVector(; zip(propertynames(component_counts), g)...)
+    ComponentArrayInterpreter(xc)
+end
 
 function ComponentArrayInterpreter(vc::CA.AbstractComponentArray)
     ComponentArrayInterpreter(CA.getaxes(vc))
@@ -202,9 +202,13 @@ function ComponentArrayInterpreter(n_dims1::Tuple{}, n_dims2::Tuple{})
 end
 
 # concatenate several 1d ComponentArrayInterpreters
-function ComponentArrayInterpreter(ints::NamedTuple)
+function compose_interpreters(; kwargs...)
+    compose_interpreters(values(kwargs))
+end
+
+function compose_interpreters(ints::NamedTuple)
     axtuples = map(x -> CA.getaxes(x), ints)
-    axc = combine_axes(axtuples)
+    axc = compose_axes(axtuples)
     intc = ComponentArrayInterpreter((axc,))
     return (intc)
 end
