@@ -242,7 +242,7 @@ end
 ϕunc_VI = interpreters.unc(ζ_VIc.unc)
 ϕunc_VI.ρsM
 exp.(ϕunc_VI.logσ2_logP)
-exp.(ϕunc_VI.coef_logσ2_logMs[1, :])
+exp.(ϕunc_VI.coef_logσ2_ζMs[1, :])
 
 # test predicting correct obs-uncertainty of predictive posterior
 n_sample_pred = 400

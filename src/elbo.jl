@@ -336,7 +336,7 @@ together with the vector of standard deviations, σ.
 
 ## Arguments
 * `int_unc`: Interpret vector as ComponentVector with components
-   ρsP, ρsM, logσ2_logP, coef_logσ2_logMs(intercept + slope), 
+   ρsP, ρsM, logσ2_logP, coef_logσ2_ζMs(intercept + slope), 
 """
 function sample_ζresid_norm(rng::Random.AbstractRNG, ζP::AbstractVector, ζMs::AbstractMatrix,
         args...; n_MC, cor_ends, int_unc, intm_PMs_parfirst=nothing)
@@ -346,12 +346,12 @@ function sample_ζresid_norm(rng::Random.AbstractRNG, ζP::AbstractVector, ζMs:
         get_concrete(ComponentArrayInterpreter(
             P = (n_MC, n_θP), Ms = (n_MC, n_θM, n_site_batch)))
     end
-    urand = _create_random(rng, CA.getdata(ζP), n_θP + n_θMs, n_MC)
-    sample_ζresid_norm(urand, CA.getdata(ζP), CA.getdata(ζMs), args...;
+    urandn = _create_randn(rng, CA.getdata(ζP), n_MC, n_θP + n_θMs )
+    sample_ζresid_norm(urandn, CA.getdata(ζP), CA.getdata(ζMs), args...;
         cor_ends, int_unc = get_concrete(int_unc), intm_PMs_parfirst)
 end
 
-function sample_ζresid_norm(urand::AbstractMatrix, ζP::TP, ζMs::TM,
+function sample_ζresid_norm(urandn::AbstractMatrix, ζP::TP, ζMs::TM,
         ϕunc::AbstractVector; 
         int_unc = get_concrete(ComponentArrayInterpreter(ϕunc)),
         intm_PMs_parfirst, cor_ends
@@ -363,7 +363,7 @@ function sample_ζresid_norm(urand::AbstractMatrix, ζP::TP, ζMs::TM,
     UP = transformU_block_cholesky1(ρsP, cor_ends.P)
     ρsM = isempty(ϕuncc.ρsM) ? similar(ϕuncc.ρsM) : ϕuncc.ρsM # required by zygote
     UM = transformU_block_cholesky1(ρsM, cor_ends.M)
-    cf = ϕuncc.coef_logσ2_logMs
+    cf = ϕuncc.coef_logσ2_ζMs
     logσ2_logMs = vec(cf[1, :] .+ cf[2, :] .* ζMs)
     logσ2_logP = vec(CA.getdata(ϕuncc.logσ2_logP))
     # CUDA cannot multiply BlockDiagonal * Diagonal, construct already those blocks
@@ -372,13 +372,25 @@ function sample_ζresid_norm(urand::AbstractMatrix, ζP::TP, ζMs::TM,
     # BlockDiagonal does work with CUDA, but not with combination of Zygote and CUDA
     # need to construct full matrix for CUDA
     Uσ = _create_blockdiag(UP, UM, σP, σMs, n_batch)
-    ζ_resid_parfirst = Uσ' * urand
+    #ζ_resid_parfirst = Uσ' * urandn
+    ζ_resid_parfirst = urandn * Uσ # n_MC x n_par
+    #map(std, eachcol(ζ_resid_parfirst[:, 3:8]))
     ζ_resid = transpose_mPMs_sitefirst(ζ_resid_parfirst; intm_PMs_parfirst)
+    #map(std, eachcol(ζ_resid[:, 3:8])) # all ~ 0.1 in sample_ζresid_norm cpu
+    #map(std, eachcol(ζ_resid[:, 2 + n_batch .+ (-1:5)])) # all ~ 100, exept first two
     σ = diag(Uσ)   # elements of the diagonal: standard deviations
     # returns AbstractGPUuArrays to either continue on GPU or need to transfer to CPU
     ζ_resid, σ
 end
 
+"""
+Transforms each row of a matrix (n_MC x n_Par) with site parameters Ms inside n_Par 
+of form (n_par x n_site) to Ms of the form (n_site x n_par), i.e. 
+neighboring entries (inside a column) are of the same parameter.
+
+This format of having n_par as the last dimension helps transforming parameters
+on block.
+"""
 function transpose_mPMs_sitefirst(Xt, n_θP::Integer, n_θM, n_site_batch, n_MC)
     # cannot make n_θP keyword arguments, because it overrides method below
     intm_PMs_parfirst = ComponentArrayInterpreter(
@@ -390,8 +402,18 @@ function transpose_mPMs_sitefirst(Xt;
             P = (n_MC, n_θP), Ms = (n_MC, n_θM, n_site_batch))
             )
     Xtc = intm_PMs_parfirst(Xt)
+    # Main.@infiltrate_main
+
+    # _Ms = Xtc.Ms
+    # map(std, eachrow(_Ms[:,1:6,:]))
+
+    # map(std, eachrow(tmp[3:8,:]))
+    # _Ms = permutedims(Xtc.Ms, (1, 3, 2))
     X_site_first = CA.ComponentVector(P = Xtc.P, Ms = permutedims(Xtc.Ms, (1, 3, 2)))
     reshape(CA.getdata(X_site_first), size(Xt))::typeof(CA.getdata(Xt))
+    # X_site_first = CA.ComponentVector(
+    #     P = permutedims(Xtc.P), Ms = permutedims(Xtc.Ms, (3, 2, 1)))
+    # reshape(CA.getdata(X_site_first), rev(size(Xt)))::typeof(CA.getdata(Xt))
 end
 
 function _create_blockdiag(UP::AbstractMatrix{T}, UM, σP, σMs, n_batch) where {T}
@@ -415,12 +437,12 @@ function _create_blockdiag(
     tmp = vcat(Uσ)
 end
 
-function _create_random(rng, ::AbstractVector{T}, dims...) where {T}
-    rand(rng, T, dims...)
+function _create_randn(rng, ::AbstractVector{T}, dims...) where {T}
+    randn(rng, T, dims...)
 end
 
 #moved to HybridVariationalInferenceCUDAExt
-#function _create_random(rng, ::CUDA.CuVector{T}, dims...) where {T}
+#function _create_randn(rng, ::CUDA.CuVector{T}, dims...) where {T}
 
 """ 
 Compute predictions and log-Determinant of the transformation at given

@@ -37,7 +37,7 @@ cor_ends = (P=1:n_θP, M=[n_θM])
 
 ϕunc = CA.ComponentVector(;
     logσ2_logP=fill(FT(-10.0), n_θP),
-    coef_logσ2_logMs=reduce(hcat, (FT[-10.0, 0.0] for _ in 1:n_θM)),
+    coef_logσ2_ζMs=reduce(hcat, (FT[-10.0, 0.0] for _ in 1:n_θM)),
     ρsP,
     ρsM)
 
@@ -57,7 +57,7 @@ n_MC = 3
 
 @testset "transpose_Ms_sitefirst" begin
     x_true = collect(1:8)
-    tmp = Iterators.take(enumerate(Iterators.repeated(x_true)),3)
+    tmp = Iterators.take(enumerate(Iterators.repeated(x_true)), n_MC)
     collect(tmp)
     Xt = permutedims(stack(map(tmp) do (i, x)
         10 .* i .+ x
@@ -79,56 +79,69 @@ n_MC = 3
     @test Xc.Ms[:,:,2] == Xtc.Ms[:,2,:] # second parameter
 end;
 
-@testset "sample_ζresid_norm cpu" begin
+@testset "sample_ζresid_norm" begin
     ϕ = CA.getdata(ϕ_cpu)
     ϕc = interpreters.pmu(ϕ)
+    ϕc.unc.coef_logσ2_ζMs[1,:] .= (log ∘ abs2).((0.1, 100.0))
+    ϕc.unc.ρsM .= 0.0
     int_unc = get_concrete(ComponentArrayInterpreter(ϕc.unc))
+    n_MC_pred = 300 # larger n_MC to test σ2
     ζ_resid, σ = @inferred CP.sample_ζresid_norm(rng, ϕc.P, ϕc.Ms, ϕc.unc;
-        n_MC, cor_ends, int_unc)
+        n_MC=n_MC_pred, cor_ends, int_unc) 
     # ζ_resid, σ = @inferred CP.sample_ζresid_norm(rng, ϕc.P, ϕc.Ms, ϕc.unc; 
     #     n_MC, cor_ends, int_unc = interpreters.unc)
     #@usingany Cthulhu
     #@descend_code_warntype CP.sample_ζresid_norm(rng, ϕc.P, ϕc.Ms, ϕc.unc; n_MC, cor_ends, int_unc = get_concrete(interpreters.unc))
     #@descend_code_warntype CP.sample_ζresid_norm(rng, ϕc.P, ϕc.Ms, ϕc.unc; n_MC, cor_ends, int_unc = interpreters.unc)
-    @test size(ζ_resid) == (length(ϕc.P) + n_site * n_θM, n_MC)
+    #@test size(ζ_resid) == (length(ϕc.P) + n_site * n_θM, n_MC)
+    n_θM = size(ϕc.Ms,1)
+    @test size(ζ_resid) == (n_MC_pred, length(ϕc.P) + n_site * n_θM)
     gr = Zygote.gradient(
         ϕc -> sum(CP.sample_ζresid_norm(
             rng, ϕc.P, ϕc.Ms, ϕc.unc;
             n_MC, cor_ends, int_unc)[1]), ϕc)[1]
     @test length(gr) == length(ϕ)
-end
-#
-
-if ggdev isa MLDataDevices.AbstractGPUDevice
-    @testset "sample_ζresid_norm gpu" begin
-        # sample only n_batch of 50
-        n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-        ϕb = CA.ComponentVector(P=ϕ_cpu.P, Ms=ϕ_cpu.Ms[:, 1:n_batch], unc=ϕ_cpu.unc)
-        intb = ComponentArrayInterpreter(ϕb)
-        ϕ = ggdev(CA.getdata(ϕb))
-        #tmp = ϕ[1:6]
-        #vec2uutri(tmp)
-        ϕc = intb(ϕ);
-        @test CA.getdata(ϕc) isa GPUArraysCore.AbstractGPUArray
-        #ζP, ζMs, ϕunc = ϕc.P, ϕc.Ms, ϕc.unc
-        #urand = CUDA.randn(length(ϕc.P) + length(ϕc.Ms), n_MC) |> gpu
-        #include(joinpath(@__DIR__, "uncNN", "elbo.jl")) # callback_loss
-        #ζ_resid, σ = sample_ζresid_norm(urand, ϕc.P, ϕc.Ms, ϕc.unc; n_MC)
-        #Zygote.gradient(ϕc -> sum(sample_ζresid_norm(urand, ϕc.P, ϕc.Ms, ϕc.unc; n_MC)[1]), ϕc)[1]; 
-        int_unc = get_concrete(ComponentArrayInterpreter(ϕc.unc))
-        ζ_resid, σ = @inferred CP.sample_ζresid_norm(
-            rng, CA.getdata(ϕc.P), CA.getdata(ϕc.Ms), CA.getdata(ϕc.unc);
-            n_MC, cor_ends, int_unc)
-        #@descend_code_warntype CP.sample_ζresid_norm(rng, CA.getdata(ϕc.P), CA.getdata(ϕc.Ms), CA.getdata(ϕc.unc); n_MC, cor_ends, int_unc)
-        @test ζ_resid isa GPUArraysCore.AbstractGPUArray
-        @test size(ζ_resid) == (length(ϕc.P) + n_batch * n_θM, n_MC)
-        gr = Zygote.gradient(
-            ϕc -> sum(CP.sample_ζresid_norm(
-                rng, CA.getdata(ϕc.P), CA.getdata(ϕc.Ms), CA.getdata(ϕc.unc);
-                n_MC, cor_ends, int_unc)[1]), ϕc)[1]; # need semicolon
-        @test length(gr) == length(ϕ)
-        @test CA.getdata(gr) isa GPUArraysCore.AbstractGPUArray
-        CP.apply_preserve_axes(cdev, gr)
+    #
+    n_θM, n_site_batch = size(ϕc.Ms)
+    intm_PMs = ComponentArrayInterpreter(
+        P = (n_MC_pred, n_θP), Ms = (n_MC_pred, n_site_batch, n_θM))    
+    xc = intm_PMs(ζ_resid)
+    isapprox(std(xc.Ms[:,1,1]), 0.1, rtol = 0.1) # site 1 parameter 1 
+    isapprox(std(xc.Ms[:,:,1]), 0.1, rtol = 0.1) # parameter 1
+    isapprox(std(xc.Ms[:,:,2]), 100.1, rtol = 0.1) # parameter 2
+    #
+    if ggdev isa MLDataDevices.AbstractGPUDevice
+        @testset "sample_ζresid_norm gpu" begin
+            ϕcd = CP.apply_preserve_axes(ggdev, ϕc); # semicolon necessary
+            @test CA.getdata(ϕcd) isa GPUArraysCore.AbstractGPUArray
+            #ζP, ζMs, ϕunc = ϕc.P, ϕc.Ms, ϕc.unc
+            #urandn = CUDA.randn(length(ϕc.P) + length(ϕc.Ms), n_MC) |> gpu
+            #include(joinpath(@__DIR__, "uncNN", "elbo.jl")) # callback_loss
+            #ζ_resid, σ = sample_ζresid_norm(urandn, ϕc.P, ϕc.Ms, ϕc.unc; n_MC)
+            #Zygote.gradient(ϕc -> sum(sample_ζresid_norm(urandn, ϕc.P, ϕc.Ms, ϕc.unc; n_MC)[1]), ϕc)[1]; 
+            ζ_resid, σ = @inferred CP.sample_ζresid_norm(
+                rng, CA.getdata(ϕcd.P), CA.getdata(ϕcd.Ms), CA.getdata(ϕcd.unc);
+                n_MC = n_MC_pred, cor_ends, int_unc)
+            #@descend_code_warntype CP.sample_ζresid_norm(rng, CA.getdata(ϕc.P), CA.getdata(ϕc.Ms), CA.getdata(ϕc.unc); n_MC, cor_ends, int_unc)
+            @test ζ_resid isa GPUArraysCore.AbstractGPUArray
+            @test size(ζ_resid) == (n_MC_pred, length(ϕc.P) + n_site * n_θM)
+            # Zygote gradient for many sites, use fewer sites here
+            n_site_few = 20
+            ϕcd_few = CA.ComponentVector(; P = ϕcd.P, Ms = ϕcd.Ms[:,1:n_site_few], unc = ϕcd.unc);
+            gr = Zygote.gradient(
+                ϕc -> sum(CP.sample_ζresid_norm(
+                    rng, CA.getdata(ϕc.P), CA.getdata(ϕc.Ms), CA.getdata(ϕc.unc);
+                    n_MC, cor_ends, int_unc)[1]), ϕcd_few)[1]; # need semicolon
+            @test CA.getdata(gr) isa GPUArraysCore.AbstractGPUArray
+            CP.apply_preserve_axes(cdev, gr)
+            #
+            intm_PMs_few = ComponentArrayInterpreter(
+                P = (n_MC_pred, n_θP), Ms = (n_MC_pred, n_site_few, n_θM))    
+            xc = intm_PMs(cdev(ζ_resid));
+            isapprox(std(xc.Ms[:,1,1]), 0.1, rtol = 0.1) # site 1 parameter 1 
+            isapprox(std(xc.Ms[:,:,1]), 0.1, rtol = 0.1) # parameter 1
+            isapprox(std(xc.Ms[:,:,2]), 100.1, rtol = 0.1) # parameter 2
+        end
     end
 end
 

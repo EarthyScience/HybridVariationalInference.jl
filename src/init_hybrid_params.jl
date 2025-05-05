@@ -70,7 +70,7 @@ function init_hybrid_params(θP::AbstractVector{FT}, θM::AbstractVector{FT},
 end
 
 """
-    init_hybrid_ϕunc(cor_ends, ρ0=0f0; logσ2_logP, coef_logσ2_logMs, ρsP, ρsM)
+    init_hybrid_ϕunc(cor_ends, ρ0=0f0; logσ2_logP, coef_logσ2_ζMs, ρsP, ρsM)
 
 Initialize vector of additional parameter of the approximate posterior.
 
@@ -78,12 +78,12 @@ Arguments:
 - `cor_ends`: NamedTuple with entries, `P`, and `M`, respectively with 
    integer vectors of ending columns of parameters blocks
 - `ρ0`: default entry for ρsP and ρsM, defaults = 0f0.
-- `coef_logσ2_logM`: default column for `coef_logσ2_logMs`, defaults to `[-10.0, 0.0]`
+- `coef_logσ2_logM`: default column for `coef_logσ2_ζMs`, defaults to `[-10.0, 0.0]`
 
 Returns a `ComponentVector` of 
 - `logσ2_logP`: vector of log-variances of ζP (on log scale).
   defaults to -10
-- `coef_logσ2_logMs`: offset and slope for the log-variances of ζM scaling with 
+- `coef_logσ2_ζMs`: offset and slope for the log-variances of ζM scaling with 
    its value given by columns for each parameter in ζM, defaults to `[-10, 0]`
 - `ρsP` and `ρsM`: parameterization of the upper triangular cholesky factor 
   of the correlation matrices of ζP and ζM, default to all entries `ρ0`, which defaults to zero.
@@ -93,14 +93,14 @@ function init_hybrid_ϕunc(
         ρ0::FT = 0.0f0,
         coef_logσ2_logM::AbstractVector{FT} = FT[-10.0, 0.0];
         logσ2_logP::AbstractVector{FT} = fill(FT(-10.0), cor_ends.P[end]),
-        coef_logσ2_logMs::AbstractMatrix{FT} = reduce(
+        coef_logσ2_ζMs::AbstractMatrix{FT} = reduce(
             hcat, (coef_logσ2_logM for _ in 1:cor_ends.M[end])),
         ρsP = fill(ρ0, get_cor_count(cor_ends.P)),
         ρsM = fill(ρ0, get_cor_count(cor_ends.M)),
 ) where {FT}
     CA.ComponentVector(;
         logσ2_logP,
-        coef_logσ2_logMs,
+        coef_logσ2_ζMs,
         ρsP,
         ρsM)
 end
