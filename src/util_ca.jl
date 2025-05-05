@@ -45,6 +45,8 @@ _val_value(::Val{x}) where x = x
 
 axis_length(ax::CA.AbstractAxis) = CA.lastindex(ax) - CA.firstindex(ax) + 1
 axis_length(::CA.FlatAxis) = 0
-axis_length(::CA.UnitRange) = 0
+axis_length(ax::CA.UnitRange) = length(ax)
+axis_length(ax::CA.ShapedAxis) = length(ax)
+axis_length(ax::CA.Shaped1DAxis) = length(ax)
 
 

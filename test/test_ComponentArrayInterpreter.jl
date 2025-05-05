@@ -19,6 +19,7 @@ cdev = cpu_device()
     #component_counts = comp_cnts = CA.ComponentVector(P=1:2, M=1:3, Unc=1:5)
     
     m = ComponentArrayInterpreter(comp_cnts)
+    get_positions(m)
     testm = (m) -> begin
         #type of axes may differ
         #@test CP._get_ComponentArrayInterpreter_axes(m) == (CA.Axis(P=1:2, M=3:5, Unc=6:10),)
@@ -31,6 +32,11 @@ cdev = cpu_device()
     m = get_concrete(m)
     testm(get_concrete(m))
     Base.isconcretetype(typeof(m))
+
+    cc0 = CA.ComponentVector(comp_cnts)
+    sum(get_positions(ComponentArrayInterpreter(cc0)))
+    Zygote.gradient(cc -> sum(cc), cc0)
+    Zygote.gradient(cc -> sum(get_positions(ComponentArrayInterpreter(cc))), cc0)
 end;
 
 # () -> begin
@@ -46,15 +52,23 @@ end;
 @testset "ComponentArrayInterpreter matrix in vector" begin
     component_shapes = (; P=2, M=(2, 3), Unc=5)
     #component_shapes = CA.ComponentVector(P=1:2, M=reshape(1:6,2, 3), Unc=1:5)
-    m = ComponentArrayInterpreter(component_shapes)
+    m = @inferred ComponentArrayInterpreter(component_shapes)
     testm = (m) -> begin
         @test length(m) == 13
         a = 1:length(m)
-        cv = m(a)
+        cv = m isa CP.StaticComponentArrayInterpreter ? @inferred(m(a)) : m(a)
         @test cv.M == 2 .+ [1 3 5; 2 4 6]
+        cv
     end
     testm(m)
-    testm(get_concrete(m))
+    @inferred testm(get_concrete(m))
+    # test creating ComponentArrayInterpreter insite differentiated function
+    tmpf = (a) -> begin
+        m = ComponentArrayInterpreter(component_shapes)
+        cv = m(a)
+        sum(cv.M)
+    end
+    Zygote.gradient(tmpf, 1:length(m))
 end;
 
 @testset "ComponentArrayInterpreter matrix and array" begin

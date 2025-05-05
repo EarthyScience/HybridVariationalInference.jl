@@ -19,8 +19,8 @@ rng = StableRNG(111)
 ggdev = Suppressor.@suppress gpu_device()
 cdev = cpu_device()
 
-const prob = DoubleMM.DoubleMMCase()
-scenario = (:default,)
+prob = DoubleMM.DoubleMMCase()
+scenario = Val((:default,))
 
 n_θM, n_θP = length.(values(get_hybridproblem_par_templates(prob; scenario)))
 
@@ -31,78 +31,104 @@ n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
 FT = get_hybridproblem_float_type(prob; scenario)
 
 # set to 0.02 rather than zero for debugging non-zero correlations
-cor_ends = (P = 1:n_θP, M = [n_θM])
+cor_ends = (P=1:n_θP, M=[n_θM])
 ρsP = zeros(FT, get_cor_count(cor_ends.P)) .+ FT(0.02)
 ρsM = zeros(FT, get_cor_count(cor_ends.M)) .+ FT(0.02)
 
 ϕunc = CA.ComponentVector(;
-    logσ2_logP = fill(FT(-10.0), n_θP),
-    coef_logσ2_logMs = reduce(hcat, (FT[-10.0, 0.0] for _ in 1:n_θM)),
+    logσ2_logP=fill(FT(-10.0), n_θP),
+    coef_logσ2_logMs=reduce(hcat, (FT[-10.0, 0.0] for _ in 1:n_θM)),
     ρsP,
     ρsM)
 
 θ_true = θ = CA.ComponentVector(;
-    P = θP_true,
-    Ms = θMs_true)
+    P=θP_true,
+    Ms=θMs_true)
 transPMs = elementwise(exp) # all parameters on LogNormal scale
 ζ_true = inverse(transPMs)(θ_true)
-ϕ_true = vcat(ζ_true, CA.ComponentVector(unc = ϕunc))
-ϕ_cpu = vcat(ζ_true .+ FT(0.01), CA.ComponentVector(unc = ϕunc))
+ϕ_true = vcat(ζ_true, CA.ComponentVector(unc=ϕunc))
+ϕ_cpu = vcat(ζ_true .+ FT(0.01), CA.ComponentVector(unc=ϕunc))
 
-interpreters = (; pmu = ComponentArrayInterpreter(ϕ_true),
-    unc = ComponentArrayInterpreter(ϕ_true.unc)
+interpreters = (; pmu=ComponentArrayInterpreter(ϕ_true),
+    unc=ComponentArrayInterpreter(ϕ_true.unc)
 ) #, M=int_θM, PMs=int_θPMs)
 
 n_MC = 3
-@testset "sample_ζ_norm0 cpu" begin
+
+@testset "transpose_Ms_sitefirst" begin
+    x_true = collect(1:8)
+    tmp = Iterators.take(enumerate(Iterators.repeated(x_true)),3)
+    collect(tmp)
+    Xt = permutedims(stack(map(tmp) do (i, x)
+        10 .* i .+ x
+    end))
+    _nP = 2; _nM = 3; _nsite = 2
+    intm_PMs_parfirst = ComponentArrayInterpreter(
+        P = (n_MC, _nP), Ms = (n_MC, _nM, _nsite))
+    Xtc = intm_PMs_parfirst(Xt)
+    #
+    X = @inferred CP.transpose_mPMs_sitefirst(Xt, _nP, _nM, _nsite, n_MC)
+    # using Cthulhu
+    # @descend_code_warntype CP.transpose_mPMs_sitefirst(Xt, _nP, _nM, _nsite, n_MC)
+    intm_PMs_sitefirst = ComponentArrayInterpreter(
+        P = (n_MC, _nP), Ms = (n_MC, _nsite, _nM))
+    Xc = intm_PMs_sitefirst(X)
+    @test Xc.P == Xtc.P
+    @test Xc.Ms[:,1,:] == Xtc.Ms[:,:,1] # first site
+    @test Xc.Ms[:,2,:] == Xtc.Ms[:,:,2]
+    @test Xc.Ms[:,:,2] == Xtc.Ms[:,2,:] # second parameter
+end;
+
+@testset "sample_ζresid_norm cpu" begin
     ϕ = CA.getdata(ϕ_cpu)
     ϕc = interpreters.pmu(ϕ)
-    ζ_resid, σ = @inferred CP.sample_ζ_norm0(rng, ϕc.P, ϕc.Ms, ϕc.unc;
-        n_MC, cor_ends, int_unc = get_concrete(interpreters.unc))
-    # ζ_resid, σ = @inferred CP.sample_ζ_norm0(rng, ϕc.P, ϕc.Ms, ϕc.unc; 
+    int_unc = get_concrete(ComponentArrayInterpreter(ϕc.unc))
+    ζ_resid, σ = @inferred CP.sample_ζresid_norm(rng, ϕc.P, ϕc.Ms, ϕc.unc;
+        n_MC, cor_ends, int_unc)
+    # ζ_resid, σ = @inferred CP.sample_ζresid_norm(rng, ϕc.P, ϕc.Ms, ϕc.unc; 
     #     n_MC, cor_ends, int_unc = interpreters.unc)
     #@usingany Cthulhu
-    #@descend_code_warntype CP.sample_ζ_norm0(rng, ϕc.P, ϕc.Ms, ϕc.unc; n_MC, cor_ends, int_unc = get_concrete(interpreters.unc))
-    #@descend_code_warntype CP.sample_ζ_norm0(rng, ϕc.P, ϕc.Ms, ϕc.unc; n_MC, cor_ends, int_unc = interpreters.unc)
-    @test size(ζ_resid) == (length(ϕc.P) + n_θM * n_site, n_MC)
+    #@descend_code_warntype CP.sample_ζresid_norm(rng, ϕc.P, ϕc.Ms, ϕc.unc; n_MC, cor_ends, int_unc = get_concrete(interpreters.unc))
+    #@descend_code_warntype CP.sample_ζresid_norm(rng, ϕc.P, ϕc.Ms, ϕc.unc; n_MC, cor_ends, int_unc = interpreters.unc)
+    @test size(ζ_resid) == (length(ϕc.P) + n_site * n_θM, n_MC)
     gr = Zygote.gradient(
-        ϕc -> sum(CP.sample_ζ_norm0(
+        ϕc -> sum(CP.sample_ζresid_norm(
             rng, ϕc.P, ϕc.Ms, ϕc.unc;
-            n_MC, cor_ends, int_unc = get_concrete(interpreters.unc))[1]), ϕc)[1]
+            n_MC, cor_ends, int_unc)[1]), ϕc)[1]
     @test length(gr) == length(ϕ)
 end
 #
 
 if ggdev isa MLDataDevices.AbstractGPUDevice
-    @testset "sample_ζ_norm0 gpu" begin
+    @testset "sample_ζresid_norm gpu" begin
         # sample only n_batch of 50
         n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-        ϕb = CA.ComponentVector(P = ϕ_cpu.P, Ms = ϕ_cpu.Ms[:, 1:n_batch], unc = ϕ_cpu.unc)
+        ϕb = CA.ComponentVector(P=ϕ_cpu.P, Ms=ϕ_cpu.Ms[:, 1:n_batch], unc=ϕ_cpu.unc)
         intb = ComponentArrayInterpreter(ϕb)
         ϕ = ggdev(CA.getdata(ϕb))
         #tmp = ϕ[1:6]
         #vec2uutri(tmp)
-        ϕc = intb(ϕ)
+        ϕc = intb(ϕ);
         @test CA.getdata(ϕc) isa GPUArraysCore.AbstractGPUArray
         #ζP, ζMs, ϕunc = ϕc.P, ϕc.Ms, ϕc.unc
         #urand = CUDA.randn(length(ϕc.P) + length(ϕc.Ms), n_MC) |> gpu
         #include(joinpath(@__DIR__, "uncNN", "elbo.jl")) # callback_loss
-        #ζ_resid, σ = sample_ζ_norm0(urand, ϕc.P, ϕc.Ms, ϕc.unc; n_MC)
-        #Zygote.gradient(ϕc -> sum(sample_ζ_norm0(urand, ϕc.P, ϕc.Ms, ϕc.unc; n_MC)[1]), ϕc)[1]; 
+        #ζ_resid, σ = sample_ζresid_norm(urand, ϕc.P, ϕc.Ms, ϕc.unc; n_MC)
+        #Zygote.gradient(ϕc -> sum(sample_ζresid_norm(urand, ϕc.P, ϕc.Ms, ϕc.unc; n_MC)[1]), ϕc)[1]; 
         int_unc = get_concrete(ComponentArrayInterpreter(ϕc.unc))
-        ζ_resid, σ = @inferred CP.sample_ζ_norm0(
+        ζ_resid, σ = @inferred CP.sample_ζresid_norm(
             rng, CA.getdata(ϕc.P), CA.getdata(ϕc.Ms), CA.getdata(ϕc.unc);
             n_MC, cor_ends, int_unc)
-        #@descend_code_warntype CP.sample_ζ_norm0(rng, CA.getdata(ϕc.P), CA.getdata(ϕc.Ms), CA.getdata(ϕc.unc); n_MC, cor_ends, int_unc)
+        #@descend_code_warntype CP.sample_ζresid_norm(rng, CA.getdata(ϕc.P), CA.getdata(ϕc.Ms), CA.getdata(ϕc.unc); n_MC, cor_ends, int_unc)
         @test ζ_resid isa GPUArraysCore.AbstractGPUArray
-        @test size(ζ_resid) == (length(ϕc.P) + n_θM * n_batch, n_MC)
+        @test size(ζ_resid) == (length(ϕc.P) + n_batch * n_θM, n_MC)
         gr = Zygote.gradient(
-            ϕc -> sum(CP.sample_ζ_norm0(
+            ϕc -> sum(CP.sample_ζresid_norm(
                 rng, CA.getdata(ϕc.P), CA.getdata(ϕc.Ms), CA.getdata(ϕc.unc);
-                n_MC, cor_ends, int_unc)[1]), ϕc)[1]
+                n_MC, cor_ends, int_unc)[1]), ϕc)[1]; # need semicolon
         @test length(gr) == length(ϕ)
         @test CA.getdata(gr) isa GPUArraysCore.AbstractGPUArray
-        CP.apply_preserve_axes(cdev,gr)
+        CP.apply_preserve_axes(cdev, gr)
     end
 end
 

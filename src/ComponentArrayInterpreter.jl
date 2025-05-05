@@ -119,14 +119,19 @@ function ComponentArrayInterpreter(; kwargs...)
 end
 function ComponentArrayInterpreter(component_shapes::NamedTuple)
     component_counts = map(prod, component_shapes)
-    n = sum(component_counts)
-    x = 1:n
-    is_end = cumsum(component_counts)
-    is_start = (0, is_end[1:(end-1)]...) .+ 1
-    #g = (x[i_start:i_end] for (i_start, i_end) in zip(is_start, is_end))
-    g = (reshape(x[i_start:i_end], shape) for (i_start, i_end, shape) in zip(is_start, is_end, component_shapes))
-    xc = CA.ComponentVector(; zip(propertynames(component_counts), g)...)
-    ComponentArrayInterpreter(xc)
+    # avoid constructing a template first, but create axes 
+    # n = sum(component_counts)
+    # x = 1:n
+    # is_end = cumsum(component_counts)
+    # #is_start = (0, is_end[1:(end-1)]...) .+ 1  # problems with Zygote
+    # is_start = Iterators.flatten((1:1, is_end[1:(end-1)] .+ 1))
+    # g = (reshape(x[i_start:i_end], shape) for (i_start, i_end, shape) in zip(is_start, is_end, component_shapes))
+    # xc = CA.ComponentVector(; zip(propertynames(component_counts), g)...)
+    # #nt = NamedTuple{propertynames(component_counts)}(g)
+    # ComponentArrayInterpreter(xc)
+    axs = map(x -> (length(x) == 1 ? CA.Shaped1DAxis((x,)) : CA.ShapedAxis(x),), component_shapes)
+    ax = compose_axes(axs)
+    m1 = ComponentArrayInterpreter((ax,))
 end
 
 function ComponentArrayInterpreter(vc::CA.AbstractComponentArray)
@@ -254,7 +259,9 @@ function get_positions(cai::AbstractComponentArrayInterpreter)
     #@assert length(CA.getaxes(cai)) == 1
     cv = cai(1:length(cai))
     keys_cv = keys(cv)
-    keys_cv isa Tuple ? (; (k => CA.getdata(cv[k]) for k in keys_cv)...) : CA.getdata(cv)
+    # splatting creates Problems with Zygote
+    #keys_cv isa Tuple ? (; (k => CA.getdata(cv[k]) for k in keys_cv)...) : CA.getdata(cv)
+    keys_cv isa Tuple ? NamedTuple{keys_cv}(map(k -> CA.getdata(cv[k]), keys_cv)) : CA.getdata(cv)
 end
 
 function tmpf(v;
