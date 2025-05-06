@@ -1,3 +1,5 @@
+#------------------- Exp
+
 struct Exp <: Bijector
 end
 
@@ -16,9 +18,58 @@ end
 #     x = transform(ib, y)
 #     return x, -logabsdetjac(inverse(ib), x)
 # end
-
-
 Bijectors.is_monotonically_increasing(::Exp) = true
+
+
+"""
+    StackedArray(stacked, nrow) 
+
+A Bijectors.Transform that applies stacked to each column of an n-row matrix.
+"""
+struct StackedArray{N,S} <: Bijectors.Transform
+    stacked::S
+end
+
+function StackedArray(stacked, nrow) 
+    stacked_vec = extend_stacked_nrow(stacked, nrow)
+    StackedArray{nrow, typeof(stacked_vec)}(stacked_vec)
+end
+
+Functors.@functor StackedArray (stacked,)
+
+function Base.show(io::IO, b::StackedArray{N}) where N
+    return print(io, "StackedArray ($(N), $(b.stacked))")
+end
+
+function Base.:(==)(b1::StackedArray{N1}, b2::StackedArray{N2}) where {N1,N2}
+    (N1 == N2) && (b1.stacked == b2.stacked)
+end
+
+Bijectors.isclosedform(b::StackedArray) = isclosedform(b.stacked)
+
+Bijectors.isinvertible(b::StackedArray) = isinvertible(b.stacked)
+
+_transform_stackedarray(sb, x) = reshape(sb.stacked(vec(x)), size(x))
+function Bijectors.transform(sb::StackedArray, x::AbstractArray{<:Real}) 
+    _transform_stackedarray(sb, x)
+end
+    
+_logabsdetjac_stackedarray(b,x) = logabsdet(b.stacked, vec(x))
+function Bijectors.logabsdetjac(b::StackedArray, x::AbstractArray{<:Real})
+    _logabsdetjac_stackedarray(b,x)
+end
+
+function Bijectors.with_logabsdet_jacobian(sb::StackedArray, x::AbstractArray)
+    (y, logjac) = with_logabsdet_jacobian(sb.stacked, vec(x))
+    ym = reshape(y, size(x))
+    return (ym, logjac)
+end
+
+function Bijectors.inverse(sb::StackedArray{N}) where N
+    inv_stacked = inverse(sb.stacked)
+    return StackedArray{N,typeof(inv_stacked)}(inv_stacked)
+end
+
 
 
 """
@@ -49,3 +100,6 @@ function extend_stacked_nrow(b::Stacked, nrow::Integer)
     end
     bs = Stacked(b.bs, ranges)
 end
+
+
+

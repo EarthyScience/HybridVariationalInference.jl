@@ -87,6 +87,8 @@ end
     if gdev isa MLDataDevices.AbstractGPUDevice
         Xd = gdev(X)
         Xtd = reshape(bs(vec(Xd)), size(Xd))
+        #Xtd2, logjac = with_logabsdet_jacobian(bs, Xd)
+        #@test Xtd2 == Xtd
         # test transpose in gradient function
         dys = Zygote.gradient(x -> sum(bs(vec(x'))), Xd')[1]
     #     () -> begin
@@ -103,5 +105,33 @@ end
     #    end
     end
 end
+
+@testset "StackedArray" begin
+    nrow = 5    # faster on CPU by factor of 20
+    #nrow = 20000 # faster on GPU
+    X = reduce(hcat, ([x + y for x in 0:nrow] for y in 0:10:30))
+    b1 = CP.Exp()
+    b2 = identity
+    b = Stacked((b1,b2), (1:1,2:size(X,2)))
+    bs = StackedArray(b, size(X,1))
+    Xt = bs(X)
+    @test Xt[:,1] == b1(X[:,1])
+    @test Xt[:,2] == b2(X[:,2])
+    X2 = inverse(bs)(Xt)
+    @test X2 == X
+    if gdev isa MLDataDevices.AbstractGPUDevice
+        Xd = gdev(X)
+        Xtd = bs(Xd)
+        tmpf = (X, bs) -> begin
+            Xt, logjac = with_logabsdet_jacobian(bs, X)
+            sum(Xt) .+ logjac
+        end
+        tmpf(Xd, bs)
+        # test transpose in gradient function
+        dys = Zygote.gradient(X -> tmpf(X', bs), Xd')[1]
+        @test all(dys[2:end,:] .== 1.0)
+    end
+end
+
 
     

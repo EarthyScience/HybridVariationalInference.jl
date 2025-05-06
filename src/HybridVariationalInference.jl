@@ -21,7 +21,7 @@ using StaticArrays: StaticArrays as SA
 using Functors
 using Test: Test # @inferred
 
-export extend_stacked_nrow
+export extend_stacked_nrow, StackedArray
 #export Exp
 include("bijectors_utils.jl") 
 

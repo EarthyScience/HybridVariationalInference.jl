@@ -48,7 +48,7 @@ function gf(prob::AbstractHybridProblem, xM::AbstractMatrix, xP::AbstractVector,
     gf(g_dev, transM, transP, f, xM, xP, ϕg_dev, ζP_dev, pbm_covar_indices; cdev, kwargs...)
 end
 
-function gf(g::AbstractModelApplicator, transM, transP, f, xM, xP, ϕg, ζP; 
+function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, ζP; 
     cdev = identity, pbm_covars, 
     intP = ComponentArrayInterpreter(ζP), kwargs...)
     pbm_covar_indices = intP(1:length(intP))[pbm_covars]
@@ -56,7 +56,7 @@ function gf(g::AbstractModelApplicator, transM, transP, f, xM, xP, ϕg, ζP;
 end
 
 
-function gf(g::AbstractModelApplicator, transM, transP, f, xM, xP, ϕg, ζP, pbm_covar_indices::AbstractVector{<:Integer}; 
+function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, ζP, pbm_covar_indices::AbstractVector{<:Integer}; 
     cdev = identity)
     # @show first(xM,5)
     # @show first(ϕg,5)
@@ -67,7 +67,7 @@ function gf(g::AbstractModelApplicator, transM, transP, f, xM, xP, ϕg, ζP, pbm
     # end
     #xMP = _append_PBM_covars(xM, intP(ζP), pbm_covars) 
     xMP = _append_each_covars(xM, CA.getdata(ζP), pbm_covar_indices)
-    θMs = gtrans(g, transM, xMP, ϕg; cdev)
+    θMs = gtrans(g, transMs, xMP, ϕg; cdev)
     θP = transP(CA.getdata(ζP))
     θP_cpu = cdev(θP) 
     y_pred_global, y_pred = f(θP_cpu, θMs, xP)
@@ -77,11 +77,12 @@ end
 """
 composition transM ∘ g: transformation after machine learning parameter prediction
 """
-function gtrans(g, transM, xMP, ϕg; cdev = identity)
-    ζMs = g(xMP, ϕg) # predict the log of the parameters
+function gtrans(g, transMs, xMP, ϕg; cdev = identity)
+    ζMs = g(xMP, ϕg)' # predict the log of the parameters
     ζMs_cpu = cdev(ζMs)
     # TODO move to gpu, Zygote needs to work with transM
-    θMs = reduce(hcat, map(transM, eachcol(ζMs_cpu))) # transform each column
+    θMs = transMs(ζMs_cpu)
+    #θMs = reduce(hcat, map(transM, eachcol(ζMs_cpu))) # transform each row
 end
 
 
@@ -107,10 +108,11 @@ function get_loss_gf(g, transM, transP, f, y_o_global,
     intϕ::AbstractComponentArrayInterpreter,
     intP::AbstractComponentArrayInterpreter = ComponentArrayInterpreter(
         intϕ(1:length(intϕ)).ϕP);
-    pbm_covars, kwargs...)
+    pbm_covars, n_site_batch, kwargs...)
 
     let g = g, transM = transM, transP = transP, f = f, y_o_global = y_o_global, 
         intϕ = get_concrete(intϕ),
+        transMs = StackedArray(transM, n_site_batch)
         pbm_covar_indices = CA.getdata(intP(1:length(intP))[pbm_covars])
         #, intP = get_concrete(intP)
         #inv_transP = inverse(transP), kwargs = kwargs
@@ -118,7 +120,7 @@ function get_loss_gf(g, transM, transP, f, y_o_global,
             σ = exp.(y_unc ./ 2)
             pc = intϕ(p)
             y_pred_global, y_pred, θMs, θP = gf(
-                g, transM, transP, f, xM, xP, CA.getdata(pc.ϕg), CA.getdata(pc.ϕP), 
+                g, transMs, transP, f, xM, xP, CA.getdata(pc.ϕg), CA.getdata(pc.ϕP), 
                 pbm_covar_indices; kwargs...)
             loss = sum(abs2, (y_pred .- y_o) ./ σ) + sum(abs2, y_pred_global .- y_o_global)
             return loss, y_pred_global, y_pred, θMs, θP
@@ -130,4 +132,16 @@ end
 () -> begin
     loss_gf(p, xM, y_o)
     Zygote.gradient(x -> loss_gf(x, xM, y_o)[1], p)
+end
+
+function tmp_fcost(is,intθ,fneglogden )
+    fcost = let is = is, intθ = intθ,fneglogden=fneglogden
+        fcost_inner = (θvec, xPM, y_o, y_unc) -> begin
+            θ = hcat(CA.getdata(θvec.P[is]), CA.getdata(θvec.Ms'))
+            y = DoubleMM.f_doubleMM(θ, xPM, intθ)
+            #y = CP.DoubleMM.f_doubleMM(θ, xPM, θpos)
+            res = fneglogden(y_o, y', y_unc)
+            res
+        end
+    end    
 end
