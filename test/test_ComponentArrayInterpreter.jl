@@ -12,13 +12,20 @@ using Suppressor
 gdev = Suppressor.@suppress gpu_device() # not loaded CUDA
 cdev = cpu_device()
 
-
+@testset "construct StaticComponentArrayInterepreter" begin
+    intv = @inferred CP.StaticComponentArrayInterpreter(CA.ComponentVector(a=1:3, b=reshape(4:9,3,2)))
+    ints = @inferred CP.StaticComponentArrayInterpreter((;a=Val(3), b = Val((3,2))))
+    # @descend_code_warntype CP.StaticComponentArrayInterpreter((;a=Val(3), b = Val((3,2))))
+    @test ints == intv
+end
 
 @testset "ComponentArrayInterpreter cv-vector" begin
-    component_counts = comp_cnts = (; P=2, M=3, Unc=5)
+    component_counts = comp_cnts = (; P=2, M=3, Unc=5)  
+    comp_cnts_val = (; P=Val(2), M=Val(3), Unc=Val(5))
     #component_counts = comp_cnts = CA.ComponentVector(P=1:2, M=1:3, Unc=1:5)
     
-    m = ComponentArrayInterpreter(comp_cnts)
+    m = @inferred ComponentArrayInterpreter(comp_cnts)
+    m2 = @inferred CP.StaticComponentArrayInterpreter(comp_cnts_val)
     get_positions(m)
     testm = (m) -> begin
         #type of axes may differ
@@ -29,6 +36,7 @@ cdev = cpu_device()
         @test cv.Unc == 6:10
     end
     testm(m)
+    #m = @inferred get_concrete(m)
     m = get_concrete(m)
     testm(get_concrete(m))
     Base.isconcretetype(typeof(m))

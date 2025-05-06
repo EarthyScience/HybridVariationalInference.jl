@@ -18,7 +18,8 @@ end
 
 function HVI.apply_model(app::FluxApplicator, x, ϕ)
     m = app.rebuild(ϕ)
-    m(x)
+    res = m(x)
+    res
 end
 
 # struct FluxGPUDataHandler <: AbstractGPUDataHandler end

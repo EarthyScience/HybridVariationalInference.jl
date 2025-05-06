@@ -45,6 +45,20 @@ function as_ca(v::AbstractArray, ::StaticComponentArrayInterpreter{AX}) where {A
     CA.ComponentArray(vr, AX)::CA.ComponentArray{eltype(v)}
 end
 
+function StaticComponentArrayInterpreter(component_shapes::NamedTuple)
+    axs = map(component_shapes) do valx
+        x = _val_value(valx)
+        ax = x isa Integer ? CA.Shaped1DAxis((x,)) : CA.ShapedAxis(x)
+        (ax,)
+    end
+    axc = compose_axes(axs)
+    StaticComponentArrayInterpreter{(axc,)}()
+end
+function StaticComponentArrayInterpreter(ca::CA.ComponentArray)
+    ax = CA.getaxes(ca)
+    StaticComponentArrayInterpreter{ax}()
+end
+
 # concatenate from several other ArrayInterpreters, keep static
 # did not manage to get it inferred, better use get_concrete(ComponentArrayInterpreter)
 # also does not save allocations
@@ -118,7 +132,7 @@ function ComponentArrayInterpreter(; kwargs...)
     ComponentArrayInterpreter(values(kwargs))
 end
 function ComponentArrayInterpreter(component_shapes::NamedTuple)
-    component_counts = map(prod, component_shapes)
+    #component_counts = map(prod, component_shapes)
     # avoid constructing a template first, but create axes 
     # n = sum(component_counts)
     # x = 1:n
@@ -129,7 +143,7 @@ function ComponentArrayInterpreter(component_shapes::NamedTuple)
     # xc = CA.ComponentVector(; zip(propertynames(component_counts), g)...)
     # #nt = NamedTuple{propertynames(component_counts)}(g)
     # ComponentArrayInterpreter(xc)
-    axs = map(x -> (length(x) == 1 ? CA.Shaped1DAxis((x,)) : CA.ShapedAxis(x),), component_shapes)
+    axs = map(x -> (x isa Integer ? CA.Shaped1DAxis((x,)) : CA.ShapedAxis(x),), component_shapes)
     ax = compose_axes(axs)
     m1 = ComponentArrayInterpreter((ax,))
 end

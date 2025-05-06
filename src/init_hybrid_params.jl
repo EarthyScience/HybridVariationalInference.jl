@@ -23,7 +23,7 @@ Returns a NamedTuple of
 - `ϕunc0` initial uncertainty parameters, ComponentVector with format of `init_hybrid_ϕunc.`
 """
 function init_hybrid_params(θP::AbstractVector{FT}, θM::AbstractVector{FT},
-        cor_ends::NamedTuple, ϕg::AbstractVector{FT}, n_batch;
+        cor_ends::NamedTuple, ϕg::AbstractVector{FT}, hpints::HybridProblemInterpreters;
         transP = elementwise(identity), transM = elementwise(identity),
         ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(FT))) where {FT}
     n_θP = length(θP)
@@ -39,31 +39,33 @@ function init_hybrid_params(θP::AbstractVector{FT}, θM::AbstractVector{FT},
         ϕg = ϕg,
         unc = ϕunc0)
     #
-    get_transPMs = let transP = transP, transM = transM, n_θP = n_θP, n_θM = n_θM
-        function get_transPMs_inner(n_site)
-            transMs = ntuple(i -> transM, n_site)
-            ranges = vcat(
-                [1:n_θP], [(n_θP + i0 * n_θM) .+ (1:n_θM) for i0 in 0:(n_site - 1)])
-            transPMs = Stacked((transP, transMs...), ranges)
-            transPMs
-        end
-    end
-    transPMs_batch = get_transPMs(n_batch)
+    # get_transPMs = let transP = transP, transM = transM, n_θP = n_θP, n_θM = n_θM
+    #     function get_transPMs_inner(n_site)
+    #         transMs = ntuple(i -> transM, n_site)
+    #         ranges = vcat(
+    #             [1:n_θP], [(n_θP + i0 * n_θM) .+ (1:n_θM) for i0 in 0:(n_site - 1)])
+    #         transPMs = Stacked((transP, transMs...), ranges)
+    #         transPMs
+    #     end
+    # end
+    get_transPMs = transPMs_batch = Val(Symbol("deprecated , use stack_ca_int(intPMs)"))
+    #transPMs_batch = get_transPMs(n_batch)
     # ranges = (P = 1:n_θP, ϕg = n_θP .+ (1:n_ϕg), unc = (n_θP + n_ϕg) .+ (1:length(ϕunc0)))
     # inv_trans_gu = Stacked(
     #     (inverse(transP), elementwise(identity), elementwise(identity)), values(ranges))
     # ϕ = inv_trans_gu(CA.getdata(ϕt))        
-    get_ca_int_PMs = let
-        function get_ca_int_PMs_inner(n_site)
-            ComponentArrayInterpreter(CA.ComponentVector(; P = θP,
-                Ms = CA.ComponentMatrix(
-                    zeros(n_θM, n_site), first(CA.getaxes(θM)), CA.Axis(i = 1:n_site))))
-        end
-    end
+    get_ca_int_PMs = Val(Symbol("deprecated , use get_int_PMst_site(HybridProblemInterpreters(prob; scenario))"))
+    # get_ca_int_PMs = let
+    #     function get_ca_int_PMs_inner(n_site)
+    #         ComponentArrayInterpreter(CA.ComponentVector(; P = θP,
+    #             Ms = CA.ComponentMatrix(
+    #                 zeros(n_θM, n_site), first(CA.getaxes(θM)), CA.Axis(i = 1:n_site))))
+    #     end
+    # end
     interpreters = map(get_concrete,
         (;
             μP_ϕg_unc = ComponentArrayInterpreter(ϕ),
-            PMs = get_ca_int_PMs(n_batch),
+            PMs = get_int_PMst_batch(hpints),
             unc = ComponentArrayInterpreter(ϕunc0)
         ))
     (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs)
@@ -98,9 +100,19 @@ function init_hybrid_ϕunc(
         ρsP = fill(ρ0, get_cor_count(cor_ends.P)),
         ρsM = fill(ρ0, get_cor_count(cor_ends.M)),
 ) where {FT}
-    CA.ComponentVector(;
+    nt = (;
         logσ2_logP,
         coef_logσ2_ζMs,
         ρsP,
         ρsM)
+    ca = CA.ComponentVector(;nt...)::CA.ComponentVector
 end
+
+# macro gen_unc(nt)
+#     quote
+#         nt_ev = $(esc(nt))
+#         int_nt = StaticComponentArrayInterpreter(map(x -> Val(size(x)), nt_ev))
+#         int_nt(CA.getdata(CA.ComponentVector(;nt_ev...)))
+#     end
+# end
+

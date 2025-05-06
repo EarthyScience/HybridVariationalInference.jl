@@ -32,7 +32,7 @@ function neg_elbo_gtf(args...; kwargs...)
     nLy - entropy_ζ + nLmean_θ
 end
 
-function neg_elbo_gtf_components(rng, ϕ::AbstractVector, g, f, py,
+function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
         xM::AbstractMatrix, xP, y_ob, y_unc, i_sites::AbstractVector{<:Number},
         interpreters::NamedTuple, transform_tools;
         n_MC = 12, n_MC_mean = 30, n_MC_cap = n_MC,
@@ -40,7 +40,7 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector, g, f, py,
         priors_θ_mean = [],
         cor_ends, # =(P=(1,),M=(1,))
         pbm_covar_indices
-)
+) where FT
     n_MCr = isempty(priors_θ_mean) ? n_MC : max(n_MC, n_MC_mean)
     ζs, σ = generate_ζ(rng, g, ϕ, xM; n_MC = n_MCr, cor_ends, pbm_covar_indices,
         int_unc = interpreters.unc, int_μP_ϕg_unc = interpreters.μP_ϕg_unc, int_PMs = interpreters.PMs
@@ -52,7 +52,7 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector, g, f, py,
         xP, y_ob, y_unc, transform_tools;
         n_MC, n_MC_cap
     )
-    nLmean_θ = isempty(priors_θ_mean) ? 0.0 :
+    nLmean_θ = isempty(priors_θ_mean) ? zero(FT) :
     begin
         # compute the mean of predicted and transformed site-parameters
         # avoid mapslices because of Zygote
@@ -75,8 +75,9 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector, g, f, py,
         nLmean_θMs = map((d, θi) -> -logpdf(d, θi),
             CA.getdata(priors_θ_mean[CA.getdata(iθ.Ms)])[:, i_sites], mean_θMs)
         nLmean_θ = sum(nLmean_θP) + sum(nLmean_θMs)
+        nLmean_θ
     end
-    nLy, entropy_ζ, nLmean_θ
+    nLy, entropy_ζ, convert(FT,nLmean_θ)::FT
 end
 
 function neg_elbo_ζtf(ζs, σ, f, py,
@@ -85,7 +86,7 @@ function neg_elbo_ζtf(ζs, σ, f, py,
         #interpreters::NamedTuple; 
         n_MC = 12, n_MC_cap = n_MC
 )
-    nLys = map(eachcol(ζs[:, 1:n_MC])) do ζi
+    nLys = map(eachrow(ζs[1:n_MC, :])) do ζi
         θP, θMs, logjac = transform_ζ(ζi, transform_tools...)
         y_pred_global, y_pred_i = f(θP, θMs, xP)
         # TODO nLogDen prior on \theta
@@ -246,31 +247,40 @@ Adds the MV-normally distributed residuals, retrieved by `sample_ζresid_norm`
 to the means extracted from parameters and predicted by the machine learning
 model. 
 """
-function generate_ζ(rng, g, ϕ::AbstractVector, xM::AbstractMatrix;
+function generate_ζ(rng, g, ϕ::AbstractVector{FT}, xM::MT;
         int_μP_ϕg_unc::AbstractComponentArrayInterpreter,
         int_PMs::AbstractComponentArrayInterpreter,
         int_unc::AbstractComponentArrayInterpreter,
-        n_MC = 3, cor_ends, pbm_covar_indices)
+        n_MC = 3, cor_ends, pbm_covar_indices) where {FT, MT}
     # see documentation of neg_elbo_gtf
     ϕc = int_μP_ϕg_unc(CA.getdata(ϕ))
     μ_ζP = ϕc.μP
     ϕg = ϕc.ϕg
     # first pass: append μ_ζP_to covars, need ML prediction for magnitude of ζMs
     # TODO replace pbm_covar_indices by ComponentArray? dimensions to be type-inferred?
-    xMP = _append_each_covars(xM, CA.getdata(μ_ζP), pbm_covar_indices)
-    μ_ζMs0 = g(xMP, ϕg)
+    xMP0 = _append_each_covars(xM, CA.getdata(μ_ζP), pbm_covar_indices)
+    μ_ζMs0 = g(xMP0, ϕg)::MT # for gpu restructure returns Any, so apply type
     ζ_resid, σ = sample_ζresid_norm(rng, μ_ζP, μ_ζMs0, ϕc.unc; n_MC, cor_ends, int_unc)
     #ζ_resid, σ = sample_ζresid_norm(rng, ϕ[1:2], reshape(ϕ[2 .+ (1:20)],2,:), ϕ[(end-length(interpreters.unc)+1):end], interpreters.unc; n_MC)
     # @show size(ζ_resid)
     # @show length(interpreters.PMs)
-    ζ = stack(map(eachcol(ζ_resid)) do r
-        rc = int_PMs(r)
-        ζP = μ_ζP .+ rc.P
-        # second pass: append ζP rather than μ_ζP to covarss to xM
-        μ_ζMs = _predict_μ_ζMs(xM, ζP, pbm_covar_indices, g, ϕg, μ_ζMs0)
-        ζMs = μ_ζMs .+ rc.Ms
-        vcat(ζP, vec(ζMs))
-    end)
+    if pbm_covar_indices isa SA.SVector{0}
+        # do not need to predict again but just add the residuals to μ_ζP and μ_ζMs
+        μ0 = vcat(CA.getdata(μ_ζP), vec(μ_ζMs0'))
+        ζ = (μ0 .+ ζ_resid')'
+    else
+        # r = first(eachrow(ζ_resid))
+        ζ = stack(map(eachrow(ζ_resid)) do r
+            rc = int_PMs(r)
+            ζP = μ_ζP .+ rc.P
+            # second pass: append ζP rather than μ_ζP to covars to xM
+            xMP = _append_each_covars(xM, CA.getdata(ζP), pbm_covar_indices)
+            μ_ζMst = g(xMP, ϕg)::MT # for gpu restructure returns Any, so apply type
+            μ_ζMs = μ_ζMst'
+            ζMs = μ_ζMs .+ rc.Ms
+            vcat(ζP, vec(ζMs))
+        end; dims = 1)
+    end
     ζ, σ
 end
 
@@ -482,6 +492,14 @@ function transform_ζ(ζi, transPMs::Bijectors.Transform,
     θc, logjac
 end
 
+"""
+Apply transformations and compute the logAbsDet of the Jacobian of the transfomration
+for a single parameter vector across several sites.
+
+Supply an int_PMs ComponentArrayInterpreter, that assumes Ms to be ordered parameter-last,
+and make sure that its number of rows matches the number of sites.
+The parameter positions in the matrix are not changed.
+"""
 function transform_ζ(ζ::AbstractArray,
         transP, transM::Stacked, int_PMs::AbstractComponentArrayInterpreter)
     transP, transMM, pos_int_P, pos_int_Mst = setup_transform_ζ(transP, transM, int_PMs)
@@ -491,19 +509,20 @@ end
 function setup_transform_ζ(
         transP, transM::Stacked, int_PMs::AbstractComponentArrayInterpreter)
     pos_PMs = get_positions(int_PMs)
-    pos_int_Mst = CA.getdata(pos_PMs.Ms)'
+    #pos_int_Mst = CA.getdata(pos_PMs.Ms)'
+    pos_int_Ms = CA.getdata(pos_PMs.Ms)
     pos_int_P = CA.getdata(pos_PMs.P)
-    n_batch = size(pos_int_Mst, 1)
+    n_batch = size(pos_int_Ms, 1)
     transMM = extend_stacked_nrow(transM, n_batch)
-    (transP, transMM, pos_int_P, pos_int_Mst)
+    (transP, transMM, pos_int_P, pos_int_Ms)
 end
 
 function transform_ζ(ζ::AbstractArray, transP, transMM::Stacked,
         pos_int_P::AbstractVector{<:Integer},
-        pos_int_Mst::AbstractMatrix{<:Integer}
+        pos_int_Ms::AbstractMatrix{<:Integer}
 )
     θP, logjac_P = Bijectors.with_logabsdet_jacobian(transP, ζ[pos_int_P])
-    θMsvec, logjac_M = Bijectors.with_logabsdet_jacobian(transMM, vec(ζ[pos_int_Mst]))
-    θMs = reshape(θMsvec, size(pos_int_Mst))
+    θMsvec, logjac_M = Bijectors.with_logabsdet_jacobian(transMM, vec(ζ[pos_int_Ms]))
+    θMs = reshape(θMsvec, size(pos_int_Ms))
     θP, θMs, logjac_P + logjac_M
 end

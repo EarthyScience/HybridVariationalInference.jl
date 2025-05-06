@@ -23,10 +23,11 @@ using Test: Test # @inferred
 
 export extend_stacked_nrow, StackedArray
 #export Exp
-include("bijectors_utils.jl") 
+include("bijectors_utils.jl")
 
-export AbstractComponentArrayInterpreter, ComponentArrayInterpreter, flatten1 
-export get_concrete, get_positions, stack_ca_int, compose_interpreters
+export AbstractComponentArrayInterpreter, ComponentArrayInterpreter,
+       StaticComponentArrayInterpreter
+export flatten1, get_concrete, get_positions, stack_ca_int, compose_interpreters
 include("ComponentArrayInterpreter.jl")
 
 export AbstractModelApplicator, construct_ChainsApplicator
@@ -55,8 +56,8 @@ export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_
        setup_PBMpar_interpreter
 include("AbstractHybridProblem.jl")
 
-export AbstractHybridProblemInterpreters, HybridProblemInterpreters, 
-       get_int_P, get_int_M, 
+export AbstractHybridProblemInterpreters, HybridProblemInterpreters,
+       get_int_P, get_int_M,
        get_int_Ms_batch, get_int_Ms_site, get_int_Mst_batch, get_int_Mst_site,
        get_int_PMs_batch, get_int_PMs_site, get_int_PMst_batch, get_int_PMst_site
 include("hybridprobleminterpreters.jl")
