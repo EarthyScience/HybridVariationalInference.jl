@@ -512,7 +512,7 @@ end
 #ζi = first(eachrow(Array(chain)))
 f_allsites = get_hybridproblem_PBmodel(prob0; scenario, use_all_sites = true)
 ζs = mapreduce(ζi -> transposeMs(ζi, intm_PMs_gen, true), hcat, eachrow(Array(chain)));
-(; θ, y) = HVI.predict_ζf(ζs, f_allsites, xP, trans_PMs_gen, intm_PMs_gen);
+(; θ, y) = HVI.apply_f_trans(ζs, f_allsites, xP, trans_PMs_gen, intm_PMs_gen);
 (ζs_hmc, θ_hmc, y_hmc) = (ζs, θ, y);
 
     
@@ -522,7 +522,7 @@ f_allsites = get_hybridproblem_PBmodel(prob0; scenario, use_all_sites = true)
     #chain0 = Chains(transposeMs(ζ_true, intm_PMs_gen)', _parnames);
     chain0 = Chains(ζ0_true', _parnames); # transpose here only for chain array
     y0inv = generated_quantities(model, chain0)[1, 1]
-    y0pred = HVI.predict_y(ζ_true, xP, f, trans_PMs_gen, intm_PMs_gen)[2]
+    y0pred = HVI.apply_f_trans(ζ_true, xP, f, trans_PMs_gen, intm_PMs_gen)[2]
     y0pred .- y_true 
     y0inv .- y_true
 end
@@ -797,7 +797,7 @@ end
 
 #θi = first(eachrow(Array(chain)))
 θs = mapreduce(θi -> transposeMs(θi, intm_PMs_gen, true), hcat, eachrow(Array(chain)));
-(; θ, y) = HVI.predict_ζf(θs, f, xP, Stacked(elementwise(identity)), intm_PMs_gen);
+(; θ, y) = HVI.apply_f_trans(θs, f, xP, Stacked(elementwise(identity)), intm_PMs_gen);
 
 
 mean_y_invθ = map(mean, eachslice(y; dims = (1, 2)));

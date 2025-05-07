@@ -33,18 +33,18 @@ function neg_elbo_gtf(args...; kwargs...)
 end
 
 function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
-        xM::AbstractMatrix, xP, y_ob, y_unc, i_sites::AbstractVector{<:Number};
-        int_μP_ϕg_unc::AbstractComponentArrayInterpreter,
-        int_unc::AbstractComponentArrayInterpreter,
-        n_MC = 12, n_MC_mean = 30, n_MC_cap = n_MC,
-        cdev = cpu_device(),
-        priors_θ_mean = [],
-        cor_ends, # =(P=(1,),M=(1,))
-        pbm_covar_indices,
-        transP, transMs
-) where FT
+    xM::AbstractMatrix, xP, y_ob, y_unc, i_sites::AbstractVector{<:Number};
+    int_μP_ϕg_unc::AbstractComponentArrayInterpreter,
+    int_unc::AbstractComponentArrayInterpreter,
+    n_MC=12, n_MC_mean=30, n_MC_cap=n_MC,
+    cdev=cpu_device(),
+    priors_θ_mean=[],
+    cor_ends, # =(P=(1,),M=(1,))
+    pbm_covar_indices,
+    transP, transMs
+) where {FT}
     n_MCr = isempty(priors_θ_mean) ? n_MC : max(n_MC, n_MC_mean)
-    ζsP, ζsMs, σ = generate_ζ(rng, g, ϕ, xM; n_MC = n_MCr, cor_ends, pbm_covar_indices,
+    ζsP, ζsMs, σ = generate_ζ(rng, g, ϕ, xM; n_MC=n_MCr, cor_ends, pbm_covar_indices,
         int_unc, int_μP_ϕg_unc)
     ζsP_cpu = cdev(ζsP) # fetch to CPU, because for <1000 sites (n_batch) this is faster
     # translate in batch 
@@ -67,7 +67,7 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
         θPs = map(θ -> CA.getdata(interpreters.PMs(θ).P), θs) |> stack
         # does not need to allocate vectors but does not work with Zygote: 
         # θPs = (CA.getdata(interpreters.PMs(θ).P) for θ in θs) |> stack
-        mean_θP = mean(CA.getdata(θPs); dims = (2))[:, 1]
+        mean_θP = mean(CA.getdata(θPs); dims=(2))[:, 1]
         #nLmean_θP = map((d, θi) -> -logpdf(d, θi), CA.getdata(priors_θ_mean.P), mean_θP) 
         #workaround for Zygote failing on `priors_θ_mean.P`
         iθ = CA.ComponentArray(1:length(priors_θ_mean), CA.getaxes(priors_θ_mean))
@@ -75,13 +75,13 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
         #   but does not work with Zygote
         nLmean_θP = map((d, θi) -> -logpdf(d, θi), priors_θ_mean[CA.getdata(iθ.P)], mean_θP)
         θMss = map(θ -> interpreters.PMs(θ).Ms, θs) |> stack
-        mean_θMs = mean(θMss; dims = (3))[:, :, 1]
+        mean_θMs = mean(θMss; dims=(3))[:, :, 1]
         nLmean_θMs = map((d, θi) -> -logpdf(d, θi),
             CA.getdata(priors_θ_mean[CA.getdata(iθ.Ms)])[:, i_sites], mean_θMs)
         nLmean_θ = sum(nLmean_θP) + sum(nLmean_θMs)
         nLmean_θ
     end
-    nLy, entropy_ζ, convert(FT,nLmean_θ)::FT
+    nLy, entropy_ζ, convert(FT, nLmean_θ)::FT
 end
 
 """ 
@@ -90,13 +90,13 @@ Compute the neg_elbo for each sampled parameter vector (last dimension of ζs).
 - call forward model
 - compute log-density of predictions
 - comptue entropy of transformation
-"""    
+"""
 function neg_elbo_ζtf(ζsP, ζsMs, σ, f, py, xP, y_ob, y_unc;
-        n_MC = 12, n_MC_cap = n_MC,
-        transP, 
-        transMs = StackedArray(transM, size(ζsMs, 2))
+    n_MC=12, n_MC_cap=n_MC,
+    transP,
+    transMs=StackedArray(transM, size(ζsMs, 2))
 )
-    nLys = map(eachcol(ζsP[:,1:n_MC]), eachslice(ζsMs[:, :, 1:n_MC]; dims=3)) do ζP, ζMs
+    nLys = map(eachcol(ζsP[:, 1:n_MC]), eachslice(ζsMs[:, :, 1:n_MC]; dims=3)) do ζP, ζMs
         θP, θMs, logjac = transform_and_logjac_ζ(ζP, ζMs; transP, transMs)
         y_pred_global, y_pred_i = f(θP, θMs, xP)
         # TODO nLogDen prior on \theta
@@ -116,7 +116,7 @@ function neg_elbo_ζtf(ζsP, ζsMs, σ, f, py, xP, y_ob, y_unc;
     #  sum_log_σ = sum(log.(σ))
     # logdet_jacT2 = -sum_log_σ # log Prod(1/σ_i) = -sum log σ_i 
     logdetΣ = 2 * sum(log.(σ))
-    n_θ = size(ζsP,1) + prod(size(ζsMs)[1:2])
+    n_θ = size(ζsP, 1) + prod(size(ζsMs)[1:2])
     @assert length(σ) == n_θ
     entropy_ζ = entropy_MvNormal(n_θ, logdetΣ)  # defined in logden_normal
     # if i_sites[1] == 1
@@ -131,7 +131,7 @@ end
 () -> begin
     nLy = reduce(
         +, map(eachcol(ζs_cpu[:, 1:n_MC])) do ζi
-            θ_i, y_pred_i, logjac = predict_y(ζi, xP, f, transPMs, interpreters.PMs)
+            θ_i, y_pred_i, logjac = apply_f_trans(ζi, xP, f, transPMs, interpreters.PMs)
             # TODO nLogDen prior on \theta
             #nLy1 = neg_logden_indep_normal(y_ob, y_pred_i, y_unc)
             nLy1 = py(y_ob, y_pred_i, y_unc)
@@ -159,17 +159,17 @@ function predict_gf(rng, prob::AbstractHybridProblem; scenario, kwargs...)
     predict_gf(rng, prob, xM, xP; scenario, kwargs...)
 end
 function predict_gf(rng, prob::AbstractHybridProblem, xM::AbstractMatrix, xP;
-        scenario,
-        n_sample_pred = 200,
-        gdev = :use_gpu ∈ scenario ? gpu_device() : identity,
-        cdev = gdev isa MLDataDevices.AbstractGPUDevice ? cpu_device() : identity
+    scenario,
+    n_sample_pred=200,
+    gdev=:use_gpu ∈ scenario ? gpu_device() : identity,
+    cdev=gdev isa MLDataDevices.AbstractGPUDevice ? cpu_device() : identity
 )
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     is_predict_batch = (n_batch == length(xP))
     n_site_pred = is_predict_batch ? n_batch : n_site
-    @assert size(xP,2) == n_site_pred
+    @assert size(xP, 2) == n_site_pred
     @assert size(xM, 2) == n_site_pred
-    f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = !is_predict_batch)
+    f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites=!is_predict_batch)
     par_templates = get_hybridproblem_par_templates(prob; scenario)
     (; θP, θM) = par_templates
     cor_ends = get_hybridproblem_cor_ends(prob; scenario)
@@ -186,37 +186,60 @@ function predict_gf(rng, prob::AbstractHybridProblem, xM::AbstractMatrix, xP;
 end
 
 function predict_gf(rng, g, f, ϕ::AbstractVector, xM::AbstractMatrix, xP;
-        int_μP_ϕg_unc::AbstractComponentArrayInterpreter,
-        int_unc::AbstractComponentArrayInterpreter,
-        transP, transM,
-        n_sample_pred = 200,
-        cdev = cpu_device(),
-        cor_ends,        
-        pbm_covar_indices,
-        kwargs...
+    int_μP_ϕg_unc::AbstractComponentArrayInterpreter,
+    int_unc::AbstractComponentArrayInterpreter,
+    transP, transM,
+    n_sample_pred=200,
+    cdev=cpu_device(),
+    cor_ends,
+    pbm_covar_indices,
+    kwargs...
 )
     ζsP, ζsMs, σ = generate_ζ(rng, g, CA.getdata(ϕ), CA.getdata(xM);
         int_μP_ϕg_unc, int_unc,
-        n_MC = n_sample_pred, cor_ends, pbm_covar_indices)
+        n_MC=n_sample_pred, cor_ends, pbm_covar_indices)
     ζsP_cpu = cdev(ζsP)
     ζsMs_cpu = cdev(ζsMs)
     logdetΣ = 2 * sum(log.(σ))
-    entropy_ζ = entropy_MvNormal(length(σ), logdetΣ)  
-    res_pred = predict_ζsf(ζsP_cpu, ζsMs_cpu, f, xP; transP, transM, kwargs...)
+    entropy_ζ = entropy_MvNormal(length(σ), logdetΣ)
+    res_pred = apply_f_trans(ζsP_cpu, ζsMs_cpu, f, xP; transP, transM, kwargs...)
     (; res_pred..., entropy_ζ)
 end
 
-function predict_ζsf(ζsP, ζsMs, f, xP; transP, transM::Stacked,
-        trans_mP = StackedArray(transP, size(ζsP,2)),
-        trans_mMs = StackedArray(transM, size(ζsMs,1)*size(ζsMs,3))
+
+""" 
+Compute predictions of the transformation at given
+transformed parameters for each site. 
+The number of sites is given by the number of rows in `ζsMs`.
+
+Steps:
+- transform the parameters to original constrained space
+- Applies the mechanistic model for each site
+
+ζsP as shaped as output of generate_ζ.
+Results are of shape `(n_obs x n_site_pred x n_MC)`.
+"""
+function apply_f_trans(ζsP::AbstractMatrix, ζsMs::AbstractArray, f, xP; transP, transM::Stacked,
+    trans_mP=StackedArray(transP, size(ζsP, 2)),
+    trans_mMs=StackedArray(transM, size(ζsMs, 1) * size(ζsMs, 3))
 )
     θsP, θsMs = transform_ζs(ζsP, ζsMs; trans_mP, trans_mMs)
-    y = predict_θsf(θsP, θsMs, f, xP)
-    (;y, θsP, θsMs)
+    y = apply_f(θsP, θsMs, f, xP)
+    (; y, θsP, θsMs)
 end
 
-function predict_θsf(θsP, θsMs, f, xP)
-    y_pred = stack(map(eachcol(θsP), eachslice(θsMs,dims=3)) do θP, θMs
+function apply_f_trans(ζP::AbstractVector, ζMs::AbstractMatrix, f, xP; 
+    transP, transM::Stacked, transMs::StackedArray=StackedArray(transM, size(ζMs, 1)),
+)
+    θP = transP(ζP)
+    θMs = transMs(ζMs)
+    y_global, y = f(θP, θMs, xP)
+    (; y, θP, θMs)
+end
+
+
+function apply_f(θsP::AbstractMatrix, θsMs::AbstractArray{ET,3}, f, xP) where ET
+    y_pred = stack(map(eachcol(θsP), eachslice(θsMs, dims=3)) do θP, θMs
         y_global, y_pred_i = f(θP, θMs, xP)
         y_pred_i
     end)
@@ -234,9 +257,9 @@ The output shape of size `(n_site x n_par x n_MC)` is tailored to iterating
 each MC sample and then transforming each parameter on block across sites.
 """
 function generate_ζ(rng, g, ϕ::AbstractVector{FT}, xM::MT;
-        int_μP_ϕg_unc::AbstractComponentArrayInterpreter,
-        int_unc::AbstractComponentArrayInterpreter,
-        n_MC = 3, cor_ends, pbm_covar_indices) where {FT, MT}
+    int_μP_ϕg_unc::AbstractComponentArrayInterpreter,
+    int_unc::AbstractComponentArrayInterpreter,
+    n_MC=3, cor_ends, pbm_covar_indices) where {FT,MT}
     # see documentation of neg_elbo_gtf
     ϕc = int_μP_ϕg_unc(CA.getdata(ϕ))
     μ_ζP = CA.getdata(ϕc.μP)
@@ -249,16 +272,16 @@ function generate_ζ(rng, g, ϕ::AbstractVector{FT}, xM::MT;
     if pbm_covar_indices isa SA.SVector{0}
         # do not need to predict again but just add the residuals to μ_ζP and μ_ζMs
         ζsP = (μ_ζP .+ ζP_resids)  # n_par x n_MC 
-        ζsMs = permutedims(μ_ζMs0 .+ ζMs_parfirst_resids, (2,1,3)) # n_site x n_par x n_MC
+        ζsMs = permutedims(μ_ζMs0 .+ ζMs_parfirst_resids, (2, 1, 3)) # n_site x n_par x n_MC
     else
         #rP, rMs = first(zip(eachcol(ζP_resids), eachslice(ζMs_parfirst_resids;dims=3)))
-        ζst = map(eachcol(ζP_resids), eachslice(ζMs_parfirst_resids;dims=3)) do rP, rMs
+        ζst = map(eachcol(ζP_resids), eachslice(ζMs_parfirst_resids; dims=3)) do rP, rMs
             ζP = μ_ζP .+ rP
             # second pass: append ζP rather than μ_ζP to covars to xM
             xMP = _append_each_covars(xM, CA.getdata(ζP), pbm_covar_indices)
             μ_ζMst = g(xMP, ϕg)::MT # for gpu restructure returns Any, so apply type
             ζMs = (μ_ζMst .+ rMs)'  # already transform to par-last form
-            ζP, ζMs 
+            ζP, ζMs
         end
         # ζsP = stack(map(first, ζst); dims=1)  # n_MC x n_par
         # ζsMs = stack(map(x -> x[2], ζst); dims=1) # n_MC x n_site x n_par
@@ -294,13 +317,13 @@ function _append_each_covars(xM, ζP_covar::AbstractVector)
     vcat(xM, ζP_rep)
 end
 
-function get_pbm_covar_indices(ζP, pbm_covars::NTuple{N, Symbol},
-        intP::AbstractComponentArrayInterpreter = ComponentArrayInterpreter(ζP)) where {N}
+function get_pbm_covar_indices(ζP, pbm_covars::NTuple{N,Symbol},
+    intP::AbstractComponentArrayInterpreter=ComponentArrayInterpreter(ζP)) where {N}
     #SA.SVector{N}(CA.getdata(intP(1:length(intP))[pbm_covars])) # can not index into GPUarr
     CA.getdata(intP(1:length(intP))[pbm_covars])
 end
 function get_pbm_covar_indices(ζP, pbm_covars::NTuple{0},
-        intP::AbstractComponentArrayInterpreter = ComponentArrayInterpreter(ζP))
+    intP::AbstractComponentArrayInterpreter=ComponentArrayInterpreter(ζP))
     SA.SA[]
 end
 
@@ -335,23 +358,23 @@ ML-model predcitions of size `(n_θM, n_site)`.
    ρsP, ρsM, logσ2_logP, coef_logσ2_ζMs(intercept + slope), 
 """
 function sample_ζresid_norm(rng::Random.AbstractRNG, ζP::AbstractVector, ζMs::AbstractMatrix,
-        args...; n_MC, cor_ends, int_unc)
+    args...; n_MC, cor_ends, int_unc)
     n_θP, n_θMs = length(ζP), length(ζMs)
     # intm_PMs_parfirst = !isnothing(intm_PMs_parfirst) ? intm_PMs_parfirst : begin
     #     n_θM, n_site_batch = size(ζMs)
     #     get_concrete(ComponentArrayInterpreter(
     #         P = (n_MC, n_θP), Ms = (n_MC, n_θM, n_site_batch)))
     # end
-    urandn = _create_randn(rng, CA.getdata(ζP), n_MC, n_θP + n_θMs )
+    urandn = _create_randn(rng, CA.getdata(ζP), n_MC, n_θP + n_θMs)
     sample_ζresid_norm(urandn, CA.getdata(ζP), CA.getdata(ζMs), args...;
-        cor_ends, int_unc = get_concrete(int_unc))
+        cor_ends, int_unc=get_concrete(int_unc))
 end
 
 function sample_ζresid_norm(urandn::AbstractMatrix, ζP::TP, ζMs::TM,
-        ϕunc::AbstractVector; 
-        int_unc = get_concrete(ComponentArrayInterpreter(ϕunc)),
-        cor_ends
-) where {T, TP <: AbstractVector{T}, TM <: AbstractMatrix{T}}
+    ϕunc::AbstractVector;
+    int_unc=get_concrete(ComponentArrayInterpreter(ϕunc)),
+    cor_ends
+) where {T,TP<:AbstractVector{T},TM<:AbstractMatrix{T}}
     ϕuncc = int_unc(CA.getdata(ϕunc))
     n_θP, n_θMs, (n_θM, n_batch) = length(ζP), length(ζMs), size(ζMs)
     n_MC = size(urandn, 1) # TODO transfrom urandn
@@ -372,8 +395,8 @@ function sample_ζresid_norm(urandn::AbstractMatrix, ζP::TP, ζMs::TM,
     σ = diag(Uσ)   # elements of the diagonal: standard deviations
     ζ_resids_parfirst = Uσ' * urandn' # n_par x n_MC
     #ζ_resids_parfirst = urandn * Uσ # n_MC x n_par
-    ζP_resids = ζ_resids_parfirst[1:n_θP,:]
-    ζMs_parfirst_resids = reshape(ζ_resids_parfirst[(n_θP+1):end,:], n_θM, n_batch, n_MC)
+    ζP_resids = ζ_resids_parfirst[1:n_θP, :]
+    ζMs_parfirst_resids = reshape(ζ_resids_parfirst[(n_θP+1):end, :], n_θM, n_batch, n_MC)
     ζP_resids, ζMs_parfirst_resids, σ
     # #map(std, eachcol(ζ_resids_parfirst[:, 3:8]))
     # ζ_resid = transpose_mPMs_sitefirst(ζ_resids_parfirst; intm_PMs_parfirst)
@@ -394,13 +417,13 @@ on block.
 function transpose_mPMs_sitefirst(Xt, n_θP::Integer, n_θM, n_site_batch, n_MC)
     # cannot make n_θP keyword arguments, because it overrides method below
     intm_PMs_parfirst = ComponentArrayInterpreter(
-        P = (n_MC, n_θP), Ms = (n_MC, n_θM, n_site_batch))
+        P=(n_MC, n_θP), Ms=(n_MC, n_θM, n_site_batch))
     transpose_mPMs_sitefirst(Xt; intm_PMs_parfirst)
 end
 function transpose_mPMs_sitefirst(Xt;
-        intm_PMs_parfirst = ComponentArrayInterpreter(
-            P = (n_MC, n_θP), Ms = (n_MC, n_θM, n_site_batch))
-            )
+    intm_PMs_parfirst=ComponentArrayInterpreter(
+        P=(n_MC, n_θP), Ms=(n_MC, n_θM, n_site_batch))
+)
     Xtc = intm_PMs_parfirst(Xt)
     # Main.@infiltrate_main
 
@@ -409,7 +432,7 @@ function transpose_mPMs_sitefirst(Xt;
 
     # map(std, eachrow(tmp[3:8,:]))
     # _Ms = permutedims(Xtc.Ms, (1, 3, 2))
-    X_site_first = CA.ComponentVector(P = Xtc.P, Ms = permutedims(Xtc.Ms, (1, 3, 2)))
+    X_site_first = CA.ComponentVector(P=Xtc.P, Ms=permutedims(Xtc.Ms, (1, 3, 2)))
     reshape(CA.getdata(X_site_first), size(Xt))::typeof(CA.getdata(Xt))
     # X_site_first = CA.ComponentVector(
     #     P = permutedims(Xtc.P), Ms = permutedims(Xtc.Ms, (3, 2, 1)))
@@ -421,14 +444,14 @@ function _create_blockdiag(UP::AbstractMatrix{T}, UM, σP, σMs, n_batch) where 
     BlockDiagonal(v)
 end
 function _create_blockdiag(
-        UP::GPUArraysCore.AbstractGPUMatrix{T}, UM, σP, σMs, n_batch) where {T}
+    UP::GPUArraysCore.AbstractGPUMatrix{T}, UM, σP, σMs, n_batch) where {T}
     # using BlockDiagonal leads to Scalar operations downstream
     # v = [i == 0 ? UP * Diagonal(σP) : UM * Diagonal(σMs[:, i]) for i in 0:n_batch]
     # BlockDiagonal(v)    
     # Uσ = cat([i == 0 ? UP * Diagonal(σP) : UM * Diagonal(σMs[:, i]) for i in 0:n_batch]...;
     #     dims=(1, 2))
     # on GPU use only one big multiplication rather than many small ones
-    U = cat([i == 0 ? UP : UM for i in 0:n_batch]...; dims = (1, 2))
+    U = cat([i == 0 ? UP : UM for i in 0:n_batch]...; dims=(1, 2))
     #Main.@infiltrate_main
     σD = Diagonal(vcat(σP, vec(σMs)))
     Uσ = U * σD
@@ -444,34 +467,10 @@ end
 #moved to HybridVariationalInferenceCUDAExt
 #function _create_randn(rng, ::CUDA.CuVector{T}, dims...) where {T}
 
-""" 
-Compute predictions and log-Determinant of the transformation at given
-transformed parameters for each site. 
 
-The number of sites is given by the number of columns in `Ms`, which is determined
-by the transformation, `transPMs`.
-
-Steps:
-- transform the parameters to original constrained space
-- Applies the mechanistic model for each site
-"""
-function predict_y(ζi, xP, f, transP, transM::Stacked,
-        int_PMs::AbstractComponentArrayInterpreter,
-        int_P::AbstractComponentArrayInterpreter,
-        int_Ms::AbstractComponentArrayInterpreter)
-    θP, θMs, logjac = transform_ζ(ζi, transP, transM, int_PMs)
-    #θc, logjac = int_PMs(ζi), eltype(ζi)(0)
-    y_pred_global, y_pred = f(θP, θMs, xP)
-    # Main.@infiltrate_main
-    # @benchmark f(θc.P, θc.Ms, xP)
-    #y_pred_global, y_pred = f(θc.P, θc.Ms, xPg)
-    # TODO take care of y_pred_global
-    # TODO interpret θP and θMs 
-    int_P(θP), int_Ms(θMs), y_pred, logjac
-end
-
+# TODO remove
 function transform_ζ(ζi, transPMs::Bijectors.Transform,
-        int_PMs::AbstractComponentArrayInterpreter)
+    int_PMs::AbstractComponentArrayInterpreter)
     @warn("replace by transform_ζ with pos_int_P, pos_int_Mst")
     # θtup, logjac = transform_and_logjac(transPMs, ζi) # both allocating
     # θc = CA.ComponentVector(θtup)
@@ -513,9 +512,9 @@ Transform parameters and compute absolute of determinant of Jacobian of the tran
 - to constrained θ scale of format (n_site x n_par)
 """
 
-function transform_and_logjac_ζ(ζP::AbstractVector, ζMs::AbstractMatrix; 
-    transP::Bijectors.Transform, 
-    transMs::StackedArray = StackedArray(transM, size(ζMs,1)))
+function transform_and_logjac_ζ(ζP::AbstractVector, ζMs::AbstractMatrix;
+    transP::Bijectors.Transform,
+    transMs::StackedArray=StackedArray(transM, size(ζMs, 1)))
     θP, logjac_P = Bijectors.with_logabsdet_jacobian(transP, ζP)
     θMs, logjac_M = Bijectors.with_logabsdet_jacobian(transMs, ζMs)
     θP, θMs, logjac_P + logjac_M
@@ -526,15 +525,16 @@ Transform parameters
 - from unconstrained (e.g. log) ζ scale of format ((n_site x n_par) x n_mc)
 - to constrained θ scale of the same format
 """
-function transform_ζs(ζsP::AbstractMatrix, ζsMs::AbstractArray; 
-    trans_mP::StackedArray = StackedArray(transP, n_MC), 
-    trans_mMs::StackedArray = StackedArray(transM, n_MC * n_site_batch))
-    # transform so that can apply transformations effectively
+function transform_ζs(ζsP::AbstractMatrix, ζsMs::AbstractArray;
+    trans_mP::StackedArray=StackedArray(transP, n_MC),
+    trans_mMs::StackedArray=StackedArray(transM, n_MC * n_site_batch)
+)
+    # transform to parameter-last that can apply transformations effectively
     θsPt = trans_mP(ζsP')
-    θsMst = trans_mMs(permutedims(ζsMs, (3,1,2)))
+    θsMst = trans_mMs(permutedims(ζsMs, (3, 1, 2)))
     # backtransform to n_mc last for efficient mapping?
     # TODO test if faster than mapping
     θsP = θsPt'
-    θsMs = permutedims(θsMst, (2,3,1))
+    θsMs = permutedims(θsMst, (2, 3, 1))
     θsP, θsMs
 end

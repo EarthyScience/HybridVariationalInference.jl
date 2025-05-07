@@ -96,11 +96,11 @@ test_scenario = (scenario) -> begin
         @test size(ζsMs) == (n_batch, n_θM, n_MC)
         gr = Zygote.gradient(
             ϕ -> begin
-                ζsP, ζsMs, σ = CP.generate_ζ(
+                _ζsP, _ζsMs, _σ = CP.generate_ζ(
                     rng, g, ϕ, xM[:, 1:n_batch];
                     n_MC=8, cor_ends, pbm_covar_indices,
                     int_unc=interpreters.unc, int_μP_ϕg_unc=interpreters.μP_ϕg_unc)
-                sum(ζsP) + sum(ζsMs) + sum(σ)
+                sum(_ζsP) + sum(_ζsMs) + sum(_σ)
             end, CA.getdata(ϕ_ini))
         @test gr[1] isa Vector
     end
@@ -125,11 +125,11 @@ test_scenario = (scenario) -> begin
             @test size(ζsMs_d) == (n_batch, n_θM, n_MC)
             gr = Zygote.gradient(
                 ϕ -> begin
-                    ζsP, ζsMs, σ = CP.generate_ζ(
+                    _ζsP, _ζsMs, _σ = CP.generate_ζ(
                         rng, g_gpu, ϕ, xMg_batch;
                         n_MC, cor_ends, pbm_covar_indices,
                         int_unc=interpreters.unc, int_μP_ϕg_unc=interpreters.μP_ϕg_unc)
-                    sum(ζsP) + sum(ζsMs) + sum(σ)
+                    sum(_ζsP) + sum(_ζsMs) + sum(_σ)
                 end, CA.getdata(ϕ))
             @test gr[1] isa GPUArraysCore.AbstractGPUVector
         end
@@ -250,6 +250,22 @@ test_scenario = (scenario) -> begin
         end
     end
 
+    @testset "apply_f $(last(CP._val_value(scenario)))" begin
+        ζP = ζsP[:,1]
+        ζMs = ζsMs[:,:,1]
+        y_pred, θP_pred, θMs_pred = @inferred CP.apply_f_trans(
+            ζP, ζMs, f, xP[:,1:n_batch]; transP, transM)
+        @test size(y_pred) == size(y_o[:,1:n_batch])
+        @test size(θP_pred) == (n_θP,)
+        @test size(θMs_pred) == (n_batch, n_θM)
+        #
+        ym_pred, θPm_pred, θMsm_pred = CP.apply_f_trans(
+            ζsP[:,1:1], ζMs[:,:,1:1], f, xP[:,1:n_batch]; transP, transM)
+        @test ym_pred[:,:,1] == y_pred
+        @test θPm_pred[:,1] == θP_pred
+        @test θMsm_pred[:,:,1] == θMs_pred
+    end
+
     @testset "predict_gf cpu $(last(CP._val_value(scenario)))" begin
         # intm_PMs_gen = get_ca_int_PMs(n_site)
         # trans_PMs_gen = get_transPMs(n_site)
@@ -319,7 +335,9 @@ test_scenario = (scenario) -> begin
         #     @test size(y) == (size(y_o)..., n_sample_pred)
         # end
     end # if ggdev
+
 end # test_scenario
+
 
 test_scenario(Val((:default,)))
 
