@@ -32,21 +32,21 @@ dy = Zygote.gradient(x -> trans(x,b2), x)
 
 
 @testset "elementwise exp" begin
-    ys = trans(x,b2s)
+    ys = @inferred trans(x,b2s)
     @test ys == y
     Zygote.gradient(x -> trans(x,b2s), x)
 end;
 
 @testset "Exp" begin
-    y1 = b3(x)
-    y2 = b3s(x)
+    y1 = @inferred b3(x)
+    y2 = @inferred b3s(x)
     @test all(inverse(b3)(y2) .≈ x)
     @test all(inverse(b3s)(y2) .≈ x)
-    ye = trans(x, b3)
+    ye = @inferred trans(x, b3)
     dye = Zygote.gradient(x -> trans(x,b3), x)
     @test ye == y
     @test dye == dy
-    ys = trans(x,b3s)
+    ys = @inferred trans(x,b3s)
     dys = Zygote.gradient(x -> trans(x,b2s), x)
     @test dys == dy
 end;
@@ -55,18 +55,18 @@ end;
 if gdev isa MLDataDevices.AbstractGPUDevice
     xd = gdev(x)
     @testset "elementwise exp gpu" begin
-        ys = trans(xd,b2)
+        ys = @inferred trans(xd,b2)
         @test ys ≈ y
         @test_broken Zygote.gradient(x -> trans(x,b2), xd)
         @test_broken Zygote.gradient(x -> trans(x,b2s), xd)
     end;
     
     @testset "Exp" begin
-        ye = trans(xd, b3)
+        ye = @inferred trans(xd, b3)
         dye = Zygote.gradient(x -> trans(x,b3), xd)
         @test ye ≈ y
         @test all(cdev(dye) .≈ dy)
-        ys = trans(xd,b3s)
+        ys = @inferred trans(xd,b3s)
         dys = Zygote.gradient(x -> trans(x,b3s), xd)
         @test ys ≈ y
         @test all(cdev(dys) .≈ dy)
@@ -77,16 +77,16 @@ end
     nrow = 50    # faster on CPU by factor of 20
     #nrow = 20000 # faster on GPU
     X = reduce(hcat, ([x + y for x in 0:nrow] for y in 0:10:30))
-    b1 = CP.Exp()
+    b1 = @inferred CP.Exp()
     b2 = identity
-    b = Stacked((b1,b2), (1:1,2:size(X,2)))
-    bs = extend_stacked_nrow(b, size(X,1))
-    Xt = reshape(bs(vec(X)), size(X))
+    b = @inferred Stacked((b1,b2), (1:1,2:size(X,2)))
+    bs = @inferred extend_stacked_nrow(b, size(X,1))
+    Xt = @inferred reshape(bs(vec(X)), size(X))
     @test Xt[:,1] == b1(X[:,1])
     @test Xt[:,2] == b2(X[:,2])
     if gdev isa MLDataDevices.AbstractGPUDevice
         Xd = gdev(X)
-        Xtd = reshape(bs(vec(Xd)), size(Xd))
+        Xtd = @inferred reshape(bs(vec(Xd)), size(Xd))
         #Xtd2, logjac = with_logabsdet_jacobian(bs, Xd)
         #@test Xtd2 == Xtd
         # test transpose in gradient function
@@ -109,19 +109,30 @@ end
 @testset "StackedArray" begin
     nrow = 5    # faster on CPU by factor of 20
     #nrow = 20000 # faster on GPU
-    X = reduce(hcat, ([x + y for x in 0:nrow] for y in 0:10:30))
-    b1 = CP.Exp()
+    X = reduce(hcat, ([x + y for x in 0:nrow] for y in 0.0:10:30))
+    b1 = @inferred CP.Exp()
     b2 = identity
-    b = Stacked((b1,b2), (1:1,2:size(X,2)))
-    bs = StackedArray(b, size(X,1))
-    Xt = bs(X)
+    b = @inferred Stacked((b1,b2), (1:1,2:size(X,2)))
+    bs = @inferred StackedArray(b, size(X,1))
+    Xt = @inferred bs(X)
     @test Xt[:,1] == b1(X[:,1])
     @test Xt[:,2] == b2(X[:,2])
-    X2 = inverse(bs)(Xt)
+    X2 = @inferred inverse(bs)(Xt)
     @test X2 == X
+    # test with Exp only
+    be1 = Stacked((CP.Exp(),),(1:size(X,2),))
+    bse = StackedArray(be1, size(X,1))
+    Xt = @inferred bse(X) # works also for adjoint
+    Xt2 = @inferred bse(copy(X')') # works also for adjoint
+    @test Xt2 == Xt
+    @inferred bse(X)
     if gdev isa MLDataDevices.AbstractGPUDevice
         Xd = gdev(X)
-        Xtd = bs(Xd)
+        bse(Xd)
+        Xtd = @inferred bs(Xd)
+        Xtd2 = @inferred bs(copy(Xd')') # works also for adjoint
+        Xtd2 = @inferred bse(copy(Xd')') # needs copy workaround 
+        #bse.stacked(vec(Xd'))  # TODO write issue
         tmpf = (X, bs) -> begin
             Xt, logjac = with_logabsdet_jacobian(bs, X)
             sum(Xt) .+ logjac

@@ -86,7 +86,8 @@ end;
     ϕc.unc.ρsM .= 0.0
     int_unc = get_concrete(ComponentArrayInterpreter(ϕc.unc))
     n_MC_pred = 300 # larger n_MC to test σ2
-    ζ_resid, σ = @inferred CP.sample_ζresid_norm(rng, ϕc.P, ϕc.Ms, ϕc.unc;
+    n_site_batch = size(ϕc.Ms,2)
+    ζP_resids, ζMs_parfirst_resids, σ = @inferred CP.sample_ζresid_norm(rng, ϕc.P, ϕc.Ms, ϕc.unc;
         n_MC=n_MC_pred, cor_ends, int_unc) 
     # ζ_resid, σ = @inferred CP.sample_ζresid_norm(rng, ϕc.P, ϕc.Ms, ϕc.unc; 
     #     n_MC, cor_ends, int_unc = interpreters.unc)
@@ -95,20 +96,27 @@ end;
     #@descend_code_warntype CP.sample_ζresid_norm(rng, ϕc.P, ϕc.Ms, ϕc.unc; n_MC, cor_ends, int_unc = interpreters.unc)
     #@test size(ζ_resid) == (length(ϕc.P) + n_site * n_θM, n_MC)
     n_θM = size(ϕc.Ms,1)
-    @test size(ζ_resid) == (n_MC_pred, length(ϕc.P) + n_site * n_θM)
-    gr = Zygote.gradient(
-        ϕc -> sum(CP.sample_ζresid_norm(
+    @test size(ζP_resids) == (n_θP, n_MC_pred)
+    @test size(ζMs_parfirst_resids) == (n_θM, n_site_batch, n_MC_pred)
+    gr = Zygote.gradient(ϕc -> begin
+        ζP_resids, ζMs_parfirst_resids, σ = CP.sample_ζresid_norm(
             rng, ϕc.P, ϕc.Ms, ϕc.unc;
-            n_MC, cor_ends, int_unc)[1]), ϕc)[1]
+            n_MC, cor_ends, int_unc)
+        sum(ζP_resids) + sum(ζMs_parfirst_resids)
+    end, ϕc)[1]
     @test length(gr) == length(ϕ)
     #
     n_θM, n_site_batch = size(ϕc.Ms)
-    intm_PMs = ComponentArrayInterpreter(
-        P = (n_MC_pred, n_θP), Ms = (n_MC_pred, n_site_batch, n_θM))    
-    xc = intm_PMs(ζ_resid)
-    isapprox(std(xc.Ms[:,1,1]), 0.1, rtol = 0.1) # site 1 parameter 1 
-    isapprox(std(xc.Ms[:,:,1]), 0.1, rtol = 0.1) # parameter 1
-    isapprox(std(xc.Ms[:,:,2]), 100.1, rtol = 0.1) # parameter 2
+    # intm_PMs = ComponentArrayInterpreter(
+    #     P = (n_MC_pred, n_θP), Ms = (n_MC_pred, n_site_batch, n_θM))    
+    # xc = intm_PMs(ζ_resid)
+    # isapprox(std(xc.Ms[:,1,1]), 0.1, rtol = 0.1) # site 1 parameter 1 
+    # isapprox(std(xc.Ms[:,:,1]), 0.1, rtol = 0.1) # parameter 1
+    # isapprox(std(xc.Ms[:,:,2]), 100.1, rtol = 0.1) # parameter 2
+    isapprox(std(ζMs_parfirst_resids[1,1,:]), 0.1, rtol = 0.1) # site 1 parameter 1 
+    isapprox(std(ζMs_parfirst_resids[1,:,:]), 0.1, rtol = 0.1) # parameter 1
+    isapprox(std(ζMs_parfirst_resids[2,:,:]), 100.1, rtol = 0.1) # parameter 2
+
     #
     if ggdev isa MLDataDevices.AbstractGPUDevice
         @testset "sample_ζresid_norm gpu" begin
@@ -119,28 +127,33 @@ end;
             #include(joinpath(@__DIR__, "uncNN", "elbo.jl")) # callback_loss
             #ζ_resid, σ = sample_ζresid_norm(urandn, ϕc.P, ϕc.Ms, ϕc.unc; n_MC)
             #Zygote.gradient(ϕc -> sum(sample_ζresid_norm(urandn, ϕc.P, ϕc.Ms, ϕc.unc; n_MC)[1]), ϕc)[1]; 
-            ζ_resid, σ = @inferred CP.sample_ζresid_norm(
+            ζP_resids, ζMs_parfirst_resids, σ = @inferred CP.sample_ζresid_norm(
                 rng, CA.getdata(ϕcd.P), CA.getdata(ϕcd.Ms), CA.getdata(ϕcd.unc);
                 n_MC = n_MC_pred, cor_ends, int_unc)
             #@descend_code_warntype CP.sample_ζresid_norm(rng, CA.getdata(ϕc.P), CA.getdata(ϕc.Ms), CA.getdata(ϕc.unc); n_MC, cor_ends, int_unc)
-            @test ζ_resid isa GPUArraysCore.AbstractGPUArray
-            @test size(ζ_resid) == (n_MC_pred, length(ϕc.P) + n_site * n_θM)
-            # Zygote gradient for many sites, use fewer sites here
+            @test ζP_resids isa GPUArraysCore.AbstractGPUArray
+            @test ζMs_parfirst_resids isa GPUArraysCore.AbstractGPUArray
+            @test size(ζP_resids) == (n_θP, n_MC_pred)
+            @test size(ζMs_parfirst_resids) == (n_θM, n_site_batch, n_MC_pred)
+                    # Zygote gradient for many sites, use fewer sites here
             n_site_few = 20
             ϕcd_few = CA.ComponentVector(; P = ϕcd.P, Ms = ϕcd.Ms[:,1:n_site_few], unc = ϕcd.unc);
-            gr = Zygote.gradient(
-                ϕc -> sum(CP.sample_ζresid_norm(
+            gr = Zygote.gradient(ϕc -> begin
+                ζP_resids, ζMs_parfirst_resids, σ = CP.sample_ζresid_norm(
                     rng, CA.getdata(ϕc.P), CA.getdata(ϕc.Ms), CA.getdata(ϕc.unc);
-                    n_MC, cor_ends, int_unc)[1]), ϕcd_few)[1]; # need semicolon
-            @test CA.getdata(gr) isa GPUArraysCore.AbstractGPUArray
-            CP.apply_preserve_axes(cdev, gr)
+                    n_MC, cor_ends, int_unc)
+                sum(ζP_resids) + sum(ζMs_parfirst_resids)
+            end, ϕcd_few)[1];  # semicolon required
+            # gr = Zygote.gradient(
+            #     ϕc -> sum(CP.sample_ζresid_norm(
+            #         rng, CA.getdata(ϕc.P), CA.getdata(ϕc.Ms), CA.getdata(ϕc.unc);
+            #         n_MC, cor_ends, int_unc)[1]), ϕcd_few)[1]; # need semicolon
+            # @test CA.getdata(gr) isa GPUArraysCore.AbstractGPUArray
+            # CP.apply_preserve_axes(cdev, gr)
             #
-            intm_PMs_few = ComponentArrayInterpreter(
-                P = (n_MC_pred, n_θP), Ms = (n_MC_pred, n_site_few, n_θM))    
-            xc = intm_PMs(cdev(ζ_resid));
-            isapprox(std(xc.Ms[:,1,1]), 0.1, rtol = 0.1) # site 1 parameter 1 
-            isapprox(std(xc.Ms[:,:,1]), 0.1, rtol = 0.1) # parameter 1
-            isapprox(std(xc.Ms[:,:,2]), 100.1, rtol = 0.1) # parameter 2
+            isapprox(std(ζMs_parfirst_resids[1,1,:]), 0.1, rtol = 0.1) # site 1 parameter 1 
+            isapprox(std(ζMs_parfirst_resids[1,:,:]), 0.1, rtol = 0.1) # parameter 1
+            isapprox(std(ζMs_parfirst_resids[2,:,:]), 100.1, rtol = 0.1) # parameter 2
         end
     end
 end

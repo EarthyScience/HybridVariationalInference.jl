@@ -26,23 +26,24 @@ Bijectors.is_monotonically_increasing(::Exp) = true
 
 A Bijectors.Transform that applies stacked to each column of an n-row matrix.
 """
-struct StackedArray{N,S} <: Bijectors.Transform
+struct StackedArray{S} <: Bijectors.Transform
+    nrow::Int
     stacked::S
 end
 
 function StackedArray(stacked, nrow) 
     stacked_vec = extend_stacked_nrow(stacked, nrow)
-    StackedArray{nrow, typeof(stacked_vec)}(stacked_vec)
+    StackedArray{typeof(stacked_vec)}(nrow, stacked_vec)
 end
 
 Functors.@functor StackedArray (stacked,)
 
-function Base.show(io::IO, b::StackedArray{N}) where N
-    return print(io, "StackedArray ($(N), $(b.stacked))")
+function Base.show(io::IO, b::StackedArray) 
+    return print(io, "StackedArray ($(b.nrow), $(b.stacked))")
 end
 
-function Base.:(==)(b1::StackedArray{N1}, b2::StackedArray{N2}) where {N1,N2}
-    (N1 == N2) && (b1.stacked == b2.stacked)
+function Base.:(==)(b1::StackedArray, b2::StackedArray) 
+    (b1.nrow == b2.nrow) && (b1.stacked == b2.stacked)
 end
 
 Bijectors.isclosedform(b::StackedArray) = isclosedform(b.stacked)
@@ -50,6 +51,12 @@ Bijectors.isclosedform(b::StackedArray) = isclosedform(b.stacked)
 Bijectors.isinvertible(b::StackedArray) = isinvertible(b.stacked)
 
 _transform_stackedarray(sb, x) = reshape(sb.stacked(vec(x)), size(x))
+function _transform_stackedarray(sb, x::Adjoint{FT, <:GPUArraysCore.AbstractGPUArray}) where FT
+    # errors with Zygote for Adjoint of GPUArray, need to copy first
+    # TODO construct MWE and issue
+    x_plain = copy(x)
+    reshape(sb.stacked(vec(x_plain)), size(x_plain))
+end
 function Bijectors.transform(sb::StackedArray, x::AbstractArray{<:Real}) 
     _transform_stackedarray(sb, x)
 end
@@ -65,12 +72,10 @@ function Bijectors.with_logabsdet_jacobian(sb::StackedArray, x::AbstractArray)
     return (ym, logjac)
 end
 
-function Bijectors.inverse(sb::StackedArray{N}) where N
+function Bijectors.inverse(sb::StackedArray) 
     inv_stacked = inverse(sb.stacked)
-    return StackedArray{N,typeof(inv_stacked)}(inv_stacked)
+    return StackedArray{typeof(inv_stacked)}(sb.nrow, inv_stacked)
 end
-
-
 
 """
     extend_stacked_nrow(b::Stacked, nrow::Integer)

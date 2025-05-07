@@ -149,8 +149,8 @@ function get_loss_elbo(g, transP, transM, f, py, y_o_global, interpreters;
 
         function loss_elbo(ϕ, rng, xM, xP, y_o, y_unc, i_sites)
             neg_elbo_gtf(
-                rng, ϕ, g, f, py, xM, xP, y_o, y_unc, i_sites, interpreters, 
-                transform_tools;
+                rng, ϕ, g, f, py, xM, xP, y_o, y_unc, i_sites;
+                int_unc = interpreters.int_unc, int_μP_ϕg_unc = interpreters.int_μP_ϕg_unc, 
                 n_MC, n_MC_cap, cor_ends, priors_θ_mean, cdev, pbm_covar_indices)
         end
     end
