@@ -131,7 +131,7 @@ Fit a Normal distribution to iterators lower and upper.
 If `repeat_inner` is given, each fitted distribution is repeated as many times.
 """
 function NormalScalingModelApplicator(
-    app::AbstractModelApplicator, lowers, uppers, ET::Type; repeat_inner::Integer = 1) 
+    app::AbstractModelApplicator, lowers::AbstractVector{<:Number}, uppers, ET::Type; repeat_inner::Integer = 1) 
     pars = map(lowers, uppers) do lower, upper
         dζ = fit(Normal, @qp_l(lower), @qp_u(upper))
         params(dζ)
@@ -140,15 +140,6 @@ function NormalScalingModelApplicator(
     μ = repeat(collect(ET, first.(pars)); inner=(repeat_inner,))  
     σ = repeat(collect(ET, last.(pars)); inner=(repeat_inner,))
     NormalScalingModelApplicator(app, μ, σ)
-end
-
-"""
-Get the inverse-transformation of lower and upper quantiles of a Vector of Distributions.
-"""
-function get_quantile_transformed(priors::AbstractVector{<:Distribution}, trans; 
-    q95 = (0.05, 0.95))
-    θq = ([quantile(d, q) for d in priors] for q in q95)
-    lower, upper = inverse(trans).(θq)
 end
 
 function apply_model(app::NormalScalingModelApplicator, x, ϕ)

@@ -40,7 +40,8 @@ returns a Tuple of
 """
 function get_hybridproblem_MLapplicator end
 
-function get_hybridproblem_MLapplicator(prob::AbstractHybridProblem; scenario = ())
+function get_hybridproblem_MLapplicator(
+    prob::AbstractHybridProblem; scenario::Val{scen} = Val(())) where scen
     get_hybridproblem_MLapplicator(Random.default_rng(), prob; scenario)
 end
 
@@ -202,13 +203,13 @@ end
 Put relevant parts of the DataLoader to gpu, depending on scenario.
 """
 function gdev_hybridproblem_dataloader(dataloader::MLUtils.DataLoader;
-    scenario = (), 
+    scenario::Val{scen} = Val(()), 
     gdev = gpu_device(),
-    gdev_M = :use_gpu ∈ scenario ? gdev : identity,
-    gdev_P = :f_on_gpu ∈ scenario ? gdev : identity,
+    gdev_M = :use_gpu ∈ _val_value(scenario) ? gdev : identity,
+    gdev_P = :f_on_gpu ∈ _val_value(scenario) ? gdev : identity,
     batchsize = dataloader.batchsize,
     partial = dataloader.partial
-    )
+    ) where scen
     xM, xP, y_o, y_unc, i_sites = dataloader.data
     xM_dev = gdev_M(xM)
     xP_dev, y_o_dev, y_unc_dev = (gdev_P(xP), gdev_P(y_o), gdev_P(y_unc)) 

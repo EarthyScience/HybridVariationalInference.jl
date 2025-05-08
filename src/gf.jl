@@ -1,21 +1,52 @@
-function applyf(f, θMs::AbstractMatrix, θP::AbstractVector, θFix::AbstractVector, xP, args...; kwargs...)
+# Point solver where ML directly predicts PBL parameters, rather than their
+# distribution.
+
+"""
+Map process base model (PBM), `f`, across each site.
+
+## Arguments
+- `f(θ, xP, args...; intθ1, kwargs...)`: Process based model for single site
+  
+  Make sure to hint the type, so that results can be inferred.
+- `θMst`: transposed model parameters across sites matrix: (n_parM, n_site_batch)
+- `θP`: transposed model parameters that do not differ by site: (n_parP,)
+- `θFix`: Further parameter required by f that are not calibrated.
+- `xP`: Model drivers: Matrix with n_site_batch columns.
+  If provided a ComponentArray with labeled rows, f can then access `xP[:key]`.
+- `intθ1`: ComponentArrayInterpreter that can be applied to θ, 
+  so that entries can be extracted.
+
+See test_HybridProblem of using this function to construct a PBM function that
+can predict across all sites.
+"""
+function map_f_each_site(
+    f, θMst::AbstractMatrix, θP::AbstractVector, θFix::AbstractVector, xP, args...; 
+    intθ1::AbstractComponentArrayInterpreter, kwargs...
+)
     # predict several sites with same global parameters θP and fixed parameters θFix
-    #θM, x_site = first(zip(eachcol(θMs), xP))
-    yv = map(eachcol(θMs), xP) do θM, x_site
-        f(vcat(θP, θM, θFix), x_site, args...; kwargs...)
-    end
+    it1 = eachcol(CA.getdata(θMst))
+    it2 = eachcol(xP)
+    _θM = first(it1)
+    _x_site = first(it2)
+    TXS = typeof(_x_site)
+    TY = typeof(f(vcat(θP, _θM, θFix), _x_site, args...; intθ1, kwargs...))
+    #TY = typeof(f(vcat(θP, _θM, θFix), _x_site; intθ1))
+    yv = map(it1, it2) do θM, x_site
+        x_site_typed = x_site::TXS
+        f(vcat(θP, θM, θFix), x_site_typed, args...; intθ1, kwargs...)
+    end::Vector{TY}
     y = stack(yv)
     return(y)
 end
-function applyf(f, θMs::AbstractMatrix, θPs::AbstractMatrix, θFix::AbstractVector, xP, args...; kwargs...)
-    # do not call f with matrix θ, because .* with vectors S1 would go wrong
-    yv = map(eachcol(θMs), eachcol(θPs), xP) do θM, θP, xP_site
-        f(vcat(θP, θM, θFix), xP_site, args...; kwargs...)
-    end
-    y = stack(yv)
-    return(y)
-end
-#applyf(f_double, θMs_true, stack(Iterators.repeated(CA.getdata(θP_true), size(θMs_true,2))))
+# function map_f_each_site(f, θMs::AbstractMatrix, θPs::AbstractMatrix, θFix::AbstractVector, xP, args...; kwargs...)
+#     # do not call f with matrix θ, because .* with vectors S1 would go wrong
+#     yv = map(eachcol(θMs), eachcol(θPs), xP) do θM, θP, xP_site
+#         f(vcat(θP, θM, θFix), xP_site, args...; kwargs...)
+#     end
+#     y = stack(yv)
+#     return(y)
+# end
+# #map_f_each_site(f_double, θMs_true, stack(Iterators.repeated(CA.getdata(θP_true), size(θMs_true,2))))
 
 """
 composition f ∘ transM ∘ g: mechanistic model after machine learning parameter prediction
@@ -76,11 +107,12 @@ end
 
 """
 composition transM ∘ g: transformation after machine learning parameter prediction
+Provide a `transMs = StackedArray(transM, n_batch)`
 """
 function gtrans(g, transMs, xMP, ϕg; cdev = identity)
+    # TODO remove after removing gf
     ζMs = g(xMP, ϕg)' # predict the log of the parameters
     ζMs_cpu = cdev(ζMs)
-    # TODO move to gpu, Zygote needs to work with transM
     θMs = transMs(ζMs_cpu)
     #θMs = reduce(hcat, map(transM, eachcol(ζMs_cpu))) # transform each row
 end
@@ -119,6 +151,12 @@ function get_loss_gf(g, transM, transP, f, y_o_global,
         function loss_gf(p, xM, xP, y_o, y_unc, i_sites)
             σ = exp.(y_unc ./ 2)
             pc = intϕ(p)
+            μ_ζP = pc.ϕP
+            xMP = _append_each_covars(xM, CA.getdata(μ_ζP), pbm_covar_indices)
+            ϕ_M = g(xMP, CA.getdata(pc.ϕg))
+            μ_ζMs = ϕ_M'
+            y_pred, _, _ = apply_f_trans(CA.getdata(μ_ζP), CA.getdata(μ_ζMs), f, xP; transM, transP)
+
             y_pred_global, y_pred, θMs, θP = gf(
                 g, transMs, transP, f, xM, xP, CA.getdata(pc.ϕg), CA.getdata(pc.ϕP), 
                 pbm_covar_indices; kwargs...)
@@ -134,14 +172,14 @@ end
     Zygote.gradient(x -> loss_gf(x, xM, y_o)[1], p)
 end
 
-function tmp_fcost(is,intθ,fneglogden )
-    fcost = let is = is, intθ = intθ,fneglogden=fneglogden
-        fcost_inner = (θvec, xPM, y_o, y_unc) -> begin
-            θ = hcat(CA.getdata(θvec.P[is]), CA.getdata(θvec.Ms'))
-            y = DoubleMM.f_doubleMM(θ, xPM, intθ)
-            #y = CP.DoubleMM.f_doubleMM(θ, xPM, θpos)
-            res = fneglogden(y_o, y', y_unc)
-            res
-        end
-    end    
-end
+# function tmp_fcost(is,intθ,fneglogden )
+#     fcost = let is = is, intθ = intθ,fneglogden=fneglogden
+#         fcost_inner = (θvec, xPM, y_o, y_unc) -> begin
+#             θ = hcat(CA.getdata(θvec.P[is]), CA.getdata(θvec.Ms'))
+#             y = DoubleMM.f_doubleMM(θ, xPM, intθ)
+#             #y = CP.DoubleMM.f_doubleMM(θ, xPM, θpos)
+#             res = fneglogden(y_o, y', y_unc)
+#             res
+#         end
+#     end    
+# end

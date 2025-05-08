@@ -18,10 +18,10 @@ int_xP1 = ComponentArrayInterpreter(CA.ComponentVector(S1 = xP_S1, S2 = xP_S2))
 
 const int_θdoubleMM = ComponentArrayInterpreter(flatten1(CA.ComponentVector(; θP, θM)))
 
-function f_doubleMM(θ::AbstractVector, x, intθ)
+function f_doubleMM(θ::AbstractVector, x; intθ1)
     # extract parameters not depending on order, i.e whether they are in θP or θM
     y = GPUArraysCore.allowscalar() do
-        θc = intθ(θ)
+        θc = intθ1(θ)
         #using ComponentArrays: ComponentArrays as CA
         #r0, r1, K1, K2 = θc[(:r0, :r1, :K1, :K2)] # does not work on Zygote+GPU
         (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
@@ -38,7 +38,7 @@ function f_doubleMM(θ::AbstractVector, x, intθ)
 end
 
 function f_doubleMM(
-        θ::AbstractMatrix{T}, x::NamedTuple, intθ::HVI.AbstractComponentArrayInterpreter) where T
+        θ::AbstractMatrix{T}, x; intθ::HVI.AbstractComponentArrayInterpreter) where T
     # provide θ for n_row sites
     # provide x.S1 as Matrix n_site x n_obs
     # extract parameters not depending on order, i.e whether they are in θP or θM
@@ -174,7 +174,7 @@ end
 #     intθ, θFix = setup_PBMpar_interpreter(par_templates.θP, par_templates.θM, θall)
 #     let θFix = gdev(θFix), intθ = get_concrete(intθ)
 #         function f_doubleMM_with_global(θP::AbstractVector, θMs::AbstractMatrix, xP)
-#             pred_sites = applyf(f_doubleMM, θMs, θP, θFix, xP, intθ)
+#             pred_sites = map_f_each_site(f_doubleMM, θMs, θP, θFix, xP, intθ)
 #             pred_global = eltype(pred_sites)[]
 #             return pred_global, pred_sites
 #         end
@@ -219,7 +219,7 @@ function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario::Val{scen},
             xPM = map(p -> CA.getdata(xP)'[:, p], pos_xP)
             θFixd = (θP isa GPUArraysCore.AbstractGPUVector) ? θFix_dev : θFix
             θ = hcat(CA.getdata(θP[isP]), CA.getdata(θMs), θFixd)
-            pred_sites = f_doubleMM(θ, xPM, intθ)'
+            pred_sites = f_doubleMM(θ, xPM; intθ)'
             pred_global = eltype(pred_sites)[]
             return pred_global, pred_sites
         end
@@ -284,7 +284,8 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     xP = int_xPn(vcat(repeat(xP_S1, 1, n_site), repeat(xP_S2, 1, n_site)))
     #xP[:S1,:]
     θP = par_templates.θP
-    y_global_true, y_true = f(θP, θMs_true', xP) # TODO transpose θMs_true generally
+    #θint = ComponentArrayInterpreter( (size(θMs_true,2),), CA.getaxes(vcat(θP, θMs_true[:,1])))
+    y_global_true, y_true = f(θP, θMs_true', xP) 
     σ_o = FloatType(0.01)
     #σ_o = FloatType(0.002)
     logσ2_o = FloatType(2) .* log.(σ_o)
@@ -303,3 +304,4 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
         y_unc = fill(logσ2_o, size(y_o))
     )
 end
+

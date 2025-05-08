@@ -169,7 +169,7 @@ end;
         end
         # @inferred f_n_within_cols(3) # inferred is only Any
         res = f_n_within_cols(3) # inferred is only 
-        pos = @inferred get_positions(res) # but wihtin this context size is known
+        pos = @inferred get_positions(res) # but within this context size is known
         @inferred res(pos)
     end
     #pos_outer = @inferred f_outer() # but inferred return type is Any

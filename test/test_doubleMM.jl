@@ -69,22 +69,22 @@ end
     fy = let is = is, intθ = intθ
         (θvec, xPM) -> begin
             θ = hcat(CA.getdata(θvec.P[is]), CA.getdata(θvec.Ms'))
-            y = CP.DoubleMM.f_doubleMM(θ, xPM, intθ)
+            y = CP.DoubleMM.f_doubleMM(θ, xPM; intθ)
             #y = @inferred CP.DoubleMM.f_doubleMM(θ, xPM, intθ)
             # @descend_code_warntype CP.DoubleMM.f_doubleMM(θ, xPM, intθ)
             #y = CP.DoubleMM.f_doubleMM(θ, xPM, θpos)
         end
     end
     y = @inferred fy(θvec, xPM)
-    y_exp = applyf(CP.DoubleMM.f_doubleMM, θMs_true, θP_true,
-        Vector{eltype(θP_true)}(undef, 0), eachcol(xP), intθ1)
+    y_exp = map_f_each_site(CP.DoubleMM.f_doubleMM, θMs_true, θP_true,
+        Vector{eltype(θP_true)}(undef, 0), xP; intθ1)
     @test y == y_exp'
     ygrad = Zygote.gradient(θv -> sum(fy(θv, xPM)), θvec)[1]
     if gdev isa MLDataDevices.AbstractGPUDevice
         # θg = gdev(θ)
         # xPMg = gdev(xPM)
         # yg = CP.DoubleMM.f_doubleMM(θg, xPMg, intθ);
-        θvecg = gdev(θvec) # errors without ";"
+        θvecg = gdev(θvec); # errors without ";"
         xPMg = gdev(xPM)
         yg = @inferred fy(θvecg, xPMg)
         @test cdev(yg) == y_exp'
@@ -108,7 +108,7 @@ end
     fcost = let is = is, intθ = intθ, fneglogden=fneglogden
         (θvec, xPM, y_o, y_unc) -> begin
             θ = hcat(CA.getdata(θvec.P[is]), CA.getdata(θvec.Ms'))
-            y = CP.DoubleMM.f_doubleMM(θ, xPM, intθ)
+            y = CP.DoubleMM.f_doubleMM(θ, xPM; intθ)
             #y = CP.DoubleMM.f_doubleMM(θ, xPM, θpos)
             res = fneglogden(y_o, y', y_unc)
             res

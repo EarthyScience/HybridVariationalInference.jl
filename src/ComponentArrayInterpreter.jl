@@ -174,7 +174,7 @@ end
     stack_ca_int(cai::AbstractComponentArrayInterpreter, ::Val{n_dims})
 
 Interpret the first dimension of an Array as a ComponentArray. Provide the Tuple
-of following dimesions by a value type, e.g. `Val((n_col, n_z))`.
+of following dimensions by a value type, e.g. `Val((n_col, n_z))`.
 """
 function stack_ca_int(
     cai::IT, ::Val{n_dims}) where {IT<:AbstractComponentArrayInterpreter,n_dims}
@@ -217,7 +217,10 @@ end
 # ambuiguity with two empty Tuples (edge prob that does not make sense)
 # Empty ComponentVector with no other array dimensions -> empty componentVector
 function ComponentArrayInterpreter(n_dims1::Tuple{}, n_dims2::Tuple{})
-    ComponentArrayInterpreter(CA.ComponentVector())
+    ComponentArrayInterpreter((CA.Axis(),))
+end
+function StaticComponentArrayInterpreter(n_dims1::Tuple{}, n_dims2::Tuple{})
+    StaticComponentArrayInterpreter{(CA.Axis(),)}()
 end
 
 # concatenate several 1d ComponentArrayInterpreters

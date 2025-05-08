@@ -36,52 +36,47 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
     xM::AbstractMatrix, xP, y_ob, y_unc, i_sites::AbstractVector{<:Number};
     int_μP_ϕg_unc::AbstractComponentArrayInterpreter,
     int_unc::AbstractComponentArrayInterpreter,
-    n_MC=12, n_MC_mean=30, n_MC_cap=n_MC,
+    n_MC=12, n_MC_mean=n_MC, n_MC_cap=n_MC,
     cdev=cpu_device(),
-    priors_θ_mean=[],
+    priors_θP_mean=[], 
+    priors_θMs_mean=[],
+    #priors_θ_mean=[],
     cor_ends, # =(P=(1,),M=(1,))
     pbm_covar_indices,
-    transP, transMs
+    transP, transMs, 
+    trans_mP =StackedArray(transP, n_MC), # provide with creating cost function
+    trans_mMs =StackedArray(transMs.stacked, n_MC),
 ) where {FT}
-    n_MCr = isempty(priors_θ_mean) ? n_MC : max(n_MC, n_MC_mean)
+    n_MCr = isempty(priors_θP_mean) ? n_MC : max(n_MC, n_MC_mean)
     ζsP, ζsMs, σ = generate_ζ(rng, g, ϕ, xM; n_MC=n_MCr, cor_ends, pbm_covar_indices,
         int_unc, int_μP_ϕg_unc)
     ζsP_cpu = cdev(ζsP) # fetch to CPU, because for <1000 sites (n_batch) this is faster
-    # translate in batch 
     ζsMs_cpu = cdev(ζsMs) # fetch to CPU, because for <1000 sites (n_batch) this is faster
+    #
+    # maybe: translate ζ once and supply to both neg_elbo and negloglik_meanθ
+    nLy, entropy_ζ = neg_elbo_ζtf(
+        ζsP_cpu[:,1:n_MC], ζsMs_cpu[:,:,1:n_MC], σ, f, py, xP, y_ob, y_unc;
+        n_MC_cap, transP, transMs, )
+    #
+    # maybe: provide trans_mP and trans_mMs with creating cost function
+    nLmean_θ = _compute_negloglik_meanθ(ζsP_cpu, ζsMs_cpu; 
+        trans_mP, trans_mMs, priors_θP_mean, priors_θMs_mean, i_sites)
+    nLy, entropy_ζ, nLmean_θ
+end
 
-
-    nLy, entropy_ζ = neg_elbo_ζtf(ζsP_cpu, ζsMs_cpu, σ, f, py,
-        xP, y_ob, y_unc;
-        n_MC, n_MC_cap,
-        transP, transMs,
-    )
-    nLmean_θ = isempty(priors_θ_mean) ? zero(FT) :
-    begin
-        # compute the mean of predicted and transformed site-parameters
-        # avoid mapslices because of Zygote
-        # θs0 = mapslices(transPMs, ζs_cpu, dims=[1])
-        # θPs0 = mapslices(θ -> interpreters.PMs(θ).P, θs0, dims = 1) 
-        #θs = (transPMs(ζ) for ζ in eachcol(ζs_cpu)) # does not work with Zygote
-        θs = map(transPMs, eachcol(ζs_cpu))
-        θPs = map(θ -> CA.getdata(interpreters.PMs(θ).P), θs) |> stack
-        # does not need to allocate vectors but does not work with Zygote: 
-        # θPs = (CA.getdata(interpreters.PMs(θ).P) for θ in θs) |> stack
-        mean_θP = mean(CA.getdata(θPs); dims=(2))[:, 1]
-        #nLmean_θP = map((d, θi) -> -logpdf(d, θi), CA.getdata(priors_θ_mean.P), mean_θP) 
-        #workaround for Zygote failing on `priors_θ_mean.P`
-        iθ = CA.ComponentArray(1:length(priors_θ_mean), CA.getaxes(priors_θ_mean))
-        # need to apply different dist to each entry in θP and mean_θMs -> @allowscalar
-        #   but does not work with Zygote
-        nLmean_θP = map((d, θi) -> -logpdf(d, θi), priors_θ_mean[CA.getdata(iθ.P)], mean_θP)
-        θMss = map(θ -> interpreters.PMs(θ).Ms, θs) |> stack
-        mean_θMs = mean(θMss; dims=(3))[:, :, 1]
-        nLmean_θMs = map((d, θi) -> -logpdf(d, θi),
-            CA.getdata(priors_θ_mean[CA.getdata(iθ.Ms)])[:, i_sites], mean_θMs)
-        nLmean_θ = sum(nLmean_θP) + sum(nLmean_θMs)
-        nLmean_θ
+function _compute_negloglik_meanθ(ζsP::AbstractMatrix{FT}, ζsMs; 
+    priors_θP_mean, priors_θMs_mean, i_sites, trans_mP, trans_mMs, 
+) where FT
+    if isempty(priors_θP_mean) 
+        return zero(FT)
     end
-    nLy, entropy_ζ, convert(FT, nLmean_θ)::FT
+    θsP, θsMs = transform_ζs(ζsP, ζsMs; trans_mP, trans_mMs)
+    mean_θP = mean(CA.getdata(θsP); dims=(2))[:, 1]
+    nLmean_θP = map((d, θi) -> -logpdf(d, θi), priors_θP_mean, mean_θP)
+    mean_θMs = mean(θsMs; dims=(3))[:, :, 1]
+    nLmean_θMs = map((d, θi) -> -logpdf(d, θi), priors_θMs_mean[i_sites], mean_θMs)
+    nLmean_θ = sum(nLmean_θP) + sum(nLmean_θMs)
+    convert(FT,nLmean_θ)::FT
 end
 
 """ 
@@ -89,14 +84,15 @@ Compute the neg_elbo for each sampled parameter vector (last dimension of ζs).
 - Transform and compute log-jac
 - call forward model
 - compute log-density of predictions
-- comptue entropy of transformation
+- compute entropy of transformation
 """
 function neg_elbo_ζtf(ζsP, ζsMs, σ, f, py, xP, y_ob, y_unc;
-    n_MC=12, n_MC_cap=n_MC,
+    n_MC_cap=size(ζsP,2),
     transP,
     transMs=StackedArray(transM, size(ζsMs, 2))
 )
-    nLys = map(eachcol(ζsP[:, 1:n_MC]), eachslice(ζsMs[:, :, 1:n_MC]; dims=3)) do ζP, ζMs
+    n_MC = size(ζsP,2)
+    nLys = map(eachcol(ζsP), eachslice(ζsMs; dims=3)) do ζP, ζMs
         θP, θMs, logjac = transform_and_logjac_ζ(ζP, ζMs; transP, transMs)
         y_pred_global, y_pred_i = f(θP, θMs, xP)
         # TODO nLogDen prior on \theta
@@ -155,14 +151,17 @@ Prediction function for hybrid model. Returns an NamedTuple with entries
 function predict_gf(rng, prob::AbstractHybridProblem; scenario, kwargs...)
     dl = get_hybridproblem_train_dataloader(prob; scenario)
     dl_dev = gdev_hybridproblem_dataloader(dl; scenario)
+    # predict for all sites
     xM, xP = dl_dev.data[1:2]
     predict_gf(rng, prob, xM, xP; scenario, kwargs...)
 end
 function predict_gf(rng, prob::AbstractHybridProblem, xM::AbstractMatrix, xP;
     scenario,
     n_sample_pred=200,
-    gdev=:use_gpu ∈ scenario ? gpu_device() : identity,
-    cdev=gdev isa MLDataDevices.AbstractGPUDevice ? cpu_device() : identity
+    gdev=:use_gpu ∈ _val_value(scenario) ? gpu_device() : identity,
+    cdev=!(gdev isa MLDataDevices.AbstractGPUDevice) ? identity :
+        (:f_on_gpu ∈ _val_value(scenario) ? identity : cpu_device()), 
+    kwargs...
 )
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     is_predict_batch = (n_batch == length(xP))
@@ -178,11 +177,16 @@ function predict_gf(rng, prob::AbstractHybridProblem, xM::AbstractMatrix, xP;
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
     pbm_covar_indices = get_pbm_covar_indices(θP, pbm_covars)
+    hpints = HybridProblemInterpreters(prob; scenario)
     (; ϕ, transPMs_batch, interpreters, get_transPMs) = init_hybrid_params(
-        θP, θM, cor_ends, ϕg0, n_site_pred; transP, transM, ϕunc0)
+        θP, θM, cor_ends, ϕg0, hpints; transP, transM, ϕunc0)
+    int_μP_ϕg_unc = interpreters.μP_ϕg_unc
+    int_unc = interpreters.unc
+    transMs = StackedArray(transM, n_batch)        
     g_dev, ϕ_dev = gdev(g), gdev(ϕ)
-    predict_gf(rng, g_dev, f, ϕ_dev, xM, xP, interpreters;
-        get_transPMs, n_sample_pred, cdev, cor_ends, pbm_covar_indices)
+    predict_gf(rng, g_dev, f, ϕ_dev, xM, xP;
+        int_μP_ϕg_unc, int_unc, transP, transM, 
+        n_sample_pred, cdev, cor_ends, pbm_covar_indices, kwargs...)
 end
 
 function predict_gf(rng, g, f, ϕ::AbstractVector, xM::AbstractMatrix, xP;
@@ -193,8 +197,9 @@ function predict_gf(rng, g, f, ϕ::AbstractVector, xM::AbstractMatrix, xP;
     cdev=cpu_device(),
     cor_ends,
     pbm_covar_indices,
+    is_inferred::Val{is_infer} = Val(false),
     kwargs...
-)
+) where is_infer
     ζsP, ζsMs, σ = generate_ζ(rng, g, CA.getdata(ϕ), CA.getdata(xM);
         int_μP_ϕg_unc, int_unc,
         n_MC=n_sample_pred, cor_ends, pbm_covar_indices)
@@ -202,7 +207,9 @@ function predict_gf(rng, g, f, ϕ::AbstractVector, xM::AbstractMatrix, xP;
     ζsMs_cpu = cdev(ζsMs)
     logdetΣ = 2 * sum(log.(σ))
     entropy_ζ = entropy_MvNormal(length(σ), logdetΣ)
-    res_pred = apply_f_trans(ζsP_cpu, ζsMs_cpu, f, xP; transP, transM, kwargs...)
+    res_pred = is_infer ? 
+        apply_f_trans(ζsP_cpu, ζsMs_cpu, f, xP; transP, transM, kwargs...) :
+        Test.@inferred apply_f_trans(ζsP_cpu, ζsMs_cpu, f, xP; transP, transM, kwargs...) 
     (; res_pred..., entropy_ζ)
 end
 
@@ -216,7 +223,7 @@ Steps:
 - transform the parameters to original constrained space
 - Applies the mechanistic model for each site
 
-ζsP as shaped as output of generate_ζ.
+`ζsP` and `ζsMs` are shaped according to the output of `generate_ζ`.
 Results are of shape `(n_obs x n_site_pred x n_MC)`.
 """
 function apply_f_trans(ζsP::AbstractMatrix, ζsMs::AbstractArray, f, xP; transP, transM::Stacked,
@@ -377,7 +384,7 @@ function sample_ζresid_norm(urandn::AbstractMatrix, ζP::TP, ζMs::TM,
 ) where {T,TP<:AbstractVector{T},TM<:AbstractMatrix{T}}
     ϕuncc = int_unc(CA.getdata(ϕunc))
     n_θP, n_θMs, (n_θM, n_batch) = length(ζP), length(ζMs), size(ζMs)
-    n_MC = size(urandn, 1) # TODO transfrom urandn
+    n_MC = size(urandn, 1) # TODO transform urandn
     # do not create a UpperTriangular Matrix of an AbstractGÜUArray in transformU_cholesky1
     ρsP = isempty(ϕuncc.ρsP) ? similar(ϕuncc.ρsP) : ϕuncc.ρsP # required by zygote
     UP = transformU_block_cholesky1(ρsP, cor_ends.P)
@@ -401,7 +408,7 @@ function sample_ζresid_norm(urandn::AbstractMatrix, ζP::TP, ζMs::TM,
     # #map(std, eachcol(ζ_resids_parfirst[:, 3:8]))
     # ζ_resid = transpose_mPMs_sitefirst(ζ_resids_parfirst; intm_PMs_parfirst)
     # #map(std, eachcol(ζ_resid[:, 3:8])) # all ~ 0.1 in sample_ζresid_norm cpu
-    # #map(std, eachcol(ζ_resid[:, 2 + n_batch .+ (-1:5)])) # all ~ 100, exept first two
+    # #map(std, eachcol(ζ_resid[:, 2 + n_batch .+ (-1:5)])) # all ~ 100, except first two
     # # returns AbstractGPUuArrays to either continue on GPU or need to transfer to CPU
     # ζ_resid, σ
 end
@@ -467,45 +474,6 @@ end
 #moved to HybridVariationalInferenceCUDAExt
 #function _create_randn(rng, ::CUDA.CuVector{T}, dims...) where {T}
 
-
-# TODO remove
-function transform_ζ(ζi, transPMs::Bijectors.Transform,
-    int_PMs::AbstractComponentArrayInterpreter)
-    @warn("replace by transform_ζ with pos_int_P, pos_int_Mst")
-    # θtup, logjac = transform_and_logjac(transPMs, ζi) # both allocating
-    # θc = CA.ComponentVector(θtup)
-    #replace with more flexible transPMs after trying CUDA/Zygote            
-    #θ, logjac = exp.(ζi), sum(ζi)
-    θ, logjac = Bijectors.with_logabsdet_jacobian(transPMs, ζi) # both allocating
-    θc = int_PMs(θ)
-    θc, logjac
-end
-
-"""
-Apply transformations and compute the logAbsDet of the Jacobian of the transfomration
-for a single parameter vector across several sites.
-
-Supply an int_PMs ComponentArrayInterpreter, that assumes Ms to be ordered parameter-last,
-and make sure that its number of rows matches the number of sites.
-The parameter positions in the matrix are not changed.
-"""
-# function transform_ζ(ζ::AbstractArray,
-#         transP, transM::Stacked, int_PMs::AbstractComponentArrayInterpreter)
-#     transP, transMM, pos_int_P, pos_int_Mst = setup_transform_ζ(transP, transM, int_PMs)
-#     transform_ζ(ζ, transP, transMM, pos_int_P, pos_int_Mst)
-# end
-
-# function setup_transform_ζ(
-#         transP, transM::Stacked, int_PMs::AbstractComponentArrayInterpreter)
-#     pos_PMs = get_positions(int_PMs)
-#     #pos_int_Mst = CA.getdata(pos_PMs.Ms)'
-#     pos_int_Ms = CA.getdata(pos_PMs.Ms)
-#     pos_int_P = CA.getdata(pos_PMs.P)
-#     n_batch = size(pos_int_Ms, 1)
-#     transMM = extend_stacked_nrow(transM, n_batch)
-#     (transP, transMM, pos_int_P, pos_int_Ms)
-# end
-
 """
 Transform parameters and compute absolute of determinant of Jacobian of the transformation.
 - from unconstrained (e.g. log) ζ scale of format (n_site x n_par)
@@ -538,3 +506,11 @@ function transform_ζs(ζsP::AbstractMatrix, ζsMs::AbstractArray;
     θsMs = permutedims(θsMst, (2, 3, 1))
     θsP, θsMs
 end
+
+function flatten_hybrid_pars(xsP::AbstractMatrix{FT}, xsMs::AbstractArray{FT,3}) where FT
+    n_site_pred, n_θM, n_MC = size(xsMs)
+    @assert size(xsP,2) == n_MC
+    vcat(xsP, reshape(xsMs, n_site_pred * n_θM, n_MC))
+end
+
+

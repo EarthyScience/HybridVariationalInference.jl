@@ -93,33 +93,33 @@ function update(prob::HybridProblem;
         train_dataloader, n_covar, n_site, n_batch, cor_ends, pbm_covars)
 end
 
-function get_hybridproblem_par_templates(prob::HybridProblem; scenario::NTuple = ())
+function get_hybridproblem_par_templates(prob::HybridProblem; scenario = ())
     (; θP = prob.θP, θM = prob.θM)
 end
 
-function get_hybridproblem_ϕunc(prob::HybridProblem; scenario::NTuple = ())
+function get_hybridproblem_ϕunc(prob::HybridProblem; scenario = ())
     prob.ϕunc
 end
 
-function get_hybridproblem_neg_logden_obs(prob::HybridProblem; scenario::NTuple = ())
+function get_hybridproblem_neg_logden_obs(prob::HybridProblem; scenario = ())
     prob.py
 end
 
-function get_hybridproblem_transforms(prob::HybridProblem; scenario::NTuple = ())
+function get_hybridproblem_transforms(prob::HybridProblem; scenario = ())
     (; transP = prob.transP, transM = prob.transM)
 end
 
-# function get_hybridproblem_sizes(prob::HybridProblem; scenario::NTuple = ())
+# function get_hybridproblem_sizes(prob::HybridProblem; scenario = ())
 #     n_θM = length(prob.θM)
 #     n_θP = length(prob.θP)
 #     (; n_covar=prob.n_covar, n_batch=prob.n_batch, n_θM, n_θP)
 # end
 
-function get_hybridproblem_PBmodel(prob::HybridProblem; scenario::NTuple = (), use_all_sites=false)
+function get_hybridproblem_PBmodel(prob::HybridProblem; scenario = (), use_all_sites=false)
     use_all_sites ? prob.f_allsites : prob.f_batch
 end
 
-function get_hybridproblem_MLapplicator(prob::HybridProblem; scenario::NTuple = ())
+function get_hybridproblem_MLapplicator(prob::HybridProblem; scenario = ())
     prob.g, prob.ϕg
 end
 
@@ -144,6 +144,20 @@ function get_hybridproblem_priors(prob::HybridProblem; scenario = ())
     prob.priors
 end
 
-# function get_hybridproblem_float_type(prob::HybridProblem; scenario::NTuple = ()) 
+# function get_hybridproblem_float_type(prob::HybridProblem; scenario = ()) 
 #     eltype(prob.θM)
 # end
+
+"""
+Get the inverse-transformation of lower and upper quantiles of a Vector of Distributions.
+
+This can be used to get proper confidence intervals at unconstrained (log) ζ-scale
+for priors on normal θ-scale for constructing a NormalScalingModelApplicator.
+"""
+function get_quantile_transformed(priors::AbstractVector{<:Distribution}, trans; 
+    q95 = (0.05, 0.95))
+    θq = ([quantile(d, q) for d in priors] for q in q95)
+    lowers, uppers = inverse(trans).(θq)
+end
+
+

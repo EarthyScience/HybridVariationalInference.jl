@@ -17,7 +17,7 @@ Create a new 1d-axis that combines several other named axes-tuples
 such as of `key = getaxes(::AbstractComponentArray)`.
 
 The new axis consists of several ViewAxes. If an axis-tuple consists only of one axis, it is used for the view.
-Otherwise a ShapedAxis is created wiht the axes-length of the others, essentially dropping
+Otherwise a ShapedAxis is created with the axes-length of the others, essentially dropping
 component information that might be present in the dimensions.
 """
 function compose_axes(axtuples::NamedTuple)

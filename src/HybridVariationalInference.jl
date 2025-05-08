@@ -63,9 +63,10 @@ export AbstractHybridProblemInterpreters, HybridProblemInterpreters,
 include("hybridprobleminterpreters.jl")
 
 export HybridProblem
+export get_quantile_transformed
 include("HybridProblem.jl")
 
-export applyf, gf, get_loss_gf
+export map_f_each_site, gf, get_loss_gf
 include("gf.jl")
 
 export compute_correlated_covars, scale_centered_at

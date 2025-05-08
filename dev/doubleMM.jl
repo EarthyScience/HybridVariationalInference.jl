@@ -911,7 +911,7 @@ y_pred = stack(map(eachcol(θs_MC)) do θ
     θc = int_θPMs(θ)
     #θP, θMs = @view(θ[1:n_θP]), reshape(@view(θ[n_θP+1:end, :]), n_θM, :)
     θP, θMs = θc.θP, θc.θMs
-    y_pred_i = applyf(f_doubleMM, θMs, θP)
+    y_pred_i = map_f_each_site(f_doubleMM, θMs, θP)
 end)
 #hcat(y_pred[:,1,1], y_pred_gen[:,1,1])
 
