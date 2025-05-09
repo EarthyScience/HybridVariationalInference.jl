@@ -1,21 +1,21 @@
 struct HybridProblem <: AbstractHybridProblem
-    θP::Any
-    θM::Any
+    θP::CA.ComponentVector
+    θM::CA.ComponentVector
     f_batch::Any
     f_allsites::Any
-    g::Any
-    ϕg::Any
-    ϕunc::Any
-    priors::Any
-    py::Any
-    transM::Any
-    transP::Any
-    cor_ends::Any # = (P=(1,),M=(1,))
-    train_dataloader::Any
+    g::AbstractModelApplicator
+    ϕg::Any # depends on framework
+    ϕunc::CA.ComponentVector
+    priors::AbstractDict
+    py::Any # any callable
+    transM::Stacked
+    transP::Stacked
+    cor_ends::@NamedTuple{P::Vector{Int}, M::Vector{Int}} # = (P=(1,),M=(1,))
+    train_dataloader::MLUtils.DataLoader
     n_covar::Int
     n_site::Int
     n_batch::Int
-    pbm_covars::NTuple
+    pbm_covars::NTuple{_N, Symbol} where _N
     #inner constructor to constrain the types
     function HybridProblem(
             θP::CA.ComponentVector, θM::CA.ComponentVector,
@@ -24,9 +24,9 @@ struct HybridProblem <: AbstractHybridProblem
             f_batch::Function, 
             f_allsites::Function,
             priors::AbstractDict,
-            py::Function,
-            transM::Union{Function, Bijectors.Transform},
-            transP::Union{Function, Bijectors.Transform},
+            py,
+            transM::Stacked,
+            transP::Stacked,
             # return a function that constructs the trainloader based on n_batch
             train_dataloader::MLUtils.DataLoader,
             n_covar::Int,

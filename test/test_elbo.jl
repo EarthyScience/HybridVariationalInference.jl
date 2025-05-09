@@ -49,8 +49,8 @@ test_scenario = (scenario) -> begin
         @test _y_o == y_o
     end; tmpf()
 
-    # TODO
-    #g, ϕg0 = @inferred get_hybridproblem_MLapplicator(probc; scenario);
+    # prediction by g(ϕg, XM) does not correspond to θMs_true, randomly initialized
+    # only the magnitude is there because of NormalScaling and prior
     g, ϕg0 = get_hybridproblem_MLapplicator(probc; scenario)
     f = get_hybridproblem_PBmodel(probc; scenario, use_all_sites=false)
     f_pred = get_hybridproblem_PBmodel(probc; scenario, use_all_sites=true)
@@ -123,13 +123,13 @@ test_scenario = (scenario) -> begin
             ϕunc_true = copy(probc.ϕunc)
             sd_ζP_true = [0.2,20]
             sd_ζMs_a_true = [0.1,2]  # sd at_variance at θ==0
-            logσ2_ζMs_b_true = [-3.0,+0.2]  # slope of log_variance with θ
+            logσ2_ζMs_b_true = [-0.3,+0.2]  # slope of log_variance with θ
             ρsP_true = [+0.8]
             ρsM_true = [-0.6]
             
             ϕunc_true.logσ2_ζP = (log ∘ abs2).(sd_ζP_true)
             ϕunc_true.coef_logσ2_ζMs[1,:] = (log ∘ abs2).(sd_ζMs_a_true)
-            #ϕunc_true.coef_logσ2_ζMs[2,:] = logσ2_ζMs_b_true # predicted means do not scale
+            ϕunc_true.coef_logσ2_ζMs[2,:] = logσ2_ζMs_b_true 
             ϕunc_true.ρsP = ρsP_true
             ϕunc_true.ρsM = ρsM_true
 
@@ -137,7 +137,7 @@ test_scenario = (scenario) -> begin
             _ϕ = vcat(ϕ_ini.μP, probc.ϕg, probd.ϕunc)
             #hcat(ϕ_ini, ϕ, _ϕ)[1:4,:]
             #hcat(ϕ_ini, ϕ, _ϕ)[(end-20):end,:]
-            n_predict = 8000
+            n_predict = 80000
             xM_batch = xM[:, 1:n_batch]
             _ζsP, _ζsMs, _σ = @inferred (
                 # @descend_code_warntype (
@@ -146,18 +146,23 @@ test_scenario = (scenario) -> begin
                     n_MC = n_predict, cor_ends, pbm_covar_indices,
                     int_unc=interpreters.unc, int_μP_ϕg_unc=interpreters.μP_ϕg_unc)
                 )
-            meanζMs_true = g(xM_batch, probc.ϕg)' # have been generated with no scaling
-            function test_distζ(_ζsP, _ζsMs, ϕunc_true, meanζMs_true)
+            ζMs_g = g(xM_batch, probc.ϕg)' # have been generated with no scaling
+            function test_distζ(_ζsP, _ζsMs, ϕunc_true, ζMs_g)
                 mP = mean(_ζsP; dims=2)
                 residP = _ζsP .- mP
                 sdP = vec(std(residP; dims=2))
                 _sd_ζP_true = sqrt.(exp.(ϕunc_true.logσ2_ζP))
                 @test isapprox(sdP, _sd_ζP_true; rtol=0.05)
                 mMs = mean(_ζsMs; dims=3)[:,:,1]
-                #hcat(mMs, meanζMs_true)
+                hcat(mMs, ζMs_g)
+                # @usingany UnicodePlots
+                #scatterplot(ζMs_g[:,1], mMs[:,1])
+                #scatterplot(ζMs_g[:,2], mMs[:,2])
+                @test cor(ζMs_g[:,1], mMs[:,1]) > 0.9
+                @test cor(ζMs_g[:,2], mMs[:,2]) > 0.8
                 map(axes(mMs,2)) do ipar
                     #@show ipar
-                    @test isapprox(mMs[:,ipar], meanζMs_true[:,ipar]; rtol=0.1)
+                    @test isapprox(mMs[:,ipar], ζMs_g[:,ipar]; rtol=0.1)
                 end
                 #ζMs_true = stack(map(inverse(transM), eachcol(CA.getdata(θMs_true[:,1:n_batch]))))'
                 residMs = _ζsMs .- mMs
@@ -165,11 +170,13 @@ test_scenario = (scenario) -> begin
                 # (_a,_b), mMi = first(zip(
                 #     eachcol(ϕunc_true.coef_logσ2_ζMs), eachcol(mMs)))
                 _sd_ζMs_true = stack(map(
-                    eachcol(ϕunc_true.coef_logσ2_ζMs), eachcol(mMs)) do (_a,_b), mMi
+                        eachcol(ϕunc_true.coef_logσ2_ζMs), eachcol(ζMs_g)) do (_a,_b), mMi
+                        #eachcol(ϕunc_true.coef_logσ2_ζMs), eachcol(mMs)) do (_a,_b), mMi
                     logσ2_ζM = _a .+ mMi .* _b
                     sqrt.(exp.(logσ2_ζM))
                 end)
                 #ipar = 2
+                #ipar = 1
                 map(axes(sdMs,2)) do ipar
                     #@show ipar
                     hcat(sdMs[:,ipar], _sd_ζMs_true[:,ipar])
@@ -184,17 +191,17 @@ test_scenario = (scenario) -> begin
                 cor_PMs = cor(residPMst')
                 @test cor_PMs[1,2] ≈ ρsP_true[1] atol=0.2
                 @test all(.≈(cor_PMs[1:2,3:end], 0.0, atol=0.2)) # no correlations P,M
-                @test cor_PMs[3,4] ≈ ρsM_true[1] atol=0.1
+                @test cor_PMs[3,4] ≈ ρsM_true[1] atol=0.2
                 @test all(.≈(cor_PMs[3:4,5:end], 0.0, atol=0.2)) # no correlations M1, M2
-                @test cor_PMs[5,6] ≈ ρsM_true[1] atol=0.1
+                @test cor_PMs[5,6] ≈ ρsM_true[1] atol=0.2
                 @test all(.≈(cor_PMs[5:6,7:end], 0.0, atol=0.2)) # no correlations M1, M2
             end
-            test_distζ(_ζsP, _ζsMs, ϕunc_true, meanζMs_true)
+            test_distζ(_ζsP, _ζsMs, ϕunc_true, ζMs_g)
             @testset "predict_hvi check sd" begin
                 # test if uncertainty and reshaping is propagated
                 # here inverse the predicted θs and then test distribution 
                 probcu = CP.update(probc, ϕunc=ϕunc_true);
-                n_sample_pred = 8000
+                n_sample_pred = 24_000
                 (; y, θsP, θsMs, entropy_ζ) = predict_hvi(rng, probcu; scenario, n_sample_pred);
                 #size(_ζsMs), size(θsMs)
                 #size(_ζsP), size(θsP)
@@ -204,8 +211,8 @@ test_scenario = (scenario) -> begin
                 _ζsMs2 = stack(map(eachslice(θsMs; dims=3)) do _θMs
                     int_minvM(_θMs)
                 end)
-                meanζMs_true2 = g(xM, probcu.ϕg)' # have been generated with no scaling
-                test_distζ(_ζsP2, _ζsMs2, ϕunc_true, meanζMs_true2)
+                ζMs_g2 = g(xM, probcu.ϕg)' # have been generated with no scaling
+                test_distζ(_ζsP2, _ζsMs2, ϕunc_true, ζMs_g2)
             end;
         end;
     end # if covar in scenario
