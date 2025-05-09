@@ -160,8 +160,8 @@ n_epoch = 40
 # update the problem with optimized parameters, including uncertainty
 prob1o = probo;
 n_sample_pred = 400
-#(; θ, y) = predict_gf(rng, prob1o, xM, xP; scenario, n_sample_pred);
-(; θ, y) = predict_gf(rng, prob1o; scenario, n_sample_pred);
+#(; θ, y) = predict_hvi(rng, prob1o, xM, xP; scenario, n_sample_pred);
+(; θ, y) = predict_hvi(rng, prob1o; scenario, n_sample_pred);
 (θ1, y1) = (θ, y);
 
 () -> begin # prediction with fitted parameters  (should be smaller than mean)
@@ -210,7 +210,7 @@ end
     prob2o_indep = HVI.update(tmp["prob2o"], get_train_loader = prob0.get_train_loader);
     # test predicting correct obs-uncertainty of predictive posterior
     n_sample_pred = 400
-    (; θ, y, entropy_ζ) = predict_gf(rng, prob2o_indep, xM, xP; scenario, n_sample_pred);
+    (; θ, y, entropy_ζ) = predict_hvi(rng, prob2o_indep, xM, xP; scenario, n_sample_pred);
     (θ2_indep, y2_indep) = (θ, y)
     #(θ2_indep, y2_indep) = (θ2, y2)  # workaround to use covarK2 when loading failed
 end
@@ -241,12 +241,12 @@ end
 #ζMs_VI = g_flux(xM_gpu, ζ_VIc.ϕg |> Flux.gpu) |> Flux.cpu
 ϕunc_VI = interpreters.unc(ζ_VIc.unc)
 ϕunc_VI.ρsM
-exp.(ϕunc_VI.logσ2_logP)
+exp.(ϕunc_VI.logσ2_ζP)
 exp.(ϕunc_VI.coef_logσ2_ζMs[1, :])
 
 # test predicting correct obs-uncertainty of predictive posterior
 n_sample_pred = 400
-(; θ, y, entropy_ζ) = predict_gf(rng, prob2o; scenario, n_sample_pred);
+(; θ, y, entropy_ζ) = predict_hvi(rng, prob2o; scenario, n_sample_pred);
 (θ2, y2) = (θ, y)
 size(y) # n_obs x n_site, n_sample_pred
 size(θ)  # n_θP + n_site * n_θM x n_sample
@@ -320,7 +320,7 @@ end
 
 () -> begin # look at distribution of parameters, predictions, and likelihood and elob at one site
     function predict_site(probo, i_site)
-        (; θ, y, entropy_ζ) = predict_gf(rng, probo, xM, xP; scenario, n_sample_pred)
+        (; θ, y, entropy_ζ) = predict_hvi(rng, probo, xM, xP; scenario, n_sample_pred)
         y_site = y[:, i_site, :]
         θMs_i = map(i_rep -> θ[:Ms, i_rep][:, i_site], axes(θ, 2))
         r1s = map(x -> x[1], θMs_i)

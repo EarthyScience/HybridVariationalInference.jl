@@ -72,7 +72,7 @@ function init_hybrid_params(θP::AbstractVector{FT}, θM::AbstractVector{FT},
 end
 
 """
-    init_hybrid_ϕunc(cor_ends, ρ0=0f0; logσ2_logP, coef_logσ2_ζMs, ρsP, ρsM)
+    init_hybrid_ϕunc(cor_ends, ρ0=0f0; logσ2_ζP, coef_logσ2_ζMs, ρsP, ρsM)
 
 Initialize vector of additional parameter of the approximate posterior.
 
@@ -83,7 +83,7 @@ Arguments:
 - `coef_logσ2_logM`: default column for `coef_logσ2_ζMs`, defaults to `[-10.0, 0.0]`
 
 Returns a `ComponentVector` of 
-- `logσ2_logP`: vector of log-variances of ζP (on log scale).
+- `logσ2_ζP`: vector of log-variances of ζP (on log scale).
   defaults to -10
 - `coef_logσ2_ζMs`: offset and slope for the log-variances of ζM scaling with 
    its value given by columns for each parameter in ζM, defaults to `[-10, 0]`
@@ -94,14 +94,14 @@ function init_hybrid_ϕunc(
         cor_ends::NamedTuple,
         ρ0::FT = 0.0f0,
         coef_logσ2_logM::AbstractVector{FT} = FT[-10.0, 0.0];
-        logσ2_logP::AbstractVector{FT} = fill(FT(-10.0), cor_ends.P[end]),
+        logσ2_ζP::AbstractVector{FT} = fill(FT(-10.0), cor_ends.P[end]),
         coef_logσ2_ζMs::AbstractMatrix{FT} = reduce(
             hcat, (coef_logσ2_logM for _ in 1:cor_ends.M[end])),
         ρsP = fill(ρ0, get_cor_count(cor_ends.P)),
         ρsM = fill(ρ0, get_cor_count(cor_ends.M)),
 ) where {FT}
     nt = (;
-        logσ2_logP,
+        logσ2_ζP,
         coef_logσ2_ζMs,
         ρsP,
         ρsM)

@@ -141,21 +141,40 @@ end
 end
 
 """
-    predict_gf(rng, g, f, ϕ::AbstractVector, xM::AbstractMatrix, interpreters;
+    predict_hvi([rng], prob::AbstractHybridProblem [,xM, xP]; scenario, ...)
+    predict_hvi(rng, g, f, ϕ::AbstractVector, xM::AbstractMatrix;
         get_transPMs, get_ca_int_PMs, n_sample_pred=200, gdev = identity)
 
-Prediction function for hybrid model. Returns an NamedTuple with entries
-- `θ`: ComponentArray `(n_θP + n_site * n_θM), n_sample_pred)` of PBM model parameters.
+Prediction function for hybrid variational inference parameter model. 
+
+## Arguments
+- The problem for which to predict
+- xM: covariates for the machine-learning model (ML): Matrix (n_θM x n_site_pred).
+- xP: model drivers for process based model (PBM): Matrix with (n_site_pred) rows.
+  If provided a ComponentArray with a Tuple-Axis in rows, the PBM model can
+  access parts of it, e.g. `xP[:S1,...]`.
+
+## Keyword arguments
+- scenario
+- n_sample_pred
+
+Returns an NamedTuple `(; y, θsP, θsMs, entropy_ζ)` with entries
 - `y`: Array `(n_obs, n_site, n_sample_pred)` of model predictions.
+- `θsP`: ComponentArray `(n_θP, n_sample_pred)` of PBM model parameters
+  that are kept constant across sites.
+- `θsMs`: ComponentArray `(n_site, n_θM, n_sample_pred)` of PBM model parameters
+  that vary by site.
+- `entropy_ζ`: The entroy of the log-determinant of the transformation of 
+  the set of model parameters, which is involved in uncertainty quantification.
 """
-function predict_gf(rng, prob::AbstractHybridProblem; scenario, kwargs...)
+function predict_hvi(rng, prob::AbstractHybridProblem; scenario, kwargs...)
     dl = get_hybridproblem_train_dataloader(prob; scenario)
     dl_dev = gdev_hybridproblem_dataloader(dl; scenario)
     # predict for all sites
     xM, xP = dl_dev.data[1:2]
-    predict_gf(rng, prob, xM, xP; scenario, kwargs...)
+    predict_hvi(rng, prob, xM, xP; scenario, kwargs...)
 end
-function predict_gf(rng, prob::AbstractHybridProblem, xM::AbstractMatrix, xP;
+function predict_hvi(rng, prob::AbstractHybridProblem, xM::AbstractMatrix, xP;
     scenario,
     n_sample_pred=200,
     gdev=:use_gpu ∈ _val_value(scenario) ? gpu_device() : identity,
@@ -184,12 +203,12 @@ function predict_gf(rng, prob::AbstractHybridProblem, xM::AbstractMatrix, xP;
     int_unc = interpreters.unc
     transMs = StackedArray(transM, n_batch)        
     g_dev, ϕ_dev = gdev(g), gdev(ϕ)
-    predict_gf(rng, g_dev, f, ϕ_dev, xM, xP;
+    predict_hvi(rng, g_dev, f, ϕ_dev, xM, xP;
         int_μP_ϕg_unc, int_unc, transP, transM, 
         n_sample_pred, cdev, cor_ends, pbm_covar_indices, kwargs...)
 end
 
-function predict_gf(rng, g, f, ϕ::AbstractVector, xM::AbstractMatrix, xP;
+function predict_hvi(rng, g, f, ϕ::AbstractVector, xM::AbstractMatrix, xP;
     int_μP_ϕg_unc::AbstractComponentArrayInterpreter,
     int_unc::AbstractComponentArrayInterpreter,
     transP, transM,
@@ -274,6 +293,8 @@ function generate_ζ(rng, g, ϕ::AbstractVector{FT}, xM::MT;
     # first pass: append μ_ζP_to covars, need ML prediction for magnitude of ζMs
     # TODO replace pbm_covar_indices by ComponentArray? dimensions to be type-inferred?
     xMP0 = _append_each_covars(xM, CA.getdata(μ_ζP), pbm_covar_indices)
+    #Main.@infiltrate_main
+
     μ_ζMs0 = g(xMP0, ϕg)::MT # for gpu restructure returns Any, so apply type
     ζP_resids, ζMs_parfirst_resids, σ = sample_ζresid_norm(rng, μ_ζP, μ_ζMs0, ϕc.unc; n_MC, cor_ends, int_unc)
     if pbm_covar_indices isa SA.SVector{0}
@@ -362,7 +383,7 @@ ML-model predcitions of size `(n_θM, n_site)`.
 
 ## Arguments
 * `int_unc`: Interpret vector as ComponentVector with components
-   ρsP, ρsM, logσ2_logP, coef_logσ2_ζMs(intercept + slope), 
+   ρsP, ρsM, logσ2_ζP, coef_logσ2_ζMs(intercept + slope), 
 """
 function sample_ζresid_norm(rng::Random.AbstractRNG, ζP::AbstractVector, ζMs::AbstractMatrix,
     args...; n_MC, cor_ends, int_unc)
@@ -392,10 +413,10 @@ function sample_ζresid_norm(urandn::AbstractMatrix, ζP::TP, ζMs::TM,
     UM = transformU_block_cholesky1(ρsM, cor_ends.M)
     cf = ϕuncc.coef_logσ2_ζMs
     logσ2_logMs = vec(cf[1, :] .+ cf[2, :] .* ζMs)
-    logσ2_logP = vec(CA.getdata(ϕuncc.logσ2_logP))
+    logσ2_ζP = vec(CA.getdata(ϕuncc.logσ2_ζP))
     # CUDA cannot multiply BlockDiagonal * Diagonal, construct already those blocks
     σMs = reshape(exp.(logσ2_logMs ./ 2), n_θM, :)
-    σP = exp.(logσ2_logP ./ 2)
+    σP = exp.(logσ2_ζP ./ 2)
     # BlockDiagonal does work with CUDA, but not with combination of Zygote and CUDA
     # need to construct full matrix for CUDA
     Uσ = _create_blockdiag(UP, UM, σP, σMs, n_batch)

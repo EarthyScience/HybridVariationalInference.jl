@@ -263,7 +263,7 @@ test_with_flux = (scenario) -> begin
             @test cdev(ϕ.unc.ρsM)[1] > 0 
             @test probo.ϕunc == cdev(ϕ.unc)
             n_sample_pred = 22
-            (; y, θsP, θsMs) = predict_gf(
+            (; y, θsP, θsMs) = predict_hvi(
                 rng, probo; scenario = scenf, n_sample_pred, is_inferred=Val(true));            
             (_xM, _xP, _y_o, _y_unc, _i_sites) = get_hybridproblem_train_dataloader(prob; scenario).data
             @test size(y) == (size(_y_o)..., n_sample_pred)
@@ -279,7 +279,7 @@ test_with_flux = (scenario) -> begin
                 @test probo.ϕunc == cdev(ϕ.unc)
                 # predict using problem and its associated dataloader
                 n_sample_pred = 201
-                (; y, θsP, θsMs) = predict_gf(rng, probo; scenario = scenf, n_sample_pred);            
+                (; y, θsP, θsMs) = predict_hvi(rng, probo; scenario = scenf, n_sample_pred);            
                 # to inspect correlations among θP and θMs construct ComponentVector
                 hpints = HybridProblemInterpreters(prob; scenario)
                 int_mPMs = stack_ca_int(Val((n_sample_pred,)), get_int_PMst_site(hpints))
@@ -317,7 +317,7 @@ test_with_flux = (scenario) -> begin
             );
             @test CA.getdata(ϕ) isa GPUArraysCore.AbstractGPUVector
             n_sample_pred = 11
-            (; y, θsP, θsMs) = predict_gf(
+            (; y, θsP, θsMs) = predict_hvi(
                 rng, probo; scenario = scenf, n_sample_pred,is_inferred = Val(true));
             # @test cdev(ϕ.unc.ρsM)[1] > 0 # too few iterations
         end;    

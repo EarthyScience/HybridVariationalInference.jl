@@ -28,35 +28,45 @@ scenario = Val((:default,))
 #scenario = Val((:covarK2,))
 
 test_scenario = (scenario) -> begin
-    FT = get_hybridproblem_float_type(prob; scenario)
-    par_templates = get_hybridproblem_par_templates(prob; scenario)
+    probc = HybridProblem(prob; scenario);
+    FT = get_hybridproblem_float_type(probc; scenario)
+    par_templates = get_hybridproblem_par_templates(probc; scenario)
     int_P, int_M = map(ComponentArrayInterpreter, par_templates)
-    pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
+    pbm_covars = get_hybridproblem_pbmpar_covars(probc; scenario)
     pbm_covar_indices = CP.get_pbm_covar_indices(par_templates.θP, pbm_covars)
 
-    #θsite_true = get_hybridproblem_par_templates(prob; scenario)
-    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    #θsite_true = get_hybridproblem_par_templates(probc; scenario)
+    n_site, n_batch = get_hybridproblem_n_site_and_batch(probc; scenario)
+    # note: need to use prob rather than probc here, make sure the same
+    rng = StableRNG(111)
     (; xM, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o,
         y_unc) = gen_hybridproblem_synthetic(rng, prob; scenario)
+    tmpf = () -> begin
+        # wrap inside function to not define(pollute) variables in level up
+        _trainloader = get_hybridproblem_train_dataloader(probc; scenario)
+        (_xM, _xP, _y_o, _y_unc, _i_sites) = _trainloader.data
+        @test _xM == xM
+        @test _y_o == y_o
+    end; tmpf()
 
     # TODO
-    #g, ϕg0 = @inferred get_hybridproblem_MLapplicator(prob; scenario);
-    g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
-    f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites=false)
-    f_pred = get_hybridproblem_PBmodel(prob; scenario, use_all_sites=true)
+    #g, ϕg0 = @inferred get_hybridproblem_MLapplicator(probc; scenario);
+    g, ϕg0 = get_hybridproblem_MLapplicator(probc; scenario)
+    f = get_hybridproblem_PBmodel(probc; scenario, use_all_sites=false)
+    f_pred = get_hybridproblem_PBmodel(probc; scenario, use_all_sites=true)
 
     n_θM, n_θP = values(map(length, par_templates))
 
     py = neg_logden_indep_normal
 
     n_MC = 3
-    (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
-    cor_ends = get_hybridproblem_cor_ends(prob; scenario)
+    (; transP, transM) = get_hybridproblem_transforms(probc; scenario)
+    cor_ends = get_hybridproblem_cor_ends(probc; scenario)
     # transP = elementwise(exp)
     # transM = Stacked(elementwise(identity), elementwise(exp))
     #transM = Stacked(elementwise(identity), elementwise(exp), elementwise(exp)) # test mismatch
     ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(FT))
-    hpints = HybridProblemInterpreters(prob; scenario)
+    hpints = HybridProblemInterpreters(probc; scenario)
     (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
         θP_true, θMs_true[:, 1], cor_ends, ϕg0, hpints; transP, transM)
     int_unc = interpreters.unc
@@ -72,8 +82,9 @@ test_scenario = (scenario) -> begin
 
     if ggdev isa MLDataDevices.AbstractGPUDevice
         scenario_flux = Val((CP._val_value(scenario)..., :use_Flux, :use_gpu))
+        probc_dev = HybridProblem(prob; scenario = scenario_flux);
         g_flux, ϕg0_flux_cpu = get_hybridproblem_MLapplicator(
-            prob; scenario=scenario_flux)
+            probc_dev; scenario=scenario_flux)
         g_gpu = ggdev(g_flux)
     end
 
@@ -105,10 +116,105 @@ test_scenario = (scenario) -> begin
         @test gr[1] isa Vector
     end
 
+    if !(:covarK2 ∈ CP._val_value(scenario)) 
+        # can only test distribution if g is not repeated
+        @testset "generate_ζ check sd residuals $(last(CP._val_value(scenario)))" begin
+            # prescribe very different uncertainties 
+            ϕunc_true = copy(probc.ϕunc)
+            sd_ζP_true = [0.2,20]
+            sd_ζMs_a_true = [0.1,2]  # sd at_variance at θ==0
+            logσ2_ζMs_b_true = [-3.0,+0.2]  # slope of log_variance with θ
+            ρsP_true = [+0.8]
+            ρsM_true = [-0.6]
+            
+            ϕunc_true.logσ2_ζP = (log ∘ abs2).(sd_ζP_true)
+            ϕunc_true.coef_logσ2_ζMs[1,:] = (log ∘ abs2).(sd_ζMs_a_true)
+            #ϕunc_true.coef_logσ2_ζMs[2,:] = logσ2_ζMs_b_true # predicted means do not scale
+            ϕunc_true.ρsP = ρsP_true
+            ϕunc_true.ρsM = ρsM_true
+
+            probd = CP.update(probc; ϕunc=ϕunc_true);
+            _ϕ = vcat(ϕ_ini.μP, probc.ϕg, probd.ϕunc)
+            #hcat(ϕ_ini, ϕ, _ϕ)[1:4,:]
+            #hcat(ϕ_ini, ϕ, _ϕ)[(end-20):end,:]
+            n_predict = 8000
+            xM_batch = xM[:, 1:n_batch]
+            _ζsP, _ζsMs, _σ = @inferred (
+                # @descend_code_warntype (
+                    CP.generate_ζ(
+                    rng, g, _ϕ, xM_batch;
+                    n_MC = n_predict, cor_ends, pbm_covar_indices,
+                    int_unc=interpreters.unc, int_μP_ϕg_unc=interpreters.μP_ϕg_unc)
+                )
+            meanζMs_true = g(xM_batch, probc.ϕg)' # have been generated with no scaling
+            function test_distζ(_ζsP, _ζsMs, ϕunc_true, meanζMs_true)
+                mP = mean(_ζsP; dims=2)
+                residP = _ζsP .- mP
+                sdP = vec(std(residP; dims=2))
+                _sd_ζP_true = sqrt.(exp.(ϕunc_true.logσ2_ζP))
+                @test isapprox(sdP, _sd_ζP_true; rtol=0.05)
+                mMs = mean(_ζsMs; dims=3)[:,:,1]
+                #hcat(mMs, meanζMs_true)
+                map(axes(mMs,2)) do ipar
+                    #@show ipar
+                    @test isapprox(mMs[:,ipar], meanζMs_true[:,ipar]; rtol=0.1)
+                end
+                #ζMs_true = stack(map(inverse(transM), eachcol(CA.getdata(θMs_true[:,1:n_batch]))))'
+                residMs = _ζsMs .- mMs
+                sdMs = std(residMs; dims=3)[:,:,1]
+                # (_a,_b), mMi = first(zip(
+                #     eachcol(ϕunc_true.coef_logσ2_ζMs), eachcol(mMs)))
+                _sd_ζMs_true = stack(map(
+                    eachcol(ϕunc_true.coef_logσ2_ζMs), eachcol(mMs)) do (_a,_b), mMi
+                    logσ2_ζM = _a .+ mMi .* _b
+                    sqrt.(exp.(logσ2_ζM))
+                end)
+                #ipar = 2
+                map(axes(sdMs,2)) do ipar
+                    #@show ipar
+                    hcat(sdMs[:,ipar], _sd_ζMs_true[:,ipar])
+                    @test isapprox(sdMs[:,ipar], _sd_ζMs_true[:,ipar]; rtol=0.2)
+                    # scatterplot(sdMs[:,ipar], _sd_ζMs_true[:,ipar])
+                end
+                i_sites_inspect = [1,2,3]
+                # reshape to par-first so that can inspect correlations better
+                residMst = permutedims(residMs[i_sites_inspect,:,:], (2,1,3))
+                residPMst = vcat(residP, 
+                    reshape(residMst, size(residMst,1)*size(residMst,2), size(residMst,3)))
+                cor_PMs = cor(residPMst')
+                @test cor_PMs[1,2] ≈ ρsP_true[1] atol=0.2
+                @test all(.≈(cor_PMs[1:2,3:end], 0.0, atol=0.2)) # no correlations P,M
+                @test cor_PMs[3,4] ≈ ρsM_true[1] atol=0.1
+                @test all(.≈(cor_PMs[3:4,5:end], 0.0, atol=0.2)) # no correlations M1, M2
+                @test cor_PMs[5,6] ≈ ρsM_true[1] atol=0.1
+                @test all(.≈(cor_PMs[5:6,7:end], 0.0, atol=0.2)) # no correlations M1, M2
+            end
+            test_distζ(_ζsP, _ζsMs, ϕunc_true, meanζMs_true)
+            @testset "predict_hvi check sd" begin
+                # test if uncertainty and reshaping is propagated
+                # here inverse the predicted θs and then test distribution 
+                probcu = CP.update(probc, ϕunc=ϕunc_true);
+                n_sample_pred = 8000
+                (; y, θsP, θsMs, entropy_ζ) = predict_hvi(rng, probcu; scenario, n_sample_pred);
+                #size(_ζsMs), size(θsMs)
+                #size(_ζsP), size(θsP)
+                trans_minvP = StackedArray(inverse(transP), n_sample_pred)
+                _ζsP2 = trans_minvP(θsP)
+                int_minvM = StackedArray(inverse(transM), n_site)
+                _ζsMs2 = stack(map(eachslice(θsMs; dims=3)) do _θMs
+                    int_minvM(_θMs)
+                end)
+                meanζMs_true2 = g(xM, probcu.ϕg)' # have been generated with no scaling
+                test_distζ(_ζsP2, _ζsMs2, ϕunc_true, meanζMs_true2)
+            end;
+        end;
+    end # if covar in scenario
+
     if ggdev isa MLDataDevices.AbstractGPUDevice
         @testset "generate_ζ gpu $(last(CP._val_value(scenario)))" begin
             ϕ = ggdev(CA.getdata(ϕ_ini))
             @test g_gpu.μ isa GPUArraysCore.AbstractGPUArray
+            # @test g_gpu.app isa HybridVariationalInferenceFluxExt.FluxApplicator
             xMg_batch = ggdev(xM[:, 1:n_batch])
             ζsP_d, ζsMs_d, σ_d = @inferred (
             # @descend_code_warntype (
@@ -266,7 +372,7 @@ test_scenario = (scenario) -> begin
         @test θMsm_pred[:,:,1] == θMs_pred
     end
 
-    @testset "predict_gf cpu $(last(CP._val_value(scenario)))" begin
+    @testset "predict_hvi cpu $(last(CP._val_value(scenario)))" begin
         # intm_PMs_gen = get_ca_int_PMs(n_site)
         # trans_PMs_gen = get_transPMs(n_site)
         # @test length(intm_PMs_gen) == 402
@@ -275,7 +381,7 @@ test_scenario = (scenario) -> begin
         (; y, θsP, θsMs, entropy_ζ) =
         #Cthulhu.@descend_code_warntype (
             @inferred (
-                predict_gf(rng, g, f_pred, ϕ_ini, xM, xP;
+                predict_hvi(rng, g, f_pred, ϕ_ini, xM, xP;
                 int_μP_ϕg_unc, int_unc,
                 transP, transM,
                 n_sample_pred, cor_ends, pbm_covar_indices)
@@ -290,7 +396,7 @@ test_scenario = (scenario) -> begin
     end
 
     if ggdev isa MLDataDevices.AbstractGPUDevice
-        @testset "predict_gf gpu $(last(CP._val_value(scenario)))" begin
+        @testset "predict_hvi gpu $(last(CP._val_value(scenario)))" begin
             n_sample_pred = 32
             ϕ_ini_g = ggdev(CA.getdata(ϕ_ini))
             xMg = ggdev(xM)
@@ -298,7 +404,7 @@ test_scenario = (scenario) -> begin
             (; y, θsP, θsMs, entropy_ζ) =
             #Cthulhu.@descend_code_warntype (
                 @inferred (
-                    predict_gf(rng, g_gpu, f_pred, ϕ_ini_g, xMg, xP;
+                    predict_hvi(rng, g_gpu, f_pred, ϕ_ini_g, xMg, xP;
                     int_μP_ϕg_unc, int_unc,
                     transP, transM,
                     n_sample_pred, cor_ends, pbm_covar_indices)
@@ -311,9 +417,9 @@ test_scenario = (scenario) -> begin
             @test y isa Array
             @test size(y) == (size(y_o)..., n_sample_pred)
         end
-        # @testset "predict_gf also f on gpu" begin
+        # @testset "predict_hvi also f on gpu" begin
         #     # currently only works with identity transformations but not elementwise(exp)
-        #     transPM_ident = get_hybridproblem_transforms(prob; scenario = (scenario..., :transIdent))
+        #     transPM_ident = get_hybridproblem_transforms(probc; scenario = (scenario..., :transIdent))
         #     get_transPMs_ident = (() -> begin
         #         # wrap in function to not override get_transPMs
         #         (; get_transPMs) = init_hybrid_params(
@@ -324,7 +430,7 @@ test_scenario = (scenario) -> begin
         #     n_sample_pred = 200
         #     ϕ = ggdev(CA.getdata(ϕ_ini))
         #     xMg = ggdev(xM)
-        #     (; θ, y) = predict_gf(rng, g_gpu, f_pred, ϕ, xMg, ggdev(xP), map(get_concrete, interpreters);
+        #     (; θ, y) = predict_hvi(rng, g_gpu, f_pred, ϕ, xMg, ggdev(xP), map(get_concrete, interpreters);
         #         get_ca_int_PMs, n_sample_pred, cor_ends, pbm_covar_indices,
         #         get_transPMs = get_transPMs_ident, 
         #         cdev = identity); # keep on gpu

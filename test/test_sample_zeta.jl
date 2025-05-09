@@ -36,7 +36,7 @@ cor_ends = (P=1:n_θP, M=[n_θM])
 ρsM = zeros(FT, get_cor_count(cor_ends.M)) .+ FT(0.02)
 
 ϕunc = CA.ComponentVector(;
-    logσ2_logP=fill(FT(-10.0), n_θP),
+    logσ2_ζP=fill(FT(-10.0), n_θP),
     coef_logσ2_ζMs=reduce(hcat, (FT[-10.0, 0.0] for _ in 1:n_θM)),
     ρsP,
     ρsM)
