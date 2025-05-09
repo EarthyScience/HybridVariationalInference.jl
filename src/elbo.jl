@@ -393,7 +393,8 @@ function sample_ζresid_norm(rng::Random.AbstractRNG, ζP::AbstractVector, ζMs:
     #     get_concrete(ComponentArrayInterpreter(
     #         P = (n_MC, n_θP), Ms = (n_MC, n_θM, n_site_batch)))
     # end
-    urandn = _create_randn(rng, CA.getdata(ζP), n_MC, n_θP + n_θMs)
+    #urandn = _create_randn(rng, CA.getdata(ζP), n_MC, n_θP + n_θMs)
+    urandn = _create_randn(rng, CA.getdata(ζP), n_θP + n_θMs, n_MC)
     sample_ζresid_norm(urandn, CA.getdata(ζP), CA.getdata(ζMs), args...;
         cor_ends, int_unc=get_concrete(int_unc))
 end
@@ -405,7 +406,6 @@ function sample_ζresid_norm(urandn::AbstractMatrix, ζP::TP, ζMs::TM,
 ) where {T,TP<:AbstractVector{T},TM<:AbstractMatrix{T}}
     ϕuncc = int_unc(CA.getdata(ϕunc))
     n_θP, n_θMs, (n_θM, n_batch) = length(ζP), length(ζMs), size(ζMs)
-    n_MC = size(urandn, 1) # TODO transform urandn
     # do not create a UpperTriangular Matrix of an AbstractGÜUArray in transformU_cholesky1
     ρsP = isempty(ϕuncc.ρsP) ? similar(ϕuncc.ρsP) : ϕuncc.ρsP # required by zygote
     UP = transformU_block_cholesky1(ρsP, cor_ends.P)
@@ -421,8 +421,9 @@ function sample_ζresid_norm(urandn::AbstractMatrix, ζP::TP, ζMs::TM,
     # need to construct full matrix for CUDA
     Uσ = _create_blockdiag(UP, UM, σP, σMs, n_batch)
     σ = diag(Uσ)   # elements of the diagonal: standard deviations
-    ζ_resids_parfirst = Uσ' * urandn' # n_par x n_MC
-    #ζ_resids_parfirst = urandn * Uσ # n_MC x n_par
+    n_MC = size(urandn, 2) # TODO transform urandn
+    ζ_resids_parfirst = Uσ' * urandn # n_par x n_MC
+    #ζ_resids_parfirst = urandn' * Uσ # n_MC x n_par
     ζP_resids = ζ_resids_parfirst[1:n_θP, :]
     ζMs_parfirst_resids = reshape(ζ_resids_parfirst[(n_θP+1):end, :], n_θM, n_batch, n_MC)
     ζP_resids, ζMs_parfirst_resids, σ
