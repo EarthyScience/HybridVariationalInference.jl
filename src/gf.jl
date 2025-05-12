@@ -51,44 +51,55 @@ end
 """
 composition f ∘ transM ∘ g: mechanistic model after machine learning parameter prediction
 """
-function gf(prob::AbstractHybridProblem, args...; scenario = (), kwargs...)
+function gf(prob::AbstractHybridProblem; scenario = Val(()), kwargs...)
     train_loader = get_hybridproblem_train_dataloader(prob; scenario)
     train_loader_dev = gdev_hybridproblem_dataloader(train_loader; scenario)
     xM, xP = train_loader_dev.data[1:2]
-    gf(prob, xM, xP, args...; kwargs...)
+    gf(prob, xM, xP; scenario, kwargs...)
 end
-function gf(prob::AbstractHybridProblem, xM::AbstractMatrix, xP::AbstractVector, args...; 
-    scenario = (), 
-    gdev = :use_gpu ∈ scenario ? gpu_device() : identity, 
+function gf(prob::AbstractHybridProblem, xM::AbstractMatrix, xP::AbstractMatrix; 
+    scenario = Val(()), 
+    gdev = :use_gpu ∈ _val_value(scenario) ? gpu_device() : identity, 
     cdev = gdev isa MLDataDevices.AbstractGPUDevice ? cpu_device() : identity,
-    kwargs...)
+    is_inferred::Val{is_infer} = Val(false),
+    kwargs...
+) where is_infer
     g, ϕg = get_hybridproblem_MLapplicator(prob; scenario)
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-    is_predict_batch = (n_batch == length(xP))
+    is_predict_batch = (n_batch == size(xP,2))
     n_site_pred = is_predict_batch ? n_batch : n_site
-    @assert length(xP) == n_site_pred
+    @assert size(xP, 2) == n_site_pred
     @assert size(xM, 2) == n_site_pred
     f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = !is_predict_batch)
     (; θP, θM) = get_hybridproblem_par_templates(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
+    transMs = StackedArray(transM, n_site_pred)
     intP = ComponentArrayInterpreter(θP)
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
     pbm_covar_indices = CA.getdata(intP(1:length(intP))[pbm_covars])
     ζP = inverse(transP)(θP)
     g_dev, ϕg_dev, ζP_dev =  (gdev(g), gdev(ϕg), gdev(CA.getdata(ζP))) 
-    gf(g_dev, transM, transP, f, xM, xP, ϕg_dev, ζP_dev, pbm_covar_indices; cdev, kwargs...)
+    # most of the properties of prob are not type-inferred
+    # hence result is not type-inferred, but may test at this context
+    res = is_infer ? 
+        Test.@inferred( gf(
+            g_dev, transMs, transP, f, xM, xP, ϕg_dev, ζP_dev, pbm_covar_indices; 
+            cdev, kwargs...)) :
+        gf(g_dev, transMs, transP, f, xM, xP, ϕg_dev, ζP_dev, pbm_covar_indices; 
+            cdev, kwargs...)
 end
 
 function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, ζP; 
-    cdev = identity, pbm_covars, 
+    cdev, pbm_covars, 
     intP = ComponentArrayInterpreter(ζP), kwargs...)
     pbm_covar_indices = intP(1:length(intP))[pbm_covars]
     gf(g, transM, transP, f, xM, xP, ϕg, ζP, pbm_covar_indices; kwargs...)
 end
 
 
-function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, ζP, pbm_covar_indices::AbstractVector{<:Integer}; 
-    cdev = identity)
+function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, ζP, 
+    pbm_covar_indices::AbstractVector{<:Integer}; 
+    cdev)
     # @show first(xM,5)
     # @show first(ϕg,5)
 
@@ -109,9 +120,11 @@ end
 composition transM ∘ g: transformation after machine learning parameter prediction
 Provide a `transMs = StackedArray(transM, n_batch)`
 """
-function gtrans(g, transMs, xMP, ϕg; cdev = identity)
+function gtrans(g, transMs, xMP::T, ϕg; cdev) where T
     # TODO remove after removing gf
-    ζMs = g(xMP, ϕg)' # predict the log of the parameters
+    # predict the log of the parameters
+    ζMst = g(xMP, ϕg)::T   # problem of Flux model applicator restructure 
+    ζMs = ζMst' 
     ζMs_cpu = cdev(ζMs)
     θMs = transMs(ζMs_cpu)
     #θMs = reduce(hcat, map(transM, eachcol(ζMs_cpu))) # transform each row
@@ -128,8 +141,8 @@ Create a loss function for given
 - intP: interpreter attaching axis to ζP = ϕP with components used by f
 - kwargs: additional keyword arguments passed to gf, such as gdev or pbm_covars
 
-The loss function `loss_gf(p, xM, xP, y_o, y_unc, i_sites)` takes   
-- parameter vector p
+The loss function `loss_gf(ϕ, xM, xP, y_o, y_unc, i_sites)` takes   
+- parameter vector ϕ
 - xM: matrix of covariate, sites in the batch are in columns
 - xP: iteration of drivers for each site
 - y_o: matrix of observations, sites in columns
@@ -140,36 +153,33 @@ function get_loss_gf(g, transM, transP, f, y_o_global,
     intϕ::AbstractComponentArrayInterpreter,
     intP::AbstractComponentArrayInterpreter = ComponentArrayInterpreter(
         intϕ(1:length(intϕ)).ϕP);
+    cdev=cpu_device(),
     pbm_covars, n_site_batch, kwargs...)
 
     let g = g, transM = transM, transP = transP, f = f, y_o_global = y_o_global, 
         intϕ = get_concrete(intϕ),
-        transMs = StackedArray(transM, n_site_batch)
+        transMs = StackedArray(transM, n_site_batch),
+        cdev = cdev,
         pbm_covar_indices = CA.getdata(intP(1:length(intP))[pbm_covars])
         #, intP = get_concrete(intP)
         #inv_transP = inverse(transP), kwargs = kwargs
-        function loss_gf(p, xM, xP, y_o, y_unc, i_sites)
+        function loss_gf(ϕ, xM, xP, y_o, y_unc, i_sites)
             σ = exp.(y_unc ./ 2)
-            pc = intϕ(p)
-            μ_ζP = pc.ϕP
-            xMP = _append_each_covars(xM, CA.getdata(μ_ζP), pbm_covar_indices)
-            ϕ_M = g(xMP, CA.getdata(pc.ϕg))
-            μ_ζMs = ϕ_M'
-            y_pred, _, _ = apply_f_trans(CA.getdata(μ_ζP), CA.getdata(μ_ζMs), f, xP; transM, transP)
-
+            ϕc = intϕ(ϕ)
+            # μ_ζP = ϕc.ϕP
+            # xMP = _append_each_covars(xM, CA.getdata(μ_ζP), pbm_covar_indices)
+            # ϕ_M = g(xMP, CA.getdata(ϕc.ϕg))
+            # μ_ζMs = ϕ_M'
+            # ζP_cpu = cdev(CA.getdata(μ_ζP))
+            # ζMs_cpu = cdev(CA.getdata(μ_ζMs))
+            # y_pred, _, _ = apply_f_trans(ζP_cpu, ζMs_cpu, f, xP; transM, transP)
             y_pred_global, y_pred, θMs, θP = gf(
-                g, transMs, transP, f, xM, xP, CA.getdata(pc.ϕg), CA.getdata(pc.ϕP), 
-                pbm_covar_indices; kwargs...)
-            loss = sum(abs2, (y_pred .- y_o) ./ σ) + sum(abs2, y_pred_global .- y_o_global)
-            return loss, y_pred_global, y_pred, θMs, θP
+                g, transMs, transP, f, xM, xP, CA.getdata(ϕc.ϕg), CA.getdata(ϕc.ϕP), 
+                pbm_covar_indices; cdev, kwargs...)
+            loss = sum(abs2, (y_pred .- y_o) ./ σ) #+ sum(abs2, y_pred_global .- y_o_global)
+            return loss, y_pred, θMs, θP
         end
     end
-end
-
-
-() -> begin
-    loss_gf(p, xM, y_o)
-    Zygote.gradient(x -> loss_gf(x, xM, y_o)[1], p)
 end
 
 # function tmp_fcost(is,intθ,fneglogden )

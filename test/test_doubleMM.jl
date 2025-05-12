@@ -228,7 +228,7 @@ end
         #optprob, Adam(0.02), callback = callback_loss(100), maxiters = 5000);
         optprob, Adam(0.02), maxiters = 1000)
 
-    l1, y_pred_global, y_pred, θMs_pred, θP_pred = loss_gf2(res.u, train_loader.data...)
+    l1, y_pred, θMs_pred, θP_pred = loss_gf2(res.u, train_loader.data...)
     #l1, y_pred_global, y_pred, θMs_pred = loss_gf(p0, xM, xP, y_o, y_unc);
     θMs_pred = CA.ComponentArray(θMs_pred, CA.getaxes(θMs_true'))
     #TODO @test isapprox(par_templates.θP, intϕ(res.u).ϕP, rtol = 0.15)

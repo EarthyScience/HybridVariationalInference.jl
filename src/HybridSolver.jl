@@ -8,7 +8,7 @@ HybridPointSolver(; alg) = HybridPointSolver(alg)
 
 function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolver;
     scenario, rng=Random.default_rng(),
-    gdev=:use_gpu ∈ scenario ? gpu_device() : identity,
+    gdev=:use_gpu ∈ _val_value(scenario) ? gpu_device() : identity,
     cdev=gdev isa MLDataDevices.AbstractGPUDevice ? cpu_device() : identity,
     is_inferred::Val{is_infer} = Val(false),
     kwargs...
@@ -125,7 +125,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     l0 = is_infer ? 
         (Test.@inferred loss_elbo(ϕ0_dev, rng, first(train_loader_dev)...)) :
         loss_elbo(ϕ0_dev, rng, first(train_loader_dev)...)
-    optf = Optimization.OptimizationFunction((ϕ, data) -> loss_elbo(ϕ, rng, data...)[1],
+    optf = Optimization.OptimizationFunction((ϕ, data) -> first(loss_elbo(ϕ, rng, data...)),
         Optimization.AutoZygote())
     optprob = OptimizationProblem(optf, CA.getdata(ϕ0_dev), train_loader_dev)
     res = Optimization.solve(optprob, solver.alg; kwargs...)

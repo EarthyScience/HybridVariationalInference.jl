@@ -245,7 +245,8 @@ Steps:
 `ζsP` and `ζsMs` are shaped according to the output of `generate_ζ`.
 Results are of shape `(n_obs x n_site_pred x n_MC)`.
 """
-function apply_f_trans(ζsP::AbstractMatrix, ζsMs::AbstractArray, f, xP; transP, transM::Stacked,
+function apply_f_trans(ζsP::AbstractMatrix, ζsMs::AbstractArray, f, xP; 
+    transP, transM::Stacked,
     trans_mP=StackedArray(transP, size(ζsP, 2)),
     trans_mMs=StackedArray(transM, size(ζsMs, 1) * size(ζsMs, 3))
 )
