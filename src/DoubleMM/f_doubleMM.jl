@@ -280,8 +280,8 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     θMs_true = int_θMs_sites(scale_centered_at(θMs_true0, θM, FloatType(0.1)))
     f = get_hybridproblem_PBmodel(prob; scenario, gdev = identity, use_all_sites = true)
     #xP = fill((; S1 = xP_S1, S2 = xP_S2), n_site)
-    int_xPn = ComponentArrayInterpreter(int_xP1, (n_site,))
-    xP = int_xPn(vcat(repeat(xP_S1, 1, n_site), repeat(xP_S2, 1, n_site)))
+    int_xP_sites = ComponentArrayInterpreter(int_xP1, (n_site,))
+    xP = int_xP_sites(vcat(repeat(xP_S1, 1, n_site), repeat(xP_S2, 1, n_site)))
     #xP[:S1,:]
     θP = par_templates.θP
     #θint = ComponentArrayInterpreter( (size(θMs_true,2),), CA.getaxes(vcat(θP, θMs_true[:,1])))

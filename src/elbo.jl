@@ -164,7 +164,7 @@ Returns an NamedTuple `(; y, θsP, θsMs, entropy_ζ)` with entries
   that are kept constant across sites.
 - `θsMs`: ComponentArray `(n_site, n_θM, n_sample_pred)` of PBM model parameters
   that vary by site.
-- `entropy_ζ`: The entroy of the log-determinant of the transformation of 
+- `entropy_ζ`: The entropy of the log-determinant of the transformation of 
   the set of model parameters, which is involved in uncertainty quantification.
 """
 function predict_hvi(rng, prob::AbstractHybridProblem; scenario, kwargs...)
