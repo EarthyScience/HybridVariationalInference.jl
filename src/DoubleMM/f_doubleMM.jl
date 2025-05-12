@@ -181,8 +181,8 @@ end
 #     end
 # end
 
-# defining the PBmodel as a clousre with let leads to problems of JLD2 reloading
-# Define all the varaibles additional to the ones passed curing the call by
+# defining the PBmodel as a closure with let leads to problems of JLD2 reloading
+# Define all the variables additional to the ones passed curing the call by
 # a dedicated Closure object and define the PBmodel as a callable
 struct DoubleMMCaller{CLT}
     cl::CLT
