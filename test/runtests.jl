@@ -5,8 +5,12 @@ const GROUP = get(ENV, "GROUP", "All") # defined in in CI.yml
     if GROUP == "All" || GROUP == "Basic"
         #@safetestset "test" include("test/test_bijectors_utils.jl")
         @time @safetestset "test_bijectors_utils" include("test_bijectors_utils.jl")
+        #@safetestset "test" include("test/test_util_ca.jl")
+        @time @safetestset "test_util_ca" include("test_util_ca.jl")
         #@safetestset "test" include("test/test_ComponentArrayInterpreter.jl")
         @time @safetestset "test_ComponentArrayInterpreter" include("test_ComponentArrayInterpreter.jl")
+        #@safetestset "test" include("test/test_hybridprobleminterpreters.jl")
+        @time @safetestset "test_hybridprobleminterpreters" include("test_hybridprobleminterpreters.jl")
         #@safetestset "test" include("test/test_ModelApplicator.jl")
         @time @safetestset "test_ModelApplicator" include("test_ModelApplicator.jl")
         #@safetestset "test" include("test/test_gencovar.jl")

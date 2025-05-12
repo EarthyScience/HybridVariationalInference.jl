@@ -77,10 +77,11 @@ function uutri2vec_gpu!(v::Union{CUDA.CuVector,CUDA.CuDeviceVector}, X::Abstract
     return nothing # important
 end
 
-function HVI._create_random(rng, ::CUDA.CuVector{T}, dims...) where {T}
+function HVI._create_randn(rng, v::CUDA.CuVector{T,M}, dims...) where {T,M}
     # ignores rng
     # https://discourse.julialang.org/t/help-using-cuda-zygote-and-random-numbers/123458/4?u=bgctw
-    ChainRulesCore.@ignore_derivatives CUDA.randn(dims...)
+    res = ChainRulesCore.@ignore_derivatives CUDA.randn(dims...)
+    res::CUDA.CuArray{T, length(dims),M}
 end
 
 

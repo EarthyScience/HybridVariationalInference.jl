@@ -19,11 +19,15 @@ using Optimization
 using Distributions, DistributionFits
 using StaticArrays: StaticArrays as SA
 using Functors
+using Test: Test # @inferred
 
+export extend_stacked_nrow, StackedArray
 #export Exp
-include("bijectors_utils.jl") 
+include("bijectors_utils.jl")
 
-export ComponentArrayInterpreter, flatten1, get_concrete, get_positions
+export AbstractComponentArrayInterpreter, ComponentArrayInterpreter,
+       StaticComponentArrayInterpreter
+export flatten1, get_concrete, get_positions, stack_ca_int, compose_interpreters
 include("ComponentArrayInterpreter.jl")
 
 export AbstractModelApplicator, construct_ChainsApplicator
@@ -52,10 +56,17 @@ export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_
        setup_PBMpar_interpreter
 include("AbstractHybridProblem.jl")
 
+export AbstractHybridProblemInterpreters, HybridProblemInterpreters,
+       get_int_P, get_int_M,
+       get_int_Ms_batch, get_int_Ms_site, get_int_Mst_batch, get_int_Mst_site,
+       get_int_PMs_batch, get_int_PMs_site, get_int_PMst_batch, get_int_PMst_site
+include("hybridprobleminterpreters.jl")
+
 export HybridProblem
+export get_quantile_transformed
 include("HybridProblem.jl")
 
-export applyf, gf, get_loss_gf
+export map_f_each_site, gf, get_loss_gf
 include("gf.jl")
 
 export compute_correlated_covars, scale_centered_at
@@ -73,7 +84,7 @@ include("logden_normal.jl")
 export get_ca_starts, get_ca_ends, get_cor_count
 include("cholesky.jl")
 
-export neg_elbo_gtf, predict_gf
+export neg_elbo_gtf, predict_hvi
 include("elbo.jl")
 
 export init_hybrid_params, init_hybrid_ϕunc

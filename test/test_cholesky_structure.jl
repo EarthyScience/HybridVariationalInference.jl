@@ -8,7 +8,9 @@ using ComponentArrays: ComponentArrays as CA
 using GPUArraysCore: GPUArraysCore
 #using Flux
 import CUDA, cuDNN
-using MLDataDevices
+using MLDataDevices, Suppressor
+using BlockDiagonals
+using LinearAlgebra
 
 A = [1.0 2.0 3.0
      2.0 1.0 4.0
@@ -23,7 +25,8 @@ C = [1.0 2.0 3.2
 LC = cholesky(C).L
 
 Z = zeros(3, 3)
-ggdev = gpu_device()
+ggdev = Suppressor.@suppress gpu_device()
+cdev = cpu_device()
 
 
 @testset "cholesky of blockdiagonal" begin
@@ -52,6 +55,7 @@ end;
 @testset "invsumn" begin
     ns_orig = [1, 2, 3, 6]
     s = map(n -> sum(1:n), ns_orig)
+    @inferred CP.invsumn(s[1])
     ns = CP.invsumn.(s)
     @test ns == ns_orig
     @test eltype(ns) == Int
@@ -60,13 +64,13 @@ end;
 end;
 
 @testset "get_cor_count" begin
-    @test get_cor_count(Int[]) == 0  # case of no physical parameters
-    @test get_cor_count([1]) == 0
+    @test @inferred get_cor_count(Int[]) == 0  # case of no physical parameters
+    @test @inferred get_cor_count([1]) == 0
     @test get_cor_count([2]) == 1
     @test get_cor_count([3]) == 3
     @test get_cor_count([4]) == 6
-    @test get_cor_count(4) == 6
-    @test get_cor_count([1,4]) == 0 + 3
+    @test @inferred get_cor_count(4) == 6
+    @test @inferred get_cor_count([1,4]) == 0 + 3
     @test get_cor_count([2,4]) == 1 + 1
     @test get_cor_count([3,4]) == 3 + 0
     @test get_cor_count([2,5]) == 1 + 3
@@ -74,11 +78,13 @@ end;
 
 @testset "vec2utri" begin
     v_orig = 1.0:6.0
-    Uv = CP.vec2utri(v_orig)
+    Uv = @inferred CP.vec2utri(v_orig)
+    #@usingany Cthulhu
+    #@descend_code_warntype CP.vec2utri(v_orig)
     @test Uv isa UpperTriangular
     Zygote.gradient(v -> sum(CP.vec2utri(v)), v_orig)[1] # works nice
     #
-    v2 = CP.utri2vec(Uv)
+    v2 = @inferred CP.utri2vec(Uv)
     @test v2 == v_orig
     Zygote.gradient(Uv -> sum(CP.utri2vec(Uv)), Uv)[1] # works nice
 end;
@@ -88,25 +94,25 @@ end;
     vcpu = collect(v_orig)
     n = CP.invsumn(length(v)) + 1
     T = eltype(v)
-    U1v = CP.vec2uutri(v_orig)
+    U1v = @inferred CP.vec2uutri(v_orig)
     @test U1v isa UnitUpperTriangular
     @test size(U1v, 1) == 4
     gr = Zygote.gradient(v -> sum(abs2.(CP.vec2uutri(v))), vcpu)[1] # works nice
     # test providing keyword argument
     gr = Zygote.gradient(v -> sum(abs2.(CP.vec2uutri(v; n = 4))), vcpu)[1] # works nice
     #
-    v2 = CP.uutri2vec(U1v)
+    v2 = @inferred CP.uutri2vec(U1v)
     @test v2 == v_orig
     gr = Zygote.gradient(U1v -> sum(CP.uutri2vec(U1v) .* (1.0:6.0)), U1v)[1] # works nice
 end;
 
 @testset "utri2vec_pos" begin
-    @test CP.utri2vec_pos(1, 1) == 1
+    @test @inferred CP.utri2vec_pos(1, 1) == 1
     @test CP.utri2vec_pos(1, 2) == 2
     @test CP.utri2vec_pos(2, 2) == 3
     @test CP.utri2vec_pos(1, 3) == 4
     @test CP.utri2vec_pos(1, 4) == 7
-    @test CP.utri2vec_pos(5, 5) == 15
+    @test @inferred CP.utri2vec_pos(5, 5) == 15
     typeof(CP.utri2vec_pos(5, 5)) == Int
     typeof(CP.utri2vec_pos(Int32(5), Int32(5))) == Int32
     @test_throws AssertionError CP.utri2vec_pos(2, 1)
@@ -114,65 +120,78 @@ end
 
 @testset "vec2uutri gpu" begin
     if ggdev isa MLDataDevices.AbstractGPUDevice # only run the test, if CUDA is working (not on Github ci)
-        v_orig = 1.0f0:6.0f0
+        v_orig = 1.0f0:1.0f0:6.0f0
+        #v = ggdev(v_orig)
         v = ggdev(collect(v_orig))
-        U1v = CP.vec2uutri(v)
+        U1v = @inferred CP.vec2uutri(v)
         @test !(U1v isa UnitUpperTriangular) # on CUDA work with normal matrix
         @test U1v isa GPUArraysCore.AbstractGPUMatrix
         @test size(U1v, 1) == 4
-        @test Array(U1v) == CP.vec2uutri(v_orig)
+        @test cdev(U1v) == CP.vec2uutri(v_orig)
         gr = Zygote.gradient(v -> sum(abs2.(CP.vec2uutri(v))), v)[1] # works nice
         @test gr isa GPUArraysCore.AbstractGPUArray
-        @test Array(gr) == (1:6) .* 2.0
+        @test cdev(gr) == (1:6) .* 2.0
         #
-        v2 = CP.uutri2vec(U1v)
+        v2 = @inferred CP.uutri2vec(U1v)
         @test v2 isa GPUArraysCore.AbstractGPUVector
         @test eltype(v2) == eltype(U1v)
-        @test Array(v2) == v_orig
+        @test cdev(v2) == v_orig
         gr = Zygote.gradient(U1v -> sum(CP.uutri2vec(U1v .* 2)), U1v)[1] # works nice
         @test gr isa GPUArraysCore.AbstractGPUArray
         @test all(diag(gr) .== 0)
-        @test Array(CP.uutri2vec(gr)) == fill(2.0f0, length(v_orig))
+        @test cdev(CP.uutri2vec(gr)) == fill(2.0f0, length(v_orig))
     end
 end;
 
 @testset "transformU_cholesky1 gpu" begin
-    v_orig = 1.0f0:6.0f0
+    v_orig = 1.0f0:1.0f0:6.0f0
     vcpu = collect(v_orig)
-    ch = CP.transformU_cholesky1(vcpu)
+    ch = @inferred CP.transformU_cholesky1(vcpu)
     gr1 = Zygote.gradient(v -> sum(CP.transformU_cholesky1(v)), vcpu)[1] # works nice
     @test all(diag(ch' * ch) .≈ 1)
     if ggdev isa MLDataDevices.AbstractGPUDevice # only run the test, if CUDA is working (not on Github ci)
         v = ggdev(collect(v_orig))
-        U1v = CP.transformU_cholesky1(v)
+        U1v = @inferred CP.transformU_cholesky1(v)
         @test !(U1v isa UnitUpperTriangular) # on CUDA work with normal matrix
         @test U1v isa GPUArraysCore.AbstractGPUMatrix
-        @test Array(U1v) ≈ ch
+        @test cdev(U1v) ≈ ch
         gr2 = Zygote.gradient(v -> sum(CP.transformU_cholesky1(v)), v)[1] # works nice
-        @test Array(gr2) == gr1
+        @test cdev(gr2) == gr1
     end
 end;
 
 @testset "transformU_block_cholesky1 gpu" begin
-    vc = CA.ComponentVector(b1 = 1.0f0:3.0f0)
-    vc = CA.ComponentVector(b1 = 1.0f0:3.0f0, b2 = [5.0f0])
+    vc = CA.ComponentVector(b1 = 1.0f0:1.0f0:3.0f0)
+    vc = CA.ComponentVector(b1 = 1.0f0:1.0f0:3.0f0, b2 = [5.0f0])
     v = CA.getdata(vc)
-    cor_ends = get_ca_ends(vc)
+    cor_ends = @inferred get_ca_ends(vc)
     #ns=(CP.invsumn(length(v[k])) + 1 for k in keys(v))
     #collect(ns)
     ρ = collect(1f0:get_cor_count(cor_ends))
-    U = CP.transformU_block_cholesky1(ρ)
-    U = CP.transformU_block_cholesky1(v, cor_ends)
+    tmp = @inferred CP.transformU_cholesky1(ρ)
+    _cor_counts = @inferred CP.get_cor_counts(cor_ends) # number of correlation parameters
+    # depr cholesky is either a BlockDiagonal of UpperTriangular of an plain UpperTriangular
+    # always a BlockDiagonal
+    # T = eltype(v)
+    # UT = Union{BlockDiagonals.BlockDiagonal{T, UpperTriangular{T}}, UpperTriangular{T}} 
+    U = @inferred CP.transformU_block_cholesky1(ρ)
+    #U = @inferred UT CP.transformU_block_cholesky1(ρ)
+    #@descend_code_warntype CP.transformU_block_cholesky1(ρ)
+    U = @inferred CP.transformU_block_cholesky1(v, cor_ends)
+    #U = @inferred UT CP.transformU_block_cholesky1(v, cor_ends)
+    #@descend_code_warntype CP.transformU_block_cholesky1(v, cor_ends)
     @test diag(U' * U) ≈ ones(4)
     @test U[1:3, 4:4] ≈ zeros(3, 1)
     gr1 = Zygote.gradient(v -> sum(CP.transformU_block_cholesky1(v, cor_ends)), v)[1]; # works nice
     # degenerate case of no correlations
     vc0 = CA.ComponentVector{Float32}()
-    cor_ends0 = get_ca_ends(vc0)
+    cor_ends0 = @inferred get_ca_ends(vc0)
+    #@descend_code_warntype get_ca_ends(vc0)
     ρ0 = collect(1f0:get_cor_count(cor_ends0))
     #ns=(CP.invsumn(length(v[k])) + 1 for k in keys(v))
     #collect(ns)
-    U = CP.transformU_block_cholesky1(CA.getdata(ρ0), cor_ends0)
+    U = @inferred CP.transformU_block_cholesky1(CA.getdata(ρ0), cor_ends0)
+    #U = @inferred UT CP.transformU_block_cholesky1(CA.getdata(ρ0), cor_ends0)
     @test diag(U) == [1f0]
     gr1 = Zygote.gradient(v -> sum(CP.transformU_block_cholesky1(ρ0, cor_ends0)), v)[1]; # works nice
 
@@ -180,19 +199,21 @@ end;
         vc = v_orig = CA.ComponentVector(b1 = ggdev(1.0f0:3.0f0), b2 = ggdev([5.0f0]))
         vc = v_orig = ggdev(CA.ComponentVector(b1 = 1.0f0:3.0f0, b2 = [5.0f0]))
         v = CA.getdata(vc)
-        cor_ends = get_ca_ends(vc)
+        cor_ends = @inferred get_ca_ends(vc)
         ρ = ggdev(collect(1f0:get_cor_count(cor_ends)))
-        U = CP.transformU_block_cholesky1(ρ, cor_ends)
+        U = @inferred CP.transformU_block_cholesky1(ρ, cor_ends)
+        #U = @inferred UT CP.transformU_block_cholesky1(ρ, cor_ends)
         @test U isa GPUArraysCore.AbstractGPUArray
-        @test diag(Array(U' * U)) ≈ ones(4)
-        @test Array(U[1:3, 4:4]) ≈ zeros(3, 1)
+        @test diag(cdev(U' * U)) ≈ ones(4)
+        @test cdev(U[1:3, 4:4]) ≈ zeros(3, 1)
         gr1 = Zygote.gradient(v -> sum(CP.transformU_block_cholesky1(v, cor_ends)), v)[1] # works nice
         #
         cor_ends0 = Int64[]
         ρ0 = ggdev(collect(1f0:get_cor_count(cor_ends0)))
-        U = CP.transformU_block_cholesky1(ρ0, cor_ends0)
+        U = @inferred CP.transformU_block_cholesky1(ρ0, cor_ends0)
+        #U = @inferred UT CP.transformU_block_cholesky1(ρ0, cor_ends0)
         @test U isa GPUArraysCore.AbstractGPUArray
-        @test Array(diag(U)) == [1f0]
+        @test cdev(diag(U)) == [1f0]
     end
 end;
 
@@ -277,6 +298,7 @@ end
     S = _X * _X' # know that this is Hermitian
     n_x = 200
     xs = rand(3, n_x)
+    tmp = @inferred cholesky(S)
     SU = cholesky(S).U
     σ_o = 0.05
     ys_true = ysS = xs' * SU
@@ -284,16 +306,18 @@ end
 
     Dσ = Diagonal(sqrt.(diag(S))) # assume given
     n_U = size(S, 1)
-
-    fcost = fcostS = (Us1vec) -> begin
-        U = CP.transformU_cholesky1(Us1vec; n = n_U)
-        y_pred = (xs' * U) * Dσ
-        sum(abs2, ys .- y_pred)
+    fcost = fcostS = let n_U = n_U, xs = xs, Dσ=Dσ, ys=ys
+        fcost_inner = (Us1vec) -> begin
+            U = CP.transformU_cholesky1(Us1vec; n = n_U)
+            y_pred = (xs' * U) * Dσ
+            sum(abs2, ys .- y_pred)
+        end
     end
     # cannot infer true U_scaled any more
     Unscaled0 = S ./ diag(S)
-    Us1vec0 = CP.uutri2vec(Unscaled0)
-    fcost(Us1vec0)
+    Us1vec0 = @inferred CP.uutri2vec(Unscaled0)
+    @inferred fcost(Us1vec0)
+    #@descend_code_warntype fcost(Us1vec0)
     #fcostS(resCT.u)  # cost of u optimized by Covar should yield small result if same x
 
     optf = Optimization.OptimizationFunction((x, p) -> fcost(x), Optimization.AutoZygote())

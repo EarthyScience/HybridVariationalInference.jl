@@ -52,11 +52,13 @@ end
 """
     construct_3layer_MLApplicator(
         rng::AbstractRNG, prob::HVI.AbstractHybridProblem, <ml_engine>;
-        scenario::NTuple = ())
+        scenario::Val{scen}) where scen
 
 Construct a machine learning model for given Proglem and machine learning engine.
 Implemented for machine learning extensions, such as Flux or SimpleChains.
 `ml_engine` usually is of type `Val{Symbol}`, e.g. Val(:Flux). See `select_ml_engine`.       
+
+Scenario is a value-type of `NTuple{_,Symbol}`.
 """
 function construct_3layer_MLApplicator end
 
@@ -68,10 +70,10 @@ Returns a value type `Val{:Symbol}` to dispatch on the machine learning engine t
 - `:use_Lux ∈ scenario -> Val(:Lux)`
 - `:use_Flux ∈ scenario -> Val(:Flux)`
 """
-function select_ml_engine(;scenario)
-    if :use_Lux ∈ scenario
+function select_ml_engine(; scenario::Val{scen}) where scen
+    if :use_Lux ∈ scen
         return Val(:Lux)
-    elseif :use_Flux ∈ scenario
+    elseif :use_Flux ∈ scen
         return Val(:Flux)
     else
         # default
@@ -104,14 +106,15 @@ end
     NormalScalingModelApplicator(app, priors, transM)
 
 Wrapper around AbstractModelApplicator that transforms each output 
-(assumed in [0..1], usch as output of logistic activation function)
+(assumed in [0..1], such as output of logistic activation function)
 to a quantile of a Normal distribution. 
 
 Length of μ, σ must correspond to the number of outputs of the wrapped ModelApplicator.
 
-This helps to keep raw ML-predictions (in confidence bounds) and weights in a similar magnitude.
-Compared to specifying bounds, this allows for the possibility (although harder to converge)
-far beyond the confidence bounds.
+This helps to keep raw ML-predictions (in confidence bounds) and weights in a 
+similar magnitude.
+Compared to specifying bounds, this allows for the possibility 
+(although harder to converge) far beyond the confidence bounds.
 
 The second constructor fits a normal distribution of the inverse-transformed 5% and 95%
 quantiles of prior distributions.
@@ -123,19 +126,19 @@ struct NormalScalingModelApplicator{VF,A} <: AbstractModelApplicator
 end
 @functor NormalScalingModelApplicator
 
+"""
+Fit a Normal distribution to iterators lower and upper. 
+If `repeat_inner` is given, each fitted distribution is repeated as many times.
+"""
 function NormalScalingModelApplicator(
-    app::AbstractModelApplicator, priors::AbstractVector{<:Distribution}, transM, ET::Type)
-    # need to apply transform to entire vectors each of lowers and uppers
-    θq = ([quantile(d, q) for d in priors] for q in (0.05, 0.95))
-    ζlower, ζupper = inverse(transM).(θq)
-    #ipar = first(axes(ζlower,1))
-    pars = map(axes(ζlower,1)) do ipar
-        dζ = fit(Normal, @qp_l(ζlower[ipar]), @qp_u(ζupper[ipar]))
+    app::AbstractModelApplicator, lowers::AbstractVector{<:Number}, uppers, ET::Type; repeat_inner::Integer = 1) 
+    pars = map(lowers, uppers) do lower, upper
+        dζ = fit(Normal, @qp_l(lower), @qp_u(upper))
         params(dζ)
     end
     # use collect to make it an array that works with gpu
-    μ = collect(ET, first.(pars))  
-    σ = collect(ET, last.(pars))
+    μ = repeat(collect(ET, first.(pars)); inner=(repeat_inner,))  
+    σ = repeat(collect(ET, last.(pars)); inner=(repeat_inner,))
     NormalScalingModelApplicator(app, μ, σ)
 end
 
