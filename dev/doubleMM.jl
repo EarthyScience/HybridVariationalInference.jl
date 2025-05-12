@@ -197,10 +197,6 @@ prob2o = probo;
     fname_probos = "intermediate/probos800_$(last(HVI._val_value(scenario))).jld2"
     JLD2.save(fname_probos, Dict("prob1o" => prob1o, "prob2o" => prob2o))
     tmp = JLD2.load(fname_probos)
-    # TODO replace function closure by Callable to store 
-    # closure function could not be restored with JLD2
-    prob1o = HVI.update(tmp["prob1o"], get_train_loader = prob0.get_train_loader);
-    prob2o = HVI.update(tmp["prob2o"], get_train_loader = prob0.get_train_loader);
 end
 
 () -> begin # load the non-covar scenario
@@ -208,9 +204,6 @@ end
     #fname_probos = "intermediate/probos_$(last(_val_value(scenario))).jld2"
     fname_probos = "intermediate/probos800_omit_r0.jld2"
     tmp = JLD2.load(fname_probos)
-    # get_train_loader function could not be restored with JLD2
-    prob1o_indep = HVI.update(tmp["prob1o"], get_train_loader = prob0.get_train_loader);
-    prob2o_indep = HVI.update(tmp["prob2o"], get_train_loader = prob0.get_train_loader);
     # test predicting correct obs-uncertainty of predictive posterior
     n_sample_pred = 400
     (; θ, y, entropy_ζ) = predict_hvi(rng, prob2o_indep, xM, xP; scenario, n_sample_pred);
