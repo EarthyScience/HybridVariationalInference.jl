@@ -130,8 +130,13 @@ test_scenario = (scenario) -> begin
             ϕunc_true.logσ2_ζP = (log ∘ abs2).(sd_ζP_true)
             ϕunc_true.coef_logσ2_ζMs[1,:] = (log ∘ abs2).(sd_ζMs_a_true)
             ϕunc_true.coef_logσ2_ζMs[2,:] = logσ2_ζMs_b_true 
-            ϕunc_true.ρsP = ρsP_true
-            ϕunc_true.ρsM = ρsM_true
+            # note that the parameterization contains a transformation that
+            # here only inverted for the single correlation case
+            ϕunc_true.ρsP = CP.compute_cholcor_coefficient_single.(ρsP_true)
+            ϕunc_true.ρsM = CP.compute_cholcor_coefficient_single.(ρsM_true)
+            # check that ρsM_true = -0.6 recovered with params ϕunc_true.ρsM = -0.75
+            UC = CP.transformU_cholesky1(ϕunc_true.ρsM); Σ = UC' * UC
+            @test Σ[1,2] ≈ ρsM_true[1]
 
             probd = CP.update(probc; ϕunc=ϕunc_true);
             _ϕ = vcat(ϕ_ini.μP, probc.ϕg, probd.ϕunc)
@@ -189,12 +194,12 @@ test_scenario = (scenario) -> begin
                 residPMst = vcat(residP, 
                     reshape(residMst, size(residMst,1)*size(residMst,2), size(residMst,3)))
                 cor_PMs = cor(residPMst')
-                @test cor_PMs[1,2] ≈ ρsP_true[1] atol=0.2
-                @test all(.≈(cor_PMs[1:2,3:end], 0.0, atol=0.2)) # no correlations P,M
-                @test cor_PMs[3,4] ≈ ρsM_true[1] atol=0.2
-                @test all(.≈(cor_PMs[3:4,5:end], 0.0, atol=0.2)) # no correlations M1, M2
-                @test cor_PMs[5,6] ≈ ρsM_true[1] atol=0.2
-                @test all(.≈(cor_PMs[5:6,7:end], 0.0, atol=0.2)) # no correlations M1, M2
+                @test cor_PMs[1,2] ≈ ρsP_true[1] atol=0.02
+                @test all(.≈(cor_PMs[1:2,3:end], 0.0, atol=0.02)) # no correlations P,M
+                @test cor_PMs[3,4] ≈ ρsM_true[1] atol=0.02
+                @test all(.≈(cor_PMs[3:4,5:end], 0.0, atol=0.02)) # no correlations M1, M2
+                @test cor_PMs[5,6] ≈ ρsM_true[1] atol=0.02
+                @test all(.≈(cor_PMs[5:6,7:end], 0.0, atol=0.02)) # no correlations M1, M2
             end
             test_distζ(_ζsP, _ζsMs, ϕunc_true, ζMs_g)
             @testset "predict_hvi check sd" begin

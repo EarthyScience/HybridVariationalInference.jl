@@ -21,8 +21,8 @@ struct HybridProblem <: AbstractHybridProblem
             θP::CA.ComponentVector, θM::CA.ComponentVector,
             g::AbstractModelApplicator, ϕg::AbstractVector,
             ϕunc::CA.ComponentVector,
-            f_batch::Function, 
-            f_allsites::Function,
+            f_batch, 
+            f_allsites,
             priors::AbstractDict,
             py,
             transM::Stacked,
@@ -43,7 +43,7 @@ end
 
 function HybridProblem(θP::CA.ComponentVector, θM::CA.ComponentVector,
         # note no ϕg argument and g_chain unconstrained
-        g_chain, f_batch::Function,
+        g_chain, f_batch,
         args...; rng = Random.default_rng(), kwargs...)
     # dispatches on type of g_chain
     g, ϕg = construct_ChainsApplicator(rng, g_chain, eltype(θM))
@@ -74,10 +74,10 @@ function update(prob::HybridProblem;
         g::AbstractModelApplicator = prob.g, 
         ϕg::AbstractVector = prob.ϕg,
         ϕunc::CA.ComponentVector = prob.ϕunc,
-        f_batch::Function = prob.f_batch,
-        f_allsites::Function = prob.f_allsites,
+        f_batch = prob.f_batch,
+        f_allsites = prob.f_allsites,
         priors::AbstractDict = prob.priors,
-        py::Function = prob.py,
+        py = prob.py,
         # transM::Union{Function, Bijectors.Transform} = prob.transM,
         # transP::Union{Function, Bijectors.Transform} = prob.transP,
         transM = prob.transM,

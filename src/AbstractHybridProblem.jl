@@ -152,7 +152,7 @@ function gen_hybridproblem_synthetic end
 
 Determine the FloatType for given Case and scenario, defaults to Float32
 """
-function get_hybridproblem_float_type(prob::AbstractHybridProblem; scenario = ())
+function get_hybridproblem_float_type(prob::AbstractHybridProblem; scenario)
     return eltype(get_hybridproblem_par_templates(prob; scenario).θM)
 end
 
@@ -264,3 +264,51 @@ function setup_PBMpar_interpreter(θP, θM, θall = vcat(θP, θM))
     intθ = ComponentArrayInterpreter(flatten1(CA.ComponentVector(; θP, θM, θFix)))
     intθ, θFix
 end
+
+struct PBmodelClosure{θFixT, θFix_devT, AX, pos_xPT} 
+    θFix::θFixT
+    θFix_dev::θFix_devT
+    intθ::StaticComponentArrayInterpreter{AX}
+    isP::Matrix{Int}
+    n_site_batch::Int
+    pos_xP::pos_xPT
+end
+
+function PBmodelClosure(prob::AbstractHybridProblem; scenario::Val{scen},
+    use_all_sites = false,
+    gdev = :f_on_gpu ∈ _val_value(scenario) ? gpu_device() : identity,
+    θall, int_xP1,
+) where {scen}
+    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    n_site_batch = use_all_sites ? n_site : n_batch
+    #fsite = (θ, x_site) -> f_doubleMM(θ)  # omit x_site drivers
+    par_templates = get_hybridproblem_par_templates(prob; scenario)
+    intθ1, θFix1 = setup_PBMpar_interpreter(par_templates.θP, par_templates.θM, θall)
+    θFix = repeat(θFix1', n_site_batch)
+    θFix_dev = gdev(θFix)
+    intθ = get_concrete(ComponentArrayInterpreter((n_site_batch,), intθ1))
+    #int_xPb = ComponentArrayInterpreter((n_site_batch,), int_xP1)
+    isP = repeat(axes(par_templates.θP, 1)', n_site_batch)
+    pos_xP = get_positions(int_xP1)
+    PBmodelClosure(;θFix, θFix_dev, intθ, isP, n_site_batch, pos_xP)
+end
+
+function PBmodelClosure(;
+    θFix::θFixT,
+    θFix_dev::θFix_devT,
+    intθ::StaticComponentArrayInterpreter{AX},
+    isP::Matrix{Int},
+    n_site_batch::Int,
+    pos_xP::pos_xPT,
+) where {θFixT, θFix_devT, AX, pos_xPT}
+    PBmodelClosure{θFixT, θFix_devT, AX, pos_xPT}(
+        θFix::AbstractArray, θFix_dev, intθ, isP, n_site_batch, pos_xP)
+end
+
+
+
+
+
+
+
+

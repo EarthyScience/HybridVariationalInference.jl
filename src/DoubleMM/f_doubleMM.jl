@@ -181,55 +181,43 @@ end
 #     end
 # end
 
-function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario::Val{scen},
-        use_all_sites = false,
-        gdev = :f_on_gpu ∈ HVI._val_value(scenario) ? gpu_device() : identity
-) where {scen}
-    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-    n_site_batch = use_all_sites ? n_site : n_batch
-    #fsite = (θ, x_site) -> f_doubleMM(θ)  # omit x_site drivers
-    par_templates = get_hybridproblem_par_templates(prob; scenario)
-    intθ1, θFix1 = setup_PBMpar_interpreter(par_templates.θP, par_templates.θM, θall)
-    θFix = repeat(θFix1', n_site_batch)
-    intθ = get_concrete(ComponentArrayInterpreter((n_site_batch,), intθ1))
-    #int_xPb = ComponentArrayInterpreter((n_site_batch,), int_xP1)
-    isP = repeat(axes(par_templates.θP, 1)', n_site_batch)
-    let θFix = θFix, θFix_dev = gdev(θFix), intθ = get_concrete(intθ), isP = isP,
-        n_site_batch = n_site_batch,
-        #int_xPb=get_concrete(int_xPb),
-        pos_xP = get_positions(int_xP1)
+# defining the PBmodel as a closure with let leads to problems of JLD2 reloading
+# Define all the variables additional to the ones passed curing the call by
+# a dedicated Closure object and define the PBmodel as a callable
+struct DoubleMMCaller{CLT}
+    cl::CLT
+end
 
-        function f_doubleMM_with_global(θP::AbstractVector, θMs::AbstractMatrix, xP)
-            @assert size(xP, 2) == n_site_batch
-            @assert size(θMs, 1) == n_site_batch
-            # # convert vector of tuples to tuple of matricesByRows
-            # # need to supply xP as vectorOfTuples to work with DataLoader
-            # # k = first(keys(xP[1]))
-            # xPM = (; zip(keys(xP[1]), map(keys(xP[1])) do k
-            #     #stack(map(r -> r[k], xP))' 
-            #     stack(map(r -> r[k], xP); dims = 1)
-            # end)...)
-            #xPM = map(transpose, xPM1)
-            #xPc = int_xPb(CA.getdata(xP))
-            #xPM = (S1 = xPc[:,:S1], S2 = xPc[:,:S2]) # problems with Zygote
-            # make sure the same order of columns as in intθ
-            # reshape big matrix into NamedTuple of drivers S1 and S2 
-            #   for broadcasting need sites in rows
-            #xPM = map(p -> CA.getdata(xP[p,:])', pos_xP)
-            xPM = map(p -> CA.getdata(xP)'[:, p], pos_xP)
-            θFixd = (θP isa GPUArraysCore.AbstractGPUVector) ? θFix_dev : θFix
-            θ = hcat(CA.getdata(θP[isP]), CA.getdata(θMs), θFixd)
-            pred_sites = f_doubleMM(θ, xPM; intθ)'
-            pred_global = eltype(pred_sites)[]
-            return pred_global, pred_sites
-        end
-        # function f_doubleMM_with_global(θP::AbstractVector, θMs::AbstractMatrix, xP)
-        #     # TODO
-        #     pred_sites = f_doubleMM(θMs, θP, θFix, xP, intθ)
-        #     pred_global = eltype(pred_sites)[]
-        #     return pred_global, pred_sites
-        # end
-    end
+function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario, kwargs...)
+    # θall defined in this module above
+    cl = HVI.PBmodelClosure(prob; scenario, θall, int_xP1, kwargs...)
+    return DoubleMMCaller{typeof(cl)}(cl)
+end
+
+function(caller::DoubleMMCaller)(θP::AbstractVector, θMs::AbstractMatrix, xP)
+    cl = caller.cl
+    @assert size(xP, 2) == cl.n_site_batch
+    @assert size(θMs, 1) == cl.n_site_batch
+    # # convert vector of tuples to tuple of matricesByRows
+    # # need to supply xP as vectorOfTuples to work with DataLoader
+    # # k = first(keys(xP[1]))
+    # xPM = (; zip(keys(xP[1]), map(keys(xP[1])) do k
+    #     #stack(map(r -> r[k], xP))' 
+    #     stack(map(r -> r[k], xP); dims = 1)
+    # end)...)
+    #xPM = map(transpose, xPM1)
+    #xPc = int_xPb(CA.getdata(xP))
+    #xPM = (S1 = xPc[:,:S1], S2 = xPc[:,:S2]) # problems with Zygote
+    # make sure the same order of columns as in intθ
+    # reshape big matrix into NamedTuple of drivers S1 and S2 
+    #   for broadcasting need sites in rows
+    #xPM = map(p -> CA.getdata(xP[p,:])', pos_xP)
+    xPM = map(p -> CA.getdata(xP)'[:, p], cl.pos_xP)
+    θFixd = (θP isa GPUArraysCore.AbstractGPUVector) ? cl.θFix_dev : cl.θFix
+    θ = hcat(CA.getdata(θP[cl.isP]), CA.getdata(θMs), θFixd)
+    pred_sites = f_doubleMM(θ, xPM; cl.intθ)'
+    pred_global = eltype(pred_sites)[]
+    return pred_global, pred_sites
 end
 
 function HVI.get_hybridproblem_neg_logden_obs(::DoubleMMCase; scenario::Val)
@@ -284,8 +272,7 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     xP = int_xP_sites(vcat(repeat(xP_S1, 1, n_site), repeat(xP_S2, 1, n_site)))
     #xP[:S1,:]
     θP = par_templates.θP
-    #θint = ComponentArrayInterpreter( (size(θMs_true,2),), CA.getaxes(vcat(θP, θMs_true[:,1])))
-    y_global_true, y_true = f(θP, θMs_true', xP) 
+    y_global_true, y_true = f(θP, θMs_true', xP)
     σ_o = FloatType(0.01)
     #σ_o = FloatType(0.002)
     logσ2_o = FloatType(2) .* log.(σ_o)

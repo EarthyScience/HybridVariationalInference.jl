@@ -25,6 +25,7 @@ prob = DoubleMM.DoubleMMCase()
 scenario = Val((:default,))
 #using Flux
 #scenario = Val((:use_Flux,))
+#scenario = Val((:use_Flux,:f_on_gpu))
 
 par_templates = get_hybridproblem_par_templates(prob; scenario)
 
