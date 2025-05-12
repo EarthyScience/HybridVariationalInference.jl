@@ -177,6 +177,19 @@ end
 # end
 
 """
+Compute the cholesky-factor parameter for a given single
+correlation in a 2x2 matrix.
+Invert the transformation of cholesky-factor parameterization.
+"""
+function compute_cholcor_coefficient_single(ρ)
+    # invert  ρ = a / sqrt(a^2 + 1)
+    sign(ρ) * sqrt(ρ^2/(1 - ρ^2))
+end
+
+
+
+
+"""
     get_ca_starts(vc::ComponentVector)
 
 Return a tuple with starting positions of components in vc. 

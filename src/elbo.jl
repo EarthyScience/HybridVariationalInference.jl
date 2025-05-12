@@ -411,6 +411,8 @@ function sample_ζresid_norm(urandn::AbstractMatrix, ζP::TP, ζMs::TM,
     ρsP = isempty(ϕuncc.ρsP) ? similar(ϕuncc.ρsP) : ϕuncc.ρsP # required by zygote
     UP = transformU_block_cholesky1(ρsP, cor_ends.P)
     ρsM = isempty(ϕuncc.ρsM) ? similar(ϕuncc.ρsM) : ϕuncc.ρsM # required by zygote
+    # cholesky factor of the correlation: diag(UM' * UM) .== 1
+    # coefficients ρsM can be larger than 1, still yielding correlations <1 in UM' * UM
     UM = transformU_block_cholesky1(ρsM, cor_ends.M)
     cf = ϕuncc.coef_logσ2_ζMs
     logσ2_logMs = vec(cf[1, :] .+ cf[2, :] .* ζMs)
