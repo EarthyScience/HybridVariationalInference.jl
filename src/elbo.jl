@@ -296,7 +296,7 @@ function generate_ζ(rng, g, ϕ::AbstractVector{FT}, xM::MT;
     xMP0 = _append_each_covars(xM, CA.getdata(μ_ζP), pbm_covar_indices)
     #Main.@infiltrate_main
 
-    μ_ζMs0 = g(xMP0, ϕg)::MT # for gpu restructure returns Any, so apply type
+    μ_ζMs0 = g(xMP0, ϕg)
     ζP_resids, ζMs_parfirst_resids, σ = sample_ζresid_norm(rng, μ_ζP, μ_ζMs0, ϕc.unc; n_MC, cor_ends, int_unc)
     if pbm_covar_indices isa SA.SVector{0}
         # do not need to predict again but just add the residuals to μ_ζP and μ_ζMs
@@ -308,7 +308,7 @@ function generate_ζ(rng, g, ϕ::AbstractVector{FT}, xM::MT;
             ζP = μ_ζP .+ rP
             # second pass: append ζP rather than μ_ζP to covars to xM
             xMP = _append_each_covars(xM, CA.getdata(ζP), pbm_covar_indices)
-            μ_ζMst = g(xMP, ϕg)::MT # for gpu restructure returns Any, so apply type
+            μ_ζMst = g(xMP, ϕg)
             ζMs = (μ_ζMst .+ rMs)'  # already transform to par-last form
             ζP, ζMs
         end
@@ -356,25 +356,26 @@ function get_pbm_covar_indices(ζP, pbm_covars::NTuple{0},
     SA.SA[]
 end
 
-# function _predict_μ_ζMs(xM, ζP, pbm_covars::NTuple{N,Symbol}, g, ϕg, μ_ζMs0) where N
-#     xMP2 = _append_PBM_covars(xM, ζP, pbm_covars) # need different variable name?
+# remove?
+# # function _predict_μ_ζMs(xM, ζP, pbm_covars::NTuple{N,Symbol}, g, ϕg, μ_ζMs0) where N
+# #     xMP2 = _append_PBM_covars(xM, ζP, pbm_covars) # need different variable name?
+# #     μ_ζMs = g(xMP2, ϕg)
+# # end
+# # function _predict_μ_ζMs(xM, ζP, pbm_covars::NTuple{0}, g, ϕg, μ_ζMs0)
+# #     # if pbm_covars is the empty tuple, just return the original prediction on xM only
+# #     # rather than calling the ML model
+# #     μ_ζMs0
+# # end
+
+# function _predict_μ_ζMs(xM, ζP, pbm_covar_indices::AbstractVector, g, ϕg, μ_ζMs0)
+#     xMP2 = _append_each_covars(xM, CA.getdata(ζP), pbm_covar_indices)
 #     μ_ζMs = g(xMP2, ϕg)
 # end
-# function _predict_μ_ζMs(xM, ζP, pbm_covars::NTuple{0}, g, ϕg, μ_ζMs0)
+# function _predict_μ_ζMs(xM, ζP, pbm_covars_indices::SA.StaticVector{0}, g, ϕg, μ_ζMs0)
 #     # if pbm_covars is the empty tuple, just return the original prediction on xM only
 #     # rather than calling the ML model
 #     μ_ζMs0
 # end
-
-function _predict_μ_ζMs(xM, ζP, pbm_covar_indices::AbstractVector, g, ϕg, μ_ζMs0)
-    xMP2 = _append_each_covars(xM, CA.getdata(ζP), pbm_covar_indices)
-    μ_ζMs = g(xMP2, ϕg)
-end
-function _predict_μ_ζMs(xM, ζP, pbm_covars_indices::SA.StaticVector{0}, g, ϕg, μ_ζMs0)
-    # if pbm_covars is the empty tuple, just return the original prediction on xM only
-    # rather than calling the ML model
-    μ_ζMs0
-end
 
 """
 Extract relevant parameters from ζ and return n_MC generated multivariate normal draws

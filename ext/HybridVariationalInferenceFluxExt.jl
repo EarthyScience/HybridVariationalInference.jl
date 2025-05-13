@@ -16,10 +16,14 @@ function HVI.construct_ChainsApplicator(rng::AbstractRNG, m::Chain, float_type::
     FluxApplicator(rebuild), ϕ
 end
 
-function HVI.apply_model(app::FluxApplicator, x, ϕ)
+function HVI.apply_model(app::FluxApplicator, x::T, ϕ) where T
+    # assume no size informmation in x -> can hint the type of the result
+    # to be the same as the type of the input
     m = app.rebuild(ϕ)
-    res = m(x)
+    res = m(x)::T
     res
+end
+function _apply_model(m,x) # function barrier so that m is inferred
 end
 
 # struct FluxGPUDataHandler <: AbstractGPUDataHandler end

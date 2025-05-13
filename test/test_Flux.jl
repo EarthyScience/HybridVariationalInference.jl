@@ -51,7 +51,9 @@ using Flux
     n_site = 3
     x = rand(Float32, n_covar, n_site) |> gpu
     ϕ = ϕg |> gpu
-    y = g(x, ϕ)
+    y = @inferred g(x, ϕ)
+    # @usingany Cthulhu
+    # @descend_code_warntype g(x, ϕ)
     #@test ϕ isa GPUArraysCore.AbstractGPUArray
     @test size(y) == (n_out, n_site)
 end;
