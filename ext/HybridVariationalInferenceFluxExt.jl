@@ -10,15 +10,37 @@ struct FluxApplicator{RT} <: AbstractModelApplicator
     rebuild::RT
 end
 
+struct PartricFluxApplicator{RT, MT, YT} <: AbstractModelApplicator
+    rebuild::RT
+end
+
+const FluxApplicatorU{RT} = Union{FluxApplicator{RT},PartricFluxApplicator{RT}} where RT
+
+
 function HVI.construct_ChainsApplicator(rng::AbstractRNG, m::Chain, float_type::DataType)
     # TODO: care fore rng and float_type
     ϕ, rebuild = Flux.destructure(m)
     FluxApplicator(rebuild), ϕ
 end
 
-function HVI.apply_model(app::FluxApplicator, x, ϕ)
+function HVI.apply_model(app::FluxApplicator, x::T, ϕ) where T
+    # assume no size informmation in x -> can hint the type of the result
+    # to be the same as the type of the input
     m = app.rebuild(ϕ)
-    res = m(x)
+    res = m(x)::T
+    res
+end
+
+
+function HVI.construct_partric(app::FluxApplicator{RT}, x, ϕ) where RT
+    m = app.rebuild(ϕ)
+    y = m(x)
+    PartricFluxApplicator{RT, typeof(m), typeof(y)}(app.rebuild)
+end
+
+function HVI.apply_model(app::PartricFluxApplicator{RT, MT, YT}, x, ϕ) where {RT, MT, YT}
+    m = app.rebuild(ϕ)::MT
+    res = m(x)::YT
     res
 end
 
@@ -62,6 +84,7 @@ end
 function HVI.cpu_ca(ca::CA.ComponentArray)
     CA.ComponentArray(cpu(CA.getdata(ca)), CA.getaxes(ca))
 end
+
 
 
 
