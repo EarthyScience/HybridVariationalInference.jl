@@ -28,6 +28,7 @@ include("bijectors_utils.jl")
 export AbstractComponentArrayInterpreter, ComponentArrayInterpreter,
        StaticComponentArrayInterpreter
 export flatten1, get_concrete, get_positions, stack_ca_int, compose_interpreters
+export construct_partric
 include("ComponentArrayInterpreter.jl")
 
 export AbstractModelApplicator, construct_ChainsApplicator
