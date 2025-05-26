@@ -51,9 +51,19 @@ using Flux
     n_site = 3
     x = rand(Float32, n_covar, n_site) |> gpu
     ϕ = ϕg |> gpu
-    y = g(x, ϕ)
+    y = @inferred g(x, ϕ)
+    # @usingany Cthulhu
+    # @descend_code_warntype g(x, ϕ)
     #@test ϕ isa GPUArraysCore.AbstractGPUArray
     @test size(y) == (n_out, n_site)
+    gp = construct_partric(g, x, ϕ)
+    y2 = @inferred gp(x, ϕ)
+    @test y2 == y
+    () -> begin
+        # @usingany BenchmarkTools
+        #@benchmark g(x,ϕ)
+        #@benchmark gp(x,ϕ) # no difference type-inferred
+    end
 end;
 
 @testset "cpu_ca" begin

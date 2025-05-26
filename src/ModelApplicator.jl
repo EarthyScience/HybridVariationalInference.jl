@@ -34,6 +34,16 @@ function apply_model(app::NullModelApplicator, x, ϕ)
     return x
 end
 
+"""
+Construct a parametric type-stable model applicator, given
+covariates, `x`, and parameters, `ϕ`.
+
+The default returns the current model applicator.
+"""
+function construct_partric(app::AbstractModelApplicator, x, ϕ) 
+    app
+end
+
 
 """
     construct_ChainsApplicator([rng::AbstractRNG,] chain, float_type)

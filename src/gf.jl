@@ -120,10 +120,10 @@ end
 composition transM ∘ g: transformation after machine learning parameter prediction
 Provide a `transMs = StackedArray(transM, n_batch)`
 """
-function gtrans(g, transMs, xMP::T, ϕg; cdev) where T
+function gtrans(g, transMs, xMP, ϕg; cdev)
     # TODO remove after removing gf
     # predict the log of the parameters
-    ζMst = g(xMP, ϕg)::T   # problem of Flux model applicator restructure 
+    ζMst = g(xMP, ϕg)
     ζMs = ζMst' 
     ζMs_cpu = cdev(ζMs)
     θMs = transMs(ζMs_cpu)
