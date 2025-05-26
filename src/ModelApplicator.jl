@@ -38,7 +38,7 @@ end
 Construct a parametric type-stable model applicator, given
 covariates, `x`, and parameters, `ϕ`.
 
-The default retuns the current model applicator.
+The default returns the current model applicator.
 """
 function construct_partric(app::AbstractModelApplicator, x, ϕ) 
     app
