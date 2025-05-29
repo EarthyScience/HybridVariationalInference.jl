@@ -5,6 +5,9 @@ const θM = CA.ComponentVector{Float32}(r1 = 0.5, K1 = 0.2)
 const θall = vcat(θP, θM)
 
 const θP_nor0 = θP[(:K2,)]
+θP_nor0_K1 = θM[(:K1,)]
+θM_nor0_K1 = vcat(θM[(:r1,)], θP[(:K2,)])
+
 
 const xP_S1 = Float32[0.5, 0.5, 0.5, 0.5, 0.4, 0.3, 0.2, 0.1]
 const xP_S2 = Float32[1.0, 3.0, 4.0, 5.0, 5.0, 5.0, 5.0, 5.0]
@@ -87,6 +90,10 @@ function HVI.get_hybridproblem_par_templates(
         ::DoubleMMCase; scenario::Val{scen}) where {scen}
     if (:omit_r0 ∈ scen)
         #return ((; θP = θP_nor0, θM, θf = θP[(:K2r)]))
+        if (:K1global ∈ scen)
+            # scenario of K1 global but K2 site-dependent to inspect correlations^
+            return ((; θP = θP_nor0_K1, θM = θM_nor0_K1))
+        end
         return ((; θP = θP_nor0, θM))
     end
     #(; θP, θM, θf = eltype(θP)[])
@@ -135,6 +142,9 @@ end
 function HVI.get_hybridproblem_pbmpar_covars(
         ::DoubleMMCase; scenario::Val{scen}) where {scen}
     if (:covarK2 ∈ scen)
+        if (:K1global ∈ scen)
+            return (:K1,)
+        end
         return (:K2,)
     end
     ()
@@ -291,4 +301,16 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
         y_unc = fill(logσ2_o, size(y_o))
     )
 end
+
+function HVI.get_hybridproblem_cor_ends(prob::DoubleMMCase; scenario::Val{scen}) where {scen}
+    pt = get_hybridproblem_par_templates(prob; scenario)
+    if (:neglect_cor ∈ scen)
+        # one block for each parameter, i.e. neglect all correlations
+        (P = 1:length(pt.θP), M = 1:length(pt.θM))
+    else 
+        # single big blocks  
+        (P = [length(pt.θP)], M = [length(pt.θM)])
+    end
+end
+
 
