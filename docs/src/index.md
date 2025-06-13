@@ -9,6 +9,3 @@ Documentation for [HybridVariationalInference](https://github.com/EarthyScience/
 ```@index
 ```
 
-```@autodocs
-Modules = [HybridVariationalInference]
-```
