@@ -582,7 +582,7 @@ f_allsites = get_hybridproblem_PBmodel(prob0; scenario, use_all_sites = true)
 end
 
 () -> begin # plot chain
-    #@usingany TwMakieHelpers, CairoMakie
+    #@usingany FigureHelpers, CairoMakie
     # θP and first θMs 
     ch = chain[:,vcat(1:n_θP, n_θP+1, n_θP+n_site+1),:];
     fig = plot_chn(ch)

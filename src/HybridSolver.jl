@@ -121,7 +121,10 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
         solver.n_MC, solver.n_MC_cap, cor_ends, priors_θP_mean, priors_θMs_mean, cdev,
         pbm_covars, θP, int_unc, int_μP_ϕg_unc)
     # test loss function once
-    #Main.@infiltrate_main
+    # tmp = first(train_loader_dev)
+    # using ShareAdd
+    # @usingany Cthulhu
+    # @descend_code_warntype loss_elbo(ϕ0_dev, rng, first(train_loader_dev)...)
     l0 = is_infer ? 
         (Test.@inferred loss_elbo(ϕ0_dev, rng, first(train_loader_dev)...)) :
         loss_elbo(ϕ0_dev, rng, first(train_loader_dev)...)

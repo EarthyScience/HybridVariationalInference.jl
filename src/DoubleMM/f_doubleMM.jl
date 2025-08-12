@@ -21,48 +21,68 @@ int_xP1 = ComponentArrayInterpreter(CA.ComponentVector(S1 = xP_S1, S2 = xP_S2))
 
 const int_θdoubleMM = ComponentArrayInterpreter(flatten1(CA.ComponentVector(; θP, θM)))
 
-function f_doubleMM(θ::AbstractVector, x; intθ1)
+function f_doubleMM(θc::CA.ComponentVector{ET}, x) where ET
     # extract parameters not depending on order, i.e whether they are in θP or θM
-    y = GPUArraysCore.allowscalar() do
-        θc = intθ1(θ)
+    GPUArraysCore.allowscalar() do # index to scalar parameter in parameter vector
+        #θc = intθ1(θ)
         #using ComponentArrays: ComponentArrays as CA
         #r0, r1, K1, K2 = θc[(:r0, :r1, :K1, :K2)] # does not work on Zygote+GPU
         (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
             # vector will be repeated when broadcasted by a matrix
-            CA.getdata(θc[par])
+            CA.getdata(θc[par])::ET
         end
         # r0 = θc[:r0]
         # r1 = θc[:r1]
         # K1 = θc[:K1]
         # K2 = θc[:K2]
         y = r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
+        return (y)
     end
-    return (y)
 end
 
-function f_doubleMM(
-        θ::AbstractMatrix{T}, x; intθ::HVI.AbstractComponentArrayInterpreter) where T
-    # provide θ for n_row sites
-    # provide x.S1 as Matrix n_site x n_obs
-    # extract parameters not depending on order, i.e whether they are in θP or θM
-    θc = intθ(θ)
-    @assert size(x.S1, 1) == size(θ, 1)  # same number of sites
-    @assert size(x.S1) == size(x.S2)   # same number of observations
-    #@assert length(x.s2 == n_obs)
-    # problems on AD on GPU with indexing CA may be related to printing result, use ";"
-    VT = typeof(θ[:,1])   # workaround for non-stable Symbol-indexing CAMatrix 
-    #VT = first(Base.return_types(getindex, Tuple{typeof(θ),typeof(Colon()),typeof(1)}))
+function f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
+    # extract the parameters as vectors
+    VT = typeof(CA.getdata(θc)[:,1])   # workaround for non-type-stable Symbol-indexing
     (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
-        # vector will be repeated when broadcasted by a matrix
         CA.getdata(θc[:, par]) ::VT
     end
-    # r0 = CA.getdata(θc[:,:r0])  # vector will be repeated when broadcasted by a matrix
-    # r1 = CA.getdata(θc[:,:r1])
-    # K1 = CA.getdata(θc[:,:K1])
-    # K2 = CA.getdata(θc[:,:K2])
-    y = r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
-    return (y)
+    #
+    # extract several covariates from xP
+    # S1 = (xPc[:S1,:])'   # transform site-last -> site-first dimension
+    # S2 = (xPc[:S2,:])'
+    #Main.@infiltrate_main
+
+    ST = typeof(CA.getdata(xPc)[1:1,:])  # workaround for non-type-stable Symbol-indexing
+    S1 = (CA.getdata(xPc[:S1,:])::ST)'   # transform site-last -> site-first dimension
+    S2 = (CA.getdata(xPc[:S2,:])::ST)'
+    #
+    y = r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
+    return (CA.getdata(y)') # transform site-first -> site-last dimension
 end
+
+# function f_doubleMM(
+#         θ::AbstractMatrix{T}, x; intθ::HVI.AbstractComponentArrayInterpreter) where T
+#     # provide θ for n_row sites
+#     # provide x.S1 as Matrix n_site x n_obs
+#     # extract parameters not depending on order, i.e whether they are in θP or θM
+#     θc = intθ(θ)
+#     @assert size(x.S1, 1) == size(θ, 1)  # same number of sites
+#     @assert size(x.S1) == size(x.S2)   # same number of observations
+#     #@assert length(x.s2 == n_obs)
+#     # problems on AD on GPU with indexing CA may be related to printing result, use ";"
+#     VT = typeof(θ[:,1])   # workaround for non-stable Symbol-indexing CAMatrix 
+#     #VT = first(Base.return_types(getindex, Tuple{typeof(θ),typeof(Colon()),typeof(1)}))
+#     (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
+#         # vector will be repeated when broadcasted by a matrix
+#         CA.getdata(θc[:, par]) ::VT
+#     end
+#     # r0 = CA.getdata(θc[:,:r0])  # vector will be repeated when broadcasted by a matrix
+#     # r1 = CA.getdata(θc[:,:r1])
+#     # K1 = CA.getdata(θc[:,:K1])
+#     # K2 = CA.getdata(θc[:,:K2])
+#     y = r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
+#     return (y)
+# end
 
 # function f_doubleMM(θ::AbstractMatrix, x::NamedTuple, θpos::NamedTuple) 
 #     # provide θ for n_row sites
@@ -176,59 +196,54 @@ end
 #     (; n_covar, n_batch, n_θM, n_θP)
 # end
 
-# function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario::NTuple = (),
-#     gdev = :f_on_gpu ∈ scenario ? gpu_device() : identity, 
-#     )
-#     #fsite = (θ, x_site) -> f_doubleMM(θ)  # omit x_site drivers
-#     par_templates = get_hybridproblem_par_templates(prob; scenario)
-#     intθ, θFix = setup_PBMpar_interpreter(par_templates.θP, par_templates.θM, θall)
-#     let θFix = gdev(θFix), intθ = get_concrete(intθ)
-#         function f_doubleMM_with_global(θP::AbstractVector, θMs::AbstractMatrix, xP)
-#             pred_sites = map_f_each_site(f_doubleMM, θMs, θP, θFix, xP, intθ)
-#             pred_global = eltype(pred_sites)[]
-#             return pred_global, pred_sites
-#         end
-#     end
-# end
-
 # defining the PBmodel as a closure with let leads to problems of JLD2 reloading
 # Define all the variables additional to the ones passed curing the call by
 # a dedicated Closure object and define the PBmodel as a callable
-struct DoubleMMCaller{CLT}
-    cl::CLT
-end
+# struct DoubleMMCaller{CLT}
+#     cl::CLT
+# end
 
-function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario, kwargs...)
+function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; use_all_sites=false,  scenario::Val{scen}) where {scen}
     # θall defined in this module above
-    cl = HVI.PBmodelClosure(prob; scenario, θall, int_xP1, kwargs...)
-    return DoubleMMCaller{typeof(cl)}(cl)
+    # TODO check and test for population or sites, currently return only site specific
+    pt = get_hybridproblem_par_templates(prob; scenario)
+    keys_fixed = Tuple(k for k in setdiff(keys(θall), (keys(pt.θP)..., keys(pt.θM)...))) 
+    θFix = isempty(keys_fixed) ? CA.ComponentVector{eltype(θall)}() : θall[keys_fixed]
+    xPvec = int_xP1(vcat(xP_S1, xP_S2))
+    if (:useSitePBM ∈ scen)
+        PBMSiteApplicator(f_doubleMM; pt.θP, pt.θM, θFix, xPvec)
+    else
+        n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+        n_site_batch = use_all_sites ? n_site : n_batch
+        PBMPopulationApplicator(f_doubleMM_sites, n_site_batch; pt.θP, pt.θM, θFix, xPvec)
+    end
 end
 
-function(caller::DoubleMMCaller)(θP::AbstractVector, θMs::AbstractMatrix, xP)
-    cl = caller.cl
-    @assert size(xP, 2) == cl.n_site_batch
-    @assert size(θMs, 1) == cl.n_site_batch
-    # # convert vector of tuples to tuple of matricesByRows
-    # # need to supply xP as vectorOfTuples to work with DataLoader
-    # # k = first(keys(xP[1]))
-    # xPM = (; zip(keys(xP[1]), map(keys(xP[1])) do k
-    #     #stack(map(r -> r[k], xP))' 
-    #     stack(map(r -> r[k], xP); dims = 1)
-    # end)...)
-    #xPM = map(transpose, xPM1)
-    #xPc = int_xPb(CA.getdata(xP))
-    #xPM = (S1 = xPc[:,:S1], S2 = xPc[:,:S2]) # problems with Zygote
-    # make sure the same order of columns as in intθ
-    # reshape big matrix into NamedTuple of drivers S1 and S2 
-    #   for broadcasting need sites in rows
-    #xPM = map(p -> CA.getdata(xP[p,:])', pos_xP)
-    xPM = map(p -> CA.getdata(xP)'[:, p], cl.pos_xP)
-    θFixd = (θP isa GPUArraysCore.AbstractGPUVector) ? cl.θFix_dev : cl.θFix
-    θ = hcat(CA.getdata(θP[cl.isP]), CA.getdata(θMs), θFixd)
-    pred_sites = f_doubleMM(θ, xPM; cl.intθ)'
-    pred_global = eltype(pred_sites)[]
-    return pred_global, pred_sites
-end
+# function(caller::DoubleMMCaller)(θP::AbstractVector, θMs::AbstractMatrix, xP)
+#     cl = caller.cl
+#     @assert size(xP, 2) == cl.n_site_batch
+#     @assert size(θMs, 1) == cl.n_site_batch
+#     # # convert vector of tuples to tuple of matricesByRows
+#     # # need to supply xP as vectorOfTuples to work with DataLoader
+#     # # k = first(keys(xP[1]))
+#     # xPM = (; zip(keys(xP[1]), map(keys(xP[1])) do k
+#     #     #stack(map(r -> r[k], xP))' 
+#     #     stack(map(r -> r[k], xP); dims = 1)
+#     # end)...)
+#     #xPM = map(transpose, xPM1)
+#     #xPc = int_xPb(CA.getdata(xP))
+#     #xPM = (S1 = xPc[:,:S1], S2 = xPc[:,:S2]) # problems with Zygote
+#     # make sure the same order of columns as in intθ
+#     # reshape big matrix into NamedTuple of drivers S1 and S2 
+#     #   for broadcasting need sites in rows
+#     #xPM = map(p -> CA.getdata(xP[p,:])', pos_xP)get_hybridproblem_PBmodel
+#     xPM = map(p -> CA.getdata(xP)'[:, p], cl.pos_xP)
+#     θFixd = (θP isa GPUArraysCore.AbstractGPUVector) ? cl.θFix_dev : cl.θFix
+#     θ = hcat(CA.getdata(θP[cl.isP]), CA.getdata(θMs), θFixd)
+#     pred_sites = f_doubleMM(θ, xPM; cl.intθ)'
+#     pred_global = eltype(pred_sites)[]
+#     return pred_global, pred_sites
+# end
 
 function HVI.get_hybridproblem_neg_logden_obs(::DoubleMMCase; scenario::Val)
     neg_logden_indep_normal
@@ -276,7 +291,7 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     int_θMs_sites = ComponentArrayInterpreter(θM, (n_site,))
     # normalize to be distributed around the prescribed true values
     θMs_true = int_θMs_sites(scale_centered_at(θMs_true0, θM, FloatType(0.1)))
-    f = get_hybridproblem_PBmodel(prob; scenario, gdev = identity, use_all_sites = true)
+    f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = true)
     #xP = fill((; S1 = xP_S1, S2 = xP_S2), n_site)
     int_xP_sites = ComponentArrayInterpreter(int_xP1, (n_site,))
     xP = int_xP_sites(vcat(repeat(xP_S1, 1, n_site), repeat(xP_S2, 1, n_site)))

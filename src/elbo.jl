@@ -97,6 +97,11 @@ function neg_elbo_ζtf(ζsP, ζsMs, σ, f, py, xP, y_ob, y_unc;
         y_pred_global, y_pred_i = f(θP, θMs, xP)
         # TODO nLogDen prior on \theta
         #nLy1 = neg_logden_indep_normal(y_ob, y_pred_i, y_unc)
+        # Main.@infiltrate_main
+        # Test.@inferred( f(θP, θMs, xP) )
+        # using ShareAdd
+        # @usingany Cthulhu
+        # @descend_code_warntype f(θP, θMs, xP)
         nLy1 = py(y_ob, y_pred_i, y_unc)
         nLy1 - logjac
     end
@@ -113,7 +118,11 @@ function neg_elbo_ζtf(ζsP, ζsMs, σ, f, py, xP, y_ob, y_unc;
     # logdet_jacT2 = -sum_log_σ # log Prod(1/σ_i) = -sum log σ_i 
     logdetΣ = 2 * sum(log.(σ))
     n_θ = size(ζsP, 1) + prod(size(ζsMs)[1:2])
-    @assert length(σ) == n_θ
+    if length(σ) != n_θ
+        error("TODO infiltrate")
+        #Main.@infiltrate_main
+    end
+    #@assert length(σ) == n_θ
     entropy_ζ = entropy_MvNormal(n_θ, logdetΣ)  # defined in logden_normal
     # if i_sites[1] == 1
     #     #Main.@infiltrate_main

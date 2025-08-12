@@ -36,6 +36,9 @@ export construct_3layer_MLApplicator, select_ml_engine
 export NullModelApplicator, MagnitudeModelApplicator, NormalScalingModelApplicator
 include("ModelApplicator.jl")
 
+export PBMSiteApplicator, PBMPopulationApplicator
+include("PBMApplicator.jl")
+
 # export AbstractGPUDataHandler, NullGPUDataHandler, get_default_GPUHandler
 # include("GPUDataHandler.jl")
 
@@ -67,7 +70,8 @@ export HybridProblem
 export get_quantile_transformed
 include("HybridProblem.jl")
 
-export map_f_each_site, gf, get_loss_gf
+export gf, get_loss_gf
+#export map_f_each_site
 include("gf.jl")
 
 export compute_correlated_covars, scale_centered_at
