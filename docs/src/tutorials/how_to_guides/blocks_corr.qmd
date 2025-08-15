@@ -1,13 +1,32 @@
-# Basic workflow without GPU
-
+---
+title: "How to model blocks of indenpendent parameters in correlation matrix"
+engine: julia
+execute:
+  echo: true
+  output: false
+  daemon: 3600  
+format:
+  commonmark:
+    variant: -raw_html
+    wrap: preserve    
+bibliography: twutz_txt.bib
+---
 
 ``` @meta
 CurrentModule = HybridVariationalInference  
 ```
 
-First load necessary packages.
+Modelling full correlations among PBM-parameters requires many degrees of
+freedom.
 
-``` julia
+To decrease the number of parameters to estimate, HVI allows to decompose the
+correlations among site parameters or the correlations among global parameters
+into sub-blocks of independent parameters.
+
+TODO
+
+First load necessary packages.
+```{julia}
 using HybridVariationalInference
 using HybridVariationalInference: HybridVariationalInference as HVI
 using ComponentArrays: ComponentArrays as CA
@@ -22,21 +41,20 @@ using DistributionFits
 Next, specify many moving parts of the Hybrid variational inference (HVI)
 
 ## The process-based model
-
 The example process based model (PBM) predicts a double-monod constrained rate
 for different substrate concentrations, `S1`, and `S2`.
 
 $$
 y = r_0+ r_1 \frac{S_1}{K_1 + S_1} \frac{S_2}{K_2 + S_2}$$
 
-``` julia
+```{julia}
 function f_doubleMM(θc::CA.ComponentVector{ET}, x) where ET
     # extract parameters not depending on order, i.e whether they are in θP or θM
     (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
         CA.getdata(θc[par])::ET
     end
     r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
-end
+end    
 ```
 
 Its formulation is independent of which parameters are global, site-specific,
@@ -49,39 +67,35 @@ access the components by its symbolic names in the provided `ComponentArray`.
 HVI requires the evaluation of the likelihood of the predictions.
 It corresponds to the cost of predictions given some observations.
 
-The user specifies a function of the negative log-Likehood
+The user specifies a function of the negative log-Likehood 
 `neg_logden(obs, pred, uncertainty_parameters)`,
 where all of the parameters are arrays with columns for sites.
 
-Here, we use the [`neg_logden_indep_normal`](@ref) function
+Here, we use the [`neg_logden_indep_normal`](@ref) function 
 that assumed observations to be distributed independently
 normal around a true value.
-The provided `y_unc` uncertainty parameters, here, corresponds to
+The provided `y_unc` uncertainty parameters, here, corresponds to 
 `logσ2`, denoting the log of the variance parameter of the normal distribution.
 
-``` julia
+```{julia}
 py = neg_logden_indep_normal
 ```
 
-## Global-Site, transformations, and priors
-
+## Templates, transformations, and correlation structure of parameters
 ### Global and site-specific parameters
-
 In this example, we will assign a fixed value to r0 parameter, treat
 the K2 parameter as unknown but the same across sites, and predict
 r1 and K1 for each site separately, based on covariates known at the sites.
 
 Here we provide initial values for them by using `ComponentVector`.
 
-``` julia
+```{julia}
 FT = Float32
 θM0 = θM = CA.ComponentVector{FT}(r1=0.5, K1=0.2) # separately for each individual
 θP0 = θP = CA.ComponentVector{FT}(K2=2.0)  # population: same across individuals, 
 θFix = CA.ComponentVector{FT}(r0=0.3) # r0, i.e. not estimated
 ```
-
 ### Parameter Transformations
-
 HVI allows for transformations of parameters in an unconstrained space,
 where the probability density is not strictly zero anywhere to the original
 constrained space.
@@ -89,9 +103,9 @@ constrained space.
 Here, our model parameters are strictly positive, and we use the exponential function
 to transform constrained estimates to the original scale.
 
-``` julia
+```{julia}
 transP = Stacked(HVI.Exp())  
-transM = Stacked(HVI.Exp(), HVI.Exp())
+transM = Stacked(HVI.Exp(), HVI.Exp()) 
 ```
 
 Parameter transformations are specified using the `Bijectors` package.
@@ -103,48 +117,88 @@ on GPU, we use the non-exported [`Exp`]() wrapper inside `Bijectors.Stacked`.
 HVI is an approximate bayesian analysis and combines prior information on
 the parameters with the model and observed data.
 
-Here, we provide a wide prior by fitting a Lognormal distributions to
+Here, we provide a wide prior by fitting a Lognormal distributions to 
 - the mean corresponding to the initial value provided above
-- the 0.95-quantile 3 times the mean
+- the 0.95-quantile 3 times the mean 
 
-``` julia
+```{julia}
 θall = vcat(θP, θM)
 priors_dict = Dict{Symbol, Distribution}(
     keys(θall) .=> fit.(LogNormal, θall, QuantilePoint.(θall .* 3, 0.95)))
 ```
 
+
+### Correlation structure
+HVI models the posterior of the parameters at unconstrained scale using a
+multivariate normal distribution. It estimates a parameterization of the
+associated blocks in the correlation matrx and requires a specification
+of the block-structure.
+
+This is done by specifying the positions of the end of the blocks for 
+the global (P) and the site-specific parameters (M) respectively using
+a `NamedTuple` of integer vectors.
+
+```{julia}
+cor_ends = (P=[length(θP)], M=[length(θM)]) 
+```
+
+Here, we specify a single entry each, meaning, there is only one big
+block respectively, spanning all parameters.
+
+### Further parameters for the posterior approximation.
+HVI uses additional fitted parameters to represent the means and the 
+covariance matrix of the posterior distribution of model parameters.
+Here, we obtain construct initial estimates. using [`init_hybrid_ϕunc`](@ref)
+
+```{julia}
+#| output: true
+ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(FT)) 
+```
+
+The returned `ComponentVector` has entries for
+- `logσ2_ζP`: log of the estimated marginal variance of global parameters
+- `coef_logσ2_ζMs`: coefficients of a linear model of log of 
+  the estimated marginal variance of site-dependent parameters dependent on
+  the predicted parameter
+- `ρsP`, `ρsM`: parameterization of the blocks in the correlation matrix for 
+  global and site-specific parameters respectively.
+
 ## Observations, model drivers and covariates
 
-The model is inverted using the
+The model is inverted using the 
 - observed data, `y_o`
 - its uncertainty, `y_unc`
 - known covariates across sites, `xM`
 - model drivers, `xP`
 Here, we use synthetic data generated by the package.
 
-``` julia
+```{julia}
 rng = StableRNG(111)
 scenario = Val((:omit_r0, :covarK2, ))
 (; xM, xP, y_o, y_unc) = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); scenario)
 ```
 
-Lets look at them.
-
-``` julia
-size(xM), size(xP), size(y_o), size(y_unc)
+```{julia}
+#| echo: false
+#| eval: false
+() -> begin
+    (; xM, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc) =  
+        gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); scenario)
+end
 ```
 
-    ((5, 800), (16, 800), (8, 800), (8, 800))
-
+Lets look at them.
+```{julia}
+#| output: true
+size(xM), size(xP), size(y_o), size(y_unc)
+```
 All of them have 800 columns, corresponding to 800 sites.
 There are 5 site-covaraitas and 16 values of model drivers, and 8 observations per site.
 
-``` julia
+```{julia}
+#| output: true
 xP[:,1]
 ```
-
-    ComponentVector{Float32}(S1 = Float32[0.5, 0.5, 0.5, 0.5, 0.4, 0.3, 0.2, 0.1], S2 = Float32[1.0, 3.0, 4.0, 5.0, 5.0, 5.0, 5.0, 5.0])
-
 In each column of the model drivers there is a ComponentVector with
 components S1 and S2 corresponding to the concentrations, for which outputs
 were observed.
@@ -158,7 +212,7 @@ HVI uses `MLUtils.DataLoader` to provide baches of the data during each
 iteration of the solver. In addition to the data, it provides an
 index to the sites inside a tuple.
 
-``` julia
+```{julia}
 n_site = size(y_o,2)
 n_batch = 20
 train_dataloader = MLUtils.DataLoader(
@@ -169,12 +223,14 @@ train_dataloader = MLUtils.DataLoader(
 
 The machine-learning (ML) part predicts parameters of the posterior of site-specific
 PBM parameters, given the covariates.
-Here, we specify a 3-layer feed-forward neural network using the `SimpleChains`
+Here, we specify a 3-layer feed-forward neural network using the `SimpleChains` 
 framework which works efficiently on CPU.
 
-``` julia
+```{julia}
 n_out = length(θM) # number of individuals to predict 
-n_input = n_covar = size(xM,1)
+pbm_covars = (:K2,) # global parameters used as input to ML-model
+n_covar = size(xM,1)
+n_input = n_covar + length(pbm_covars)  
 
 g_chain = SimpleChain(
     static(n_input), # input dimension (optional)
@@ -187,26 +243,34 @@ g_chain = SimpleChain(
 g_chain_app, ϕg0 = construct_ChainsApplicator(rng, g_chain)
 ```
 
-The `g_chain_app` `ChainsApplicator` precits the parameters of the posterior,
-given a vector of ML weights,`ϕg`.
+The `g_chain_app` `ChainsApplicator` precits the parameters of the posterior, 
+given a vector of ML weights,`ϕg`. 
 During construction, an initial template of this vector is created.
 This abstraction layer allows to use different ML frameworks and replace the
 `SimpleChains` model by `Flux` or `Lux`.
 
+### Conditional independence of global and site parameters
+The `pbm_covars` specifies which sampled global parameters should be
+provided as inputs to the ML model.
+
+The reason for providing global parameters as inputs is to allow for
+correlations among site-parameters and global parameters, despite
+the required conditional independence of parameters. 
+
 ### Using priors to scale ML-parameter estimates
 
-In order to balance gradients, the `g_chain_app` ModelApplicator defined above
+In order to balance gradients, the `g_chain_app` ModelApplicator defined above 
 predicts on a scale (0..1).
 Now the priors are used to translate this to the parameter range by using the
 cumulative density distribution.
 
 However, HVI needs a prior on unconstrained scale, and we need the priors on
-this unconstrained scale.
-This can be mathematically worked out for specific prior distribution forms.
-But for simplicity, here a [`NormalScalingModelApplicator`](@ref)
+this unconstrained scale. 
+This can be mathematically worked out for specific prior distribution forms. 
+But for simplicity, here a [`NormalScalingModelApplicator`](@ref) 
 is fitted to the transformed 5% and 95% quantiles of the original prior.
 
-``` julia
+```{julia}
 priorsM = [priors_dict[k] for k in keys(θM)]
 lowers, uppers = get_quantile_transformed(priorsM, transM)
 g_chain_scaled = NormalScalingModelApplicator(g_chain_app, lowers, uppers, FT)
@@ -214,31 +278,58 @@ g_chain_scaled = NormalScalingModelApplicator(g_chain_app, lowers, uppers, FT)
 
 The `g_chain_scaled` `ModelApplicator` now predicts in unconstrained scale
 with transforms ML predctions around 0.5 to the range of
-high prior probability of the parameters,
+high prior probability of the parameters, 
 and transforms ML predictions near 0 or 1 towards the outer lower probability ranges.
+
 
 ## Assembling the information
 
 All the specifications above are stored in a [`HybridProblem`](@ref) structure.
 
-Before, a [`PBMSiteApplicator`](@ref) is constructed that translates an invocation
+Before, a [`PBMSiteApplicator`](@ref) is  constructed that translates an invocation
 given a vector of global parameters, and a matrix of site parameters to
 invocation of the process based model (PBM), defined at the beginning.
 
-``` julia
+```{julia}
 f_batch = f_allsites = PBMSiteApplicator(f_doubleMM; θP, θM, θFix, xPvec=xP[:,1])
 
-prob = HybridProblem(θP, θM, g_chain_scaled, ϕg0, 
+prob = HybridProblem(θP, θM, g_chain_scaled, ϕg0, ϕunc0, 
     f_batch, f_allsites, priors_dict, py,
-    transM, transP, train_dataloader, n_covar, n_site, n_batch)
+    transM, transP, train_dataloader, n_covar, n_site, n_batch, 
+    cor_ends, pbm_covars)
+```
+
+```{julia}
+#| eval: false
+#| echo: false
+
+# test invoking 
+#θMs = stack(Iterators.repeated(θM, n_batch); dims=1)
+θMs = θM' .+ (randn(n_batch, size(θM,1)) .* 0.05)
+x_batch = xP[:,1:n_batch]
+y1 = f_batch(CA.getdata(θP), CA.getdata(θMs), CA.getdata(x_batch))[2]
+
+
+() -> begin
+    y1 - y_o[:,1:n_batch]   # check size and roughly equal
+    #using Test
+    #@inferred f_batch(CA.getdata(θP), CA.getdata(θMs), CA.getdata(x_batch))[2]
+    @inferred Vector{Float64} f_batch(CA.getdata(θP), CA.getdata(θMs), CA.getdata(x_batch))[2]
+    #using Cthulhu
+    #@descend_code_warntype f_batch(CA.getdata(θP), CA.getdata(θMs), CA.getdata(x_batch))
+    prob0 = HVI.DoubleMM.DoubleMMCase()
+    f_batch0 = get_hybridproblem_PBmodel(prob0; scenario, use_all_sites = false)
+    y1f = f_batch0(θP, θMs, x_batch)[2]
+    y1 .- y1f  # equal
+end
 ```
 
 ## Perform the inversion
 
-Eventually, having assembled all the moving parts of the HVI, we can perform
+Eventually, having assembled all the moving parts of the HVI, we can perform 
 the inversion.
 
-``` julia
+```{julia}
 using OptimizationOptimisers
 import Zygote
 
@@ -255,16 +346,16 @@ The solver object is constructed given the specific stochastic optimization algo
 and the number of Monte-Carlo samples that are drawn in each iteration
 from the predicted parameter posterior.
 
-Then the solver is applied to the problem using [`solve`](@ref)
+Then the solver is applied to the problem using [`solve`](@ref) 
 for a given number of iterations or epochs.
-For this tutorial, we additionally specify that the function to transfer structures to
-the GPU is the identity function, so that all stays on the CPU, and this tutorial
+For this tutorial, we additionally specify that the function to transfer structures to 
+the GPU is the identity function, so that all stays on the CPU, and this tutorial 
 hence does not require ad GPU or GPU livraries.
 
-Among the return values are
+Among the return values are 
 - `probo`: A copy of the HybridProblem, with updated optimized parameters
-- `interpreters`: A `NamedTuple` with several `ComponentArrayInterpreter`s that
-will help analyzing the results.
+- `interpreters`:  A `NamedTuple` with several `ComponentArrayInterpreter`s that
+  will help analyzing the results.
 
 ## Using a population-level process-based model
 
@@ -276,7 +367,8 @@ We specify the PBM now to accept a matrices as arguments for parameters and driv
 and returns a matrix of precitions. For the parameters, one row corresponds to
 one site. For the drivers and predictions, one column corresponds to one site.
 
-``` julia
+
+```{julia}
 function f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
     # extract several covariates from xP
     ST = typeof(CA.getdata(xPc)[1:1,:])  # workaround for non-type-stable Symbol-indexing
@@ -296,30 +388,30 @@ function f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
 end
 ```
 
-Again, the function should not rely on the order of parameters, but use symbolic indexing
+Again, the function should not rely on the order of parameters, but use symbolic indexing 
 to extract the parameter vectors. For type stability of this symbolic indexing,
 it uses a workaround to get the type of a single row.
 Similarly, it uses type hints to index into the drivers, `xPc`, to extract
 sub-matrices by symbols. Alternatively, here we it could rely on the structure and
 ordering of the columns in `xPc`.
 
-We use the corresponding [`PBMPopulationApplicator`](@ref)
+We use the corresponding [`PBMPopulationApplicator`](@ref) 
 and [update](@ref) the HVI Problem.
 
-``` julia
+```{julia}
 f_batch = PBMPopulationApplicator(f_doubleMM_sites, n_batch; θP, θM, θFix, xPvec=xP[:,1])
 f_allsites = PBMPopulationApplicator(f_doubleMM_sites, n_site; θP, θM, θFix, xPvec=xP[:,1])
 probo_sites = HVI.update(probo; f_batch, f_allsites)
 ```
 
-For numerical efficiency, the number of sites within one batch is part of the
+For numerical efficiency, the number of sites within one batch is part of the 
 `PBMPopulationApplicator`. Hence, we have two different functions, one applied
 to a batch of site, and another applied to all sites.
 
 As a test of the new applicator, we refine the results by running a few more
 epochs of the optimization.
 
-``` julia
+```{julia}
 (; probo) = solve(probo_sites, solver; scenario, rng,
     callback = callback_loss(100), # output during fitting
     epochs = 10,
@@ -329,15 +421,20 @@ epochs of the optimization.
 ```
 
 ## Saving the results
-
 Extracting useful information from the optimized HybridProblem is covered
 in the following tutorial. XXLink
 
 To use it, we save the `probo` HybridProblem and the interpreters to a JLD2 file.
 
-``` julia
+```{julia}
 using JLD2
 fname = "intermediate/basic_cpu_results.jld2"
 mkpath("intermediate")
 jldsave(fname, false, IOStream; probo, interpreters)
+```
+
+```{julia}
+#| eval: false
+#| echo: false
+probo = load(fname, "probo"; iotype = IOStream);
 ```

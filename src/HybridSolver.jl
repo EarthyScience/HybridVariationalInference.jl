@@ -83,12 +83,12 @@ Perform the inversion of HVI Problem.
 Returns a `NamedTuple` of
 - `probo`: A copy of the HybridProblem, with updated optimized parameters
 - `interpreters`:  TODO
-- `ϕ`: the optimized HVI parameters: A ComponentVector with entries
+- `ϕ`: the optimized HVI parameters: a `ComponentVector` with entries
   - `μP`: `ComponentVector` of the mean global PBM parameters at unconstrained scale
   - `ϕg`: The MLmodel parameter vector, 
-  - `unc`: ComponentVector of further uncertainty parameters
+  - `unc`: `ComponentVector` of further uncertainty parameters
 - `θP`: `ComponentVector` of the mean global PBM parameters at constrained scale
-- `resopt`: the structure returned by Optimization.solve. It can contain
+- `resopt`: the structure returned by `Optimization.solve`. It can contain
   more information on convergence.
 """
 function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorSolver;

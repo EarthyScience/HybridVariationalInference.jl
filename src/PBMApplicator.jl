@@ -53,10 +53,10 @@ construction of the applicator.
 ## Arguments 
 - `fθ`: process model, process model `fθ(θc, xP)`, which is agnostic of the partitioning
 of parameters.
-- `θP`: ComponentVector template of global process model parameters
-- `θM`: ComponentVector template of individual process model parameters
-- `θFix`: ComponentVector of actual fixed process model parameters
-- `xPvec`::ComponentVector template of model drivers for a single site
+- `θP`: `ComponentVector` template of global process model parameters
+- `θM`: `ComponentVector` template of individual process model parameters
+- `θFix`: `ComponentVector` of actual fixed process model parameters
+- `xPvec`:`ComponentVector` template of model drivers for a single site
 """
 function PBMSiteApplicator(fθ; 
     θP::CA.ComponentVector, θM::CA.ComponentVector, θFix::CA.ComponentVector, 

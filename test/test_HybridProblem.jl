@@ -80,15 +80,17 @@ function construct_problem(; scenario::Val{scen}) where scen
     app, ϕg0 = construct_ChainsApplicator(rng, g_chain)
     g_chain_scaled = NormalScalingModelApplicator(app, lowers, uppers, FT)
     #g_chain_scaled = app
-    ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(FT)) 
+    #ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(FT)) 
     pbm_covars = (:covarK2 ∈ scen) ? (:K2,) : ()
     f_batch = f_sites = PBMSiteApplicator(
         f_doubleMM; θP, θM, θFix=CA.ComponentVector{FT}(), 
         xPvec=xP[:,1])
-    HybridProblem(θP, θM, g_chain_scaled, ϕg0, ϕunc0, 
+    HybridProblem(θP, θM, g_chain_scaled, ϕg0, 
         f_batch, f_sites, priors_dict, py,
         transM, transP, train_dataloader, n_covar, n_site, n_batch, 
-        cor_ends, pbm_covars)
+        cor_ends, pbm_covars,
+        #ϕunc0, 
+        )
 end 
 
 @testset "f_doubleMM from ProbSpec" begin

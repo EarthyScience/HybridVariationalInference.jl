@@ -46,7 +46,6 @@ struct HybridProblem <: AbstractHybridProblem
     function HybridProblem(
             θP::CA.ComponentVector, θM::CA.ComponentVector,
             g::AbstractModelApplicator, ϕg::AbstractVector,
-            ϕunc::CA.ComponentVector,
             f_batch, 
             f_allsites,
             priors::AbstractDict,
@@ -59,7 +58,8 @@ struct HybridProblem <: AbstractHybridProblem
             n_site::Int,
             n_batch::Int,
             cor_ends::NamedTuple = (P = [length(θP)], M = [length(θM)]),
-            pbm_covars::NTuple{N,Symbol} = ()
+            pbm_covars::NTuple{N,Symbol} = (),
+            ϕunc::CA.ComponentVector = init_hybrid_ϕunc(cor_ends, zero(eltype(θM))),
     ) where N
         new(
             θP, θM, f_batch, f_allsites, g, ϕg, ϕunc, priors, py, transM, transP, cor_ends, 
@@ -95,8 +95,8 @@ function HybridProblem(prob::AbstractHybridProblem; scenario = ())
     priors = get_hybridproblem_priors(prob; scenario)
     n_covar = get_hybridproblem_n_covar(prob; scenario)
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-    HybridProblem(θP, θM, g, ϕg, ϕunc, f_batch, f_allsites, priors, py, transM, transP, train_dataloader,
-        n_covar, n_site, n_batch, cor_ends, pbm_covars)
+    HybridProblem(θP, θM, g, ϕg, f_batch, f_allsites, priors, py, transM, transP, train_dataloader,
+        n_covar, n_site, n_batch, cor_ends, pbm_covars, ϕunc)
 end
 
 """
@@ -125,8 +125,8 @@ function update(prob::HybridProblem;
         n_site::Integer = prob.n_site,
         n_batch::Integer = prob.n_batch,
 ) where N
-    HybridProblem(θP, θM, g, ϕg, ϕunc, f_batch, f_allsites, priors, py, transM, transP, 
-        train_dataloader, n_covar, n_site, n_batch, cor_ends, pbm_covars)
+    HybridProblem(θP, θM, g, ϕg, f_batch, f_allsites, priors, py, transM, transP, 
+        train_dataloader, n_covar, n_site, n_batch, cor_ends, pbm_covars, ϕunc)
 end
 
 function get_hybridproblem_par_templates(prob::HybridProblem; scenario = ())
