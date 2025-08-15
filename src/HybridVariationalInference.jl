@@ -21,8 +21,12 @@ using StaticArrays: StaticArrays as SA
 using Functors
 using Test: Test # @inferred
 
+export DoubleMM
+
+#? how to reexport public CommonSolve.solve
+
 export extend_stacked_nrow, StackedArray
-#export Exp
+public Exp
 include("bijectors_utils.jl")
 
 export AbstractComponentArrayInterpreter, ComponentArrayInterpreter,
@@ -36,7 +40,7 @@ export construct_3layer_MLApplicator, select_ml_engine
 export NullModelApplicator, MagnitudeModelApplicator, NormalScalingModelApplicator
 include("ModelApplicator.jl")
 
-export PBMSiteApplicator, PBMPopulationApplicator
+export AbstractPBMApplicator, NullPBMApplicator, PBMSiteApplicator, PBMPopulationApplicator
 include("PBMApplicator.jl")
 
 # export AbstractGPUDataHandler, NullGPUDataHandler, get_default_GPUHandler
@@ -53,7 +57,6 @@ export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_
        get_hybridproblem_cor_ends,
        get_hybridproblem_priors,
        get_hybridproblem_pbmpar_covars,
-#update,
        gen_cov_pred,
        construct_dataloader_from_synthetic,
        gdev_hybridproblem_dataloader,
@@ -67,6 +70,7 @@ export AbstractHybridProblemInterpreters, HybridProblemInterpreters,
 include("hybridprobleminterpreters.jl")
 
 export HybridProblem
+public update
 export get_quantile_transformed
 include("HybridProblem.jl")
 

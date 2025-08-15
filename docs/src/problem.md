@@ -15,6 +15,6 @@ microbial community that differs by site, but is hypothesized to correlate with 
 and pedogenic factors, such as clay content.
 We apply a machine learnign model to estimate CUE and fit it end-to-end with other
 parameters of the process-model to observed carbon stocks.
-In addtion to the predicted CUE, we are interested in the uncertainty of CUE and its correlation with other parameters, such a the capacity of the soil minerals to bind carbon. 
+In addition to the predicted CUE, we are interested in the uncertainty of CUE and its correlation with other parameters, such a the capacity of the soil minerals to bind carbon. 
 I.e. we are interetes in the entire posterior probability distribution of the model parameters.
 

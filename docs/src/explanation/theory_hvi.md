@@ -1,4 +1,4 @@
-# Background
+# Theory
 
 ## Setup of the Problem
 The hybrid variational inferecne, HVI, infers a parametric approximations of 
@@ -21,9 +21,9 @@ the entire real space, and, at the same, time provides sufficient flexibility.
 
 The optimized parameters, $\phi = (\phi_g, \phi_P, \phi_q)$ are the same for each site. 
 This allows to apply minibatching, which does not require predicting the 
-full observation vector, $y$, during paramter fitting.
+full observation vector, $y$, during parameter fitting.
 
-In order to learn $\phi_g$, the user needs to provide a batch of $i \in \{1 \ldots n_{b}\}$ observation $y_i$, their uncertinaty, $y_{unc,i}$, covariates $x_{Mi}$ and drivers $x_{Pi}$ in each iteration of the optimization. Moreover, for each $i$, HVI needs to draw $n_{MC}$ samples parameters $\zeta_i$, transforms and runs the model to compute a prediction for $y_i$ and computes $\log p(y_i)$ to estimate the exptected value occuring in the ELBO (see next section).
+In order to learn $\phi_g$, the user needs to provide a batch of $i \in \{1 \ldots n_{b}\}$ observation $y_i$, their uncertinaty, $y_{unc,i}$, covariates $x_{Mi}$ and drivers $x_{Pi}$ in each iteration of the optimization. Moreover, for each $i$, HVI needs to draw $n_{MC}$ samples parameters $\zeta_i$, transforms and runs the model to compute a prediction for $y_i$ and computes $\log p(y_i)$ to estimate the expected value occurring in the ELBO (see next section).
 
 ## Estimation using the ELBO
 
@@ -41,10 +41,10 @@ However, HVI needs to compute the gradient of this expectation of the joint post
 density of observations and parameter, 
 $\log p(y,\theta) = \log p(y|\theta) + \log p(\theta)$, 
 by automatic differentiation. Hence, HVI needs to differentiate the process-model, $f$, 
-that is run during compuatation of the Likelihood of the data, $p(y|\theta)$.
+that is run during computation of the Likelihood of the data, $p(y|\theta)$.
 
 ## Parameter transformations
-HVI prescribes $q(\theta)$ to be the distribution of a transfored random variable, 
+HVI prescribes $q(\theta)$ to be the distribution of a transformed random variable, 
 $\theta = T^{-1}(\zeta)$, where $\zeta = T(\theta)$ has a multivariate Normal distribution 
 (MVN) in unconstrained $\mathbb{R}^n$. The transformation, $T$, provides more flexibility 
 to model the posterior and takes care of the case where the support of $q(\theta)$ is 
@@ -67,7 +67,7 @@ HVI assumes that transforms of the latent variable follow a multivariate normal 
 
 $$\Sigma = diag(\sigma_\zeta) C_\zeta \, diag(\sigma_\zeta),$$
 
-where $\sigma_\zeta$ is the vector of standard deviations, and $C$ is the correlation matrix. HVI further assumes that uncertainties of site parameters, $\zeta_{M1}, \zeta_{M2}, \ldots$, differ only by their standard deviation, i.e. that the parameter correlations is the same and independent of other sites. With the additionalassumtion of $\zeta_{Ms}$ being independent of $\zeta_P$, the covariance matrix has a block-diagonal structure with one block for $\zeta_P$ and $n_{site}$ repetitions of a block for $\zeta_{M}$. By definition of a correlation matrix, all the main diagonal elements are 1. E.g. for 2 elements in $\zeta_{P}$ and 3 enlements in $\zeta_{M}$ this results in: 
+where $\sigma_\zeta$ is the vector of standard deviations, and $C$ is the correlation matrix. HVI further assumes that uncertainties of site parameters, $\zeta_{M1}, \zeta_{M2}, \ldots$, differ only by their standard deviation, i.e. that the parameter correlations is the same and independent of other sites. With the additional assumption of $\zeta_{Ms}$ being independent of $\zeta_P$, the covariance matrix has a block-diagonal structure with one block for $\zeta_P$ and $n_{site}$ repetitions of a block for $\zeta_{M}$. By definition of a correlation matrix, all the main diagonal elements are 1. E.g. for 2 elements in $\zeta_{P}$ and 3 enlements in $\zeta_{M}$ this results in: 
 
 $$\begin{pmatrix}
 \begin{matrix} 1 & \rho_{Pab} \\ \rho_{Pab} & 1 \end{matrix} 
@@ -85,17 +85,22 @@ $$\begin{pmatrix}
 In order to draw random numbers from such a normal distribution, the Cholesky 
 decomposition of the covariance matrix is required: $\Sigma = U_{\Sigma}^T U_{\Sigma} = 
 diag(\sigma_\zeta)^T U_C^T U_C \, diag(\sigma_\zeta)$, where $U_{\Sigma}$ and $U_C$ are 
-the cholesky factors of the covariance and correlation matrices repectively. They are 
+the cholesky factors of the covariance and correlation matrices respectively. They are 
 upper triangular matrices. 
 
 Since, the block-diagonal structure of the correlation matrix carries over to the cholesky 
 factor, $U_C$ is a block-diagnonal matrix of smaller cholesky factors. If HVI modeled the 
 depence between $\zeta_{Ms}$ and $\zeta_P$, the correlation matrhix would have an 
 additional block repeated in the first row and its transpose repeated in the first column 
-in $\Sigma$, leading to a cholesky factor $U_C$ having entries in all the rows. HVI allows 
+in $\Sigma$, leading to a cholesky factor $U_C$ having entries in all the rows. 
+
+HVI allows 
 to accoung for correlations among those
-parameters by providing the values of the global parameters to the maching learning
+parameters by providing the values of the global parameters to the machine learning
 model, $g$ in addition to the covariates.
+
+$$
+p(\zeta_{Ms}, \zeta_P) = p(\zeta_{Ms} | \zeta_P) p(\zeta_P)$$
 
 Since the differentiation through a general cholesky-decomposition is problematic, 
 HVI directly parameterizes the Cholesky factor of the correlation matrix rather than the 
@@ -159,7 +164,7 @@ In practical terms the cost function
 - computes expected value of $\mu_{\zeta_{Ms}}$ using the machine learning model given covariates, $X_M$, given $\zeta_P$, and given optimized parameters $\phi_g$.
 - generates a sample of $\zeta_{Ms}$ by adding the computed $\mu_{\zeta_{Ms}}$ to $\zeta_{rMs}$
 - transforms $(\zeta_{P}, \zeta_{Ms})$ to the original scale to get a sample of model parameters $(\theta_{rP}, \theta_{rMs})$
-- computes negative Log-denstiy of observations for each sample using the physical model, $f$, and subtract the absolute determinant of the transformation, evaluted at the sample.
+- computes negative Log-density of observations for each sample using the physical model, $f$, and subtract the absolute determinant of the transformation, evaluated at the sample.
 - approximates the expected value of the former by taking the mean across the samples
 - subtract the entropy of the normal distribution approximator 
 

@@ -1,3 +1,29 @@
+"""
+Implements [`AbstractHybridProblem`](@ref) by gathering all the parts into 
+one struct.
+
+Fields:
+- `θP::ComponentVector`, `θM::ComponentVector`: parameter templates
+- `g::AbstractModelApplicator`, `ϕg::AbstractVector`: ML model and its parameters 
+- `ϕunc::ComponentVector`: parameters for the Covariance matrix of the approximate posterior
+- `f_batch`: Process-based model predicing for `n_batch` sites
+- `f_allsites`: Process-based model predicing for `n_site` sites
+- `priors`: AbstractDict: Prior distributions for all PBM parameters on constrained scale
+- `py`: Likelihood function
+- `transM::Stacked`, `transP::Stacked`: bijectors transforming from unconstrained to 
+  constrained scale for site-specific and global parameters respectively.
+- `train_dataloader::MLUtils.DataLoader`: providingn Tuple of matrices 
+  `(xM, xP, y_o, y_unc, i_sites)`: covariates, model drivers, observations, 
+  observation uncertainties and index of provided sites.
+- `n_covar::Int`, `n_site::Int`, `n_batch::Int`: number covariates,
+  number of sites, and number of sites within one batch
+- `cor_ends::NamedTuple`: block structure in correlations, 
+  defaults to  `(P = [length(θP)], M = [length(θM)])`
+- `pbm_covars::NTuple{N,Symbol}`: names of global parameters used as covariates 
+  in the ML model, defaults to `()`, i.e. no covariates fed into the ML model
+
+See also [`update`](@ref) for a copy with some entries modified.
+"""
 struct HybridProblem <: AbstractHybridProblem
     θP::CA.ComponentVector
     θM::CA.ComponentVector
@@ -41,15 +67,20 @@ struct HybridProblem <: AbstractHybridProblem
     end
 end
 
-function HybridProblem(θP::CA.ComponentVector, θM::CA.ComponentVector,
-        # note no ϕg argument and g_chain unconstrained
-        g_chain, f_batch,
-        args...; rng = Random.default_rng(), kwargs...)
-    # dispatches on type of g_chain
-    g, ϕg = construct_ChainsApplicator(rng, g_chain, eltype(θM))
-    HybridProblem(θP, θM, g, ϕg, f_batch, args...; kwargs...)
-end
+# function HybridProblem(θP::CA.ComponentVector, θM::CA.ComponentVector,
+#         # note no ϕg argument and g_chain unconstrained
+#         g_chain, f_batch,
+#         args...; rng = Random.default_rng(), kwargs...)
+#     # dispatches on type of g_chain
+#     g, ϕg = construct_ChainsApplicator(rng, g_chain, eltype(θM))
+#     HybridProblem(θP, θM, g, ϕg, f_batch, args...; kwargs...)
+# end
 
+"""
+    HybridProblem(prob::AbstractHybridProblem; scenario = ()
+
+Gather all information from another `AbstractHybridProblem`.
+"""
 function HybridProblem(prob::AbstractHybridProblem; scenario = ())
     (; θP, θM) = get_hybridproblem_par_templates(prob; scenario)
     g, ϕg = get_hybridproblem_MLapplicator(prob; scenario)
@@ -68,6 +99,11 @@ function HybridProblem(prob::AbstractHybridProblem; scenario = ())
         n_covar, n_site, n_batch, cor_ends, pbm_covars)
 end
 
+"""
+    update(prob::HybridProblem; ...)
+
+Create a copy of prob, with some parts replaced.
+"""
 function update(prob::HybridProblem;
         θP::CA.ComponentVector = prob.θP,
         θM::CA.ComponentVector = prob.θM,

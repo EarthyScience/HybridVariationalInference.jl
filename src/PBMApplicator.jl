@@ -2,7 +2,7 @@
     AbstractPBMApplicator(θP::AbstractVector, θMs::AbstractMatrix, xP::AbstractMatrix)
 
 Abstraction of applying a process-based model with 
-global parameters, `x`, site-specific paramters, `θMs` (sites in columns), 
+global parameters, `x`, site-specific parameters, `θMs` (sites in columns), 
 and site-specific model drivers, `xP` (sites in columns),
 It returns a matrix of predictions sites in columns.    
 
@@ -50,7 +50,7 @@ constructs a `ComponentVector` that can be indexed by
 symbolic parameter names, correspondning to the templates provided during
 construction of the applicator.
 
-## Aguments 
+## Arguments 
 - `fθ`: process model, process model `fθ(θc, xP)`, which is agnostic of the partitioning
 of parameters.
 - `θP`: ComponentVector template of global process model parameters
@@ -127,18 +127,21 @@ end
 
 Construct AbstractPBMApplicator from process-based model `fθ` that computes predictions
 across sites for a population of size `n_batch`.
-The closure provides a function that combines enclosed `θFix`, with provided `θMs` and `θP`
-to a ComponentMatrix with parameters with one row for each site, that
+The applicator combines enclosed `θFix`, with provided `θMs` and `θP`
+to a `ComponentMatrix` with parameters with one row for each site, that
 can be column-indexed by Symbols.
 
-## Aguments 
+## Arguments 
 - `fθpop`: process model, process model `f(θc, xPc)`, which is agnostic of the partitioning
-of parameters into fixed, global, and individual.
+   of parameters into fixed, global, and individual.
+    - `θc`: parameters: `ComponentMatrix` (n_site x n_par) with each row a parameter vector
+    - `xPc`: observations: `ComponentMatrix` (n_obs x n_site) with each column 
+    observationsfor one site
 - `n_batch`: number of indiduals, i.e. rows in `θMs`
-- `θP`: ComponentVector template of global process model parameters
-- `θM`: ComponentVector template of individual process model parameters
-- `θFix`: ComponentVector of actual fixed process model parameters
-- `xPvec`::ComponentVector template of model drivers for a single site
+- `θP`: `ComponentVector` template of global process model parameters
+- `θM`: `ComponentVector` template of individual process model parameters
+- `θFix`: `ComponentVector` of actual fixed process model parameters
+- `xPvec`: `ComponentVector` template of model drivers for a single site
 """
 function PBMPopulationApplicator(fθpop, n_batch; 
     θP::CA.ComponentVector, θM::CA.ComponentVector, θFix::CA.ComponentVector, 

@@ -1,0 +1,78 @@
+---
+title: "A julia engine notebook"
+engine: julia
+execute:
+  echo: true
+format:
+  commonmark:
+    variant: -raw_html
+    wrap: preserve    
+  html:
+    code-fold: false  
+bibliography: twutz_txt.bib
+---
+
+```{julia}
+2 + 2
+```
+
+```{julia}
+#| echo: false
+using Plots
+```
+
+A code block with `#| echo: false`.
+```{julia}
+#| echo: false
+using Pkg
+Pkg.status()
+```
+
+```{julia}
+run(`which julia`);
+```
+
+## Equation
+inline: $\sqrt{\pi}$ inside text.
+
+display equation @eq-general with a number and a reference
+
+$$
+\begin{aligned}
+\frac{n!}{k!(n - k)!} &= \binom{n}{k}
+\\
+x^2 =& 3
+\end{aligned}
+$$ {#eq-general}
+
+## Literature references
+
+See [@Wutzler20].
+
+## Plots
+
+single 
+```{julia}
+#| label: fig-limits
+#| fig-cap: "Errorbar limit selector"
+plot(1:4)
+```
+
+
+## Not working with Documenter
+Julia code is not colored, output block-code
+
+Figures: The figure captions are not kept, and links do not work
+
+References: the number is correctly inserted, but the link does not work
+
+Documenter admonitions: the four spaces before the contents are removed - do not work
+
+Quarto-Columns are rendered to several paragraphs
+
+With gfm, references are formatted bad, and there are errors with unclosed divs 
+after Documenter processes it.
+
+
+
+## References

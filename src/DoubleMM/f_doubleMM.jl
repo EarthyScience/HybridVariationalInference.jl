@@ -41,24 +41,44 @@ function f_doubleMM(θc::CA.ComponentVector{ET}, x) where ET
 end
 
 function f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
-    # extract the parameters as vectors
+    # extract several covariates from xP
+    ST = typeof(CA.getdata(xPc)[1:1,:])  # workaround for non-type-stable Symbol-indexing
+    S1 = (CA.getdata(xPc[:S1,:])::ST)   
+    S2 = (CA.getdata(xPc[:S2,:])::ST)
+    #
+    # extract the parameters as row-repeated vectors
+    n_obs = size(S1, 1)
     VT = typeof(CA.getdata(θc)[:,1])   # workaround for non-type-stable Symbol-indexing
     (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
-        CA.getdata(θc[:, par]) ::VT
+        p1 = CA.getdata(θc[:, par]) ::VT
+        repeat(p1', n_obs)  # matrix: same for each concentration row in S1
     end
     #
-    # extract several covariates from xP
-    # S1 = (xPc[:S1,:])'   # transform site-last -> site-first dimension
-    # S2 = (xPc[:S2,:])'
-    #Main.@infiltrate_main
-
-    ST = typeof(CA.getdata(xPc)[1:1,:])  # workaround for non-type-stable Symbol-indexing
-    S1 = (CA.getdata(xPc[:S1,:])::ST)'   # transform site-last -> site-first dimension
-    S2 = (CA.getdata(xPc[:S2,:])::ST)'
-    #
-    y = r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
-    return (CA.getdata(y)') # transform site-first -> site-last dimension
+    # each variable is a matrix (n_obs x n_site)
+    r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
 end
+
+# function f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
+#     # extract the parameters as vectors
+#     VT = typeof(CA.getdata(θc)[:,1])   # workaround for non-type-stable Symbol-indexing
+#     (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
+#         CA.getdata(θc[:, par]) ::VT
+#     end
+#     #
+#     # extract several covariates from xP
+#     # S1 = (xPc[:S1,:])'   # transform site-last -> site-first dimension
+#     # S2 = (xPc[:S2,:])'
+#     #Main.@infiltrate_main
+
+#     ST = typeof(CA.getdata(xPc)[1:1,:])  # workaround for non-type-stable Symbol-indexing
+#     S1 = (CA.getdata(xPc[:S1,:])::ST)'   # transform site-last -> site-first dimension
+#     S2 = (CA.getdata(xPc[:S2,:])::ST)'
+#     #
+#     y = r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
+#     return (CA.getdata(y)') # transform site-first -> site-last dimension
+# end
+
+
 
 # function f_doubleMM(
 #         θ::AbstractMatrix{T}, x; intθ::HVI.AbstractComponentArrayInterpreter) where T

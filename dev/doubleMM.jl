@@ -1,3 +1,4 @@
+# start from within dev directory mljulia --project
 using Test # Pkg.activate("dev"); cd("dev")
 using HybridVariationalInference
 using HybridVariationalInference: HybridVariationalInference as HVI
@@ -57,7 +58,7 @@ n_epoch = 80
     rng, callback = callback_loss(n_batches_in_epoch * 10),
     maxiters = n_batches_in_epoch * n_epoch);
 # update the problem with optimized parameters
-prob0o = probo;
+prob0o = prob1o =probo;
 y_pred_global, y_pred, θMs = gf(prob0o; scenario, is_inferred=Val(true));
 # @descend_code_warntype gf(prob0o; scenario)
 #@usingany UnicodePlots
@@ -191,6 +192,7 @@ function fstate_ϕunc(state)
 end
 n_epoch = 100
 #n_epoch = 400
+#n_epoch = 2
 (; ϕ, θP, resopt, interpreters, probo) = solve(prob2, 
     HVI.update(solver_post, n_MC = 12);
     #HVI.update(solver_post, n_MC = 30);
@@ -204,10 +206,11 @@ prob2o = probo;
     using JLD2
     #fname_probos = "intermediate/probos_$(last(scenario)).jld2"
     fname_probos = "intermediate/probos800_$(last(HVI._val_value(scenario))).jld2"
+    @show fname_probos
     #JLD2.save(fname_probos, Dict("prob1o" => prob1o, "prob2o" => prob2o))
     JLD2.save(fname_probos, Dict("prob2o" => prob2o))
     tmp = JLD2.load(fname_probos)
-    prob2o = tmp["prob2o"]
+    prob2o = probo = tmp["prob2o"]
 end
 
 () -> begin # load the non-covar scenario, and neglect_cor scenario
@@ -243,7 +246,6 @@ end
     n_sample_pred = 400
     (; y, θsP, θsMs) = predict_hvi(rng, prob2o_K1global; scenario = scenario_K1global, n_sample_pred);
     (y2_K1global, θsP2_K1global, θsMs2_K1global) = (y, θsP, θsMs);
-
 end
 
 () -> begin # otpimize using LUX
@@ -351,6 +353,7 @@ histogram(θsP)
 end
 
 () -> begin # look at distribution of parameters, predictions, and likelihood and elob at one site
+    # compare prob1o (with constraining theta to be near original mean) to unconstrained HVI
     function predict_site(probo, i_site)
         (; y, θsP, θsMs, entropy_ζ) = predict_hvi(rng, probo; scenario, n_sample_pred)
         y_site = y[:, i_site, :]
@@ -372,7 +375,7 @@ end
     end
     i_site = 1
     (r1s, nLs, ent, y_site) = predict_site(prob2o, i_site)
-    (r1sc, nLsc, entc, y_sitec) = predict_site(prob1o, i_site)
+    (r1sc, nLsc, entc, y_sitec) = predict_site(prob1o, i_site) # result from point-solver
     mean(nLs), mean(nLsc)
     ent, entc
     # with larger uncertaintsy (higher entropy) in unconstrained cost much lower
@@ -553,7 +556,7 @@ end
     chain_K1global = load(fname_K1global, "chain"; iotype = IOStream);
     ζsP_hmc_K1global = Array(chain_K1global)[:,1:n_θP]'
     ζsMst_hmc_K1global = reshape(Array(chain_K1global)[:,(n_θP+1) : end], n_sample_NUTS, n_site, n_θM)
-    ζsMs_hmc_K1global = permutedims(ζsMst_K1global, (2,3,1))
+    ζsMs_hmc_K1global = permutedims(ζsMst_hmc_K1global, (2,3,1))
 end
 
 #ζi = first(eachrow(Array(chain)))
@@ -589,7 +592,6 @@ end
     save("tmp.svg", fig)
 end
 
-
 mean_y_invζ = mean_y_hmc = map(mean, eachslice(y_hmc; dims = (1, 2)));
 #describe(mean_y_pred - y_o)
 histogram(vec(mean_y_invζ) - vec(y_true)) # predictions centered around y_o (or y_true)
@@ -617,8 +619,13 @@ lineplot!(plt, 0, 1)
 #------------------ compare HVI vs HMC sample
 # reload results from run without covars, see above
 () -> begin   # compare against HVI sample 
-    #@usingany AlgebraOfGraphics, TwPrototypes, CairoMakie, DataFrames
-    makie_config = ppt_MakieConfig()
+    #@usingany AlgebraOfGraphics, FigureHelpers, TwPrototypes, CairoMakie, DataFrames
+    #@usingany LaTeXStrings
+    using AlgebraOfGraphics, CairoMakie, FigureHelpers
+    using AlgebraOfGraphics, CairoMakie, FigureHelpers
+    makie_config = ppt_MakieConfig(fontsize=14) # decrease standard font from 18 to 14
+    paper_config = paper_MakieConfig() 
+    set_default_AoGTheme!(;makie_config)
 
     using ColorBrewer: ColorBrewer
     # two same colors for hmc anc hvi , additional for further unspecified labels
@@ -708,14 +715,14 @@ lineplot!(plt, 0, 1)
         end        
     ) # vcat
     #cf90 = (x) -> quantile(x, [0.05,0.95])
-    plot_par_densities = (dfs) -> begin
+    plot_par_densities = (dfs; makie_config = makie_config) -> begin
         plt = (data(dfs) * mapping(:value=> (x -> x ) => "", color=:Method) * AlgebraOfGraphics.density(datalimits=extrema) +
             data(df_true) * mapping(:value => "") * visual(VLines; color=:blue, linestyle=:dash)) * 
             mapping(col=:variable => sorter(lower_lastdigits.(vcat(keys(θP)..., keys(θM)...))), 
                 row = (:site => nonnumeric)) 
             #mapping(col=:variable, row = (:site => nonnumeric)) 
         #fig = Figure(size = get_fig_size(makie_config, xfac=1, width2height = 1/2)); # 10 sites
-        fig = Figure(size = get_fig_size(makie_config, xfac=1, width2height = 1));
+        fig = figure_conf(1.0; makie_config);
         ffig = draw!(fig, plt, 
             facet=(; linkxaxes=:minimal, linkyaxes=:none,), 
             axis=(xlabelvisible=false,yticklabelsvisible=false),
@@ -724,8 +731,12 @@ lineplot!(plt, 0, 1)
         legend!(fig[length(i_sites),1], ffig, ; tellwidth=false, halign=:left, valign=:bottom , margin=(10, 10, 10, 10))
         fig
     end
+    () -> begin
+        save_with_config(joinpath(pwd(), "tmp.svg"), fig; makie_config = MakieConfig())
+        save_with_config(joinpath(pwd(), "tmp"), fig; makie_config = paper_config)
+        save_with_config("tmp", fig) # returns path in tmp to click on
+    end
     fig = plot_par_densities(subset(df, :Method => ByRow(∈((:hvi,:hmc)))))
-    save("tmp.svg", fig)
     save_with_config("intermediate/compare_hmc_hvi_sites_$(last(HVI._val_value(scenario)))", fig; makie_config)
 
     fig = plot_par_densities(subset(df, :Method => ByRow(∈((:hmc,:neglect_cor)))))
@@ -733,7 +744,6 @@ lineplot!(plt, 0, 1)
     save_with_config("intermediate/compare_hmc_neglectcor_sites_$(last(HVI._val_value(scenario)))", fig; makie_config)
 
     fig = plot_par_densities(subset(df, :Method => ByRow(∈((:hvi,:hvi_indep)))))
-    fig
     save("tmp.svg", fig)
     save_with_config("intermediate/compare_hvi_indep_sites_$(last(HVI._val_value(scenario)))", fig; makie_config)
 
@@ -797,7 +807,7 @@ lineplot!(plt, 0, 1)
         mapping(:value=>"", col=:y_i, row = :site)
 
     #fig = Figure(size = get_fig_size(makie_config, xfac=1, width2height = 1/2));
-    fig = Figure(size = get_fig_size(makie_config, xfac=1, width2height = 1));
+    fig = figure_conf(1; makie_config);
     ffig = draw!(fig, plt, 
         facet=(; linkxaxes=:minimal, linkyaxes=:none,), 
         axis=(xlabelvisible=false,yticklabelsvisible=false),
@@ -841,14 +851,14 @@ function compute_sd_cor_PMs(_ζsP, _ζsMs; i_sites_inspect = [1,2,3])
 end
 
 function draw_cor_fig(cor, method; makie_config, par_names)
-    fig = Figure(size = get_fig_size(makie_config, xfac=0.8, width2height = 1.3));
+    fig = figure_conf(1.3, 0.8; makie_config);
     ax = Axis(fig[1,1], 
         xticklabelsvisible=false,yticklabelsvisible=true, 
         xticksvisible=false, yticksvisible=true,
         yticks = (axes(par_names,1), par_names),
         yreversed = true,
         aspect = 1,
-        title = "Correlations in $method")
+        title = "Corr. $method")
     hm = heatmap!(ax, cor)
     rowsize!(fig.layout, 1, Aspect(1, 1))
     Colorbar(fig[1,2], hm ; tellwidth=true, tellheight=false)
@@ -877,6 +887,7 @@ end
     save_with_config("intermediate/cor_hvi_$(last(HVI._val_value(scenario)))", fig; makie_config)
     fig = draw_cor_fig(corPMs_hvi_neglect_cor, "HVI neglecting block correlations"; makie_config, par_names)
     save_with_config("intermediate/cor_hvi_neglect_cor_$(last(HVI._val_value(scenario)))", fig; makie_config)
+    save_with_config("tmp", fig; makie_config)
     #
     fig = draw_cor_fig(corPMs_hvi_K1global, "HVI K1 global K2 site-dependent"; makie_config, par_names = par_names_globalK1)
     save_with_config("intermediate/cor_hvi_K1global_$(last(HVI._val_value(scenario)))", fig; makie_config)
@@ -902,18 +913,19 @@ end
         value = ζMs_true'[:,i_par],
     ),)
     end)
-    plt = data(df_sd) * mapping(color=:Method, row=:par) * 
+    plt = data(df_sd) * mapping(color=:Method=>"", row=:par) * 
         mapping(:value=>"", :sd => "Predicted Standard Deviation") * visual(Scatter, alpha = 0.5)
 
     #fig = Figure(size = get_fig_size(makie_config, xfac=1, width2height = 1/2));
-    fig = Figure(size = get_fig_size(makie_config, xfac=1, width2height = 1));
-    ffig = draw!(fig, plt, scales(Color = (; palette = color_methods)); facet=(; linkxaxes=:none, linkyaxes=:none,))
+    fig = figure_conf(1;makie_config);
+    #fig = figure_conf(1;makie_config = paper_config);
+    ffig = draw!(fig, plt, scales(Color = (; palette = color_methods)); 
+        facet=(; linkxaxes=:none, linkyaxes=:none,),
+        )
     #legend!(fig[1,1], ffig, ;tellheight=false, tellwidth=false, halign=:right, valign=:top, margin=(10, 10, 10, 10))
     legend!(fig[1,1], ffig, ;tellheight=false, tellwidth=false, halign=:left, valign=:bottom, margin=(10, 10, 10, 10))
-    fig
-    save_with_config("intermediate/compare_hmc_hvi_sdMs_$(last(HVI._val_value(scenario)))", fig; makie_config)
-
-
+    save_with_config("tmp", fig; makie_config)
+    #save_with_config("tmp", fig; makie_config=paper_config)
 end
 
 () -> begin # inspect marginal variance

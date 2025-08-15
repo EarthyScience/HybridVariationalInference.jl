@@ -1,6 +1,0 @@
-# Worked Example
-
-
-
-
-

@@ -75,6 +75,22 @@ function update(solver::HybridPosteriorSolver;
     HybridPosteriorSolver(alg, n_MC, n_MC_cap)
 end
 
+"""
+    solve(prob::AbstractHybridProblem, solver::HybridPosteriorSolver; ...)
+
+Perform the inversion of HVI Problem.
+
+Returns a `NamedTuple` of
+- `probo`: A copy of the HybridProblem, with updated optimized parameters
+- `interpreters`:  TODO
+- `ϕ`: the optimized HVI parameters: A ComponentVector with entries
+  - `μP`: `ComponentVector` of the mean global PBM parameters at unconstrained scale
+  - `ϕg`: The MLmodel parameter vector, 
+  - `unc`: ComponentVector of further uncertainty parameters
+- `θP`: `ComponentVector` of the mean global PBM parameters at constrained scale
+- `resopt`: the structure returned by Optimization.solve. It can contain
+  more information on convergence.
+"""
 function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorSolver;
     scenario::Val{scen}, rng=Random.default_rng(),
     gdev=:use_gpu ∈ _val_value(scenario) ? gpu_device() : identity,
@@ -135,7 +151,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     ϕc = interpreters.μP_ϕg_unc(res.u)
     θP = cpu_ca(apply_preserve_axes(transP, ϕc.μP))
     probo = update(prob; ϕg=cpu_ca(ϕc).ϕg, θP=θP, ϕunc=cpu_ca(ϕc).unc)
-    (; ϕ=ϕc, θP, resopt=res, interpreters, probo)
+    (; probo, interpreters, ϕ=ϕc, θP, resopt=res)
 end
 
 function fit_narrow_normal(θi, prior, θmean_quant)
