@@ -150,7 +150,7 @@ end
 end
 
 """
-    predict_hvi([rng], prob::AbstractHybridProblem [,xM, xP]; scenario, ...)
+    predict_hvi([rng], prob::AbstractHybridProblem [,xM, xP]; scenario=Val(()), ...)
     predict_hvi(rng, g, f, ϕ::AbstractVector, xM::AbstractMatrix;
         get_transPMs, get_ca_int_PMs, n_sample_pred=200, gdev = identity)
 
@@ -164,8 +164,8 @@ Prediction function for hybrid variational inference parameter model.
   access parts of it, e.g. `xP[:S1,...]`.
 
 ## Keyword arguments
-- scenario
-- n_sample_pred
+- `scenario`
+- `n_sample_pred`
 
 Returns an NamedTuple `(; y, θsP, θsMs, entropy_ζ)` with entries
 - `y`: Array `(n_obs, n_site, n_sample_pred)` of model predictions.
@@ -176,7 +176,7 @@ Returns an NamedTuple `(; y, θsP, θsMs, entropy_ζ)` with entries
 - `entropy_ζ`: The entropy of the log-determinant of the transformation of 
   the set of model parameters, which is involved in uncertainty quantification.
 """
-function predict_hvi(rng, prob::AbstractHybridProblem; scenario, kwargs...)
+function predict_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()), kwargs...)
     dl = get_hybridproblem_train_dataloader(prob; scenario)
     dl_dev = gdev_hybridproblem_dataloader(dl; scenario)
     # predict for all sites
@@ -184,7 +184,7 @@ function predict_hvi(rng, prob::AbstractHybridProblem; scenario, kwargs...)
     predict_hvi(rng, prob, xM, xP; scenario, kwargs...)
 end
 function predict_hvi(rng, prob::AbstractHybridProblem, xM::AbstractMatrix, xP;
-    scenario,
+    scenario=Val(()),
     n_sample_pred=200,
     gdev=:use_gpu ∈ _val_value(scenario) ? gpu_device() : identity,
     cdev=!(gdev isa MLDataDevices.AbstractGPUDevice) ? identity :
