@@ -78,7 +78,7 @@ end
 """
     HybridProblem(prob::AbstractHybridProblem; scenario = ()
 
-Gather all information from another `AbstractHybridProblem` wiht possible
+Gather all information from another `AbstractHybridProblem` with possible
 updating of some of the entries.
 """
 function HybridProblem(prob::AbstractHybridProblem; scenario = (),

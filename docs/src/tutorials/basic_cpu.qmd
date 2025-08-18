@@ -92,7 +92,7 @@ where the probability density is not strictly zero anywhere to the original
 constrained space.
 
 Here, our model parameters are strictly positive, and we use the exponential function
-to transform constrained estimates to the original unconstrained domain.
+to transform unconstrained estimates to the original constrained domain.
 
 ```{julia}
 transP = Stacked(HVI.Exp())  
@@ -111,6 +111,7 @@ the parameters with the model and observed data.
 Here, we provide a wide prior by fitting a Lognormal distributions to 
 - the mean corresponding to the initial value provided above
 - the 0.95-quantile 3 times the mean 
+using the `DistributionFits.jl` package.
 
 ```{julia}
 θall = vcat(θP, θM)
@@ -120,7 +121,7 @@ priors_dict = Dict{Symbol, Distribution}(
 
 ## Observations, model drivers and covariates
 
-The model is inverted using the 
+The model paraemters are inverted using information on the 
 - observed data, `y_o`
 - its uncertainty, `y_unc`
 - known covariates across sites, `xM`
@@ -148,7 +149,7 @@ Lets look at them.
 size(xM), size(xP), size(y_o), size(y_unc)
 ```
 All of them have 800 columns, corresponding to 800 sites.
-There are 5 site-covaraitas and 16 values of model drivers, and 8 observations per site.
+There are 5 site-covaritas, 16 values of model drivers, and 8 observations per site.
 
 ```{julia}
 #| output: true
@@ -157,7 +158,7 @@ xP[:,1]
 In each column of the model drivers there is a ComponentVector with
 components S1 and S2 corresponding to the concentrations, for which outputs
 were observed.
-Thats why we could use notation `x.S1` in the PBM above.
+This allows notation `x.S1` in the PBM above.
 
 The `y_unc` becomes its meaning by the Liklihood-function to be specified with
 the problem below.
@@ -197,8 +198,8 @@ g_chain = SimpleChain(
 g_chain_app, ϕg0 = construct_ChainsApplicator(rng, g_chain)
 ```
 
-The `g_chain_app` `ChainsApplicator` precits the parameters of the posterior, 
-given a vector of ML weights,`ϕg`. 
+The `g_chain_app` `ChainsApplicator` predicts the parameters of the posterior, 
+approximation given a vector of ML weights,`ϕg`. 
 During construction, an initial template of this vector is created.
 This abstraction layer allows to use different ML frameworks and replace the
 `SimpleChains` model by `Flux` or `Lux`.
@@ -210,10 +211,11 @@ predicts on a scale (0..1).
 Now the priors are used to translate this to the parameter range by using the
 cumulative density distribution.
 
-However, HVI needs a prior on unconstrained scale, and we need the priors on
-this unconstrained scale. 
-This can be mathematically worked out for specific prior distribution forms. 
-But for simplicity, here a [`NormalScalingModelApplicator`](@ref) 
+Priors were specified at constrained scale, but the ML model predicts
+parameters on unconstrained scale. 
+This transformation of the distribution can be mathematically worked out for 
+specific prior distribution forms. 
+However, for simplicity, a [`NormalScalingModelApplicator`](@ref) 
 is fitted to the transformed 5% and 95% quantiles of the original prior.
 
 ```{julia}
@@ -222,8 +224,8 @@ lowers, uppers = get_quantile_transformed(priorsM, transM)
 g_chain_scaled = NormalScalingModelApplicator(g_chain_app, lowers, uppers, FT)
 ```
 
-The `g_chain_scaled` `ModelApplicator` now predicts in unconstrained scale
-with transforms ML predctions around 0.5 to the range of
+The `g_chain_scaled` `ModelApplicator` now predicts in unconstrained scale,
+transforms logistic predctions around 0.5 to the range of
 high prior probability of the parameters, 
 and transforms ML predictions near 0 or 1 towards the outer lower probability ranges.
 
@@ -304,12 +306,14 @@ Among the return values are
 
 ## Using a population-level process-based model
 
-So far, we have specified the process-based model to run for a single site.
-For this simple model, we can gain some performance from matrix-computations
-during running the model for all sites.
+So far, the process-based model ram for each single site.
+For this simple model, some performance grains result from matrix-computations
+when running the model for all sites within one batch simultaneously.
 
-We specify the PBM now to accept a matrices as arguments for parameters and drivers
-and returns a matrix of precitions. For the parameters, one row corresponds to
+In the following, the PBM specification accepts matrices as arguments 
+for parameters and drivers
+and returns a matrix of precitions. 
+For the parameters, one row corresponds to
 one site. For the drivers and predictions, one column corresponds to one site.
 
 
@@ -333,15 +337,16 @@ function f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
 end
 ```
 
-Again, the function should not rely on the order of parameters, but use symbolic indexing 
+Again, the function should not rely on the order of parameters but use symbolic indexing 
 to extract the parameter vectors. For type stability of this symbolic indexing,
 it uses a workaround to get the type of a single row.
 Similarly, it uses type hints to index into the drivers, `xPc`, to extract
-sub-matrices by symbols. Alternatively, here we it could rely on the structure and
+sub-matrices by symbols. Alternatively, here it could rely on the structure and
 ordering of the columns in `xPc`.
 
-We use the corresponding [`PBMPopulationApplicator`](@ref) 
-and update the HVI Problem.
+A corresponding [`PBMPopulationApplicator`](@ref) transforms calls with 
+partitioned global and site parameters to calls of this matrix version of the PBM.
+The HVI Problem needs to be updated with this new applicatior.
 
 ```{julia}
 f_batch = PBMPopulationApplicator(f_doubleMM_sites, n_batch; θP, θM, θFix, xPvec=xP[:,1])
@@ -353,7 +358,7 @@ For numerical efficiency, the number of sites within one batch is part of the
 `PBMPopulationApplicator`. Hence, we have two different functions, one applied
 to a batch of site, and another applied to all sites.
 
-As a test of the new applicator, we refine the results by running a few more
+As a test of the new applicator, the results are refined by running a few more
 epochs of the optimization.
 
 ```{julia}
@@ -369,7 +374,8 @@ epochs of the optimization.
 Extracting useful information from the optimized HybridProblem is covered
 in the following tutorial. XXLink
 
-To use it, we save the `probo` HybridProblem and the interpreters to a JLD2 file.
+In order to use the results from this tutorial in other tutorials, 
+the updated `probo` `HybridProblem` and the interpreters are saved to a JLD2 file.
 
 ```{julia}
 using JLD2
