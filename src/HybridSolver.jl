@@ -56,7 +56,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     res = Optimization.solve(optprob, solver.alg; kwargs...)
     ϕ = intϕ(res.u)
     θP = cpu_ca(apply_preserve_axes(transP, cpu_ca(ϕ).ϕP))
-    probo = update(prob; ϕg=cpu_ca(ϕ).ϕg, θP)
+    probo = HybridProblem(prob; ϕg=cpu_ca(ϕ).ϕg, θP)
     (; ϕ, resopt=res, probo)
 end
 
@@ -68,7 +68,7 @@ end
 function HybridPosteriorSolver(; alg, n_MC=12, n_MC_cap=n_MC)
     HybridPosteriorSolver(alg, n_MC, n_MC_cap)
 end
-function update(solver::HybridPosteriorSolver;
+function HybridPosteriorSolver(solver::HybridPosteriorSolver;
     alg=solver.alg,
     n_MC=solver.n_MC,
     n_MC_cap=n_MC)
@@ -150,7 +150,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     res = Optimization.solve(optprob, solver.alg; kwargs...)
     ϕc = interpreters.μP_ϕg_unc(res.u)
     θP = cpu_ca(apply_preserve_axes(transP, ϕc.μP))
-    probo = update(prob; ϕg=cpu_ca(ϕc).ϕg, θP=θP, ϕunc=cpu_ca(ϕc).unc)
+    probo = HybridProblem(prob; ϕg=cpu_ca(ϕc).ϕg, θP=θP, ϕunc=cpu_ca(ϕc).unc)
     (; probo, interpreters, ϕ=ϕc, θP, resopt=res)
 end
 

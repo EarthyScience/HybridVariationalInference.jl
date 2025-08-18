@@ -138,7 +138,8 @@ test_scenario = (scenario) -> begin
             UC = CP.transformU_cholesky1(ϕunc_true.ρsM); Σ = UC' * UC
             @test Σ[1,2] ≈ ρsM_true[1]
 
-            probd = CP.update(probc; ϕunc=ϕunc_true);
+            probd = HybridProblem(probc;  ϕunc=ϕunc_true);
+        
             _ϕ = vcat(ϕ_ini.μP, probc.ϕg, probd.ϕunc)
             #hcat(ϕ_ini, ϕ, _ϕ)[1:4,:]
             #hcat(ϕ_ini, ϕ, _ϕ)[(end-20):end,:]
@@ -205,7 +206,7 @@ test_scenario = (scenario) -> begin
             @testset "predict_hvi check sd" begin
                 # test if uncertainty and reshaping is propagated
                 # here inverse the predicted θs and then test distribution 
-                probcu = CP.update(probc, ϕunc=ϕunc_true);
+                probcu = HybridProblem(probc, ϕunc=ϕunc_true);
                 n_sample_pred = 24_000
                 (; y, θsP, θsMs, entropy_ζ) = predict_hvi(rng, probcu; scenario, n_sample_pred);
                 #size(_ζsMs), size(θsMs)

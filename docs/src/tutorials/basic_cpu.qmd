@@ -341,12 +341,12 @@ sub-matrices by symbols. Alternatively, here we it could rely on the structure a
 ordering of the columns in `xPc`.
 
 We use the corresponding [`PBMPopulationApplicator`](@ref) 
-and [update](@ref) the HVI Problem.
+and update the HVI Problem.
 
 ```{julia}
 f_batch = PBMPopulationApplicator(f_doubleMM_sites, n_batch; θP, θM, θFix, xPvec=xP[:,1])
 f_allsites = PBMPopulationApplicator(f_doubleMM_sites, n_site; θP, θM, θFix, xPvec=xP[:,1])
-probo_sites = HVI.update(probo; f_batch, f_allsites)
+probo_sites = HybridProblem(probo; f_batch, f_allsites)
 ```
 
 For numerical efficiency, the number of sites within one batch is part of the 

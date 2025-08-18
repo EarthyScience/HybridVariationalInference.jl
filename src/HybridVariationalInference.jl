@@ -70,7 +70,6 @@ export AbstractHybridProblemInterpreters, HybridProblemInterpreters,
 include("hybridprobleminterpreters.jl")
 
 export HybridProblem
-public update
 export get_quantile_transformed
 include("HybridProblem.jl")
 

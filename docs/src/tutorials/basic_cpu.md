@@ -87,7 +87,7 @@ where the probability density is not strictly zero anywhere to the original
 constrained space.
 
 Here, our model parameters are strictly positive, and we use the exponential function
-to transform constrained estimates to the original scale.
+to transform constrained estimates to the original unconstrained domain.
 
 ``` julia
 transP = Stacked(HVI.Exp())  
@@ -148,11 +148,12 @@ xP[:,1]
 In each column of the model drivers there is a ComponentVector with
 components S1 and S2 corresponding to the concentrations, for which outputs
 were observed.
+Thats why we could use notation `x.S1` in the PBM above.
 
 The `y_unc` becomes its meaning by the Liklihood-function to be specified with
 the problem below.
 
-### Providing data in Batches
+### Providing data in batches
 
 HVI uses `MLUtils.DataLoader` to provide baches of the data during each
 iteration of the solver. In addition to the data, it provides an
@@ -304,12 +305,12 @@ sub-matrices by symbols. Alternatively, here we it could rely on the structure a
 ordering of the columns in `xPc`.
 
 We use the corresponding [`PBMPopulationApplicator`](@ref)
-and [update](@ref) the HVI Problem.
+and update the HVI Problem.
 
 ``` julia
 f_batch = PBMPopulationApplicator(f_doubleMM_sites, n_batch; θP, θM, θFix, xPvec=xP[:,1])
 f_allsites = PBMPopulationApplicator(f_doubleMM_sites, n_site; θP, θM, θFix, xPvec=xP[:,1])
-probo_sites = HVI.update(probo; f_batch, f_allsites)
+probo_sites = HybridProblem(probo; f_batch, f_allsites)
 ```
 
 For numerical efficiency, the number of sites within one batch is part of the
@@ -339,5 +340,7 @@ To use it, we save the `probo` HybridProblem and the interpreters to a JLD2 file
 using JLD2
 fname = "intermediate/basic_cpu_results.jld2"
 mkpath("intermediate")
-jldsave(fname, false, IOStream; probo, interpreters)
+if probo isa AbstractHybridProblem # do not save on failure above
+    jldsave(fname, false, IOStream; probo, interpreters)
+end
 ```

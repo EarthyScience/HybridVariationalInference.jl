@@ -22,7 +22,6 @@ Fields:
 - `pbm_covars::NTuple{N,Symbol}`: names of global parameters used as covariates 
   in the ML model, defaults to `()`, i.e. no covariates fed into the ML model
 
-See also [`update`](@ref) for a copy with some entries modified.
 """
 struct HybridProblem <: AbstractHybridProblem
     θP::CA.ComponentVector
@@ -79,55 +78,61 @@ end
 """
     HybridProblem(prob::AbstractHybridProblem; scenario = ()
 
-Gather all information from another `AbstractHybridProblem`.
+Gather all information from another `AbstractHybridProblem` wiht possible
+updating of some of the entries.
 """
-function HybridProblem(prob::AbstractHybridProblem; scenario = ())
-    (; θP, θM) = get_hybridproblem_par_templates(prob; scenario)
-    g, ϕg = get_hybridproblem_MLapplicator(prob; scenario)
-    ϕunc = get_hybridproblem_ϕunc(prob; scenario)
-    f_batch = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = false)
-    f_allsites = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = true)
-    py = get_hybridproblem_neg_logden_obs(prob; scenario)
-    (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
-    train_dataloader = get_hybridproblem_train_dataloader(prob; scenario)
-    cor_ends = get_hybridproblem_cor_ends(prob; scenario)
-    pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
-    priors = get_hybridproblem_priors(prob; scenario)
-    n_covar = get_hybridproblem_n_covar(prob; scenario)
-    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+function HybridProblem(prob::AbstractHybridProblem; scenario = (),
+    θP = get_hybridproblem_par_templates(prob; scenario).θP,
+    θM = get_hybridproblem_par_templates(prob; scenario).θM,
+    g = get_hybridproblem_MLapplicator(prob; scenario)[1],
+    ϕg = get_hybridproblem_MLapplicator(prob; scenario)[2],
+    f_batch = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = false),
+    f_allsites = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = true),
+    priors = get_hybridproblem_priors(prob; scenario),
+    py = get_hybridproblem_neg_logden_obs(prob; scenario),
+    transP = get_hybridproblem_transforms(prob; scenario).transP,
+    transM = get_hybridproblem_transforms(prob; scenario).transM,
+    train_dataloader = get_hybridproblem_train_dataloader(prob; scenario),
+    n_covar = get_hybridproblem_n_covar(prob; scenario),
+    n_site = get_hybridproblem_n_site_and_batch(prob; scenario)[1],
+    n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)[2],
+    cor_ends = get_hybridproblem_cor_ends(prob; scenario),
+    pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario),
+    ϕunc = get_hybridproblem_ϕunc(prob; scenario),
+    )
     HybridProblem(θP, θM, g, ϕg, f_batch, f_allsites, priors, py, transM, transP, train_dataloader,
         n_covar, n_site, n_batch, cor_ends, pbm_covars, ϕunc)
 end
 
-"""
-    update(prob::HybridProblem; ...)
+# """
+#     update(prob::HybridProblem; ...)
 
-Create a copy of prob, with some parts replaced.
-"""
-function update(prob::HybridProblem;
-        θP::CA.ComponentVector = prob.θP,
-        θM::CA.ComponentVector = prob.θM,
-        g::AbstractModelApplicator = prob.g, 
-        ϕg::AbstractVector = prob.ϕg,
-        ϕunc::CA.ComponentVector = prob.ϕunc,
-        f_batch = prob.f_batch,
-        f_allsites = prob.f_allsites,
-        priors::AbstractDict = prob.priors,
-        py = prob.py,
-        # transM::Union{Function, Bijectors.Transform} = prob.transM,
-        # transP::Union{Function, Bijectors.Transform} = prob.transP,
-        transM = prob.transM,
-        transP = prob.transP,
-        cor_ends::NamedTuple = prob.cor_ends,
-        pbm_covars::NTuple{N,Symbol} = prob.pbm_covars,
-        train_dataloader::MLUtils.DataLoader = prob.train_dataloader,
-        n_covar::Integer = prob.n_covar,
-        n_site::Integer = prob.n_site,
-        n_batch::Integer = prob.n_batch,
-) where N
-    HybridProblem(θP, θM, g, ϕg, f_batch, f_allsites, priors, py, transM, transP, 
-        train_dataloader, n_covar, n_site, n_batch, cor_ends, pbm_covars, ϕunc)
-end
+# Create a copy of prob, with some parts replaced.
+# """
+# function update(prob::HybridProblem;
+#         θP::CA.ComponentVector = prob.θP,
+#         θM::CA.ComponentVector = prob.θM,
+#         g::AbstractModelApplicator = prob.g, 
+#         ϕg::AbstractVector = prob.ϕg,
+#         ϕunc::CA.ComponentVector = prob.ϕunc,
+#         f_batch = prob.f_batch,
+#         f_allsites = prob.f_allsites,
+#         priors::AbstractDict = prob.priors,
+#         py = prob.py,
+#         # transM::Union{Function, Bijectors.Transform} = prob.transM,
+#         # transP::Union{Function, Bijectors.Transform} = prob.transP,
+#         transM = prob.transM,
+#         transP = prob.transP,
+#         cor_ends::NamedTuple = prob.cor_ends,
+#         pbm_covars::NTuple{N,Symbol} = prob.pbm_covars,
+#         train_dataloader::MLUtils.DataLoader = prob.train_dataloader,
+#         n_covar::Integer = prob.n_covar,
+#         n_site::Integer = prob.n_site,
+#         n_batch::Integer = prob.n_batch,
+# ) where N
+#     HybridProblem(θP, θM, g, ϕg, f_batch, f_allsites, priors, py, transM, transP, 
+#         train_dataloader, n_covar, n_site, n_batch, cor_ends, pbm_covars, ϕunc)
+# end
 
 function get_hybridproblem_par_templates(prob::HybridProblem; scenario = ())
     (; θP = prob.θP, θM = prob.θM)

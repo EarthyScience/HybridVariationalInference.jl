@@ -43,7 +43,7 @@ train_dataloader = MLUtils.DataLoader(
     batchsize = n_batch, partial = false)
 σ_o = exp.(y_unc[:, 1] / 2)
 # assign the train_loader, otherwise it eatch time creates another version of synthetic data
-prob0 = HVI.update(prob0_; train_dataloader);
+prob0 = HybridProblem(prob0_; train_dataloader)
 #tmp = HVI.get_hybridproblem_ϕunc(prob0; scenario)
 #prob0.covar
 
@@ -76,7 +76,7 @@ histogram(vec(y_pred) - vec(y_true)) # predictions centered around y_o (or y_tru
     solver1 = HybridPointSolver(; alg = Adam(0.01), n_batch = n_site)
     (; ϕ, resopt) = solve(prob0o, solver1; scenario, rng,
         callback = callback_loss(20), maxiters = 400)
-    prob1o = HVI.update(prob0o; ϕg = cpu_ca(ϕ).ϕg, θP = cpu_ca(ϕ).θP)
+    prob1o = HybridProblem(prob0o; ϕg = cpu_ca(ϕ).ϕg, θP = cpu_ca(ϕ).θP)
     y_pred_global, y_pred, θMs = gf(prob1o, xM, xP; scenario)
     scatterplot(θMs_true[1, :], θMs[1, :])
     scatterplot(θMs_true[2, :], θMs[2, :])
@@ -90,7 +90,7 @@ end
     prob2 = prob1o
     (; ϕ, resopt) = solve(prob2, solver1; scenario, rng,
         callback = callback_loss(20), maxiters = 600)
-    prob2o = HVI.update(prob2; ϕg = collect(ϕ.ϕg), θP = ϕ.θP)
+    prob2o = HybridProblem(prob2; ϕg = collect(ϕ.ϕg), θP = ϕ.θP)
     y_pred_global, y_pred, θMs = gf(prob2o, xM, xP)
     prob2o.θP
 end
@@ -122,11 +122,11 @@ end
     #scatterplot(θMs_true[1,:], θMs[1,:])
     scatterplot(θMs_true[2, :], θMs[2, :]) # able to fit θMs[2,:]
 
-    prob3 = HVI.update(prob0, ϕg = Array(ϕg_opt1), θP = θP_true)
+    prob3 = HybridProblem(prob0, ϕg = Array(ϕg_opt1), θP = θP_true)
     solver1 = HybridPointSolver(; alg = Adam(0.01), n_batch = n_site)
     (; ϕ, resopt) = solve(prob3, solver1; scenario, rng,
         callback = callback_loss(50), maxiters = 600)
-    prob3o = HVI.update(prob3; ϕg = cpu_ca(ϕ).ϕg, θP = cpu_ca(ϕ).θP)
+    prob3o = HybridProblem(prob3; ϕg = cpu_ca(ϕ).ϕg, θP = cpu_ca(ϕ).θP)
     y_pred_global, y_pred, θMs = gf(prob3o, xM, xP; scenario)
     scatterplot(θMs_true[2, :], θMs[2, :])
     prob3o.θP
@@ -182,8 +182,8 @@ solver_post = HybridPosteriorSolver(; alg = OptimizationOptimisers.Adam(0.01), n
 end
 
 #----------- HVI without strong prior on θmean
-#prob2 = HVI.update(prob1o);  # copy
-prob2 = HVI.update(prob0o);  # copy
+#prob2 = HybridProblem(prob1o);  # copy
+prob2 = HybridProblem(prob0o);  # copy
 function fstate_ϕunc(state)
     u = state.u |> cpu
     #Main.@infiltrate_main
@@ -194,8 +194,8 @@ n_epoch = 100
 #n_epoch = 400
 #n_epoch = 2
 (; ϕ, θP, resopt, interpreters, probo) = solve(prob2, 
-    HVI.update(solver_post, n_MC = 12);
-    #HVI.update(solver_post, n_MC = 30);
+    HybridProblem(solver_post, n_MC = 12);
+    #HybridProblem(solver_post, n_MC = 30);
     scenario, rng, maxiters = n_batches_in_epoch * n_epoch,
     #callback = HVI.callback_loss_fstate(n_batches_in_epoch*5, fstate_ϕunc),
     callback = callback_loss(n_batches_in_epoch * 5),    
@@ -323,10 +323,10 @@ histogram(θsP)
     # (; ϕ, θP, resopt, interpreters) = solve(prob1o, solver_MC; scenario,
     #     rng, callback = callback_loss(n_batches_in_epoch), maxiters = 14);
     # resopt.objective
-    # probo = prob3o = HVI.update(prob2; ϕg = cpu_ca(ϕ).ϕg, θP = θP, ϕunc = cpu_ca(ϕ).unc)
+    # probo = prob3o = HybridProblem(prob2; ϕg = cpu_ca(ϕ).ϕg, θP = θP, ϕunc = cpu_ca(ϕ).unc)
 
-    solver_post2 = HVI.update(solver_post; n_MC = 30)
-    #solver_post2 = HVI.update(solver_post; n_MC=3)
+    solver_post2 = HybridPosteriorSovler(solver_post; n_MC = 30)
+    #solver_post2 = HybridPosteriorSovler(solver_post; n_MC = 3)
     n_rep = 30
     n_batchf = n_site
     n_batchf = n_site ÷ 10
@@ -456,7 +456,7 @@ using MCMCChains
 prior_ζ = fit(Normal, @qp_ll(log(1e-2)), @qp_uu(log(10)))
 prior_ζn = (n) -> MvNormal(fill(prior_ζ.μ, n), PDiagMat(fill(abs2(prior_ζ.σ), n)))
 prior_ζn(3)
-prob = HVI.update(prob0o);
+prob = HybridProblem(prob0o);
 
 (; θM, θP) = get_hybridproblem_par_templates(prob; scenario)
 n_θM, n_θP = length.((θM, θP))
@@ -942,7 +942,7 @@ end
     prior_θ = Normal(0, 10)
     prior_θn = (n) -> MvNormal(fill(prior_θ.μ, n), PDiagMat(fill(abs2(prior_θ.σ), n)))
     prior_θn(3)
-    prob = HVI.update(prob0o);
+    prob = HybridProblem(prob0o);
 
     (; θM, θP) = get_hybridproblem_par_templates(prob; scenario)
     n_θM, n_θP = length.((θM, θP))

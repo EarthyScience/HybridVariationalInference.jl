@@ -313,7 +313,7 @@ test_with_flux_gpu = (scenario) -> begin
             rng = StableRNG(111)
             probg = HybridProblem(DoubleMM.DoubleMMCase(); scenario = scenf);
             # put Applicator to gpu (θFix)
-            probg = CP.update(
+            probg = HybridProblem(
                 probg, 
                 f_batch = fmap(gdev, probg.f_batch), 
                 f_allsites = fmap(gdev, probg.f_allsites))
