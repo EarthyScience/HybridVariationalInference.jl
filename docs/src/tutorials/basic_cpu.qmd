@@ -121,7 +121,7 @@ priors_dict = Dict{Symbol, Distribution}(
 
 ## Observations, model drivers and covariates
 
-The model paraemters are inverted using information on the 
+The model parameters are inverted using information on the 
 - observed data, `y_o`
 - its uncertainty, `y_unc`
 - known covariates across sites, `xM`
@@ -160,7 +160,7 @@ components S1 and S2 corresponding to the concentrations, for which outputs
 were observed.
 This allows notation `x.S1` in the PBM above.
 
-The `y_unc` becomes its meaning by the Liklihood-function to be specified with
+The `y_unc` becomes its meaning by the Likelihood-function to be specified with
 the problem below.
 
 ### Providing data in batches

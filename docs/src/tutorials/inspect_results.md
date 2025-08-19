@@ -118,7 +118,7 @@ fig
 ![](inspect_results_files/figure-commonmark/cell-11-output-1.png)
 
 We see that *K*₁ across sites ranges from about 0.18 to 0.25, and that
-its estimated uncertainty is aobut 0.034, slightly decreasing with the
+its estimated uncertainty is about 0.034, slightly decreasing with the
 values of the parameter.
 
 ## Predictive Posterior

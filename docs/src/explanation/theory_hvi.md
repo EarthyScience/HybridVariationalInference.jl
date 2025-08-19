@@ -89,7 +89,7 @@ the cholesky factors of the covariance and correlation matrices respectively. Th
 upper triangular matrices. 
 
 Since, the block-diagonal structure of the correlation matrix carries over to the cholesky 
-factor, $U_C$ is a block-diagnonal matrix of smaller cholesky factors. If HVI modeled the 
+factor, $U_C$ is a block-diagonal matrix of smaller cholesky factors. If HVI modeled the 
 depence between $\zeta_{Ms}$ and $\zeta_P$, the correlation matrhix would have an 
 additional block repeated in the first row and its transpose repeated in the first column 
 in $\Sigma$, leading to a cholesky factor $U_C$ having entries in all the rows. 

@@ -164,7 +164,7 @@ Return a DataLoader that provides a tuple of
 - `xP`: Iterator of process-model drivers, with one element per site
 - `y_o`: matrix of observations with added noise, with one column per site
 - `y_unc`: matrix `sizeof(y_o)` of uncertainty information 
-- `i_sites`: Vector of indices of sites in toal sitevector for the minibatch
+- `i_sites`: Vector of indices of sites in the minibatch
 """
 function get_hybridproblem_train_dataloader end
 

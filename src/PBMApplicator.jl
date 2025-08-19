@@ -47,7 +47,7 @@ Construct AbstractPBMApplicator from process-based model `fθ` that computes pre
 for a single site.
 The Applicator combines enclosed `θFix`, with provided `θMs` and `θP` and
 constructs a `ComponentVector` that can be indexed by 
-symbolic parameter names, correspondning to the templates provided during
+symbolic parameter names, corresponding to the templates provided during
 construction of the applicator.
 
 ## Arguments 

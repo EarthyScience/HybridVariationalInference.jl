@@ -325,8 +325,8 @@ histogram(θsP)
     # resopt.objective
     # probo = prob3o = HybridProblem(prob2; ϕg = cpu_ca(ϕ).ϕg, θP = θP, ϕunc = cpu_ca(ϕ).unc)
 
-    solver_post2 = HybridPosteriorSovler(solver_post; n_MC = 30)
-    #solver_post2 = HybridPosteriorSovler(solver_post; n_MC = 3)
+    solver_post2 = HybridPosteriorSolver(solver_post; n_MC = 30)
+    #solver_post2 = HybridPosteriorSolver(solver_post; n_MC = 3)
     n_rep = 30
     n_batchf = n_site
     n_batchf = n_site ÷ 10
@@ -632,7 +632,7 @@ lineplot!(plt, 0, 1)
     set_default_AoGTheme!(;makie_config)
 
     using ColorBrewer: ColorBrewer
-    # two same colors for hmc anc hvi , additional for further unspecified labels
+    # two same colors for hmc and hvi , additional for further unspecified labels
     cDark2 = cgrad(ColorBrewer.palette("Dark2",3),3,categorical=true)
     #color_methods = vcat([k => col for (k, col) in zip([:hmc, :hvi], cDark2[1:2])], cDark2[3], Makie.wong_colors()[2:end]);
     cpal0 = Makie.wong_colors()

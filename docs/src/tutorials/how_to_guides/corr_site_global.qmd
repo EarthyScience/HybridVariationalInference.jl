@@ -194,7 +194,7 @@ In each column of the model drivers there is a ComponentVector with
 components S1 and S2 corresponding to the concentrations, for which outputs
 were observed.
 
-The `y_unc` becomes its meaning by the Liklihood-function to be specified with
+The `y_unc` becomes its meaning by the Likelihood-function to be specified with
 the problem below.
 
 ### Providing data in Batches
