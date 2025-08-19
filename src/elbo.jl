@@ -186,12 +186,12 @@ for hybrid variational inference problem.
 - `rng`: random number generator
 - `prob`: The AbstractHybridProblem from to sample
 - `xM`: covariates for the machine-learning model (ML): Matrix `(n_θM x n_site_pred)`.
-  Default to all sites in train_dataloader in prob.
+  Default to all sites in `get_hybridproblem_train_dataloader(prob; scenario)`.
 
 Optional keyword arguments    
 - `scenario`: scenario to query `prob` and set default of gpu devices.
 - `n_sample_pred`: number of samples to draw, defaults to 200
-- `gdevs`: NamedTuple(gdev_M, gdev_P): GPU devices for machine learning model 
+- `gdevs`: `NamedTuple(gdev_M, gdev_P)`: GPU devices for machine learning model 
   and parameter transformtation, default to [`get_gdev_MP`](@ref)`(scenario)`.
 - `is_inferred`: set to `Val(true)` to activate type stabilicy check for transformation
 
@@ -238,9 +238,12 @@ function sample_posterior(rng, prob::AbstractHybridProblem, xM::AbstractMatrix;
     int_unc = interpreters.unc
     transMs = StackedArray(transM, n_batch)        
     g_dev, ϕ_dev = gdevs.gdev_M(g), gdevs.gdev_M(ϕ)
-    sample_posterior(rng, g_dev, ϕ_dev, xM;
+    (; θsP, θsMs, entropy_ζ) = sample_posterior(rng, g_dev, ϕ_dev, xM;
         int_μP_ϕg_unc, int_unc, transP, transM, 
         n_sample_pred, cdev=infer_cdev(gdevs), cor_ends, pbm_covar_indices, kwargs...)
+    θsPc = ComponentArrayInterpreter(prob.θP, (n_sample_pred,))(θsP)
+    θsMsc = ComponentArrayInterpreter((n_site,), prob.θM, (n_sample_pred,))(θsMs)
+    (; θsP=θsPc, θsMs=θsMsc, entropy_ζ)
 end
 
 function sample_posterior(rng, g, ϕ::AbstractVector, xM::AbstractMatrix;
