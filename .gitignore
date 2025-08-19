@@ -14,3 +14,4 @@ docs/src/**/*_files/
 docs/src/**/*.html
 docs/src/**/*.ipynb
 docs/src/**/*Manifest.toml
+docs/src/tutorials/intermediate/*

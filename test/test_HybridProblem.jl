@@ -203,7 +203,7 @@ test_with_flux = (scenario) -> begin
             #maxiters = 20
             #maxiters=200,
             epochs = 2,
-            gdev = identity,
+            gdevs = (; gdev_M=identity, gdev_P=identity),
             #gpu_handler = NullGPUDataHandler
             is_inferred = Val(true),
         )
@@ -225,7 +225,7 @@ test_with_flux = (scenario) -> begin
             #maxiters=37, # still complains "need to specify maxiters or epochs"
             epochs = 1,
             θmean_quant = 0.01,   # test constraining mean to initial prediction     
-            gdev = identity,
+            gdevs = (; gdev_M=identity, gdev_P=identity),
             is_inferred = Val(true),
         )
         θPt = get_hybridproblem_par_templates(prob; scenario).θP
@@ -258,7 +258,8 @@ test_with_flux_gpu = (scenario) -> begin
                 epochs = 2,
                 θmean_quant = 0.01,   # test constraining mean to initial prediction     
                 is_inferred = Val(true),
-            );
+                gdevs = (; gdev_M=gpu_device(), gdev_P=identity),
+        );
             @test CA.getdata(ϕ) isa GPUArraysCore.AbstractGPUVector
             #@test cdev(ϕ.unc.ρsM)[1] > 0 # too few iterations in test -> may fail
             #
@@ -266,6 +267,7 @@ test_with_flux_gpu = (scenario) -> begin
             (; ϕ, θP, resopt, probo) = solve(prob, solver; scenario = scenf,
                 #maxiters = 37, 
                 epochs = 2,
+                gdevs = (; gdev_M=gpu_device(), gdev_P=identity),
                 is_inferred = Val(true),
             );
             @test cdev(ϕ.unc.ρsM)[1] > 0 
@@ -281,6 +283,7 @@ test_with_flux_gpu = (scenario) -> begin
                 n_epoch = 20 # requires 
                 (; ϕ, θP, resopt, probo) = solve(prob, solver; scenario = scenf,
                     maxiters = n_batches_in_epoch * n_epoch, 
+                    gdevs = (; gdev_M=gpu_device(), gdev_P=identity),
                     callback = callback_loss(n_batches_in_epoch*5)
                 );
                 @test cdev(ϕ.unc.ρsM)[1] > 0 
@@ -326,7 +329,7 @@ test_with_flux_gpu = (scenario) -> begin
                 #maxiters = 20, # too small so that it yields error
                 epochs = 1,
                 #θmean_quant = 0.01,   # TODO make possible on gpu
-                cdev = identity, # do not move ζ to cpu 
+                gdevs = (; gdev_M=gpu_device(), gdev_P=gpu_device()),
                 is_inferred = Val(true),
             );
             @test CA.getdata(ϕ) isa GPUArraysCore.AbstractGPUVector

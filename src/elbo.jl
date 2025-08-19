@@ -133,26 +133,8 @@ function neg_elbo_ζtf(ζsP, ζsMs, σ, f, py, xP, y_ob, y_unc;
     nLy, entropy_ζ
 end
 
-() -> begin
-    nLy = reduce(
-        +, map(eachcol(ζs_cpu[:, 1:n_MC])) do ζi
-            θ_i, y_pred_i, logjac = apply_f_trans(ζi, xP, f, transPMs, interpreters.PMs)
-            # TODO nLogDen prior on \theta
-            #nLy1 = neg_logden_indep_normal(y_ob, y_pred_i, y_unc)
-            nLy1 = py(y_ob, y_pred_i, y_unc)
-            nLy1 - logjac
-        end) / n_MC
-end
-
-() -> begin
-    # using UnicodePlots
-    histogram(nLys)
-end
-
 """
-    predict_hvi([rng], prob::AbstractHybridProblem [,xM, xP]; scenario=Val(()), ...)
-    predict_hvi(rng, g, f, ϕ::AbstractVector, xM::AbstractMatrix;
-        get_transPMs, get_ca_int_PMs, n_sample_pred=200, gdev = identity)
+    predict_hvi([rng], predict_hvi(rng, prob::AbstractHybridProblem)
 
 Prediction function for hybrid variational inference parameter model. 
 
@@ -176,27 +158,71 @@ Returns an NamedTuple `(; y, θsP, θsMs, entropy_ζ)` with entries
 - `entropy_ζ`: The entropy of the log-determinant of the transformation of 
   the set of model parameters, which is involved in uncertainty quantification.
 """
-function predict_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()), kwargs...)
+function predict_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()), 
+    gdevs = get_gdev_MP(scenario), 
+    kwargs...
+    )
     dl = get_hybridproblem_train_dataloader(prob; scenario)
-    dl_dev = gdev_hybridproblem_dataloader(dl; scenario)
-    # predict for all sites
+    dl_dev = gdev_hybridproblem_dataloader(dl; gdevs)
     xM, xP = dl_dev.data[1:2]
-    predict_hvi(rng, prob, xM, xP; scenario, kwargs...)
+    (; θsP, θsMs, entropy_ζ) = sample_posterior(rng, prob, xM; scenario, gdevs, kwargs...)
+    #
+    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    n_site_pred = size(θsMs,1)
+    is_predict_batch = (n_site_pred == n_batch)
+    @assert size(xP, 2) == n_site_pred
+    f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites=!is_predict_batch)
+    y = apply_process_model(θsP, θsMs, f, xP)
+    (; y, θsP, θsMs, entropy_ζ)
 end
-function predict_hvi(rng, prob::AbstractHybridProblem, xM::AbstractMatrix, xP;
+
+"""
+    sample_posterior(rng, prob, [xM::AbstractMatrix]; scenario=Val(()), kwargs...)
+
+Sampling the posterior parameter distribution 
+for hybrid variational inference problem. 
+
+## Arguments
+- `rng`: random number generator
+- `prob`: The AbstractHybridProblem from to sample
+- `xM`: covariates for the machine-learning model (ML): Matrix `(n_θM x n_site_pred)`.
+  Default to all sites in train_dataloader in prob.
+
+Optional keyword arguments    
+- `scenario`: scenario to query `prob` and set default of gpu devices.
+- `n_sample_pred`: number of samples to draw, defaults to 200
+- `gdevs`: NamedTuple(gdev_M, gdev_P): GPU devices for machine learning model 
+  and parameter transformtation, default to [`get_gdev_MP`](@ref)`(scenario)`.
+- `is_inferred`: set to `Val(true)` to activate type stabilicy check for transformation
+
+Returns an NamedTuple `(; θsP, θsMs, entropy_ζ)` with entries
+- `θsP`: ComponentArray `(n_θP, n_sample_pred)` of PBM model parameters
+  that are kept constant across sites.
+- `θsMs`: ComponentArray `(n_site, n_θM, n_sample_pred)` of PBM model parameters
+  that vary by site.
+- `entropy_ζ`: The entropy of the log-determinant of the transformation of 
+  the set of model parameters, which is involved in uncertainty quantification.
+"""
+function sample_posterior(rng, prob::AbstractHybridProblem; scenario=Val(()), 
+    gdevs = get_gdev_MP(scenario),
+    kwargs...)
+    dl = get_hybridproblem_train_dataloader(prob; scenario)
+    dl_dev = gdev_hybridproblem_dataloader(dl; gdevs)
+    xM = dl_dev.data[1]
+    sample_posterior(rng, prob, xM; scenario, gdevs, kwargs...)
+end
+
+
+function sample_posterior(rng, prob::AbstractHybridProblem, xM::AbstractMatrix;
     scenario=Val(()),
     n_sample_pred=200,
-    gdev=:use_gpu ∈ _val_value(scenario) ? gpu_device() : identity,
-    cdev=!(gdev isa MLDataDevices.AbstractGPUDevice) ? identity :
-        (:f_on_gpu ∈ _val_value(scenario) ? identity : cpu_device()), 
+    gdevs = get_gdev_MP(scenario),
     kwargs...
 )
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-    is_predict_batch = (n_batch == length(xP))
+    is_predict_batch = (n_batch == size(xM,2))
     n_site_pred = is_predict_batch ? n_batch : n_site
-    @assert size(xP, 2) == n_site_pred
     @assert size(xM, 2) == n_site_pred
-    f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites=!is_predict_batch)
     par_templates = get_hybridproblem_par_templates(prob; scenario)
     (; θP, θM) = par_templates
     cor_ends = get_hybridproblem_cor_ends(prob; scenario)
@@ -211,70 +237,83 @@ function predict_hvi(rng, prob::AbstractHybridProblem, xM::AbstractMatrix, xP;
     int_μP_ϕg_unc = interpreters.μP_ϕg_unc
     int_unc = interpreters.unc
     transMs = StackedArray(transM, n_batch)        
-    g_dev, ϕ_dev = gdev(g), gdev(ϕ)
-    predict_hvi(rng, g_dev, f, ϕ_dev, xM, xP;
+    g_dev, ϕ_dev = gdevs.gdev_M(g), gdevs.gdev_M(ϕ)
+    sample_posterior(rng, g_dev, ϕ_dev, xM;
         int_μP_ϕg_unc, int_unc, transP, transM, 
-        n_sample_pred, cdev, cor_ends, pbm_covar_indices, kwargs...)
+        n_sample_pred, cdev=infer_cdev(gdevs), cor_ends, pbm_covar_indices, kwargs...)
 end
 
-function predict_hvi(rng, g, f, ϕ::AbstractVector, xM::AbstractMatrix, xP;
+function sample_posterior(rng, g, ϕ::AbstractVector, xM::AbstractMatrix;
     int_μP_ϕg_unc::AbstractComponentArrayInterpreter,
     int_unc::AbstractComponentArrayInterpreter,
     transP, transM,
-    n_sample_pred=200,
-    cdev=cpu_device(),
+    n_sample_pred,
+    cdev,
     cor_ends,
     pbm_covar_indices,
     is_inferred::Val{is_infer} = Val(false),
     kwargs...
 ) where is_infer
-    ζsP, ζsMs, σ = generate_ζ(rng, g, CA.getdata(ϕ), CA.getdata(xM);
+    ζsP_gpu, ζsMs_gpu, σ = generate_ζ(rng, g, CA.getdata(ϕ), CA.getdata(xM);
         int_μP_ϕg_unc, int_unc,
         n_MC=n_sample_pred, cor_ends, pbm_covar_indices)
-    ζsP_cpu = cdev(ζsP)
-    ζsMs_cpu = cdev(ζsMs)
+    ζsP = cdev(ζsP_gpu)
+    ζsMs = cdev(ζsMs_gpu)
     logdetΣ = 2 * sum(log.(σ))
     entropy_ζ = entropy_MvNormal(length(σ), logdetΣ)
-    res_pred = is_infer ? 
-        apply_f_trans(ζsP_cpu, ζsMs_cpu, f, xP; transP, transM, kwargs...) :
-        Test.@inferred apply_f_trans(ζsP_cpu, ζsMs_cpu, f, xP; transP, transM, kwargs...) 
-    (; res_pred..., entropy_ζ)
+    trans_mP = StackedArray(transP, size(ζsP, 2))
+    trans_mMs = StackedArray(transM, size(ζsMs, 1) * size(ζsMs, 3))
+    θsP, θsMs = is_infer ? 
+        Test.@inferred(transform_ζs(ζsP, ζsMs; trans_mP, trans_mMs)) :
+        transform_ζs(ζsP, ζsMs; trans_mP, trans_mMs)
+    # res_pred = is_infer ? 
+    #     apply_f_trans(ζsP_cpu, ζsMs_cpu, f, xP; transP, transM, kwargs...) :
+    #     Test.@inferred apply_f_trans(ζsP_cpu, ζsMs_cpu, f, xP; transP, transM, kwargs...) 
+    (; θsP, θsMs, entropy_ζ)
 end
 
 
-""" 
-Compute predictions of the transformation at given
-transformed parameters for each site. 
-The number of sites is given by the number of rows in `ζsMs`.
+# """ 
+# Compute predictions of the transformation at given
+# transformed parameters for each site. 
+# The number of sites is given by the number of rows in `ζsMs`.
 
-Steps:
-- transform the parameters to original constrained space
-- Applies the mechanistic model for each site
+# Steps:
+# - transform the parameters to original constrained space
+# - Applies the mechanistic model for each site
 
-`ζsP` and `ζsMs` are shaped according to the output of `generate_ζ`.
+# `ζsP` and `ζsMs` are shaped according to the output of `generate_ζ`.
+# Results are of shape `(n_obs x n_site_pred x n_MC)`.
+# """
+# function apply_f_trans(ζsP::AbstractMatrix, ζsMs::AbstractArray, f, xP; 
+#     transP, transM::Stacked,
+#     trans_mP=StackedArray(transP, size(ζsP, 2)),
+#     trans_mMs=StackedArray(transM, size(ζsMs, 1) * size(ζsMs, 3))
+# )
+#     θsP, θsMs = transform_ζs(ζsP, ζsMs; trans_mP, trans_mMs)
+#     y = apply_process_model(θsP, θsMs, f, xP)
+#     (; y, θsP, θsMs)
+# end
+
+# function apply_f_trans(ζP::AbstractVector, ζMs::AbstractMatrix, f, xP; 
+#     transP, transM::Stacked, transMs::StackedArray=StackedArray(transM, size(ζMs, 1)),
+# )
+#     θP = transP(ζP)
+#     θMs = transMs(ζMs)
+#     y_global, y = f(θP, θMs, xP)
+#     (; y, θP, θMs)
+# end
+
+"""
+    apply_process_model(θsP::AbstractMatrix, θsMs::AbstractArray{ET,3}, f, xP)
+
+Call a PBM applicator for a sample of parameters of each site, and stack results
+
+`θsP` and `θsMs` are shaped according to the output of `generate_ζ`, i.e.
+`(n_site_pred x n_par x n_MC)`.
 Results are of shape `(n_obs x n_site_pred x n_MC)`.
 """
-function apply_f_trans(ζsP::AbstractMatrix, ζsMs::AbstractArray, f, xP; 
-    transP, transM::Stacked,
-    trans_mP=StackedArray(transP, size(ζsP, 2)),
-    trans_mMs=StackedArray(transM, size(ζsMs, 1) * size(ζsMs, 3))
-)
-    θsP, θsMs = transform_ζs(ζsP, ζsMs; trans_mP, trans_mMs)
-    y = apply_f(θsP, θsMs, f, xP)
-    (; y, θsP, θsMs)
-end
-
-function apply_f_trans(ζP::AbstractVector, ζMs::AbstractMatrix, f, xP; 
-    transP, transM::Stacked, transMs::StackedArray=StackedArray(transM, size(ζMs, 1)),
-)
-    θP = transP(ζP)
-    θMs = transMs(ζMs)
-    y_global, y = f(θP, θMs, xP)
-    (; y, θP, θMs)
-end
-
-
-function apply_f(θsP::AbstractMatrix, θsMs::AbstractArray{ET,3}, f, xP) where ET
+function apply_process_model(θsP::AbstractMatrix, θsMs::AbstractArray{ET,3}, f, xP) where ET
     y_pred = stack(map(eachcol(θsP), eachslice(θsMs, dims=3)) do θP, θMs
         y_global, y_pred_i = f(θP, θMs, xP)
         y_pred_i
@@ -547,5 +586,10 @@ function flatten_hybrid_pars(xsP::AbstractMatrix{FT}, xsMs::AbstractArray{FT,3})
     @assert size(xsP,2) == n_MC
     vcat(xsP, reshape(xsMs, n_site_pred * n_θM, n_MC))
 end
+
+
+
+
+
 
 

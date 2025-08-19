@@ -369,34 +369,19 @@ test_scenario = (scenario) -> begin
         end
     end
 
-    @testset "apply_f $(last(CP._val_value(scenario)))" begin
-        ζP = ζsP[:,1]
-        ζMs = ζsMs[:,:,1]
-        y_pred, θP_pred, θMs_pred = @inferred CP.apply_f_trans(
-            ζP, ζMs, f, xP[:,1:n_batch]; transP, transM)
-        @test size(y_pred) == size(y_o[:,1:n_batch])
-        @test size(θP_pred) == (n_θP,)
-        @test size(θMs_pred) == (n_batch, n_θM)
-        #
-        ym_pred, θPm_pred, θMsm_pred = CP.apply_f_trans(
-            ζsP[:,1:1], ζMs[:,:,1:1], f, xP[:,1:n_batch]; transP, transM)
-        @test ym_pred[:,:,1] == y_pred
-        @test θPm_pred[:,1] == θP_pred
-        @test θMsm_pred[:,:,1] == θMs_pred
-    end
-
-    @testset "predict_hvi cpu $(last(CP._val_value(scenario)))" begin
+    @testset "sample_posterior apply_process_model cpu $(last(CP._val_value(scenario)))" begin
         # intm_PMs_gen = get_ca_int_PMs(n_site)
         # trans_PMs_gen = get_transPMs(n_site)
         # @test length(intm_PMs_gen) == 402
         # @test trans_PMs_gen.length_in == 402
         n_sample_pred = 30
-        (; y, θsP, θsMs, entropy_ζ) =
+        (; θsP, θsMs, entropy_ζ) =
         #Cthulhu.@descend_code_warntype (
             @inferred (
-                predict_hvi(rng, g, f_pred, ϕ_ini, xM, xP;
+                sample_posterior(rng, g, ϕ_ini, xM;
                 int_μP_ϕg_unc, int_unc,
                 transP, transM,
+                cdev = identity,
                 n_sample_pred, cor_ends, pbm_covar_indices)
             )
         @test θsP isa AbstractMatrix
@@ -404,6 +389,8 @@ test_scenario = (scenario) -> begin
         int_mP = ComponentArrayInterpreter(int_P, (size(θsP, 2),))
         θsPc = int_mP(θsP)
         @test all(θsPc[:r0, :] .> 0)
+        #
+        y = apply_process_model(θsP, θsMs, f_pred, xP)
         @test y isa Array
         @test size(y) == (size(y_o)..., n_sample_pred)
     end
@@ -414,12 +401,13 @@ test_scenario = (scenario) -> begin
             ϕ_ini_g = ggdev(CA.getdata(ϕ_ini))
             xMg = ggdev(xM)
             n_sample_pred = 30
-            (; y, θsP, θsMs, entropy_ζ) =
+            (; θsP, θsMs, entropy_ζ) =
             #Cthulhu.@descend_code_warntype (
                 @inferred (
-                    predict_hvi(rng, g_gpu, f_pred, ϕ_ini_g, xMg, xP;
+                    sample_posterior(rng, g_gpu, ϕ_ini_g, xMg;
                     int_μP_ϕg_unc, int_unc,
                     transP, transM,
+                    cdev = cpu_device(),
                     n_sample_pred, cor_ends, pbm_covar_indices)
                 )
             @test θsP isa AbstractMatrix
@@ -427,6 +415,8 @@ test_scenario = (scenario) -> begin
             int_mP = ComponentArrayInterpreter(int_P, (size(θsP, 2),))
             θsPc = int_mP(θsP)
             @test all(θsPc[:r0, :] .> 0)
+            #
+            y = apply_process_model(θsP, θsMs, f_pred, xP)
             @test y isa Array
             @test size(y) == (size(y_o)..., n_sample_pred)
         end

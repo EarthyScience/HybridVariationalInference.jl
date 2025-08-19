@@ -569,7 +569,11 @@ f_allsites = get_hybridproblem_PBmodel(prob0; scenario, use_all_sites = true)
 ζsMs[:,:,1]  # first sample: n_site x n_par
 ζsMs[:,1,:]  # first parameter n_site x n_sample 
 
-(; y, θsP, θsMs) = HVI.apply_f_trans(ζsP, ζsMs, f_allsites, xP; transP, transM);
+trans_mP=StackedArray(transP, size(ζsP, 2))
+trans_mMs=StackedArray(transM, size(ζsMs, 1) * size(ζsMs, 3))
+θsP, θsMs = transform_ζs(ζsP, ζsMs; trans_mP, trans_mMs)
+y = apply_process_model(θsP, θsMs, f, xP)
+#(; y, θsP, θsMs) = HVI.apply_f_trans(ζsP, ζsMs, f_allsites, xP; transP, transM);
 (y_hmc, θsP_hmc, θsMs_hmc) = (; y, θsP, θsMs);
 
     

@@ -191,31 +191,50 @@ end
 
 
 """
-    gdev_hybridproblem_dataloader(dataloader::MLUtils.DataLoader,
-        scenario = (), 
-        gdev = gpu_device(),
-        gdev_M = :use_gpu ∈ scenario ? gdev : identity,
-        gdev_P = :f_on_gpu ∈ scenario ? gdev : identity,
+    gdev_hybridproblem_dataloader(dataloader::MLUtils.DataLoader; gdev_M, gdev_P,
         batchsize = dataloader.batchsize,
         partial = dataloader.partial
         )
 
 Put relevant parts of the DataLoader to gpu, depending on scenario.
 """
-function gdev_hybridproblem_dataloader(dataloader::MLUtils.DataLoader;
-    scenario::Val{scen} = Val(()), 
-    gdev = gpu_device(),
-    gdev_M = :use_gpu ∈ _val_value(scenario) ? gdev : identity,
-    gdev_P = :f_on_gpu ∈ _val_value(scenario) ? gdev : identity,
+function gdev_hybridproblem_dataloader(dataloader::MLUtils.DataLoader; gdevs,
+    gdev_M = gdevs.gdev_M,
+    gdev_P = gdevs.gdev_P,
+    # scenario::Val{scen} = Val(()), 
+    # gdev = gpu_device(),
+    # gdev_M = :use_gpu ∈ _val_value(scenario) ? gdev : identity,
+    # gdev_P = :f_on_gpu ∈ _val_value(scenario) ? gdev : identity,
     batchsize = dataloader.batchsize,
     partial = dataloader.partial
-    ) where scen
+    ) 
     xM, xP, y_o, y_unc, i_sites = dataloader.data
     xM_dev = gdev_M(xM)
     xP_dev, y_o_dev, y_unc_dev = (gdev_P(xP), gdev_P(y_o), gdev_P(y_unc)) 
     train_loader_dev = MLUtils.DataLoader((xM_dev, xP_dev, y_o_dev, y_unc_dev, i_sites);
         batchsize, partial)
     return(train_loader_dev)
+end
+
+"""
+    get_gcdev(scenario::Val{scen}) where scen
+
+Configure gpu_device() for given scenario, checking for
+`:use_gpu` and `:f_on_gpu` in scenario.
+Returns a `NamedTuple` `(;gdev_M, gdev_P)`
+"""
+function get_gdev_MP(scenario::Val{scen}) where scen
+    gdev_gpu = gpu_device()
+    gdev_M = :use_gpu ∈ _val_value(scenario) ? gdev_gpu : identity
+    gdev_P = :f_on_gpu ∈ _val_value(scenario) ? gdev_gpu : identity
+    (;gdev_M, gdev_P)
+end
+
+function infer_cdev(gdevs; gdev_M = gdevs.gdev_M, gdev_P = gdevs.gdev_P)
+    # if gdev_M is already on CPU use identity, 
+    # if gdev_P is on GPU also use ideneity to not transfer to CPU
+    cdev=!(gdev_M isa MLDataDevices.AbstractGPUDevice) ? identity :
+        ((gdev_P isa MLDataDevices.AbstractGPUDevice) ? identity : cpu_device()) 
 end
 
 # function get_hybridproblem_train_dataloader(prob::AbstractHybridProblem; scenario = ())
