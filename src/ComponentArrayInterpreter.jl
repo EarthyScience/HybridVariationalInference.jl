@@ -108,8 +108,10 @@ get_concrete(cai::ComponentArrayInterpreter) = StaticComponentArrayInterpreter{c
 """
     ComponentArrayInterpreter(; kwargs...)
     ComponentArrayInterpreter(::AbstractComponentArray)
+    
     ComponentArrayInterpreter(::AbstractComponentArray, n_dims::NTuple{N,<:Integer})
     ComponentArrayInterpreter(n_dims::NTuple{N,<:Integer}, ::AbstractComponentArray)
+    ComponentArrayInterpreter(n_dims::NTuple{N,<:Integer}, ::AbstractComponentArray, m_dims::NTuple{M,<:Integer})
 
 Construct a `ComponentArrayInterpreter <: AbstractComponentArrayInterpreter`
 with components being vectors of given length or given model of a `AbstractComponentArray`.
@@ -156,17 +158,17 @@ end
 # with ComponentArrays in the first dimensions (e.g. rownames of a matrix or array)
 function ComponentArrayInterpreter(
     ca::CA.AbstractComponentArray, n_dims::NTuple{N,<:Integer}) where {N}
-    ComponentArrayInterpreter(CA.getaxes(ca), n_dims)
+    ComponentArrayInterpreter((), CA.getaxes(ca), n_dims)
 end
 function ComponentArrayInterpreter(
     cai::AbstractComponentArrayInterpreter, n_dims::NTuple{N,<:Integer}) where {N}
-    ComponentArrayInterpreter(CA.getaxes(cai), n_dims)
+    ComponentArrayInterpreter((), CA.getaxes(cai), n_dims)
 end
-function ComponentArrayInterpreter(
-    axes::NTuple{M,<:CA.AbstractAxis}, n_dims::NTuple{N,<:Integer}) where {M,N}
-    axes_ext = (axes..., map(n_dim -> CA.Axis(i=1:n_dim), n_dims)...)
-    ComponentArrayInterpreter(axes_ext)
-end
+# function ComponentArrayInterpreter(
+#     axes::NTuple{M,<:CA.AbstractAxis}, n_dims::NTuple{N,<:Integer}) where {M,N}
+#     axes_ext = (axes..., map(n_dim -> CA.Axis(i=1:n_dim), n_dims)...)
+#     ComponentArrayInterpreter(axes_ext)
+# end
 
 # support also for other AbstractComponentArrayInterpreter types
 # in a type-stable way by providing the Tuple of dimensions as a value type
@@ -190,17 +192,40 @@ end
 # with ComponentArrays in the last dimensions (e.g. columnnames of a matrix)
 function ComponentArrayInterpreter(
     n_dims::NTuple{N,<:Integer}, ca::CA.AbstractComponentArray) where {N}
-    ComponentArrayInterpreter(n_dims, CA.getaxes(ca))
+    ComponentArrayInterpreter(n_dims, CA.getaxes(ca), ())
 end
 function ComponentArrayInterpreter(
     n_dims::NTuple{N,<:Integer}, cai::AbstractComponentArrayInterpreter) where {N}
-    ComponentArrayInterpreter(n_dims, CA.getaxes(cai))
+    ComponentArrayInterpreter(n_dims, CA.getaxes(cai), ())
+end
+# function ComponentArrayInterpreter(
+#     n_dims::NTuple{N,<:Integer}, axes::NTuple{M,<:CA.AbstractAxis}) where {N,M}
+#     axes_ext = (map(n_dim -> CA.Axis(i=1:n_dim), n_dims)..., axes...)
+#     ComponentArrayInterpreter(axes_ext)
+# end
+
+# with ComponentArrays in the center dimensions (e.g. columnnames of a 3D-array)
+function ComponentArrayInterpreter(
+    n_dims::NTuple{N,<:Integer}, ca::CA.AbstractComponentArray, 
+    m_dims::NTuple{M,<:Integer}) where {N,M}
+    ComponentArrayInterpreter(n_dims, CA.getaxes(ca), m_dims)
 end
 function ComponentArrayInterpreter(
-    n_dims::NTuple{N,<:Integer}, axes::NTuple{M,<:CA.AbstractAxis}) where {N,M}
-    axes_ext = (map(n_dim -> CA.Axis(i=1:n_dim), n_dims)..., axes...)
+    n_dims::NTuple{N,<:Integer}, cai::AbstractComponentArrayInterpreter, 
+    m_dims::NTuple{M,<:Integer}) where {N,M}
+    ComponentArrayInterpreter(n_dims, CA.getaxes(cai), m_dims)
+end
+
+function ComponentArrayInterpreter(
+    n_dims::NTuple{N,<:Integer}, axes::NTuple{A,<:CA.AbstractAxis},
+    m_dims::NTuple{M,<:Integer}) where {N,A,M}
+    axes_ext = (
+        map(n_dim -> CA.Axis(i=1:n_dim), n_dims)..., 
+        axes..., 
+        map(n_dim -> CA.Axis(i=1:n_dim), m_dims)...)
     ComponentArrayInterpreter(axes_ext)
 end
+
 
 function stack_ca_int(
     ::Val{n_dims}, cai::IT) where {IT<:AbstractComponentArrayInterpreter,n_dims}
