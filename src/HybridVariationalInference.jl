@@ -60,7 +60,8 @@ export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_
        gen_cov_pred,
        construct_dataloader_from_synthetic,
        gdev_hybridproblem_dataloader,
-       setup_PBMpar_interpreter
+       setup_PBMpar_interpreter,
+       get_gdev_MP
 include("AbstractHybridProblem.jl")
 
 export AbstractHybridProblemInterpreters, HybridProblemInterpreters,

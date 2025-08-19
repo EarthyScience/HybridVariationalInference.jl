@@ -247,10 +247,9 @@ import Zygote
 
 solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)
 
-(; probo, interpreters) = solve(prob, solver; scenario, rng,
+(; probo, interpreters) = solve(prob, solver; rng,
     callback = callback_loss(100), # output during fitting
     epochs = 2,
-    gdev = identity, # do not use GPU, here
 );
 ```
 
@@ -326,10 +325,9 @@ As a test of the new applicator, the results are refined by running a few more
 epochs of the optimization.
 
 ``` julia
-(; probo) = solve(probo_sites, solver; scenario, rng,
+(; probo) = solve(probo_sites, solver; rng,
     callback = callback_loss(100), # output during fitting
     epochs = 10,
-    gdev = identity, # do not use GPU, here
     #is_inferred = Val(true), # activate type-checks 
 );
 ```

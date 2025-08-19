@@ -219,8 +219,9 @@ end
 """
     get_gcdev(scenario::Val{scen}) where scen
 
-Configure gpu_device() for given scenario, checking for
-`:use_gpu` and `:f_on_gpu` in scenario.
+Configure the function that puts data and computations to gpu device 
+for given `scenario`.
+Checking for `:use_gpu` and `:f_on_gpu` in `scenario`.
 Returns a `NamedTuple` `(;gdev_M, gdev_P)`
 """
 function get_gdev_MP(scenario::Val{scen}) where scen
