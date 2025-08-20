@@ -23,10 +23,10 @@ using Test: Test # @inferred
 
 export DoubleMM
 
-#? how to reexport public CommonSolve.solve
-
 export extend_stacked_nrow, StackedArray
-public Exp
+#public Exp 
+#julia 1.10 public: https://github.com/JuliaLang/julia/pull/55097
+VERSION >= v"1.11.0-DEV.469" && eval(Meta.parse("public Exp")) 
 include("bijectors_utils.jl")
 
 export AbstractComponentArrayInterpreter, ComponentArrayInterpreter,
