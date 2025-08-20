@@ -172,7 +172,12 @@ function predict_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()),
     is_predict_batch = (n_site_pred == n_batch)
     @assert size(xP, 2) == n_site_pred
     f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites=!is_predict_batch)
-    y = apply_process_model(θsP, θsMs, f, xP)
+    if gdevs.gdev_P isa MLDataDevices.AbstractGPUDevice
+        f_dev = fmap(gdevs.gdev_P, f)
+    else
+        f_dev = f
+    end
+    y = apply_process_model(θsP, θsMs, f_dev, xP)
     (; y, θsP, θsMs, entropy_ζ)
 end
 
@@ -317,10 +322,20 @@ Call a PBM applicator for a sample of parameters of each site, and stack results
 Results are of shape `(n_obs x n_site_pred x n_MC)`.
 """
 function apply_process_model(θsP::AbstractMatrix, θsMs::AbstractArray{ET,3}, f, xP) where ET
-    y_pred = stack(map(eachcol(θsP), eachslice(θsMs, dims=3)) do θP, θMs
+    # stack does not work on GPU
+    # y_pred = stack(map(eachcol(θsP), eachslice(θsMs, dims=3)) do θP, θMs
+    #     y_global, y_pred_i = f(θP, θMs, xP)
+    #     y_pred_i
+    # end)
+    #Main.@infiltrate_main
+    # for type stability, apply f at first sample before mapreduce
+    P1, Pit = Iterators.peel(eachcol(θsP));
+    Ms1, Msit = Iterators.peel(eachslice(θsMs, dims=3));
+    y1 = f(P1, Ms1, xP)[2]
+    y_pred = mapreduce((a,b) -> cat(a,b;dims=3), Pit, Msit; init=y1) do θP, θMs
         y_global, y_pred_i = f(θP, θMs, xP)
         y_pred_i
-    end)
+    end
 end
 
 """

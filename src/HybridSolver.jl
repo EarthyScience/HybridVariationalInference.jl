@@ -134,6 +134,12 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
         train_loader_dev = train_loader
     end
     f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites=false)
+    if gdevs.gdev_P isa MLDataDevices.AbstractGPUDevice
+        f_dev = fmap(gdevs.gdev_P, f)
+    else
+        f_dev = f
+    end
+
     py = get_hybridproblem_neg_logden_obs(prob; scenario)
 
     priors_θP_mean, priors_θMs_mean = construct_priors_θ_mean(
@@ -142,7 +148,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     y_global_o = Float32[] # TODO
 
     loss_elbo = get_loss_elbo(
-        g_dev, transP, transMs, f, py, y_global_o;
+        g_dev, transP, transMs, f_dev, py, y_global_o;
         solver.n_MC, solver.n_MC_cap, cor_ends, priors_θP_mean, priors_θMs_mean, 
         cdev=infer_cdev(gdevs), pbm_covars, θP, int_unc, int_μP_ϕg_unc)
     # test loss function once

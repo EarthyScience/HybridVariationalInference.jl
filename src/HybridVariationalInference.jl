@@ -84,7 +84,7 @@ include("gencovar.jl")
 export callback_loss
 include("util_opt.jl")
 
-export cpu_ca
+export cpu_ca, apply_preserve_axes
 include("util_ca.jl")
 
 export neg_logden_indep_normal, entropy_MvNormal
