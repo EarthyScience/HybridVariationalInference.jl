@@ -80,9 +80,9 @@ end;
 end;
 
 @testset "ComponentArrayInterpreter matrix and array" begin
-    mv = ComponentArrayInterpreter(; c1=2, c2=3)
-    #mv = ComponentArrayInterpreter(CA.ComponentVector(c1=1:2, c2=1:3))
-    cv = mv(1:length(mv))
+    mvi = ComponentArrayInterpreter(; c1=2, c2=3)
+    #mvi = ComponentArrayInterpreter(CA.ComponentVector(c1=1:2, c2=1:3))
+    cv = mvi(1:length(mvi))
     n_col = 4
     mm = ComponentArrayInterpreter(cv, (n_col,)) # 1-tuple
     testm = (m) -> begin
@@ -94,7 +94,7 @@ end;
     testm(mm)
     mmc = get_concrete(mm)
     testm(mmc)
-    mmi = ComponentArrayInterpreter(mv, (n_col,)) # construct on interpreter itself
+    mmi = ComponentArrayInterpreter(mvi, (n_col,)) # construct on interpreter itself
     testm(mmi)
     #
     n_z = 3
@@ -106,7 +106,7 @@ end;
     end
     testm(mm)
     testm(get_concrete(mm))
-    mmi = ComponentArrayInterpreter(mv, (n_col, n_z)) # construct on interpreter itself
+    mmi = ComponentArrayInterpreter(mvi, (n_col, n_z)) # construct on interpreter itself
     testm(mmi)
     #
     n_row = 3
@@ -118,17 +118,17 @@ end;
     end
     testm(mm)
     testm(get_concrete(mm))
-    mm = ComponentArrayInterpreter((n_row,), mv) # construct on interpreter itself
+    mm = ComponentArrayInterpreter((n_row,), mvi) # construct on interpreter itself
     testm(mmi)
 end;
 
 @testset "stack_ca_int" begin
-    mv = get_concrete(ComponentArrayInterpreter(CA.ComponentVector(c1=1:2, c2=1:3)))
-    #mv = ComponentArrayInterpreter(CA.ComponentVector(c1=1:2, c2=1:3))
-    cv = mv(1:length(mv))
+    mvi = get_concrete(ComponentArrayInterpreter(CA.ComponentVector(c1=1:2, c2=1:3)))
+    #mvi = ComponentArrayInterpreter(CA.ComponentVector(c1=1:2, c2=1:3))
+    cv = mvi(1:length(mvi))
     n_col = 4
     n_dims = (n_col,)
-    mm = @inferred CP.stack_ca_int(mv, Val((n_col,))) # 1-tuple
+    mm = @inferred CP.stack_ca_int(mvi, Val((n_col,))) # 1-tuple
     @inferred get_positions(mm) # sizes are inferred here
     testm = (m) -> begin
         @test length(mm) == length(cv) * n_col
@@ -139,7 +139,7 @@ end;
     testm(mm)
     #
     n_z = 3
-    mm = @inferred stack_ca_int(mv, Val((n_col, n_z)))
+    mm = @inferred stack_ca_int(mvi, Val((n_col, n_z)))
     testm = (m) -> begin
         @test mm isa AbstractComponentArrayInterpreter
         @test length(mm) == length(cv) * n_col * n_z
@@ -149,23 +149,23 @@ end;
     testm(mm)
     #
     n_row = 3
-    mm = @inferred stack_ca_int(Val((n_row,)), mv)
+    mm = @inferred stack_ca_int(Val((n_row,)), mvi)
     testm = (m) -> begin
         @test mm isa AbstractComponentArrayInterpreter
-        @test length(mm) == n_row * length(mv)
+        @test length(mm) == n_row * length(mvi)
         cm = mm(1:length(mm))
         @test cm[2, :c1] == [2, 5]
     end
     testm(mm)
     #
     f_n_within = (n) -> begin
-        mm = @inferred stack_ca_int(Val((n,)), mv)
+        mm = @inferred stack_ca_int(Val((n,)), mvi)
     end
     @test_broken @inferred f_n_within(3) # inferred is only 
     f_outer = () -> begin
         f_n_within_cols = (n) -> begin
-            mm = @inferred stack_ca_int(mv, Val((n,)))
-            mm = get_concrete(ComponentArrayInterpreter(mv, (3,))) # same effects
+            mm = @inferred stack_ca_int(mvi, Val((n,)))
+            mm = get_concrete(ComponentArrayInterpreter(mvi, (3,))) # same effects
         end
         # @inferred f_n_within_cols(3) # inferred is only Any
         res = f_n_within_cols(3) # inferred is only 

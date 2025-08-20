@@ -61,7 +61,8 @@ end
     is = repeat((1:length(θP_true))', n_site)
     θvec = CA.ComponentVector(P = θP_true, Ms = θMs_true)
     #xPM = map(xP1s -> repeat(xP1s', n_site), xP[1])
-    xPM = (S1 = CA.getdata(xP[:S1, :])', S2 = CA.getdata(xP[:S2, :])')
+    #xPM = (S1 = CA.getdata(xP[:S1, :])', S2 = CA.getdata(xP[:S2, :])')
+    xPM = xP
     #θ = hcat(θP_true[is], θMs_true')
     intθ1 = get_concrete(ComponentArrayInterpreter(vcat(θP_true, θMs_true[:, 1])))
     #θpos = get_positions(intθ1)
@@ -70,25 +71,28 @@ end
     fy = let is = is, intθ = intθ
         (θvec, xPM) -> begin
             θ = hcat(CA.getdata(θvec.P[is]), CA.getdata(θvec.Ms'))
-            y = CP.DoubleMM.f_doubleMM(θ, xPM; intθ)
+            θc = intθ(θ)
+            y = CP.DoubleMM.f_doubleMM_sites(θc, xPM)
             #y = @inferred CP.DoubleMM.f_doubleMM(θ, xPM, intθ)
             # @descend_code_warntype CP.DoubleMM.f_doubleMM(θ, xPM, intθ)
             #y = CP.DoubleMM.f_doubleMM(θ, xPM, θpos)
         end
     end
     y = @inferred fy(θvec, xPM)
-    y_exp = map_f_each_site(CP.DoubleMM.f_doubleMM, θMs_true, θP_true,
-        Vector{eltype(θP_true)}(undef, 0), xP; intθ1)
-    @test y == y_exp'
+
+    f_batch = PBMSiteApplicator(CP.DoubleMM.f_doubleMM; 
+        θP = θP_true, θM = θMs_true[:,1], θFix=CA.ComponentVector(), xPvec=xP[:,1])
+    y_exp = f_batch(θP_true, θMs_true', xP)[2]
+    @test y == y_exp
     ygrad = Zygote.gradient(θv -> sum(fy(θv, xPM)), θvec)[1]
     if gdev isa MLDataDevices.AbstractGPUDevice
         # θg = gdev(θ)
         # xPMg = gdev(xPM)
         # yg = CP.DoubleMM.f_doubleMM(θg, xPMg, intθ);
         θvecg = gdev(θvec); # errors without ";"
-        xPMg = gdev(xPM)
+        xPMg = CP.apply_preserve_axes(gdev, xPM) 
         yg = @inferred fy(θvecg, xPMg)
-        @test cdev(yg) == y_exp'
+        @test cdev(yg) == y_exp
         ygradg = Zygote.gradient(θv -> sum(fy(θv, xPMg)), θvecg)[1]
         @test ygradg isa CA.ComponentArray
         @test CA.getdata(ygradg) isa GPUArraysCore.AbstractGPUArray
@@ -101,7 +105,7 @@ end
 @testset "neg_logden_obs Matrix" begin
     is = repeat(axes(θP_true, 1)', n_site)
     θvec = CA.ComponentVector(P = θP_true, Ms = θMs_true)
-    xPM = (S1 = CA.getdata(xP[:S1, :])', S2 = CA.getdata(xP[:S2, :])')
+    xPM = xP #(S1 = CA.getdata(xP[:S1, :])', S2 = CA.getdata(xP[:S2, :])')
     #θ = hcat(θP_true[is], θMs_true')
     intθ1 = get_concrete(ComponentArrayInterpreter(vcat(θP_true, θMs_true[:, 1])))
     #θpos = get_positions(intθ1)
@@ -109,9 +113,10 @@ end
     fcost = let is = is, intθ = intθ, fneglogden=fneglogden
         (θvec, xPM, y_o, y_unc) -> begin
             θ = hcat(CA.getdata(θvec.P[is]), CA.getdata(θvec.Ms'))
-            y = CP.DoubleMM.f_doubleMM(θ, xPM; intθ)
+            θc = intθ(θ)
+            y = CP.DoubleMM.f_doubleMM_sites(θc, xPM)
             #y = CP.DoubleMM.f_doubleMM(θ, xPM, θpos)
-            res = fneglogden(y_o, y', y_unc)
+            res = fneglogden(y_o, y, y_unc)
             res
         end
     end
@@ -259,6 +264,7 @@ if gdev isa MLDataDevices.AbstractGPUDevice
     @testset "transfer NormalScalingModelApplicator to gpu" begin
         @test g_gpu.μ isa GPUArraysCore.AbstractGPUArray
         y_gpu = g_gpu(xM_gpu, ϕg0_gpu)
+        @test y_gpu isa GPUArraysCore.AbstractGPUArray
         y = g(xM, ϕg0)
         @test cdev(y_gpu) ≈ y
     end

@@ -21,8 +21,12 @@ using StaticArrays: StaticArrays as SA
 using Functors
 using Test: Test # @inferred
 
+export DoubleMM
+
 export extend_stacked_nrow, StackedArray
-#export Exp
+#public Exp 
+#julia 1.10 public: https://github.com/JuliaLang/julia/pull/55097
+VERSION >= v"1.11.0-DEV.469" && eval(Meta.parse("public Exp")) 
 include("bijectors_utils.jl")
 
 export AbstractComponentArrayInterpreter, ComponentArrayInterpreter,
@@ -35,6 +39,9 @@ export AbstractModelApplicator, construct_ChainsApplicator
 export construct_3layer_MLApplicator, select_ml_engine
 export NullModelApplicator, MagnitudeModelApplicator, NormalScalingModelApplicator
 include("ModelApplicator.jl")
+
+export AbstractPBMApplicator, NullPBMApplicator, PBMSiteApplicator, PBMPopulationApplicator
+include("PBMApplicator.jl")
 
 # export AbstractGPUDataHandler, NullGPUDataHandler, get_default_GPUHandler
 # include("GPUDataHandler.jl")
@@ -50,11 +57,11 @@ export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_
        get_hybridproblem_cor_ends,
        get_hybridproblem_priors,
        get_hybridproblem_pbmpar_covars,
-#update,
        gen_cov_pred,
        construct_dataloader_from_synthetic,
        gdev_hybridproblem_dataloader,
-       setup_PBMpar_interpreter
+       setup_PBMpar_interpreter,
+       get_gdev_MP
 include("AbstractHybridProblem.jl")
 
 export AbstractHybridProblemInterpreters, HybridProblemInterpreters,
@@ -67,7 +74,8 @@ export HybridProblem
 export get_quantile_transformed
 include("HybridProblem.jl")
 
-export map_f_each_site, gf, get_loss_gf
+export gf, get_loss_gf
+#export map_f_each_site
 include("gf.jl")
 
 export compute_correlated_covars, scale_centered_at
@@ -85,7 +93,7 @@ include("logden_normal.jl")
 export get_ca_starts, get_ca_ends, get_cor_count
 include("cholesky.jl")
 
-export neg_elbo_gtf, predict_hvi
+export neg_elbo_gtf, sample_posterior, apply_process_model, predict_hvi
 include("elbo.jl")
 
 export init_hybrid_params, init_hybrid_ϕunc

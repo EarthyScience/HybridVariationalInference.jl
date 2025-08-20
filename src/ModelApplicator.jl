@@ -95,9 +95,7 @@ end
     MagnitudeModelApplicator(app, y0)
 
 Wrapper around AbstractModelApplicator that multiplies the prediction
-by the absolute inverse of an initial estimate of the prediction.
-
-This helps to keep raw predictions and weights in a similar magnitude.
+of the wrapped `app` by scalar `y0`.
 """
 struct MagnitudeModelApplicator{M,A} <: AbstractModelApplicator
     app::A
@@ -137,18 +135,26 @@ end
 @functor NormalScalingModelApplicator
 
 """
-Fit a Normal distribution to iterators lower and upper. 
-If `repeat_inner` is given, each fitted distribution is repeated as many times.
+    NormalScalingModelApplicator(app, lowers, uppers, FT::Type; repeat_inner::Integer = 1) 
+
+Fit a Normal distribution to number iterators `lower` and `upper` and transform 
+results of the wrapped `app` `AbstractModelApplicator`.
+If `repeat_inner` is given, each fitted distribution is repeated as many times
+to support independent multivariate normal distribution.
+
+`FT` is the specific FloatType to use to construct Distributions, 
+It usually corresponds to the type used in other ML-parts of the model, e.g. `Float32`.
 """
 function NormalScalingModelApplicator(
-    app::AbstractModelApplicator, lowers::AbstractVector{<:Number}, uppers, ET::Type; repeat_inner::Integer = 1) 
+    app::AbstractModelApplicator, lowers, uppers, FT::Type; 
+    repeat_inner::Integer = 1) 
     pars = map(lowers, uppers) do lower, upper
         dζ = fit(Normal, @qp_l(lower), @qp_u(upper))
         params(dζ)
     end
     # use collect to make it an array that works with gpu
-    μ = repeat(collect(ET, first.(pars)); inner=(repeat_inner,))  
-    σ = repeat(collect(ET, last.(pars)); inner=(repeat_inner,))
+    μ = repeat(collect(FT, first.(pars)); inner=(repeat_inner,))  
+    σ = repeat(collect(FT, last.(pars)); inner=(repeat_inner,))
     NormalScalingModelApplicator(app, μ, σ)
 end
 

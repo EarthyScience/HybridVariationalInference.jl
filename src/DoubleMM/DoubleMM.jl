@@ -14,7 +14,7 @@ using MLDataDevices
 import GPUArraysCore # used in conditional breakpoints
 import StableRNGs
 
-export f_doubleMM, xP_S1, xP_S2
+export f_doubleMM, f_doubleMM_sites, xP_S1, xP_S2
 include("f_doubleMM.jl")
 
 

@@ -164,7 +164,7 @@ Return a DataLoader that provides a tuple of
 - `xP`: Iterator of process-model drivers, with one element per site
 - `y_o`: matrix of observations with added noise, with one column per site
 - `y_unc`: matrix `sizeof(y_o)` of uncertainty information 
-- `i_sites`: Vector of indices of sites in toal sitevector for the minibatch
+- `i_sites`: Vector of indices of sites in the minibatch
 """
 function get_hybridproblem_train_dataloader end
 
@@ -191,31 +191,51 @@ end
 
 
 """
-    gdev_hybridproblem_dataloader(dataloader::MLUtils.DataLoader,
-        scenario = (), 
-        gdev = gpu_device(),
-        gdev_M = :use_gpu ∈ scenario ? gdev : identity,
-        gdev_P = :f_on_gpu ∈ scenario ? gdev : identity,
+    gdev_hybridproblem_dataloader(dataloader::MLUtils.DataLoader; gdev_M, gdev_P,
         batchsize = dataloader.batchsize,
         partial = dataloader.partial
         )
 
 Put relevant parts of the DataLoader to gpu, depending on scenario.
 """
-function gdev_hybridproblem_dataloader(dataloader::MLUtils.DataLoader;
-    scenario::Val{scen} = Val(()), 
-    gdev = gpu_device(),
-    gdev_M = :use_gpu ∈ _val_value(scenario) ? gdev : identity,
-    gdev_P = :f_on_gpu ∈ _val_value(scenario) ? gdev : identity,
+function gdev_hybridproblem_dataloader(dataloader::MLUtils.DataLoader; gdevs,
+    gdev_M = gdevs.gdev_M,
+    gdev_P = gdevs.gdev_P,
+    # scenario::Val{scen} = Val(()), 
+    # gdev = gpu_device(),
+    # gdev_M = :use_gpu ∈ _val_value(scenario) ? gdev : identity,
+    # gdev_P = :f_on_gpu ∈ _val_value(scenario) ? gdev : identity,
     batchsize = dataloader.batchsize,
     partial = dataloader.partial
-    ) where scen
+    ) 
     xM, xP, y_o, y_unc, i_sites = dataloader.data
     xM_dev = gdev_M(xM)
     xP_dev, y_o_dev, y_unc_dev = (gdev_P(xP), gdev_P(y_o), gdev_P(y_unc)) 
     train_loader_dev = MLUtils.DataLoader((xM_dev, xP_dev, y_o_dev, y_unc_dev, i_sites);
         batchsize, partial)
     return(train_loader_dev)
+end
+
+"""
+    get_gcdev(scenario::Val{scen}) where scen
+
+Configure the function that puts data and computations to gpu device 
+for given `scenario`.
+Checking for `:use_gpu` and `:f_on_gpu` in `scenario`.
+Returns a `NamedTuple` `(;gdev_M, gdev_P)`
+"""
+function get_gdev_MP(scenario::Val{scen}) where scen
+    gdev_gpu = gpu_device()
+    gdev_M = :use_gpu ∈ _val_value(scenario) ? gdev_gpu : identity
+    gdev_P = :f_on_gpu ∈ _val_value(scenario) ? gdev_gpu : identity
+    (;gdev_M, gdev_P)
+end
+
+function infer_cdev(gdevs; gdev_M = gdevs.gdev_M, gdev_P = gdevs.gdev_P)
+    # if gdev_M is already on CPU use identity, 
+    # if gdev_P is on GPU also use ideneity to not transfer to CPU
+    cdev=!(gdev_M isa MLDataDevices.AbstractGPUDevice) ? identity :
+        ((gdev_P isa MLDataDevices.AbstractGPUDevice) ? identity : cpu_device()) 
 end
 
 # function get_hybridproblem_train_dataloader(prob::AbstractHybridProblem; scenario = ())
@@ -264,51 +284,6 @@ function setup_PBMpar_interpreter(θP, θM, θall = vcat(θP, θM))
     intθ = ComponentArrayInterpreter(flatten1(CA.ComponentVector(; θP, θM, θFix)))
     intθ, θFix
 end
-
-struct PBmodelClosure{θFixT, θFix_devT, AX, pos_xPT} 
-    θFix::θFixT
-    θFix_dev::θFix_devT
-    intθ::StaticComponentArrayInterpreter{AX}
-    isP::Matrix{Int}
-    n_site_batch::Int
-    pos_xP::pos_xPT
-end
-
-function PBmodelClosure(prob::AbstractHybridProblem; scenario::Val{scen},
-    use_all_sites = false,
-    gdev = :f_on_gpu ∈ _val_value(scenario) ? gpu_device() : identity,
-    θall, int_xP1,
-) where {scen}
-    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-    n_site_batch = use_all_sites ? n_site : n_batch
-    #fsite = (θ, x_site) -> f_doubleMM(θ)  # omit x_site drivers
-    par_templates = get_hybridproblem_par_templates(prob; scenario)
-    intθ1, θFix1 = setup_PBMpar_interpreter(par_templates.θP, par_templates.θM, θall)
-    θFix = repeat(θFix1', n_site_batch)
-    θFix_dev = gdev(θFix)
-    intθ = get_concrete(ComponentArrayInterpreter((n_site_batch,), intθ1))
-    #int_xPb = ComponentArrayInterpreter((n_site_batch,), int_xP1)
-    isP = repeat(axes(par_templates.θP, 1)', n_site_batch)
-    pos_xP = get_positions(int_xP1)
-    PBmodelClosure(;θFix, θFix_dev, intθ, isP, n_site_batch, pos_xP)
-end
-
-function PBmodelClosure(;
-    θFix::θFixT,
-    θFix_dev::θFix_devT,
-    intθ::StaticComponentArrayInterpreter{AX},
-    isP::Matrix{Int},
-    n_site_batch::Int,
-    pos_xP::pos_xPT,
-) where {θFixT, θFix_devT, AX, pos_xPT}
-    PBmodelClosure{θFixT, θFix_devT, AX, pos_xPT}(
-        θFix::AbstractArray, θFix_dev, intθ, isP, n_site_batch, pos_xP)
-end
-
-
-
-
-
 
 
 

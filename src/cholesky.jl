@@ -59,9 +59,10 @@ end
 
 # """
 # Convert vector v columnwise entries of upper diagonal matrix to UnitUppterTriangular
-
+#
 # Avoid using this repeatedly on GPU arrays, because it only works on CPU (scalar indexing).
-# There is a fallback that pulls `v` to the CPU, applies, and pushes back to GPU.
+#
+# For v isa CuVector, see HybridVariationalInferenceCUDAExt
 # """
 function _vec2uutri(
     v::AbstractVector{T}; n=invsumn(length(v)) + one(T), diag=one(T)) where {T}
@@ -138,7 +139,7 @@ end
 #function uutri2vec(X::CUDA.CuMatrix{T}; kwargs...) where {T}
 
 """
-Takes a vector of entries of a lower UnitUpperTriangular matrix
+Takes a vector of parameters for UnitUpperTriangular matrix
 and transforms it to an UpperTriangular that satisfies 
 diag(U' * U) = 1.
 

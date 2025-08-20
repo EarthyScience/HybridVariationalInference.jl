@@ -1,4 +1,5 @@
-using Test
+# start from within dev directory mljulia --project
+using Test # Pkg.activate("dev"); cd("dev")
 using HybridVariationalInference
 using HybridVariationalInference: HybridVariationalInference as HVI
 using StableRNGs
@@ -21,7 +22,9 @@ scenario = Val((:use_Flux, :use_gpu, :omit_r0, :few_sites))
 scenario = Val((:use_Flux, :use_gpu, :omit_r0, :few_sites, :covarK2))
 scenario = Val((:use_Flux, :use_gpu, :omit_r0, :sites20, :covarK2))
 scenario = Val((:use_Flux, :use_gpu, :omit_r0))
-scenario = Val((:use_Flux, :use_gpu, :omit_r0, :covarK2))
+scenario = Val((:use_Flux, :use_gpu, :omit_r0, :covarK2, :neglect_cor,))
+scenario = Val((:use_Flux, :use_gpu, :omit_r0, :covarK2, :K1global,))
+scenario = Val((:use_Flux, :use_gpu, :omit_r0, :covarK2, ))
 # prob = DoubleMM.DoubleMMCase()
 
 gdev = :use_gpu ∈ HVI._val_value(scenario) ? gpu_device() : identity
@@ -40,8 +43,9 @@ train_dataloader = MLUtils.DataLoader(
     batchsize = n_batch, partial = false)
 σ_o = exp.(y_unc[:, 1] / 2)
 # assign the train_loader, otherwise it eatch time creates another version of synthetic data
-prob0 = HVI.update(prob0_; train_dataloader);
+prob0 = HybridProblem(prob0_; train_dataloader)
 #tmp = HVI.get_hybridproblem_ϕunc(prob0; scenario)
+#prob0.covar
 
 #------- pointwise hybrid model fit
 solver_point = HybridPointSolver(; alg = OptimizationOptimisers.Adam(0.01))
@@ -54,7 +58,7 @@ n_epoch = 80
     rng, callback = callback_loss(n_batches_in_epoch * 10),
     maxiters = n_batches_in_epoch * n_epoch);
 # update the problem with optimized parameters
-prob0o = probo;
+prob0o = prob1o =probo;
 y_pred_global, y_pred, θMs = gf(prob0o; scenario, is_inferred=Val(true));
 # @descend_code_warntype gf(prob0o; scenario)
 #@usingany UnicodePlots
@@ -72,7 +76,7 @@ histogram(vec(y_pred) - vec(y_true)) # predictions centered around y_o (or y_tru
     solver1 = HybridPointSolver(; alg = Adam(0.01), n_batch = n_site)
     (; ϕ, resopt) = solve(prob0o, solver1; scenario, rng,
         callback = callback_loss(20), maxiters = 400)
-    prob1o = HVI.update(prob0o; ϕg = cpu_ca(ϕ).ϕg, θP = cpu_ca(ϕ).θP)
+    prob1o = HybridProblem(prob0o; ϕg = cpu_ca(ϕ).ϕg, θP = cpu_ca(ϕ).θP)
     y_pred_global, y_pred, θMs = gf(prob1o, xM, xP; scenario)
     scatterplot(θMs_true[1, :], θMs[1, :])
     scatterplot(θMs_true[2, :], θMs[2, :])
@@ -86,7 +90,7 @@ end
     prob2 = prob1o
     (; ϕ, resopt) = solve(prob2, solver1; scenario, rng,
         callback = callback_loss(20), maxiters = 600)
-    prob2o = HVI.update(prob2; ϕg = collect(ϕ.ϕg), θP = ϕ.θP)
+    prob2o = HybridProblem(prob2; ϕg = collect(ϕ.ϕg), θP = ϕ.θP)
     y_pred_global, y_pred, θMs = gf(prob2o, xM, xP)
     prob2o.θP
 end
@@ -118,11 +122,11 @@ end
     #scatterplot(θMs_true[1,:], θMs[1,:])
     scatterplot(θMs_true[2, :], θMs[2, :]) # able to fit θMs[2,:]
 
-    prob3 = HVI.update(prob0, ϕg = Array(ϕg_opt1), θP = θP_true)
+    prob3 = HybridProblem(prob0, ϕg = Array(ϕg_opt1), θP = θP_true)
     solver1 = HybridPointSolver(; alg = Adam(0.01), n_batch = n_site)
     (; ϕ, resopt) = solve(prob3, solver1; scenario, rng,
         callback = callback_loss(50), maxiters = 600)
-    prob3o = HVI.update(prob3; ϕg = cpu_ca(ϕ).ϕg, θP = cpu_ca(ϕ).θP)
+    prob3o = HybridProblem(prob3; ϕg = cpu_ca(ϕ).ϕg, θP = cpu_ca(ϕ).θP)
     y_pred_global, y_pred, θMs = gf(prob3o, xM, xP; scenario)
     scatterplot(θMs_true[2, :], θMs[2, :])
     prob3o.θP
@@ -146,36 +150,40 @@ using MLUtils
 import Zygote
 using Bijectors
 
-probh = prob0o  # start from point optimized to infer uncertainty
-#probh = prob1o  # start from point optimized to infer uncertainty
-#probh = prob0  # start from no information
-solver_post = HybridPosteriorSolver(;
-    alg = OptimizationOptimisers.Adam(0.01), n_MC = 3)
-#solver_point = HybridPointSolver(; alg = Adam(), n_batch = 200)
-n_batches_in_epoch = n_site ÷ n_batch
-n_epoch = 40
-(; ϕ, θP, resopt, interpreters, probo) = solve(probh, solver_post; scenario,
-    rng, callback = callback_loss(n_batches_in_epoch * 5),
-    maxiters = n_batches_in_epoch * n_epoch,
-    θmean_quant = 0.05);
-#probh.get_train_loader(;n_batch = 50, scenario)
-# update the problem with optimized parameters, including uncertainty
-prob1o = probo;
-n_sample_pred = 400
-#(; θ, y) = predict_hvi(rng, prob1o, xM, xP; scenario, n_sample_pred);
-(; y, θsP, θsMs)  = predict_hvi(rng, prob1o; scenario, n_sample_pred, is_inferred=Val(true));
-(y1, θsP1, θsMs1) = (y, θsP, θsMs);
+solver_post = HybridPosteriorSolver(; alg = OptimizationOptimisers.Adam(0.01), n_MC = 3)
 
-() -> begin # prediction with fitted parameters  (should be smaller than mean)
-    y_pred_global, y_pred2, θMs = gf(prob1o, xM, xP; scenario)
-    scatterplot(θMs_true[1, :], θMs[1, :])
-    scatterplot(θMs_true[2, :], θMs[2, :])
-    hcat(θP_true, θP) # all parameters overestimated
-    histogram(vec(y_pred2) - vec(y_true)) # predicts an unsymmytric distribution
+() -> begin # priors on mean θ
+    get_hybridproblem_cor_ends(prob0o)
+    probh = prob0o  # start from point optimized to infer uncertainty
+    #probh = prob1o  # start from point optimized to infer uncertainty
+    #probh = prob0  # start from no information
+    #solver_point = HybridPointSolver(; alg = Adam(), n_batch = 200)
+    n_batches_in_epoch = n_site ÷ n_batch
+    n_epoch = 40
+    (; ϕ, θP, resopt, interpreters, probo) = solve(probh, solver_post; scenario,
+        rng, callback = callback_loss(n_batches_in_epoch * 5),
+        maxiters = n_batches_in_epoch * n_epoch,
+        θmean_quant = 0.05);
+    #probh.get_train_loader(;n_batch = 50, scenario)
+    # update the problem with optimized parameters, including uncertainty
+    prob1o = probo;
+    n_sample_pred = 400
+    #(; θ, y) = predict_hvi(rng, prob1o, xM, xP; scenario, n_sample_pred);
+    (; y, θsP, θsMs)  = predict_hvi(rng, prob1o; scenario, n_sample_pred, is_inferred=Val(true));
+    (y1, θsP1, θsMs1) = (y, θsP, θsMs);
+
+    () -> begin # prediction with fitted parameters  (should be smaller than mean)
+        y_pred_global, y_pred2, θMs = gf(prob1o, xM, xP; scenario)
+        scatterplot(θMs_true[1, :], θMs[1, :])
+        scatterplot(θMs_true[2, :], θMs[2, :])
+        hcat(θP_true, θP) # all parameters overestimated
+        histogram(vec(y_pred2) - vec(y_true)) # predicts an unsymmytric distribution
+    end
 end
 
-#----------- continue HVI without strong prior on θmean
-prob2 = HVI.update(prob1o);  # copy
+#----------- HVI without strong prior on θmean
+#prob2 = HybridProblem(prob1o);  # copy
+prob2 = HybridProblem(prob0o);  # copy
 function fstate_ϕunc(state)
     u = state.u |> cpu
     #Main.@infiltrate_main
@@ -184,31 +192,60 @@ function fstate_ϕunc(state)
 end
 n_epoch = 100
 #n_epoch = 400
+#n_epoch = 2
 (; ϕ, θP, resopt, interpreters, probo) = solve(prob2, 
-    HVI.update(solver_post, n_MC = 12);
-    #HVI.update(solver_post, n_MC = 30);
+    HybridProblem(solver_post, n_MC = 12);
+    #HybridProblem(solver_post, n_MC = 30);
     scenario, rng, maxiters = n_batches_in_epoch * n_epoch,
-    callback = HVI.callback_loss_fstate(n_batches_in_epoch*5, fstate_ϕunc));
+    #callback = HVI.callback_loss_fstate(n_batches_in_epoch*5, fstate_ϕunc),
+    callback = callback_loss(n_batches_in_epoch * 5),    
+    );
 prob2o = probo;
 
-() -> begin
+() -> begin # store and reload optimized problem
     using JLD2
     #fname_probos = "intermediate/probos_$(last(scenario)).jld2"
     fname_probos = "intermediate/probos800_$(last(HVI._val_value(scenario))).jld2"
-    JLD2.save(fname_probos, Dict("prob1o" => prob1o, "prob2o" => prob2o))
+    @show fname_probos
+    #JLD2.save(fname_probos, Dict("prob1o" => prob1o, "prob2o" => prob2o))
+    JLD2.save(fname_probos, Dict("prob2o" => prob2o))
     tmp = JLD2.load(fname_probos)
+    prob2o = probo = tmp["prob2o"]
 end
 
-() -> begin # load the non-covar scenario
+() -> begin # load the non-covar scenario, and neglect_cor scenario
     using JLD2
-    #fname_probos = "intermediate/probos_$(last(_val_value(scenario))).jld2"
-    fname_probos = "intermediate/probos800_omit_r0.jld2"
-    tmp = JLD2.load(fname_probos)
+    scenario_indep = Val(Tuple(s for s in HVI._val_value(scenario) if s != :covarK2))
+    fname_probos_indep = "intermediate/probos800_$(last(HVI._val_value(scenario_indep))).jld2"
+    #fname_probos = "intermediate/probos800_omit_r0.jld2"
+    tmp = JLD2.load(fname_probos_indep)
+    prob2o_indep = tmp["prob2o"]
     # test predicting correct obs-uncertainty of predictive posterior
     n_sample_pred = 400
-    (; θ, y, entropy_ζ) = predict_hvi(rng, prob2o_indep, xM, xP; scenario, n_sample_pred);
-    (θ2_indep, y2_indep) = (θ, y)
+    (; y, θsP, θsMs) = predict_hvi(rng, prob2o_indep; scenario = scenario_indep, n_sample_pred);
+    (y2_indep, θsP2_indep, θsMs2_indep) = (y, θsP, θsMs);
+    #θsMs2_indep .- θsMs2
     #(θ2_indep, y2_indep) = (θ2, y2)  # workaround to use covarK2 when loading failed
+    #
+    scenario_neglect_cor = Val((HVI._val_value(scenario)..., :neglect_cor))
+    fname_probos_neglect_cor = "intermediate/probos800_$(last(HVI._val_value(scenario_neglect_cor))).jld2"
+    #fname_probos = "intermediate/probos800_omit_r0.jld2"
+    tmp = JLD2.load(fname_probos_neglect_cor)
+    prob2o_neglect_cor = tmp["prob2o"]
+    # test predicting correct obs-uncertainty of predictive posterior
+    n_sample_pred = 400
+    (; y, θsP, θsMs) = predict_hvi(rng, prob2o_neglect_cor; scenario = scenario_neglect_cor, n_sample_pred);
+    (y2_neglect_cor, θsP2_neglect_cor, θsMs2_neglect_cor) = (y, θsP, θsMs);
+    #
+    scenario_K1global = Val((HVI._val_value(scenario)..., :K1global))
+    fname_probos_K1global = "intermediate/probos800_$(last(HVI._val_value(scenario_K1global))).jld2"
+    #fname_probos = "intermediate/probos800_omit_r0.jld2"
+    tmp = JLD2.load(fname_probos_K1global)
+    prob2o_K1global = tmp["prob2o"]
+    # test predicting correct obs-uncertainty of predictive posterior
+    n_sample_pred = 400
+    (; y, θsP, θsMs) = predict_hvi(rng, prob2o_K1global; scenario = scenario_K1global, n_sample_pred);
+    (y2_K1global, θsP2_K1global, θsMs2_K1global) = (y, θsP, θsMs);
 end
 
 () -> begin # otpimize using LUX
@@ -286,10 +323,10 @@ histogram(θsP)
     # (; ϕ, θP, resopt, interpreters) = solve(prob1o, solver_MC; scenario,
     #     rng, callback = callback_loss(n_batches_in_epoch), maxiters = 14);
     # resopt.objective
-    # probo = prob3o = HVI.update(prob2; ϕg = cpu_ca(ϕ).ϕg, θP = θP, ϕunc = cpu_ca(ϕ).unc)
+    # probo = prob3o = HybridProblem(prob2; ϕg = cpu_ca(ϕ).ϕg, θP = θP, ϕunc = cpu_ca(ϕ).unc)
 
-    solver_post2 = HVI.update(solver_post; n_MC = 30)
-    #solver_post2 = HVI.update(solver_post; n_MC=3)
+    solver_post2 = HybridPosteriorSolver(solver_post; n_MC = 30)
+    #solver_post2 = HybridPosteriorSolver(solver_post; n_MC = 3)
     n_rep = 30
     n_batchf = n_site
     n_batchf = n_site ÷ 10
@@ -316,6 +353,7 @@ histogram(θsP)
 end
 
 () -> begin # look at distribution of parameters, predictions, and likelihood and elob at one site
+    # compare prob1o (with constraining theta to be near original mean) to unconstrained HVI
     function predict_site(probo, i_site)
         (; y, θsP, θsMs, entropy_ζ) = predict_hvi(rng, probo; scenario, n_sample_pred)
         y_site = y[:, i_site, :]
@@ -337,7 +375,7 @@ end
     end
     i_site = 1
     (r1s, nLs, ent, y_site) = predict_site(prob2o, i_site)
-    (r1sc, nLsc, entc, y_sitec) = predict_site(prob1o, i_site)
+    (r1sc, nLsc, entc, y_sitec) = predict_site(prob1o, i_site) # result from point-solver
     mean(nLs), mean(nLsc)
     ent, entc
     # with larger uncertaintsy (higher entropy) in unconstrained cost much lower
@@ -418,7 +456,7 @@ using MCMCChains
 prior_ζ = fit(Normal, @qp_ll(log(1e-2)), @qp_uu(log(10)))
 prior_ζn = (n) -> MvNormal(fill(prior_ζ.μ, n), PDiagMat(fill(abs2(prior_ζ.σ), n)))
 prior_ζn(3)
-prob = HVI.update(prob0o);
+prob = HybridProblem(prob0o);
 
 (; θM, θP) = get_hybridproblem_par_templates(prob; scenario)
 n_θM, n_θP = length.((θM, θP))
@@ -447,7 +485,7 @@ f = get_hybridproblem_PBmodel(prob; scenario)
     #TODO specify with transPM
     # @show ζP
     # Main.@infiltrate_main # step to second time 
-    y_pred = f(exp.(ζP), exp.(ζMs), xP)[2] # first is global
+    y_pred = f(exp.(ζP), exp.(ζMs)', xP)[2] # first is global
     for i_obs in 1:n_obs
         y[i_obs, :] ~ MvNormal(y_pred[i_obs, :], σ_o[i_obs]) # single value σ instead of variance
     end
@@ -457,7 +495,7 @@ f = get_hybridproblem_PBmodel(prob; scenario)
     y_pred
 end
 
-model = fsites(y_o; f, n_θP, n_θM, σ_o)
+model = fsites(y_o; f = prob0.f_allsites, n_θP, n_θM, σ_o)
 
 # setup transformers and interpreters for forward prediction
 cor_ends = get_hybridproblem_cor_ends(prob; scenario)
@@ -465,7 +503,7 @@ g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
 ϕunc0 = get_hybridproblem_ϕunc(prob; scenario)
 (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
 hpints = HybridProblemInterpreters(prob; scenario)
-(; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
+(; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = HVI.init_hybrid_params(
     θP, θM, cor_ends, ϕg0, hpints; transP, transM, ϕunc0);
 
 intm_PMs_gen = get_int_PMs_site(hpints);
@@ -496,6 +534,7 @@ end
 # takes ~ 25 minutes
 #n_sample_NUTS = 800
 n_sample_NUTS = 2000
+#tmp = sample(model, NUTS(0,0.65), 2, initial_params = ζ0_true .+ 0.001)
 #chain = sample(model, NUTS(), n_sample_NUTS, initial_params = ζ0_true .+ 0.001)
 #n_sample_NUTS = 24
 n_threads = 8
@@ -511,6 +550,15 @@ chain = sample(model, NUTS(), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_thread
     n_sample_NUTS = size(Array(chain),1)
 end
 
+() -> begin # load HMC sample for K1global scenario
+    using JLD2
+    fname_K1global = "intermediate/doubleMM_chain_zeta_K1global.jld2"
+    chain_K1global = load(fname_K1global, "chain"; iotype = IOStream);
+    ζsP_hmc_K1global = Array(chain_K1global)[:,1:n_θP]'
+    ζsMst_hmc_K1global = reshape(Array(chain_K1global)[:,(n_θP+1) : end], n_sample_NUTS, n_site, n_θM)
+    ζsMs_hmc_K1global = permutedims(ζsMst_hmc_K1global, (2,3,1))
+end
+
 #ζi = first(eachrow(Array(chain)))
 f_allsites = get_hybridproblem_PBmodel(prob0; scenario, use_all_sites = true)
 #ζs = mapreduce(ζi -> transposeMs(ζi, intm_PMs_gen, true), hcat, eachrow(Array(chain)));
@@ -521,7 +569,11 @@ f_allsites = get_hybridproblem_PBmodel(prob0; scenario, use_all_sites = true)
 ζsMs[:,:,1]  # first sample: n_site x n_par
 ζsMs[:,1,:]  # first parameter n_site x n_sample 
 
-(; y, θsP, θsMs) = HVI.apply_f_trans(ζsP, ζsMs, f_allsites, xP; transP, transM);
+trans_mP=StackedArray(transP, size(ζsP, 2))
+trans_mMs=StackedArray(transM, size(ζsMs, 1) * size(ζsMs, 3))
+θsP, θsMs = transform_ζs(ζsP, ζsMs; trans_mP, trans_mMs)
+y = apply_process_model(θsP, θsMs, f, xP) 
+#(; y, θsP, θsMs) = HVI.apply_f_trans(ζsP, ζsMs, f_allsites, xP; transP, transM);
 (y_hmc, θsP_hmc, θsMs_hmc) = (; y, θsP, θsMs);
 
     
@@ -537,13 +589,12 @@ f_allsites = get_hybridproblem_PBmodel(prob0; scenario, use_all_sites = true)
 end
 
 () -> begin # plot chain
-    #@usingany TwMakieHelpers, CairoMakie
+    #@usingany FigureHelpers, CairoMakie
     # θP and first θMs 
     ch = chain[:,vcat(1:n_θP, n_θP+1, n_θP+n_site+1),:];
     fig = plot_chn(ch)
     save("tmp.svg", fig)
 end
-
 
 mean_y_invζ = mean_y_hmc = map(mean, eachslice(y_hmc; dims = (1, 2)));
 #describe(mean_y_pred - y_o)
@@ -570,9 +621,27 @@ plt = scatterplot(θMs_true'[:,2], mean_θMs[:,2]);
 lineplot!(plt, 0, 1)
 
 #------------------ compare HVI vs HMC sample
+# reload results from run without covars, see above
 () -> begin   # compare against HVI sample 
-    #@usingany AlgebraOfGraphics, TwPrototypes, CairoMakie, DataFrames
-    makie_config = ppt_MakieConfig()
+    #@usingany AlgebraOfGraphics, FigureHelpers, TwPrototypes, CairoMakie, DataFrames
+    #@usingany LaTeXStrings
+    using AlgebraOfGraphics, CairoMakie, FigureHelpers
+    using AlgebraOfGraphics, CairoMakie, FigureHelpers
+    makie_config = ppt_MakieConfig(fontsize=14) # decrease standard font from 18 to 14
+    paper_config = paper_MakieConfig() 
+    set_default_AoGTheme!(;makie_config)
+
+    using ColorBrewer: ColorBrewer
+    # two same colors for hmc and hvi , additional for further unspecified labels
+    cDark2 = cgrad(ColorBrewer.palette("Dark2",3),3,categorical=true)
+    #color_methods = vcat([k => col for (k, col) in zip([:hmc, :hvi], cDark2[1:2])], cDark2[3], Makie.wong_colors()[2:end]);
+    cpal0 = Makie.wong_colors()
+    color_methods = vcat([k => col for (k, col) in zip([:hmc, :hvi], cpal0[1:2])], cpal0[3:end]);
+
+    function lower_lastdigits(sym::Symbol,n_digit=1)
+        s = string(sym)
+        latexstring(s[1:(end-n_digit)] * "_" * s[(end-n_digit+1):end])
+    end
     function get_fig_size(cfg; width2height=golden_ratio, xfac=1.0)    
         cfg = makie_config
         x_inch = first(cfg.size_inches) * xfac
@@ -581,23 +650,35 @@ lineplot!(plt, 0, 1)
     end
 
     ζsP_hvi = log.(θsP2)
-    ζsP_hvi_indep = log.(θsP2) # TODO rerun and reload replace θsP2
+    ζsP_hvi_indep = log.(θsP2_indep) 
+    ζsP_hvi_neglect_cor = log.(θsP2_neglect_cor) 
+    ζsP_hvi_K1global = log.(θsP2_K1global) 
     ζsP_hmc = log.(θsP_hmc)
     ζsMs_hvi = log.(θsMs2)
-    ζsMs_hvi_indep = log.(θsMs2) # TODO rerun and reload replace θsMs2
+    ζsMs_hvi_indep = log.(θsMs2_indep) 
+    ζsMs_hvi_neglect_cor = log.(θsMs2_neglect_cor) 
+    ζsMs_hvi_K1global = log.(θsMs2_K1global) 
     ζsMs_hmc = log.(θsMs_hmc)
     # int_pms = interpreters.PMs
     # par_pos = int_pms(1:length(int_pms))
-    i_sites = 1:10
+    #i_sites = 1:10
+    i_sites = 1:5
     #i_sites = 6:10
     #i_sites = 11:15
-    scen = vcat(fill(:hvi,size(ζsP_hvi,2)),fill(:hmc,size(ζsP_hmc,2)),fill(:hvi_indep,size(ζsP_hvi_indep,2)))
+    scen = vcat(
+        fill(:hvi,size(ζsP_hvi,2)),
+        fill(:hmc,size(ζsP_hmc,2)),
+        fill(:hvi_indep,size(ζsP_hvi_indep,2)),
+        fill(:neglect_cor,size(ζsP_hvi_neglect_cor,2)),
+        )
     dfP = mapreduce(vcat, axes(θP_true,1)) do i_par
         #pos = par_pos.P[i_par]
         DataFrame(
-            value = vcat(ζsP_hvi[i_par, :], ζsP_hmc[i_par,:], ζsP_hvi_indep[i_par,:]), 
-            variable = keys(θP_true)[i_par],
-            site = i_sites[1],
+            value = vcat(
+                ζsP_hvi[i_par, :], ζsP_hmc[i_par,:], 
+                ζsP_hvi_indep[i_par,:], ζsP_hvi_neglect_cor[i_par,:]), 
+            variable = lower_lastdigits.(keys(θP_true)[i_par]),
+            site = "site $(i_sites[1])",
             Method = scen
         )
     end 
@@ -608,9 +689,10 @@ lineplot!(plt, 0, 1)
                 value = vcat(
                     ζsMs_hvi[i_site,i_par,:], 
                     ζsMs_hmc[i_site,i_par,:], 
-                    ζsMs_hvi_indep[i_site,i_par,:]),
-                variable = keys(θM)[i_par],
-                site = i_site,
+                    ζsMs_hvi_indep[i_site,i_par,:],
+                    ζsMs_hvi_neglect_cor[i_site,i_par,:],),
+                variable = lower_lastdigits.(keys(θM)[i_par]),
+                site = "site $(i_site)",
                 Method = scen
             )
         end
@@ -620,8 +702,8 @@ lineplot!(plt, 0, 1)
         mapreduce(vcat, axes(θP,1)) do i_par
             DataFrame(
                 value = ζP_true[i_par],
-                variable = keys(θP)[i_par],
-                site = i_sites[1],
+                variable = lower_lastdigits.(keys(θP)[i_par]),
+                site = "site $(i_sites[1])",
                 Method = :true
             )
         end,
@@ -629,29 +711,43 @@ lineplot!(plt, 0, 1)
             mapreduce(vcat, axes(θM,1)) do i_par
                 DataFrame(
                     value = ζMs_true[i_par, i_site],
-                    variable = keys(θM)[i_par],
-                    site = i_site,
+                    variable = lower_lastdigits.(keys(θM)[i_par]),
+                    site = "site $(i_site)",
                     Method = :true
                 )
             end
         end        
     ) # vcat
     #cf90 = (x) -> quantile(x, [0.05,0.95])
-    plt = (data(subset(df, :Method => ByRow(∈((:hvi,:hmc))))) * mapping(:value=> (x -> x ) => "", color=:Method) * AlgebraOfGraphics.density(datalimits=extrema) +
-           data(df_true) * mapping(:value) * visual(VLines; color=:blue, linestyle=:dash)) * 
-        mapping(col=:variable => sorter(vcat(keys(θP)..., keys(θM)...)), row = (:site => nonnumeric)) 
-    fig = Figure(size = get_fig_size(makie_config, xfac=1, width2height = 1/2));
-    fg = draw!(fig, plt, facet=(; linkxaxes=:minimal, linkyaxes=:none,), axis=(xlabelvisible=false,));
-    fig
-    save("tmp.svg", fig)
+    plot_par_densities = (dfs; makie_config = makie_config) -> begin
+        plt = (data(dfs) * mapping(:value=> (x -> x ) => "", color=:Method) * AlgebraOfGraphics.density(datalimits=extrema) +
+            data(df_true) * mapping(:value => "") * visual(VLines; color=:blue, linestyle=:dash)) * 
+            mapping(col=:variable => sorter(lower_lastdigits.(vcat(keys(θP)..., keys(θM)...))), 
+                row = (:site => nonnumeric)) 
+            #mapping(col=:variable, row = (:site => nonnumeric)) 
+        #fig = Figure(size = get_fig_size(makie_config, xfac=1, width2height = 1/2)); # 10 sites
+        fig = figure_conf(1.0; makie_config);
+        ffig = draw!(fig, plt, 
+            facet=(; linkxaxes=:minimal, linkyaxes=:none,), 
+            axis=(xlabelvisible=false,yticklabelsvisible=false),
+            scales(Color = (; palette = color_methods)),
+            );
+        legend!(fig[length(i_sites),1], ffig, ; tellwidth=false, halign=:left, valign=:bottom , margin=(10, 10, 10, 10))
+        fig
+    end
+    () -> begin
+        save_with_config(joinpath(pwd(), "tmp.svg"), fig; makie_config = MakieConfig())
+        save_with_config(joinpath(pwd(), "tmp"), fig; makie_config = paper_config)
+        save_with_config("tmp", fig) # returns path in tmp to click on
+    end
+    fig = plot_par_densities(subset(df, :Method => ByRow(∈((:hvi,:hmc)))))
     save_with_config("intermediate/compare_hmc_hvi_sites_$(last(HVI._val_value(scenario)))", fig; makie_config)
 
-    plt = (data(subset(df, :Method => ByRow(∈((:hvi, :hvi_indep))))) * mapping(:value=> (x -> x ) => "", color=:Method) * AlgebraOfGraphics.density(datalimits=extrema) +
-           data(df_true) * mapping(:value) * visual(VLines; color=:blue, linestyle=:dash)) * 
-        mapping(col=:variable => sorter(vcat(keys(θP)..., keys(θM)...)), row = (:site => nonnumeric)) 
-    fig = Figure(size = get_fig_size(makie_config, xfac=1, width2height = 1/2));
-    fg = draw!(fig, plt, facet=(; linkxaxes=:minimal, linkyaxes=:none,), axis=(xlabelvisible=false,));
-    fig
+    fig = plot_par_densities(subset(df, :Method => ByRow(∈((:hmc,:neglect_cor)))))
+    save("tmp.svg", fig)
+    save_with_config("intermediate/compare_hmc_neglectcor_sites_$(last(HVI._val_value(scenario)))", fig; makie_config)
+
+    fig = plot_par_densities(subset(df, :Method => ByRow(∈((:hvi,:hvi_indep)))))
     save("tmp.svg", fig)
     save_with_config("intermediate/compare_hvi_indep_sites_$(last(HVI._val_value(scenario)))", fig; makie_config)
 
@@ -665,17 +761,19 @@ lineplot!(plt, 0, 1)
                 vcat(
                     DataFrame(
                         value = y_hmc[i_obs,i_site,:], 
-                        site = i_site,
+                        site = "site $(i_site)",
                         Method = :hmc,
                         variable = :y,
                         i_obs = i_obs,
+                        y_i = latexstring("y_$(i_obs)"),
                     ),
                     DataFrame(
                         value = y_hvi[i_obs,i_site,:], 
-                        site = i_site,
+                        site = "site $(i_site)",
                         Method = :hvi,
                         variable = :y,
                         i_obs = i_obs,
+                        y_i = latexstring("y_$(i_obs)"),
                     )
                 )# vcat
             end
@@ -685,54 +783,158 @@ lineplot!(plt, 0, 1)
                 vcat(
                     DataFrame(
                         value = y_true[i_obs,i_site], 
-                        site = i_site,
-                        Method = :truth,
+                        site = "site $(i_site)",
+                        Reference = :truth,
                         variable = :y,
                         i_obs = i_obs,
+                        y_i = latexstring("y_$(i_obs)"),
                     ),
                     DataFrame(
                         value = y_o[i_obs,i_site,:], 
-                        site = i_site,
-                        Method = :obs,
+                        site = "site $(i_site)",
+                        Reference = :obs,
                         variable = :y,
                         i_obs = i_obs,
+                        y_i = latexstring("y_$(i_obs)"),
                     )
                 )# vcat
             end
     end
+    using CategoricalArrays
+    DataFrames.transform!(dfyt, :Reference => (x -> categorical(string.(x); ordered = true, levels = ["truth", "obs"])) => :Reference) #  
 
     plt = (data(dfy) * mapping(color=:Method) * AlgebraOfGraphics.density(datalimits=extrema) +
-            data(dfyt) * mapping(color=:Method) * visual(VLines;  linestyle=:dash)) * 
-            #data(dfyt) * mapping(color=:Method, linestyle=:Method) * visual(VLines;  linestyle=:dash)) * 
-        mapping(:value=>"", col=:i_obs => nonnumeric, row = :site => nonnumeric)
+            data(dfyt) * mapping(color=:Reference => AlgebraOfGraphics.scale(:Reference)) * visual(VLines;  linestyle=:dash)) * 
+            #data(dfyt) * mapping(linestyle=:Reference => AlgebraOfGraphics.scale(:Reference)) * visual(VLines;  linestyle=:dash)) * 
+            #data(dfyt) * mapping(color=:Reference => AlgebraOfGraphics.scale(:Reference), 
+            #    linestyle= :Reference => AlgebraOfGraphics.scale(:Reference)) * visual(VLines)) * # bug?
+        mapping(:value=>"", col=:y_i, row = :site)
 
-    fig = Figure(size = get_fig_size(makie_config, xfac=1, width2height = 1/2));
-    f = draw!(fig, plt, 
+    #fig = Figure(size = get_fig_size(makie_config, xfac=1, width2height = 1/2));
+    fig = figure_conf(1; makie_config);
+    ffig = draw!(fig, plt, 
         facet=(; linkxaxes=:minimal, linkyaxes=:none,), 
-        axis=(xlabelvisible=false,yticklabelsvisible=false));
-    legend!(fig[1,3], f, ; tellwidth=false, halign=:right, valign=:top) # , margin=(-10, -10, 10, 10)
+        axis=(xlabelvisible=false,yticklabelsvisible=false),
+        scales(Color = (; palette = color_methods)),
+        );
+    #legend!(fig[1,3], f, ; tellwidth=false, halign=:right, valign=:top) # , margin=(-10, -10, 10, 10)
+    legend!(fig[1,4], ffig, ; tellwidth=true, halign=:right, valign=:top) # , margin=(-10, -10, 10, 10)
     fig
     save("tmp.svg", fig)
-    save_with_config("intermediate/compare_hmc_hvi_sites_y_$(last(scenario))", fig; makie_config)
+    save_with_config("intermediate/compare_hmc_hvi_sites_y_$(last(HVI._val_value(scenario)))", fig; makie_config)
     # hvi predicts y better, hmc fails for quite a few obs: 3,5,6
 
-    # todo compare mean_predictions
+    # compare mean_predictions
     mean_y_hvi = map(mean, eachslice(y_hvi; dims = (1, 2)));
+    size(y_o)
+    histogram(vec(mean_y_hvi .- y_o))
+end
 
-    
+#------------------------------------- correlations -----------------
+"""
+Compute standard deviation and correlation for predicted parameters on unconstrained scale.
+
+## Arguments
+_ζsP: n_P x n_pred matrix of draws of predicted cross-sites parameters
+_ζsMs: n_site x n_M x n_pred of draws of predicted physical parameters
+
+returns sdP (n_P), sdMs (n_site x n_M), cor_PMs n_P + (n_M * length(i_sites)) square matrix
+"""
+function compute_sd_cor_PMs(_ζsP, _ζsMs; i_sites_inspect = [1,2,3])
+    mP = mean(_ζsP; dims=2)
+    residP = _ζsP .- mP
+    sdP = vec(std(residP; dims=2))
+    mMs = mean(_ζsMs; dims=3)[:,:,1]
+    residMs = _ζsMs .- mMs
+    sdMs = std(residMs; dims=3)[:,:,1]
+    residMst = permutedims(residMs[i_sites_inspect,:,:], (2,1,3)) # n_M x n_site x n_pred
+    residPMst = vcat(residP, 
+        reshape(residMst, size(residMst,1)*size(residMst,2), size(residMst,3))) # n_P x n_pred
+    corPMs = cor(residPMst')
+    sdP, sdMs, corPMs
+end
+
+function draw_cor_fig(cor, method; makie_config, par_names)
+    fig = figure_conf(1.3, 0.8; makie_config);
+    ax = Axis(fig[1,1], 
+        xticklabelsvisible=false,yticklabelsvisible=true, 
+        xticksvisible=false, yticksvisible=true,
+        yticks = (axes(par_names,1), par_names),
+        yreversed = true,
+        aspect = 1,
+        title = "Corr. $method")
+    hm = heatmap!(ax, cor)
+    rowsize!(fig.layout, 1, Aspect(1, 1))
+    Colorbar(fig[1,2], hm ; tellwidth=true, tellheight=false)
+    fig
 end
 
 () -> begin # inspect correlation of residuals
-    mean_ζ_hvi = map(mean, eachrow(CA.getdata(ζs_hvi)))
-    r_hvi = ζs_hvi .- mean_ζ_hvi
-    cor_hvi = cor(CA.getdata(r_hvi)')
-    mean_ζ_hmc = map(mean, eachrow(CA.getdata(ζs_hmc)))
-    r_hmc = ζs_hmc .- mean_ζ_hmc
-    cor_hmc = cor(CA.getdata(r_hmc)')
+    # get true 
+    i_sites_inspect = [1,2,3]
+    sdP_hmc, sdMs_hmc, corPMs_hmc = compute_sd_cor_PMs(ζsP_hmc, ζsMs_hmc; i_sites_inspect)
+    sdP_hvi, sdMs_hvi, corPMs_hvi = compute_sd_cor_PMs(ζsP_hvi, ζsMs_hvi; i_sites_inspect)
+    sdP_hvi_indep, sdMs_hvi_indep, corPMs_hvi_indep = compute_sd_cor_PMs(
+        ζsP_hvi_indep, ζsMs_hvi_indep; i_sites_inspect)
+    sdP_hvi_neglect_cor, sdMs_hvi_neglect_cor, corPMs_hvi_neglect_cor = compute_sd_cor_PMs(
+        ζsP_hvi_neglect_cor, ζsMs_hvi_neglect_cor; i_sites_inspect)
+    sdP_hvi_K1global, sdMs_hvi_K1global, corPMs_hvi_K1global = compute_sd_cor_PMs(
+        ζsP_hvi_K1global, ζsMs_hvi_K1global; i_sites_inspect)
+    sdP_hmc_K1global, sdMs_hmc_K1global, corPMs_hmc_K1global = compute_sd_cor_PMs(
+        ζsP_hmc_K1global, ζsMs_hmc_K1global; i_sites_inspect)
+    # no correlations of K2(global) ML parameters in inversion?
+    par_names = vcat(["global $k" for k in keys(θP)], vec(["site $i $k" for k in keys(θM), i in i_sites_inspect]))
+    par_names_globalK1 = vcat(["global K1" for k in keys(θP)], vec(["site $i $k" for k in (:r1, :K2), i in i_sites_inspect]))
+    fig = draw_cor_fig(corPMs_hmc, "Hamiltonian Monte Carlo posterior"; makie_config, par_names)
+    save_with_config("intermediate/cor_hmc_$(last(HVI._val_value(scenario)))", fig; makie_config)
+    fig = draw_cor_fig(corPMs_hvi, "Hybrid Variational Inference posterior"; makie_config, par_names)
+    save_with_config("intermediate/cor_hvi_$(last(HVI._val_value(scenario)))", fig; makie_config)
+    fig = draw_cor_fig(corPMs_hvi_neglect_cor, "HVI neglecting block correlations"; makie_config, par_names)
+    save_with_config("intermediate/cor_hvi_neglect_cor_$(last(HVI._val_value(scenario)))", fig; makie_config)
+    save_with_config("tmp", fig; makie_config)
     #
-    hcat(cor_hvi[:,1], cor_hmc[:,1])
-    # positive correlations of K2(1) in θP with K1(3) in θMs
+    fig = draw_cor_fig(corPMs_hvi_K1global, "HVI K1 global K2 site-dependent"; makie_config, par_names = par_names_globalK1)
+    save_with_config("intermediate/cor_hvi_K1global_$(last(HVI._val_value(scenario)))", fig; makie_config)
+    fig = draw_cor_fig(corPMs_hmc_K1global, "HMC K1 global K2 site-dependent"; makie_config, par_names = par_names_globalK1)
+    save_with_config("intermediate/cor_hmc_K1global_$(last(HVI._val_value(scenario)))", fig; makie_config)
 
+
+    df_sd = reduce(vcat, map(axes(θM,1)) do i_par 
+        vcat(DataFrame(
+        Method = :hmc,
+        par = lower_lastdigits.(keys(θM)[i_par]),
+        sd = sdMs_hmc[:,i_par],
+        value = ζMs_true'[:,i_par],
+    ), DataFrame(
+        Method = :hvi,
+        par = lower_lastdigits.(keys(θM)[i_par]),
+        sd = sdMs_hvi[:,i_par],
+        value = ζMs_true'[:,i_par],
+    ), DataFrame(
+        Method = :neglect_cor,
+        par = lower_lastdigits.(keys(θM)[i_par]),
+        sd = sdMs_hvi_neglect_cor[:,i_par],
+        value = ζMs_true'[:,i_par],
+    ),)
+    end)
+    plt = data(df_sd) * mapping(color=:Method=>"", row=:par) * 
+        mapping(:value=>"", :sd => "Predicted Standard Deviation") * visual(Scatter, alpha = 0.5)
+
+    #fig = Figure(size = get_fig_size(makie_config, xfac=1, width2height = 1/2));
+    fig = figure_conf(1;makie_config);
+    #fig = figure_conf(1;makie_config = paper_config);
+    ffig = draw!(fig, plt, scales(Color = (; palette = color_methods)); 
+        facet=(; linkxaxes=:none, linkyaxes=:none,),
+        )
+    #legend!(fig[1,1], ffig, ;tellheight=false, tellwidth=false, halign=:right, valign=:top, margin=(10, 10, 10, 10))
+    legend!(fig[1,1], ffig, ;tellheight=false, tellwidth=false, halign=:left, valign=:bottom, margin=(10, 10, 10, 10))
+    save_with_config("tmp", fig; makie_config)
+    #save_with_config("tmp", fig; makie_config=paper_config)
+end
+
+() -> begin # inspect marginal variance
+
+    
 end
     
 
@@ -744,7 +946,7 @@ end
     prior_θ = Normal(0, 10)
     prior_θn = (n) -> MvNormal(fill(prior_θ.μ, n), PDiagMat(fill(abs2(prior_θ.σ), n)))
     prior_θn(3)
-    prob = HVI.update(prob0o);
+    prob = HybridProblem(prob0o);
 
     (; θM, θP) = get_hybridproblem_par_templates(prob; scenario)
     n_θM, n_θP = length.((θM, θP))

@@ -1,5 +1,12 @@
 #------------------- Exp
 
+"""
+    Exp()
+
+A bijector that applies broadcasted exponential function, i.e. `exp.(x)`.
+It is equivalent to `elementwise(exp)` but works better with automatic
+differentiation on GPU.
+"""
 struct Exp <: Bijector
 end
 

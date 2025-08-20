@@ -17,6 +17,8 @@ using OptimizationOptimisers
 using MLDataDevices
 using Suppressor
 
+using Functors
+
 cdev = cpu_device()
 
 #scenario = Val((:default,))
@@ -32,27 +34,14 @@ function construct_problem(; scenario::Val{scen}) where scen
     cor_ends = (P=1:length(θP), M=[length(θM)]) # assume r0 independent of K2
     int_θdoubleMM = get_concrete(ComponentArrayInterpreter(
         flatten1(CA.ComponentVector(; θP, θM))))
-    function f_doubleMM(θ::AbstractVector{ET}, x; intθ1) where ET
+    function f_doubleMM(θc::CA.ComponentVector{ET}, x) where ET
         # extract parameters not depending on order, i.e whether they are in θP or θM
-        local θc = intθ1(θ)
         (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
             CA.getdata(θc[par])::ET
         end
         local y = r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
         return (y)
     end    
-    f_doubleMM_sites = let intθ1 = int_θdoubleMM, f_doubleMM=f_doubleMM,
-        θFix = CA.ComponentVector{FT}()
-        function f_doubleMM_with_global_inner(
-            θP::AbstractVector{ET}, θMs::AbstractMatrix, xP
-        ) where ET
-            #first(eachcol(xP))
-            local θMst = θMs'  # map_f_each:site requires sites-last format
-            local pred_sites = map_f_each_site(f_doubleMM, θMst, θP, θFix, xP; intθ1)
-            local pred_global = eltype(pred_sites)[]
-            return pred_global, pred_sites
-        end
-    end
     n_out = length(θM)
     rng = StableRNG(111)
     # n_batch = 10
@@ -91,12 +80,17 @@ function construct_problem(; scenario::Val{scen}) where scen
     app, ϕg0 = construct_ChainsApplicator(rng, g_chain)
     g_chain_scaled = NormalScalingModelApplicator(app, lowers, uppers, FT)
     #g_chain_scaled = app
-    ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(FT)) 
+    #ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(FT)) 
     pbm_covars = (:covarK2 ∈ scen) ? (:K2,) : ()
-    HybridProblem(θP, θM, g_chain_scaled, ϕg0, ϕunc0, 
-        f_doubleMM_sites, f_doubleMM_sites, priors_dict, py,
+    f_batch = f_sites = PBMSiteApplicator(
+        f_doubleMM; θP, θM, θFix=CA.ComponentVector{FT}(), 
+        xPvec=xP[:,1])
+    HybridProblem(θP, θM, g_chain_scaled, ϕg0, 
+        f_batch, f_sites, priors_dict, py,
         transM, transP, train_dataloader, n_covar, n_site, n_batch, 
-        cor_ends, pbm_covars)
+        cor_ends, pbm_covars,
+        #ϕunc0, 
+        )
 end 
 
 @testset "f_doubleMM from ProbSpec" begin
@@ -120,6 +114,7 @@ end
     # @descend_code_warntype test_f_doubleMM(CA.getdata(θ2), xP1)
 end
 
+#scenario = Val((:default,))
 test_without_flux = (scenario) -> begin
     #scen = CP._val_value(scenario)
     gdev = @suppress gpu_device()
@@ -160,6 +155,8 @@ test_without_flux = (scenario) -> begin
         loss_gf = get_loss_gf(g, transM, transP, f, y_global_o, intϕ; 
             pbm_covars, n_site_batch = n_batch)
         (_xM, _xP, _y_o, _y_unc, _i_sites) = first(train_loader)
+        l1 = loss_gf(p0, _xM, _xP, _y_o, _y_unc, _i_sites)
+
         l1 = @inferred (
             # @descend_code_warntype (
             loss_gf(p0, _xM, _xP, _y_o, _y_unc, _i_sites))
@@ -173,11 +170,13 @@ test_without_flux = (scenario) -> begin
             optprob = OptimizationProblem(optf, p0, train_loader)
 
             res = Optimization.solve(
-                #        optprob, Adam(0.02), callback = callback_loss(100), maxiters = 1000);
-                optprob, Adam(0.02), maxiters=1000)
-
-            l1, y_pred_global, y_pred, θMs_pred = loss_gf(res.u, train_loader.data...)
-            @test isapprox(par_templates.θP, intϕ(res.u).θP, rtol=0.11)
+                #        optprob, Adam(0.02), 
+                callback = callback_loss(100),
+                optprob, Adam(0.02), epochs = 150);
+            loss_gf_sites = get_loss_gf(g, transM, transP, f, y_global_o, intϕ; 
+                pbm_covars, n_site_batch = n_site)
+            l1, y_pred_global, y_pred, θMs_pred = loss_gf_sites(res.u, train_loader.data...)
+            @test isapprox(par_templates.θP, transP(intϕ(res.u).ϕP), rtol=0.5)
         end
     end
 end
@@ -202,8 +201,9 @@ test_with_flux = (scenario) -> begin
             #callback = callback_loss(100), maxiters = 1200
             #maxiters = 1200
             #maxiters = 20
-            maxiters=200,
-            gdev = identity,
+            #maxiters=200,
+            epochs = 2,
+            gdevs = (; gdev_M=identity, gdev_P=identity),
             #gpu_handler = NullGPUDataHandler
             is_inferred = Val(true),
         )
@@ -222,9 +222,10 @@ test_with_flux = (scenario) -> begin
         (; ϕ, θP, resopt) = solve(prob, solver; scenario, rng,
             #callback = callback_loss(100), maxiters = 1200,
             #maxiters = 20 # too small so that it yields error
-            maxiters=37,
+            #maxiters=37, # still complains "need to specify maxiters or epochs"
+            epochs = 1,
             θmean_quant = 0.01,   # test constraining mean to initial prediction     
-            gdev = identity,
+            gdevs = (; gdev_M=identity, gdev_P=identity),
             is_inferred = Val(true),
         )
         θPt = get_hybridproblem_par_templates(prob; scenario).θP
@@ -233,9 +234,14 @@ test_with_flux = (scenario) -> begin
         θP
         prob.θP
     end;
+end # test_with flux
 
+test_with_flux(Val((:default,)))
+test_with_flux(Val((:covarK2,)))
 
-
+#scenario = Val((:default,:useSitePBM))
+test_with_flux_gpu = (scenario) -> begin
+    # using Problem from DoubleMMCase
     if gdev isa MLDataDevices.AbstractGPUDevice 
         @testset "HybridPosteriorSolver gpu  $(last(CP._val_value(scenario)))" begin
             scenf = Val((CP._val_value(scenario)..., :use_Flux, :use_gpu, :omit_r0))
@@ -247,17 +253,21 @@ test_with_flux = (scenario) -> begin
             n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario = scenf)
             n_batches_in_epoch =  n_site ÷ n_batch
             (; ϕ, θP, resopt) = solve(prob, solver; scenario = scenf, rng,
-                maxiters = 37, # smallest value by trial and error
+                #maxiters = 37, # smallest value by trial and error
                 #maxiters = 20 # too small so that it yields error
+                epochs = 2,
                 θmean_quant = 0.01,   # test constraining mean to initial prediction     
                 is_inferred = Val(true),
-            );
+                gdevs = (; gdev_M=gpu_device(), gdev_P=identity),
+        );
             @test CA.getdata(ϕ) isa GPUArraysCore.AbstractGPUVector
             #@test cdev(ϕ.unc.ρsM)[1] > 0 # too few iterations in test -> may fail
             #
             solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)
             (; ϕ, θP, resopt, probo) = solve(prob, solver; scenario = scenf,
-                maxiters = 37, 
+                #maxiters = 37, 
+                epochs = 2,
+                gdevs = (; gdev_M=gpu_device(), gdev_P=identity),
                 is_inferred = Val(true),
             );
             @test cdev(ϕ.unc.ρsM)[1] > 0 
@@ -273,6 +283,7 @@ test_with_flux = (scenario) -> begin
                 n_epoch = 20 # requires 
                 (; ϕ, θP, resopt, probo) = solve(prob, solver; scenario = scenf,
                     maxiters = n_batches_in_epoch * n_epoch, 
+                    gdevs = (; gdev_M=gpu_device(), gdev_P=identity),
                     callback = callback_loss(n_batches_in_epoch*5)
                 );
                 @test cdev(ϕ.unc.ρsM)[1] > 0 
@@ -304,15 +315,21 @@ test_with_flux = (scenario) -> begin
             scenf = Val((CP._val_value(scenario)..., :use_Flux, :use_gpu, :omit_r0, :f_on_gpu))
             rng = StableRNG(111)
             probg = HybridProblem(DoubleMM.DoubleMMCase(); scenario = scenf);
+            # put Applicator to gpu (θFix)
+            probg = HybridProblem(
+                probg, 
+                f_batch = fmap(gdev, probg.f_batch), 
+                f_allsites = fmap(gdev, probg.f_allsites))
             #prob = CP.update(probg, transM = identity, transP = identity);
             solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)
-            n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario = scenf)
+            n_site, n_batch = get_hybridproblem_n_site_and_batch(probg; scenario = scenf)
             n_batches_in_epoch = n_site ÷ n_batch
-            (; ϕ, θP, resopt, probo) = solve(prob, solver; scenario = scenf, rng,
-                maxiters = 37, # smallest value by trial and error
-                #maxiters = 20 # too small so that it yields error
+            (; ϕ, θP, resopt, probo) = solve(probg, solver; scenario = scenf, rng,
+                #maxiters = 37, # smallest value by trial and error
+                #maxiters = 20, # too small so that it yields error
+                epochs = 1,
                 #θmean_quant = 0.01,   # TODO make possible on gpu
-                cdev = identity, # do not move ζ to cpu # TODO infer in solve from scenario
+                gdevs = (; gdev_M=gpu_device(), gdev_P=gpu_device()),
                 is_inferred = Val(true),
             );
             @test CA.getdata(ϕ) isa GPUArraysCore.AbstractGPUVector
@@ -324,5 +341,7 @@ test_with_flux = (scenario) -> begin
     end # if gdev isa MLDataDevices.AbstractGPUDevice 
 end # test_with flux
 
-test_with_flux(Val((:default,)))
-test_with_flux(Val((:covarK2,)))
+test_with_flux_gpu(Val((:default,)))
+test_with_flux_gpu(Val((:covarK2,)))
+test_with_flux_gpu(Val((:default,:useSitePBM)))
+

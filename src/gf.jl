@@ -1,43 +1,43 @@
 # Point solver where ML directly predicts PBL parameters, rather than their
 # distribution.
 
-"""
-Map process base model (PBM), `f`, across each site.
+# """
+# Map process base model (PBM), `f`, across each site.
 
-## Arguments
-- `f(θ, xP, args...; intθ1, kwargs...)`: Process based model for single site
+# ## Arguments
+# - `f(θ, xP, args...; intθ1, kwargs...)`: Process based model for single site
   
-  Make sure to hint the type, so that results can be inferred.
-- `θMst`: transposed model parameters across sites matrix: (n_parM, n_site_batch)
-- `θP`: transposed model parameters that do not differ by site: (n_parP,)
-- `θFix`: Further parameter required by f that are not calibrated.
-- `xP`: Model drivers: Matrix with n_site_batch columns.
-  If provided a ComponentArray with labeled rows, f can then access `xP[:key]`.
-- `intθ1`: ComponentArrayInterpreter that can be applied to θ, 
-  so that entries can be extracted.
+#   Make sure to hint the type, so that results can be inferred.
+# - `θMst`: transposed model parameters across sites matrix: (n_parM, n_site_batch)
+# - `θP`: transposed model parameters that do not differ by site: (n_parP,)
+# - `θFix`: Further parameter required by f that are not calibrated.
+# - `xP`: Model drivers: Matrix with n_site_batch columns.
+#   If provided a ComponentArray with labeled rows, f can then access `xP[:key]`.
+# - `intθ1`: ComponentArrayInterpreter that can be applied to θ, 
+#   so that entries can be extracted.
 
-See test_HybridProblem of using this function to construct a PBM function that
-can predict across all sites.
-"""
-function map_f_each_site(
-    f, θMst::AbstractMatrix, θP::AbstractVector, θFix::AbstractVector, xP, args...; 
-    intθ1::AbstractComponentArrayInterpreter, kwargs...
-)
-    # predict several sites with same global parameters θP and fixed parameters θFix
-    it1 = eachcol(CA.getdata(θMst))
-    it2 = eachcol(xP)
-    _θM = first(it1)
-    _x_site = first(it2)
-    TXS = typeof(_x_site)
-    TY = typeof(f(vcat(θP, _θM, θFix), _x_site, args...; intθ1, kwargs...))
-    #TY = typeof(f(vcat(θP, _θM, θFix), _x_site; intθ1))
-    yv = map(it1, it2) do θM, x_site
-        x_site_typed = x_site::TXS
-        f(vcat(θP, θM, θFix), x_site_typed, args...; intθ1, kwargs...)
-    end::Vector{TY}
-    y = stack(yv)
-    return(y)
-end
+# See test_HybridProblem of using this function to construct a PBM function that
+# can predict across all sites.
+# """
+# function map_f_each_site(
+#     f, θMst::AbstractMatrix, θP::AbstractVector, θFix::AbstractVector, xP, args...; 
+#     intθ1::AbstractComponentArrayInterpreter, kwargs...
+# )
+#     # predict several sites with same global parameters θP and fixed parameters θFix
+#     it1 = eachcol(CA.getdata(θMst))
+#     it2 = eachcol(xP)
+#     _θM = first(it1)
+#     _x_site = first(it2)
+#     TXS = typeof(_x_site)
+#     TY = typeof(f(vcat(θP, _θM, θFix), _x_site, args...; intθ1, kwargs...))
+#     #TY = typeof(f(vcat(θP, _θM, θFix), _x_site; intθ1))
+#     yv = map(it1, it2) do θM, x_site
+#         x_site_typed = x_site::TXS
+#         f(vcat(θP, θM, θFix), x_site_typed, args...; intθ1, kwargs...)
+#     end::Vector{TY}
+#     y = stack(yv)
+#     return(y)
+# end
 # function map_f_each_site(f, θMs::AbstractMatrix, θPs::AbstractMatrix, θFix::AbstractVector, xP, args...; kwargs...)
 #     # do not call f with matrix θ, because .* with vectors S1 would go wrong
 #     yv = map(eachcol(θMs), eachcol(θPs), xP) do θM, θP, xP_site

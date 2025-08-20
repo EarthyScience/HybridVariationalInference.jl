@@ -118,20 +118,18 @@ end;
     @test_throws AssertionError CP.utri2vec_pos(2, 1)
 end
 
-@testset "vec2uutri gpu" begin
-    if ggdev isa MLDataDevices.AbstractGPUDevice # only run the test, if CUDA is working (not on Github ci)
-        v_orig = 1.0f0:1.0f0:6.0f0
-        #v = ggdev(v_orig)
+function test_vec2uutri_gpu(v_orig, n)
         v = ggdev(collect(v_orig))
         U1v = @inferred CP.vec2uutri(v)
         @test !(U1v isa UnitUpperTriangular) # on CUDA work with normal matrix
         @test U1v isa GPUArraysCore.AbstractGPUMatrix
-        @test size(U1v, 1) == 4
+        @test size(U1v, 1) == n
         @test cdev(U1v) == CP.vec2uutri(v_orig)
         gr = Zygote.gradient(v -> sum(abs2.(CP.vec2uutri(v))), v)[1] # works nice
         @test gr isa GPUArraysCore.AbstractGPUArray
-        @test cdev(gr) == (1:6) .* 2.0
+        @test cdev(gr) == v_orig .* 2.0
         #
+        # conversion backwards
         v2 = @inferred CP.uutri2vec(U1v)
         @test v2 isa GPUArraysCore.AbstractGPUVector
         @test eltype(v2) == eltype(U1v)
@@ -140,6 +138,16 @@ end
         @test gr isa GPUArraysCore.AbstractGPUArray
         @test all(diag(gr) .== 0)
         @test cdev(CP.uutri2vec(gr)) == fill(2.0f0, length(v_orig))
+        #
+        tmp = CP.vec2uutri(v) # now applied to CuVector
+        #methods(CP.vec2uutri)
+end
+@testset "vec2uutri gpu" begin
+    if ggdev isa MLDataDevices.AbstractGPUDevice # only run the test, if CUDA is working (not on Github ci)
+        v_orig = [1.0f0]; n = 2 # 2x2 matrix with one parameter
+        test_vec2uutri_gpu(v_orig, n)
+        v_orig = 1.0f0:1.0f0:6.0f0; n = 4 #4x4 matrix with 1+2+3=6 parameters
+        test_vec2uutri_gpu(v_orig, n)
     end
 end;
 

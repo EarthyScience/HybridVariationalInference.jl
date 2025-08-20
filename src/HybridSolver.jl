@@ -8,8 +8,7 @@ HybridPointSolver(; alg) = HybridPointSolver(alg)
 
 function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolver;
     scenario, rng=Random.default_rng(),
-    gdev=:use_gpu ∈ _val_value(scenario) ? gpu_device() : identity,
-    cdev=gdev isa MLDataDevices.AbstractGPUDevice ? cpu_device() : identity,
+    gdevs = get_gdev_MP(scenario),
     is_inferred::Val{is_infer} = Val(false),
     kwargs...
 ) where is_infer
@@ -22,6 +21,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     #ϕ0_cpu = vcat(ϕg0, par_templates.θP .* FT(0.9))  # slightly disturb θP_true
     ϕ0_cpu = vcat(ϕg0, apply_preserve_axes(inverse(transP), par_templates.θP))
     train_loader = get_hybridproblem_train_dataloader(prob; scenario)
+    gdev = gdevs.gdev_M
     if gdev isa MLDataDevices.AbstractGPUDevice
         ϕ0_dev = gdev(ϕ0_cpu)
         g_dev = gdev(g)
@@ -37,7 +37,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     #intP = ComponentArrayInterpreter(par_templates.θP)
     loss_gf = get_loss_gf(g_dev, transM, transP, f, y_global_o, intϕ;
-        cdev, pbm_covars, n_site_batch=n_batch)
+        cdev=infer_cdev(gdevs), pbm_covars, n_site_batch=n_batch)
     # call loss function once
     l1 = is_infer ? 
         Test.@inferred(loss_gf(ϕ0_dev, first(train_loader_dev)...))[1] : 
@@ -56,7 +56,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     res = Optimization.solve(optprob, solver.alg; kwargs...)
     ϕ = intϕ(res.u)
     θP = cpu_ca(apply_preserve_axes(transP, cpu_ca(ϕ).ϕP))
-    probo = update(prob; ϕg=cpu_ca(ϕ).ϕg, θP)
+    probo = HybridProblem(prob; ϕg=cpu_ca(ϕ).ϕg, θP)
     (; ϕ, resopt=res, probo)
 end
 
@@ -68,17 +68,42 @@ end
 function HybridPosteriorSolver(; alg, n_MC=12, n_MC_cap=n_MC)
     HybridPosteriorSolver(alg, n_MC, n_MC_cap)
 end
-function update(solver::HybridPosteriorSolver;
+function HybridPosteriorSolver(solver::HybridPosteriorSolver;
     alg=solver.alg,
     n_MC=solver.n_MC,
     n_MC_cap=n_MC)
     HybridPosteriorSolver(alg, n_MC, n_MC_cap)
 end
 
+"""
+    solve(prob::AbstractHybridProblem, solver::HybridPosteriorSolver; ...)
+
+Perform the inversion of HVI Problem.
+
+Optional keyword arguments
+- `scenario`: Scenario to query prob, defaults to `Val(())`.
+- `rng`: Random generator, defaults to `Random.default_rng()`.
+- `gdevs`: `NamedTuple` `(;gdev_M, gdev_P)` functions to move
+  computation and data of ML model on and PBM respectively
+  to gpu (e.g. `gpu_device()` or cpu (`identity`). 
+  defaults to [`get_gdev_MP`](@ref)`(scenario)`
+- `θmean_quant` default to `0.0`: deprecated
+- `is_inferred`: set to `Val(true)` to activate type stability checks
+
+Returns a `NamedTuple` of
+- `probo`: A copy of the HybridProblem, with updated optimized parameters
+- `interpreters`:  TODO
+- `ϕ`: the optimized HVI parameters: a `ComponentVector` with entries
+  - `μP`: `ComponentVector` of the mean global PBM parameters at unconstrained scale
+  - `ϕg`: The MLmodel parameter vector, 
+  - `unc`: `ComponentVector` of further uncertainty parameters
+- `θP`: `ComponentVector` of the mean global PBM parameters at constrained scale
+- `resopt`: the structure returned by `Optimization.solve`. It can contain
+  more information on convergence.
+"""
 function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorSolver;
-    scenario::Val{scen}, rng=Random.default_rng(),
-    gdev=:use_gpu ∈ _val_value(scenario) ? gpu_device() : identity,
-    cdev=gdev isa MLDataDevices.AbstractGPUDevice ? cpu_device() : identity,
+    scenario::Val{scen}=Val(()), rng=Random.default_rng(),
+    gdevs = get_gdev_MP(scenario), 
     θmean_quant=0.0,
     is_inferred::Val{is_infer} = Val(false),
     kwargs...
@@ -99,10 +124,10 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     transMs = StackedArray(transM, n_batch)
     #
     train_loader = get_hybridproblem_train_dataloader(prob; scenario)
-    if gdev isa MLDataDevices.AbstractGPUDevice
-        ϕ0_dev = gdev(ϕ)
-        g_dev = gdev(g) # zygote fails if  gdev is a CPUDevice, although should be non-op
-        train_loader_dev = gdev_hybridproblem_dataloader(train_loader; scenario, gdev)
+    if gdevs.gdev_M isa MLDataDevices.AbstractGPUDevice
+        ϕ0_dev = gdevs.gdev_M(ϕ)
+        g_dev = gdevs.gdev_M(g) # zygote fails if  gdev is a CPUDevice, although should be non-op
+        train_loader_dev = gdev_hybridproblem_dataloader(train_loader; gdevs)
     else
         ϕ0_dev = ϕ
         g_dev = g
@@ -113,15 +138,18 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
 
     priors_θP_mean, priors_θMs_mean = construct_priors_θ_mean(
         prob, ϕ0_dev.ϕg, keys(θM), θP, θmean_quant, g_dev, transM, transP;
-        scenario, get_ca_int_PMs, gdev, cdev, pbm_covars)
+        scenario, get_ca_int_PMs, gdevs, pbm_covars)
     y_global_o = Float32[] # TODO
 
     loss_elbo = get_loss_elbo(
         g_dev, transP, transMs, f, py, y_global_o;
-        solver.n_MC, solver.n_MC_cap, cor_ends, priors_θP_mean, priors_θMs_mean, cdev,
-        pbm_covars, θP, int_unc, int_μP_ϕg_unc)
+        solver.n_MC, solver.n_MC_cap, cor_ends, priors_θP_mean, priors_θMs_mean, 
+        cdev=infer_cdev(gdevs), pbm_covars, θP, int_unc, int_μP_ϕg_unc)
     # test loss function once
-    #Main.@infiltrate_main
+    # tmp = first(train_loader_dev)
+    # using ShareAdd
+    # @usingany Cthulhu
+    # @descend_code_warntype loss_elbo(ϕ0_dev, rng, first(train_loader_dev)...)
     l0 = is_infer ? 
         (Test.@inferred loss_elbo(ϕ0_dev, rng, first(train_loader_dev)...)) :
         loss_elbo(ϕ0_dev, rng, first(train_loader_dev)...)
@@ -131,8 +159,8 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     res = Optimization.solve(optprob, solver.alg; kwargs...)
     ϕc = interpreters.μP_ϕg_unc(res.u)
     θP = cpu_ca(apply_preserve_axes(transP, ϕc.μP))
-    probo = update(prob; ϕg=cpu_ca(ϕc).ϕg, θP=θP, ϕunc=cpu_ca(ϕc).unc)
-    (; ϕ=ϕc, θP, resopt=res, interpreters, probo)
+    probo = HybridProblem(prob; ϕg=cpu_ca(ϕc).ϕg, θP=θP, ϕunc=cpu_ca(ϕc).unc)
+    (; probo, interpreters, ϕ=ϕc, θP, resopt=res)
 end
 
 function fit_narrow_normal(θi, prior, θmean_quant)
@@ -230,9 +258,11 @@ In order to let mean of θ stay close to initial point parameter estimates
 construct a prior on mean θ to a Normal around initial prediction.
 """
 function construct_priors_θ_mean(prob, ϕg, keysθM, θP, θmean_quant, g_dev, transM, transP;
-    scenario::Val{scen}, get_ca_int_PMs, gdev, cdev, pbm_covars) where {scen}
+    scenario::Val{scen}, get_ca_int_PMs, gdevs, pbm_covars) where {scen}
     iszero(θmean_quant) ? ([],[]) :
     begin
+        gdev=gdevs.gdev_M
+        #cdev=infer_cdev(gdevs)
         n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
         # all_loader = MLUtils.DataLoader(
         #     get_hybridproblem_train_dataloader(prob; scenario).data, batchsize = n_site)
