@@ -29,10 +29,8 @@ using CairoMakie
 using PairPlots   # scatterplot matrices
 ```
 
-After redefinig the process-based model (currently JLD2 cannot save functions),
-the previously optimized Problem can be loaded. 
-
-{{< include _pbm_matrix.qmd >}}
+This tutorial uses the fitted object saved at the end of the 
+[Basic workflow without GPU](@ref) tutorial.
 
 ```{julia}
 fname = "intermediate/basic_cpu_results.jld2"
@@ -43,6 +41,8 @@ probo, interpreters = load(fname, "probo", "interpreters");
 ```{julia}
 #| eval: false
 #| echo: false
+# not necessary any more with DoubleMM.f_doubleMM_sites
+# {{< include _pbm_matrix.qmd >}} 
 # outside notebook, need to reset ModelApplicator, due to fθ defined in Notebook module
 #θFix = CA.ComponentVector{eltype(probo.θP)}(r0=0.3)
 θFix = CA.ComponentVector{eltype(probo.θP)}(

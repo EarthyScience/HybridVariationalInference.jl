@@ -1,9 +1,11 @@
 using HybridVariationalInference
+import HybridVariationalInference.DoubleMM
 using Documenter
 
 DocMeta.setdocmeta!(HybridVariationalInference, :DocTestSetup, :(using HybridVariationalInference); recursive=true)
 
 makedocs(;
+    #modules=[HybridVariationalInference, HybridVariationalInference.DoubleMM],
     modules=[HybridVariationalInference],
     authors="Thomas Wutzler <twutz@bgc-jena.mpg.de> and contributors",
     sitename="HybridVariationalInference.jl",

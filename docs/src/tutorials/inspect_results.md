@@ -18,28 +18,8 @@ using CairoMakie
 using PairPlots   # scatterplot matrices
 ```
 
-After redefinig the process-based model (currently JLD2 cannot save functions),
-the previously optimized Problem can be loaded.
-
-``` julia
-function f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
-    # extract several covariates from xP
-    ST = typeof(CA.getdata(xPc)[1:1,:])  # workaround for non-type-stable Symbol-indexing
-    S1 = (CA.getdata(xPc[:S1,:])::ST)   
-    S2 = (CA.getdata(xPc[:S2,:])::ST)
-    #
-    # extract the parameters as row-repeated vectors
-    n_obs = size(S1, 1)
-    VT = typeof(CA.getdata(θc)[:,1])   # workaround for non-type-stable Symbol-indexing
-    (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
-        p1 = CA.getdata(θc[:, par]) ::VT
-        repeat(p1', n_obs)  # matrix: same for each concentration row in S1
-    end
-    #
-    # each variable is a matrix (n_obs x n_site)
-    r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
-end
-```
+This tutorial uses the fitted object saved in the
+[Basic workflow without GPU](@ref) tutorial.
 
 ``` julia
 fname = "intermediate/basic_cpu_results.jld2"
@@ -77,7 +57,7 @@ They are ComponentArrays with the parameter dimension names that can be used:
 θsMs[1,:r1,:] # sample of r1 of the first site
 ```
 
-### Corner plots
+## Corner plots
 
 The relation between different variables can be well inspected by
 scatterplot matrices, also called corner plots or pair plots.
@@ -92,7 +72,7 @@ i_site = 1
 plt = pairplot(θ1_nt)
 ```
 
-![](inspect_results_files/figure-commonmark/cell-9-output-1.png)
+![](inspect_results_files/figure-commonmark/cell-8-output-1.png)
 
 The plot shows that parameters for the first site, *K*₁ and *r*₁, are correlated,
 but that we did not model correlation with the global parameter, *K*₂.
@@ -101,7 +81,7 @@ Note that this plots shows only the first out of 800 sites.
 HVI estimated a 1602-dimensional posterior distribution including
 covariances among parameters.
 
-### Expected values and marginal variances
+## Expected values and marginal variances
 
 Lets look at how the estimated uncertainty of a site parameter changes with
 its expected value.
@@ -115,7 +95,7 @@ scatter!(ax, θmean, θsd)
 fig
 ```
 
-![](inspect_results_files/figure-commonmark/cell-11-output-1.png)
+![](inspect_results_files/figure-commonmark/cell-10-output-1.png)
 
 We see that *K*₁ across sites ranges from about 0.18 to 0.25, and that
 its estimated uncertainty is about 0.034, slightly decreasing with the
@@ -157,7 +137,7 @@ scatter!(ax, ymean, ysd)
 fig
 ```
 
-![](inspect_results_files/figure-commonmark/cell-14-output-1.png)
+![](inspect_results_files/figure-commonmark/cell-13-output-1.png)
 
 We see that observed values for associated substrate concentrations range about from
 0.51 to 0.59 with an estimated standard deviation around 0.005 that decreases

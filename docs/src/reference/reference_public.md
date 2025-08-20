@@ -11,7 +11,7 @@ i.e. the docstrings.
 
 ``` @autodocs
 Modules = [
-    HybridVariationalInference, 
+    HybridVariationalInference, HybridVariationalInference.DoubleMM
 ]
 Private = false
 ```

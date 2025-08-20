@@ -21,6 +21,29 @@ int_xP1 = ComponentArrayInterpreter(CA.ComponentVector(S1 = xP_S1, S2 = xP_S2))
 
 const int_θdoubleMM = ComponentArrayInterpreter(flatten1(CA.ComponentVector(; θP, θM)))
 
+"""
+    f_doubleMM(θc::CA.ComponentVector{ET}, x) where ET
+
+Example process based model (PBM) predicts a double-monod constrained rate
+for different substrate concentration vectors, `x.S1`, and `x.S2` for a single site.
+θc is a ComponentVector with scalar parameters as components: `r0`, `r1`, `K1`, and `K2`
+
+It predicts a rate for each entry in concentrations:
+`y = r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)`.
+
+It is defined as 
+```julia
+function f_doubleMM(θc::ComponentVector{ET}, x) where ET
+    # extract parameters not depending on order, i.e whether they are in θP or θM
+    # r0 = θc[:r0]
+    (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
+        getdata(θc[par])::ET
+    end
+    y = r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
+    return (y)
+end
+```
+"""
 function f_doubleMM(θc::CA.ComponentVector{ET}, x) where ET
     # extract parameters not depending on order, i.e whether they are in θP or θM
     GPUArraysCore.allowscalar() do # index to scalar parameter in parameter vector
@@ -40,13 +63,44 @@ function f_doubleMM(θc::CA.ComponentVector{ET}, x) where ET
     end
 end
 
+"""
+    f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
+
+Example process based model (PBM) that predicts for a batch of sites.
+
+Arguments
+- `θc`: parameters with one row per site and symbolic column index 
+- `xPc`: model drivers with one column per site, and symbolic row index
+
+Returns a matrix `(n_obs x n_site)` of predictions.
+
+```julia
+function f_doubleMM_sites(θc::ComponentMatrix, xPc::ComponentMatrix)
+    # extract several covariates from xP
+    ST = typeof(getdata(xPc)[1:1,:])  # workaround for non-type-stable Symbol-indexing
+    S1 = (getdata(xPc[:S1,:])::ST)   
+    S2 = (getdata(xPc[:S2,:])::ST)
+    #
+    # extract the parameters as vectors that are row-repeated into a matrix
+    n_obs = size(S1, 1)
+    VT = typeof(getdata(θc)[:,1])   # workaround for non-type-stable Symbol-indexing
+    (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
+        p1 = getdata(θc[:, par]) ::VT
+        repeat(p1', n_obs)  # matrix: same for each concentration row in S1
+    end
+    #
+    # each variable is a matrix (n_obs x n_site)
+    r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
+end
+```
+"""
 function f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
     # extract several covariates from xP
     ST = typeof(CA.getdata(xPc)[1:1,:])  # workaround for non-type-stable Symbol-indexing
     S1 = (CA.getdata(xPc[:S1,:])::ST)   
     S2 = (CA.getdata(xPc[:S2,:])::ST)
     #
-    # extract the parameters as row-repeated vectors
+    # extract the parameters as vectors that are row-repeated into a matrix
     n_obs = size(S1, 1)
     VT = typeof(CA.getdata(θc)[:,1])   # workaround for non-type-stable Symbol-indexing
     (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
