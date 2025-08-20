@@ -42,7 +42,7 @@ end
 @time begin
     if GROUP == "All" || GROUP == "Aqua"
         #@safetestset "test" include("test/test_aqua.jl")
-        if VERSION >= VersionNumber("1.11.2")
+        if VersionNumber("1.11.2") <= VERSION < VersionNumber("1.12")
             #@safetestset "test" include("test/test_aqua.jl")
             @time @safetestset "test_aqua" include("test_aqua.jl")
         end
