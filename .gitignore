@@ -10,7 +10,6 @@ tmp/
 **/tmp.svg
 dev/intermediate/*
 dev/tmp.pdf
-docs/src/**/*_files/
 docs/src/**/*.html
 docs/src/**/*.ipynb
 docs/src/**/*Manifest.toml
