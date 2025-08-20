@@ -35,7 +35,7 @@ This tutorial uses the fitted object saved at the end of the
 ```{julia}
 fname = "intermediate/basic_cpu_results.jld2"
 print(abspath(fname))
-probo, interpreters = load(fname, "probo", "interpreters");
+probo = load(fname, "probo");
 ```
 
 ```{julia}
