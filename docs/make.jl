@@ -25,6 +25,7 @@ makedocs(;
         "How to" => [
             ".. model independent parameters" => "tutorials/blocks_corr.md",
             ".. model site-global corr" => "tutorials/corr_site_global.md",
+            ".. use GPU" => "tutorials/lux_gpu.md",
         ],
         "Explanation" => [
             #"Theory" => "explanation/theory_hvi.md", TODO activate when paper is published

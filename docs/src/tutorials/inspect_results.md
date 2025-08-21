@@ -5,6 +5,9 @@
 CurrentModule = HybridVariationalInference  
 ```
 
+This tutorial leads you through quering relevant information from the
+inversion results and to produce some typical plots.
+
 First load necessary packages.
 
 ``` julia
@@ -18,13 +21,13 @@ using CairoMakie
 using PairPlots   # scatterplot matrices
 ```
 
-This tutorial uses the fitted object saved in the
+This tutorial uses the fitted object saved at the end of the
 [Basic workflow without GPU](@ref) tutorial.
 
 ``` julia
 fname = "intermediate/basic_cpu_results.jld2"
 print(abspath(fname))
-probo, interpreters = load(fname, "probo", "interpreters");
+probo = load(fname, "probo");
 ```
 
 ## Sample the posterior
@@ -74,8 +77,8 @@ plt = pairplot(θ1_nt)
 
 ![](inspect_results_files/figure-commonmark/cell-8-output-1.png)
 
-The plot shows that parameters for the first site, *K*₁ and *r*₁, are correlated,
-but that we did not model correlation with the global parameter, *K*₂.
+The plot shows that parameters for the first site, $K_1$ and $r_1$, are correlated,
+but that we did not model correlation with the global parameter, $K_2$.
 
 Note that this plots shows only the first out of 800 sites.
 HVI estimated a 1602-dimensional posterior distribution including
@@ -97,7 +100,7 @@ fig
 
 ![](inspect_results_files/figure-commonmark/cell-10-output-1.png)
 
-We see that *K*₁ across sites ranges from about 0.18 to 0.25, and that
+We see that $K_1$ across sites ranges from about 0.18 to 0.25, and that
 its estimated uncertainty is about 0.034, slightly decreasing with the
 values of the parameter.
 
@@ -107,7 +110,7 @@ In addition to the uncertainty in parameters, we are also interested in
 the uncertainty of predictions, i.e. the predictive posterior.
 
 We cam either run the PBM for all the parameter samples that we obtained already,
-using [`apply_process_model`](@ref), or use [`predict_hvi`](@ref) which combines
+using the [`AbstractModelApplicator`](@ref), or use [`predict_hvi`](@ref) which combines
 sampling the posterior and predictive posterior and returns the additional
 `NamedTuple` entry `y`.
 

@@ -25,11 +25,8 @@ HVI requires the site-parameter blocks in the correlation matrix to be
 independent of the global-parameter block.
 
 However, correlations between site and global parameters can be modeled
-by predicting different (transformed) site parameters, 
-$\zeta_{Ms}$
-, given the sampled 
-(transformed) global parameters, 
-$\zeta_P$
+by predicting different (transformed) site parameters, $\zeta_{Ms}$
+, given the sampled (transformed) global parameters, $\zeta_P$.
 
 $$
 p(\zeta_{Ms}, \zeta_P) = p(\zeta_{Ms} | \zeta_P) p(\zeta_P)$$
@@ -79,7 +76,7 @@ pbm_covars = (:K2,)
 
 The ML model needs to be adapted to consume more inputs than the site covariates.
 Note the changed `n_input` specification compared to the 
-[Basic workflow without GPU](@ref) tutorial.
+[Basic workflow without GPU](@ref) turorial.
 
 ```{julia}
 n_out = length(prob.θM) # number of individuals to predict 
