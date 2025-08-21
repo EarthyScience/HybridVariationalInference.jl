@@ -23,8 +23,9 @@ makedocs(;
             #"Test quarto markdown" => "tutorials/test1.md",
         ],
         "How to" => [
-            #".. model independent parameters" => "tutorials/how_to_guides/blocks_corr_site.md",
-            #".. model site-global corr" => "tutorials/how_to_guides/corr_site_global.md",
+            ".. model independent parameters" => "tutorials/blocks_corr.md",
+            ".. model site-global corr" => "tutorials/corr_site_global.md",
+            ".. use GPU" => "tutorials/lux_gpu.md",
         ],
         "Explanation" => [
             #"Theory" => "explanation/theory_hvi.md", TODO activate when paper is published

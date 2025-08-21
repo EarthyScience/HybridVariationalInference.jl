@@ -1,0 +1,9 @@
+project:
+  title: "HybridVariationInference documentation"
+  render: 
+    - src/tutorials/basic_cpu.qmd
+    - src/tutorials/*.qmd
+    
+
+
+

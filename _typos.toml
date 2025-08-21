@@ -1,3 +1,6 @@
+[files]
+extend-exclude = ["docs/src_stash/"]
+
 [default.extend-words]
 SOM = "SOM"
 negLogLik = "negLogLik"

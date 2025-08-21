@@ -1,24 +1,66 @@
 """
-    AbstractPBMApplicator(θP::AbstractVector, θMs::AbstractMatrix, xP::AbstractMatrix)
-
 Abstraction of applying a process-based model with 
-global parameters, `x`, site-specific parameters, `θMs` (sites in columns), 
+global parameters, `θP`, site-specific parameters, `θMs` (sites in columns), 
 and site-specific model drivers, `xP` (sites in columns),
 It returns a matrix of predictions sites in columns.    
 
-Specific implementations need to implement function `apply_model(app, θP, θMs, xP)`.
+Specific implementations need to provide function `apply_model(app, θP, θMs, xP)`.
+where
+- `θsP` and `θsMs` are shaped according to the output of `generate_ζ`, i.e.
+  `(n_site_pred x n_par x n_MC)`.
+- Results are of shape `(n_obs x n_site_pred x n_MC)`.
+
+They may also provide function `apply_model(app, θP, θMs, xP)` for a sample
+of parameters, i.e. where an additional dimension is added to both `θP` and `θMs`.
+However, there is a default implementation that mapreduces across these dimensions.
+
 Provided are implementations
-- `NullPBMApplicator`: returning its input `θMs` for testing
 - `PBMSiteApplicator`: based on a function that computes predictions per site
 - `PBMPopulationApplicator`: based on a function that computes predictions for entire population
+- `NullPBMApplicator`: returning its input `θMs` for testing
+- `PlainPBMApplicator`: based on a function that takes the same arguments as `apply_model`
 """
 abstract type AbstractPBMApplicator end
 
 # function apply_model end  # already defined in ModelApplicator.jl for ML model
 
-function (app::AbstractPBMApplicator)(θP::AbstractVector, θMs::AbstractMatrix, xP::AbstractMatrix) 
+function (app::AbstractPBMApplicator)(θP::AbstractArray, θMs::AbstractArray, xP::AbstractMatrix) 
     apply_model(app, θP, θMs, xP)
 end
+
+"""
+    apply_model(app::AbstractPBMApplicator, θsP::AbstractVector, θsMs::AbstractMatrix, xP::AbstractMatrix) 
+    apply_model(app::AbstractPBMApplicator, θsP::AbstractMatrix, θsMs::AbstractArray{ET,3}, xP) 
+
+The first variant calls the PBM for one batch of sites.
+
+The second variant calls the PBM for a sample of batches, and stack results.
+The default implementation mapreduces the last dimension of `θsP` and θ`sMs` calling the 
+first variant of `apply_model` for each sample.
+"""
+# docu in struct
+function apply_model(app::AbstractPBMApplicator, θsP::AbstractMatrix, θsMs::AbstractArray{ET,3}, xP) where ET
+    # stack does not work on GPU, see specialized method for GPUArrays below
+    y_pred = stack(
+     map(eachcol(CA.getdata(θsP)), eachslice(CA.getdata(θsMs), dims=3)) do θP, θMs
+        y_global, y_pred_i = app(θP, θMs, xP)
+        y_pred_i
+    end)
+end
+function apply_model(app::AbstractPBMApplicator, θsP::GPUArraysCore.AbstractGPUMatrix, θsMs::GPUArraysCore.AbstractGPUArray{ET,3}, xP) where ET
+    # stack does not work on GPU, need to resort to slower mapreduce
+    # for type stability, apply f at first iterate to supply init to mapreduce
+    P1, Pit = Iterators.peel(eachcol(CA.getdata(θsP)));
+    Ms1, Msit = Iterators.peel(eachslice(CA.getdata(θsMs), dims=3));
+    y1 = apply_model(app, P1, Ms1, xP)[2]
+    y1a = reshape(y1, size(y1)..., 1) # add one dimension
+    y_pred = mapreduce((a,b) -> cat(a,b; dims=3), Pit, Msit; init=y1a) do θP, θMs
+        y_global, y_pred_i = app(θP, θMs, xP)
+        y_pred_i
+    end
+end
+
+
 
 
 """
@@ -119,8 +161,8 @@ struct PBMPopulationApplicator{MFT, IPT, IT, IXT, F} <: AbstractPBMApplicator
     int_xP::IXT
 end
 
-# let fmap not descend into isP
-# @functor PBMPopulationApplicator (θFixm, )
+# let fmap not descend into isP, because indexing with isP on cpu is faster
+@functor PBMPopulationApplicator (θFixm, )
 
 """
     PBMPopulationApplicator(fθpop, n_batch; θP, θM, θFix, xPvec)
@@ -167,7 +209,13 @@ function apply_model(app::PBMPopulationApplicator, θP::AbstractVector, θMs::Ab
         "or compute PBM on CPU.")
     end
     # repeat θP and concatenate with 
+    # Main.@infiltrate_main
+    # repeat is 2x slower for Vector and 100 times slower (with allocation) on GPU
+    # app.isP on CPU is slightly faster than app.isP on GPU
+    #@benchmark CA.getdata(θP[app.isP])  
+    #@benchmark CA.getdata(repeat(θP', size(θMs,1))) 
     local θ = hcat(CA.getdata(θP[app.isP]), CA.getdata(θMs), app.θFixm)
+    #local θ = hcat(CA.getdata(repeat(θP', size(θMs,1))), CA.getdata(θMs), app.θFixm)
     local θc = app.intθ(CA.getdata(θ))
     local xPc = app.int_xP(CA.getdata(xP))
     local pred_sites = app.fθpop(θc, xPc)

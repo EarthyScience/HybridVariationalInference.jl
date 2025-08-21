@@ -7,7 +7,7 @@ execute:
   daemon: 3600  
 format:
   commonmark:
-    variant: -raw_html
+    variant: -raw_html+tex_math_dollars
     wrap: preserve    
 bibliography: twutz_txt.bib
 ---
@@ -15,6 +15,9 @@ bibliography: twutz_txt.bib
 ``` @meta
 CurrentModule = HybridVariationalInference  
 ```
+
+This tutorial leads you through extracting relevant information from the 
+inversion results and to produce some typical plots.
 
 First load necessary packages.
 
@@ -35,7 +38,7 @@ This tutorial uses the fitted object saved at the end of the
 ```{julia}
 fname = "intermediate/basic_cpu_results.jld2"
 print(abspath(fname))
-probo, interpreters = load(fname, "probo", "interpreters");
+probo = load(fname, "probo");
 ```
 
 ```{julia}
@@ -133,7 +136,7 @@ In addition to the uncertainty in parameters, we are also interested in
 the uncertainty of predictions, i.e. the predictive posterior.
 
 We cam either run the PBM for all the parameter samples that we obtained already,
-using [`apply_process_model`](@ref), or use [`predict_hvi`](@ref) which combines
+using the [`AbstractPBMApplicator`](@ref), or use [`predict_hvi`](@ref) which combines
 sampling the posterior and predictive posterior and returns the additional
 `NamedTuple` entry `y`.
 

@@ -327,7 +327,7 @@ epochs of the optimization.
 ``` julia
 (; probo) = solve(probo_sites, solver; rng,
     callback = callback_loss(100), # output during fitting
-    epochs = 10,
+    epochs = 20,
     #is_inferred = Val(true), # activate type-checks 
 );
 ```
