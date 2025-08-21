@@ -11,7 +11,7 @@ are executed on GPU.
 
 ## Motivation
 
-Machine learning is often accellerated by moving computations form CPU
+Machine learning is often accelerated by moving computations form CPU
 to GPU. So does HVI.
 
 First load necessary packages.
@@ -44,8 +44,8 @@ prob = probo_chain = load(fname, "probo");
 
 Because the SimpleChains ML model used in the basic tutorial does not support
 GPU, we reconstruct the model using the LUX framework.
-Note that all the setup is almost the same, as in the basic worklfow. The
-only diffrence is that a `Lux.Chains` object is provided to `construct_ChainsApplicator`.
+Note that all the setup is almost the same, as in the basic workflow. The
+only difference is that a `Lux.Chains` object is provided to `construct_ChainsApplicator`.
 
 ``` julia
 n_out = length(prob.θM) # number of individuals to predict 
@@ -82,7 +82,7 @@ They specify functions that are applied to move callables and data to GPU.
 
 They default to `identity`, meaning that nothing is moved from CPU to GPU.
 Function `gpu_device()` from package `MLDataDevices` can be used instead
-for teh standard GPU device.
+for the standard GPU device.
 
 Hence specify
 - `gdevs = (; gdev_M=gpu_device(), gdev_P=gpu_device())`: to move both ML model and PBM to GPU

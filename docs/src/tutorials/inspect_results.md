@@ -5,7 +5,7 @@
 CurrentModule = HybridVariationalInference  
 ```
 
-This tutorial leads you through quering relevant information from the
+This tutorial leads you through querying relevant information from the
 inversion results and to produce some typical plots.
 
 First load necessary packages.

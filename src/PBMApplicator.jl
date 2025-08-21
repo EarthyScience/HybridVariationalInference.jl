@@ -7,7 +7,7 @@ It returns a matrix of predictions sites in columns.
 Specific implementations need to provide function `apply_model(app, θP, θMs, xP)`.
 where
 - `θsP` and `θsMs` are shaped according to the output of `generate_ζ`, i.e.
-`(n_site_pred x n_par x n_MC)`.
+  `(n_site_pred x n_par x n_MC)`.
 - Results are of shape `(n_obs x n_site_pred x n_MC)`.
 
 They may also provide function `apply_model(app, θP, θMs, xP)` for a sample

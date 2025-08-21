@@ -66,7 +66,7 @@ pbm_covars = (:K2,)
 
 The ML model needs to be adapted to consume more inputs than the site covariates.
 Note the changed `n_input` specification compared to the
-[Basic workflow without GPU](@ref) turorial.
+[Basic workflow without GPU](@ref) tutorial.
 
 ``` julia
 n_out = length(prob.θM) # number of individuals to predict 
