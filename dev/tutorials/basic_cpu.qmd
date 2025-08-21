@@ -7,7 +7,7 @@ execute:
   daemon: 3600  
 format:
   commonmark:
-    variant: -raw_html
+    variant: -raw_html+tex_math_dollars
     wrap: preserve    
 bibliography: twutz_txt.bib
 ---
@@ -316,7 +316,25 @@ For the parameters, one row corresponds to
 one site. For the drivers and predictions, one column corresponds to one site.
 
 
-{{< include _pbm_matrix.qmd >}}
+```{julia}
+function f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
+    # extract several covariates from xP
+    ST = typeof(CA.getdata(xPc)[1:1,:])  # workaround for non-type-stable Symbol-indexing
+    S1 = (CA.getdata(xPc[:S1,:])::ST)   
+    S2 = (CA.getdata(xPc[:S2,:])::ST)
+    #
+    # extract the parameters as row-repeated vectors
+    n_obs = size(S1, 1)
+    VT = typeof(CA.getdata(θc)[:,1])   # workaround for non-type-stable Symbol-indexing
+    (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
+        p1 = CA.getdata(θc[:, par]) ::VT
+        repeat(p1', n_obs)  # matrix: same for each concentration row in S1
+    end
+    #
+    # each variable is a matrix (n_obs x n_site)
+    r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
+end
+```
 
 Again, the function should not rely on the order of parameters but use symbolic indexing 
 to extract the parameter vectors. For type stability of this symbolic indexing,
@@ -345,7 +363,7 @@ epochs of the optimization.
 ```{julia}
 (; probo) = solve(probo_sites, solver; rng,
     callback = callback_loss(100), # output during fitting
-    epochs = 10,
+    epochs = 20,
     #is_inferred = Val(true), # activate type-checks 
 );
 ```
