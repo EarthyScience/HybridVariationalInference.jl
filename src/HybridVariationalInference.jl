@@ -93,7 +93,7 @@ include("logden_normal.jl")
 export get_ca_starts, get_ca_ends, get_cor_count
 include("cholesky.jl")
 
-export neg_elbo_gtf, sample_posterior, apply_process_model, predict_hvi
+export neg_elbo_gtf, sample_posterior, predict_hvi
 include("elbo.jl")
 
 export init_hybrid_params, init_hybrid_ϕunc

@@ -316,10 +316,11 @@ test_with_flux_gpu = (scenario) -> begin
             rng = StableRNG(111)
             probg = HybridProblem(DoubleMM.DoubleMMCase(); scenario = scenf);
             # put Applicator to gpu (θFix)
-            probg = HybridProblem(
-                probg, 
-                f_batch = fmap(gdev, probg.f_batch), 
-                f_allsites = fmap(gdev, probg.f_allsites))
+            # moved to solve and predict_hvi
+            # probg = HybridProblem(
+            #     probg, 
+            #     f_batch = fmap(gdev, probg.f_batch), 
+            #     f_allsites = fmap(gdev, probg.f_allsites))
             #prob = CP.update(probg, transM = identity, transP = identity);
             solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)
             n_site, n_batch = get_hybridproblem_n_site_and_batch(probg; scenario = scenf)

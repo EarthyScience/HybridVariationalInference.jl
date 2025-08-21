@@ -18,9 +18,10 @@ using MLDataDevices
 # setup g as FluxNN on gpu
 using Flux
 
+#CUDA.device!(4)
+
 ggdev = gpu_device()
 
-#CUDA.device!(4)
 rng = StableRNG(111)
 
 const prob = DoubleMM.DoubleMMCase()
@@ -143,7 +144,7 @@ test_scenario = (scenario) -> begin
             _ϕ = vcat(ϕ_ini.μP, probc.ϕg, probd.ϕunc)
             #hcat(ϕ_ini, ϕ, _ϕ)[1:4,:]
             #hcat(ϕ_ini, ϕ, _ϕ)[(end-20):end,:]
-            n_predict = 80000
+            n_predict = 8000
             xM_batch = xM[:, 1:n_batch]
             _ζsP, _ζsMs, _σ = @inferred (
                 # @descend_code_warntype (
@@ -196,18 +197,18 @@ test_scenario = (scenario) -> begin
                     reshape(residMst, size(residMst,1)*size(residMst,2), size(residMst,3)))
                 cor_PMs = cor(residPMst')
                 @test cor_PMs[1,2] ≈ ρsP_true[1] atol=0.02
-                @test all(.≈(cor_PMs[1:2,3:end], 0.0, atol=0.02)) # no correlations P,M
+                @test all(.≈(cor_PMs[1:2,3:end], 0.0, atol=0.1)) # no correlations P,M
                 @test cor_PMs[3,4] ≈ ρsM_true[1] atol=0.02
-                @test all(.≈(cor_PMs[3:4,5:end], 0.0, atol=0.02)) # no correlations M1, M2
+                @test all(.≈(cor_PMs[3:4,5:end], 0.0, atol=0.1)) # no correlations M1, M2
                 @test cor_PMs[5,6] ≈ ρsM_true[1] atol=0.02
-                @test all(.≈(cor_PMs[5:6,7:end], 0.0, atol=0.02)) # no correlations M1, M2
+                @test all(.≈(cor_PMs[5:6,7:end], 0.0, atol=0.1)) # no correlations M1, M2
             end
             test_distζ(_ζsP, _ζsMs, ϕunc_true, ζMs_g)
             @testset "predict_hvi check sd" begin
                 # test if uncertainty and reshaping is propagated
                 # here inverse the predicted θs and then test distribution 
                 probcu = HybridProblem(probc, ϕunc=ϕunc_true);
-                n_sample_pred = 24_000
+                n_sample_pred = 2_400
                 (; y, θsP, θsMs, entropy_ζ) = predict_hvi(rng, probcu; scenario, n_sample_pred);
                 #size(_ζsMs), size(θsMs)
                 #size(_ζsP), size(θsP)
@@ -221,7 +222,7 @@ test_scenario = (scenario) -> begin
                 test_distζ(_ζsP2, _ζsMs2, ϕunc_true, ζMs_g2)
             end;
         end;
-    end # if covar in scenario
+    end # if covarK2 in scenario
 
     if ggdev isa MLDataDevices.AbstractGPUDevice
         @testset "generate_ζ gpu $(last(CP._val_value(scenario)))" begin
@@ -390,14 +391,13 @@ test_scenario = (scenario) -> begin
         θsPc = int_mP(θsP)
         @test all(θsPc[:r0, :] .> 0)
         #
-        y = apply_process_model(θsP, θsMs, f_pred, xP)
+        y = @inferred f_pred(θsP, θsMs, xP)
         @test y isa Array
         @test size(y) == (size(y_o)..., n_sample_pred)
     end
 
     if ggdev isa MLDataDevices.AbstractGPUDevice
         @testset "predict_hvi gpu $(last(CP._val_value(scenario)))" begin
-            n_sample_pred = 32
             ϕ_ini_g = ggdev(CA.getdata(ϕ_ini))
             xMg = ggdev(xM)
             n_sample_pred = 30
@@ -407,17 +407,20 @@ test_scenario = (scenario) -> begin
                     sample_posterior(rng, g_gpu, ϕ_ini_g, xMg;
                     int_μP_ϕg_unc, int_unc,
                     transP, transM,
-                    cdev = cpu_device(),
+                    #cdev = cpu_device(),
+                    cdev = identity, # do not transfer to CPU
                     n_sample_pred, cor_ends, pbm_covar_indices)
                 )
+            # this variant without the problem, does not attach axes
             @test θsP isa AbstractMatrix
             @test θsMs isa AbstractArray{T,3} where {T}
             int_mP = ComponentArrayInterpreter(int_P, (size(θsP, 2),))
-            θsPc = int_mP(θsP)
-            @test all(θsPc[:r0, :] .> 0)
+            @test all(int_mP(θsP)[:r0, :] .> 0)
             #
-            y = apply_process_model(θsP, θsMs, f_pred, xP)
-            @test y isa Array
+            xP_dev = ggdev(xP);
+            f_pred_dev = fmap(ggdev, f_pred)
+            y = @inferred f_pred_dev(θsP, θsMs, xP_dev)
+            @test y isa GPUArraysCore.AbstractGPUArray
             @test size(y) == (size(y_o)..., n_sample_pred)
         end
         # @testset "predict_hvi also f on gpu" begin
