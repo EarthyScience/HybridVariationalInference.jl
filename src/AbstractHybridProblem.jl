@@ -141,9 +141,8 @@ Setup synthetic data, a NamedTuple of
 - θP_true: vector global process-model parameters
 - θMs_true: matrix of site-varying process-model parameters, with 
 - xP: Vector of process-model drivers, with an entry per site
-- y_global_true: vector of global observations
 - y_true: matrix of site-specific observations with one column per site
-- y_global_o, y_o: observations with added noise
+- y_o: observations with added noise
 """
 function gen_hybridproblem_synthetic end
 

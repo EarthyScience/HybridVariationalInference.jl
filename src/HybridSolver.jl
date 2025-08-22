@@ -32,12 +32,14 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
         train_loader_dev = train_loader
     end
     f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites=false)
-    y_global_o = FT[] # TODO
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    priors = get_hybridproblem_priors(prob; scenario)
+    priorsP = [priors[k] for k in keys(par_templates.θP)]
+    priorsM = [priors[k] for k in keys(par_templates.θM)]
     #intP = ComponentArrayInterpreter(par_templates.θP)
-    loss_gf = get_loss_gf(g_dev, transM, transP, f, y_global_o, intϕ;
-        cdev=infer_cdev(gdevs), pbm_covars, n_site_batch=n_batch)
+    loss_gf = get_loss_gf(g_dev, transM, transP, f,  intϕ;
+        cdev=infer_cdev(gdevs), pbm_covars, n_site_batch=n_batch, priorsP, priorsM,)
     # call loss function once
     l1 = is_infer ? 
         Test.@inferred(loss_gf(ϕ0_dev, first(train_loader_dev)...))[1] : 
@@ -122,6 +124,9 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     int_unc = interpreters.unc
     int_μP_ϕg_unc = interpreters.μP_ϕg_unc
     transMs = StackedArray(transM, n_batch)
+    priors = get_hybridproblem_priors(prob; scenario)
+    priorsP = [priors[k] for k in keys(par_templates.θP)]
+    priorsM = [priors[k] for k in keys(par_templates.θM)]
     #
     train_loader = get_hybridproblem_train_dataloader(prob; scenario)
     if gdevs.gdev_M isa MLDataDevices.AbstractGPUDevice
@@ -145,12 +150,11 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     priors_θP_mean, priors_θMs_mean = construct_priors_θ_mean(
         prob, ϕ0_dev.ϕg, keys(θM), θP, θmean_quant, g_dev, transM, transP;
         scenario, get_ca_int_PMs, gdevs, pbm_covars)
-    y_global_o = Float32[] # TODO
 
     loss_elbo = get_loss_elbo(
-        g_dev, transP, transMs, f_dev, py, y_global_o;
+        g_dev, transP, transMs, f_dev, py;
         solver.n_MC, solver.n_MC_cap, cor_ends, priors_θP_mean, priors_θMs_mean, 
-        cdev=infer_cdev(gdevs), pbm_covars, θP, int_unc, int_μP_ϕg_unc)
+        cdev=infer_cdev(gdevs), pbm_covars, θP, int_unc, int_μP_ϕg_unc, priorsP, priorsM,)
     # test loss function once
     # tmp = first(train_loader_dev)
     # using ShareAdd
@@ -193,26 +197,30 @@ The loss function takes in addition to ϕ, data that changes with minibatch
 - `xP`: drivers for the processmodel: Iterator of size n_site
 - `y_o`, `y_unc`: matrix of observations and uncertainties, sites in columns
 """
-function get_loss_elbo(g, transP, transMs, f, py, y_o_global;
+function get_loss_elbo(g, transP, transMs, f, py;
     n_MC, n_MC_mean = max(n_MC,20), n_MC_cap=n_MC, 
     cor_ends, priors_θP_mean, priors_θMs_mean, cdev, pbm_covars, θP,
     int_unc, int_μP_ϕg_unc,
+    priorsP, priorsM, floss_penalty = zero_penalty_loss,
 )
-    let g = g, transP = transP, transMs = transMs, f = f, py = py, y_o_global = y_o_global, 
+    let g = g, transP = transP, transMs = transMs, f = f, py = py, 
         n_MC = n_MC, n_MC_cap = n_MC_cap, n_MC_mean = n_MC_mean,
         cor_ends = cor_ends,
         int_unc = get_concrete(int_unc), int_μP_ϕg_unc = get_concrete(int_μP_ϕg_unc),
         priors_θP_mean = priors_θP_mean, priors_θMs_mean = priors_θMs_mean, cdev = cdev,
         pbm_covar_indices = get_pbm_covar_indices(θP, pbm_covars),
         trans_mP=StackedArray(transP, n_MC_mean), 
-        trans_mMs=StackedArray(transMs.stacked, n_MC_mean)
+        trans_mMs=StackedArray(transMs.stacked, n_MC_mean),
+        priorsP=priorsP, priorsM=priorsM, floss_penalty=floss_penalty
 
         function loss_elbo(ϕ, rng, xM, xP, y_o, y_unc, i_sites)
+            #ϕc = int_μP_ϕg_unc(ϕ)
             neg_elbo_gtf(
                 rng, ϕ, g, f, py, xM, xP, y_o, y_unc, i_sites;
                 int_unc, int_μP_ϕg_unc,
                 n_MC, n_MC_cap, n_MC_mean, cor_ends, priors_θP_mean, priors_θMs_mean,
                 cdev, pbm_covar_indices, transP, transMs, trans_mP, trans_mMs,
+                priorsP, priorsM, floss_penalty, #ϕg = ϕc.ϕg, ϕunc = ϕc.unc,
             )
         end
     end

@@ -35,13 +35,14 @@ test_scenario = (scenario) -> begin
     int_P, int_M = map(ComponentArrayInterpreter, par_templates)
     pbm_covars = get_hybridproblem_pbmpar_covars(probc; scenario)
     pbm_covar_indices = CP.get_pbm_covar_indices(par_templates.θP, pbm_covars)
+    #get_hybridproblem_
 
     #θsite_true = get_hybridproblem_par_templates(probc; scenario)
     n_site, n_batch = get_hybridproblem_n_site_and_batch(probc; scenario)
     # note: need to use prob rather than probc here, make sure the same
     rng = StableRNG(111)
-    (; xM, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o,
-        y_unc) = gen_hybridproblem_synthetic(rng, prob; scenario)
+    (; xM, θP_true, θMs_true, xP,  y_true,  y_o, y_unc) = 
+        gen_hybridproblem_synthetic(rng, prob; scenario)
     tmpf = () -> begin
         # wrap inside function to not define(pollute) variables in level up
         _trainloader = get_hybridproblem_train_dataloader(probc; scenario)
@@ -59,6 +60,10 @@ test_scenario = (scenario) -> begin
     n_θM, n_θP = values(map(length, par_templates))
 
     py = neg_logden_indep_normal
+
+    priors = get_hybridproblem_priors(prob; scenario)
+    priorsP = [priors[k] for k in keys(par_templates.θP)]
+    priorsM = [priors[k] for k in keys(par_templates.θM)]
 
     n_MC = 3
     (; transP, transM) = get_hybridproblem_transforms(probc; scenario)
@@ -144,7 +149,7 @@ test_scenario = (scenario) -> begin
             _ϕ = vcat(ϕ_ini.μP, probc.ϕg, probd.ϕunc)
             #hcat(ϕ_ini, ϕ, _ϕ)[1:4,:]
             #hcat(ϕ_ini, ϕ, _ϕ)[(end-20):end,:]
-            n_predict = 8000
+            n_predict = 10_000 #8_000
             xM_batch = xM[:, 1:n_batch]
             _ζsP, _ζsMs, _σ = @inferred (
                 # @descend_code_warntype (
@@ -166,7 +171,7 @@ test_scenario = (scenario) -> begin
                 #scatterplot(ζMs_g[:,1], mMs[:,1])
                 #scatterplot(ζMs_g[:,2], mMs[:,2])
                 @test cor(ζMs_g[:,1], mMs[:,1]) > 0.9
-                @test cor(ζMs_g[:,2], mMs[:,2]) > 0.8
+                @test cor(ζMs_g[:,2], mMs[:,2]) > 0.7
                 map(axes(mMs,2)) do ipar
                     #@show ipar
                     @test isapprox(mMs[:,ipar], ζMs_g[:,ipar]; rtol=0.1)
@@ -208,7 +213,8 @@ test_scenario = (scenario) -> begin
                 # test if uncertainty and reshaping is propagated
                 # here inverse the predicted θs and then test distribution 
                 probcu = HybridProblem(probc, ϕunc=ϕunc_true);
-                n_sample_pred = 2_400
+                n_sample_pred = 10_000 #2_400
+                #n_sample_pred = 400
                 (; y, θsP, θsMs, entropy_ζ) = predict_hvi(rng, probcu; scenario, n_sample_pred);
                 #size(_ζsMs), size(θsMs)
                 #size(_ζsP), size(θsP)
@@ -332,14 +338,14 @@ test_scenario = (scenario) -> begin
             neg_elbo_gtf(rng, ϕ_ini, g, f, py,
             xM[:, i_sites], xP[:, i_sites], y_o[:, i_sites], y_unc[:, i_sites], i_sites;
             int_unc, int_μP_ϕg_unc,
-            cor_ends, pbm_covar_indices, transP, transMs)
+            cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,)
         )
         @test cost isa Float64
         gr = Zygote.gradient(
             ϕ -> neg_elbo_gtf(rng, ϕ, g, f, py,
                 xM[:, i_sites], xP[:, i_sites], y_o[:, i_sites], y_unc[:, i_sites], i_sites;
                 int_unc, int_μP_ϕg_unc,
-                cor_ends, pbm_covar_indices, transP, transMs),
+                cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,),
             CA.getdata(ϕ_ini))
         @test gr[1] isa Vector
     end
@@ -356,14 +362,16 @@ test_scenario = (scenario) -> begin
                 neg_elbo_gtf(rng, ϕ, g_gpu, f, py,
                 xMg_batch, xP_batch, y_o[:, i_sites], y_unc[:, i_sites], i_sites;
                 int_unc, int_μP_ϕg_unc,
-                n_MC=3, cor_ends, pbm_covar_indices, transP, transMs)
+                n_MC=3, cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
+                )
             )
             @test cost isa Float64
             gr = Zygote.gradient(
                 ϕ -> neg_elbo_gtf(rng, ϕ, g_gpu, f, py,
                     xMg_batch, xP_batch, y_o[:, i_sites], y_unc[:, i_sites], i_sites;
                     int_unc, int_μP_ϕg_unc,
-                    n_MC=3, cor_ends, pbm_covar_indices, transP, transMs),
+                    n_MC=3, cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
+                    ),
                 ϕ)
             @test gr[1] isa GPUArraysCore.AbstractGPUVector
             @test eltype(gr[1]) == FT

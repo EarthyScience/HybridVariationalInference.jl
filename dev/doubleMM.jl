@@ -32,7 +32,7 @@ cdev = gdev isa MLDataDevices.AbstractGPUDevice ? cpu_device() : identity
 
 #------ setup synthetic data and training data loader
 prob0_ = HybridProblem(DoubleMM.DoubleMMCase(); scenario);
-(; xM, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
+(; xM, θP_true, θMs_true, xP,  y_true, y_o, y_unc
 ) = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); scenario);
 n_site, n_batch = get_hybridproblem_n_site_and_batch(prob0_; scenario)
 ζP_true, ζMs_true = log.(θP_true), log.(θMs_true)
@@ -59,7 +59,7 @@ n_epoch = 80
     maxiters = n_batches_in_epoch * n_epoch);
 # update the problem with optimized parameters
 prob0o = prob1o =probo;
-y_pred_global, y_pred, θMs = gf(prob0o; scenario, is_inferred=Val(true));
+ y_pred, θMs = gf(prob0o; scenario, is_inferred=Val(true));
 # @descend_code_warntype gf(prob0o; scenario)
 #@usingany UnicodePlots
 plt = scatterplot(θMs_true'[:, 1], θMs[:, 1]);
@@ -77,7 +77,7 @@ histogram(vec(y_pred) - vec(y_true)) # predictions centered around y_o (or y_tru
     (; ϕ, resopt) = solve(prob0o, solver1; scenario, rng,
         callback = callback_loss(20), maxiters = 400)
     prob1o = HybridProblem(prob0o; ϕg = cpu_ca(ϕ).ϕg, θP = cpu_ca(ϕ).θP)
-    y_pred_global, y_pred, θMs = gf(prob1o, xM, xP; scenario)
+     y_pred, θMs = gf(prob1o, xM, xP; scenario)
     scatterplot(θMs_true[1, :], θMs[1, :])
     scatterplot(θMs_true[2, :], θMs[2, :])
     prob1o.θP
@@ -91,7 +91,7 @@ end
     (; ϕ, resopt) = solve(prob2, solver1; scenario, rng,
         callback = callback_loss(20), maxiters = 600)
     prob2o = HybridProblem(prob2; ϕg = collect(ϕ.ϕg), θP = ϕ.θP)
-    y_pred_global, y_pred, θMs = gf(prob2o, xM, xP)
+     y_pred, θMs = gf(prob2o, xM, xP)
     prob2o.θP
 end
 
@@ -127,7 +127,7 @@ end
     (; ϕ, resopt) = solve(prob3, solver1; scenario, rng,
         callback = callback_loss(50), maxiters = 600)
     prob3o = HybridProblem(prob3; ϕg = cpu_ca(ϕ).ϕg, θP = cpu_ca(ϕ).θP)
-    y_pred_global, y_pred, θMs = gf(prob3o, xM, xP; scenario)
+     y_pred, θMs = gf(prob3o, xM, xP; scenario)
     scatterplot(θMs_true[2, :], θMs[2, :])
     prob3o.θP
     scatterplot(vec(y_true), vec(y_pred))
@@ -173,7 +173,7 @@ solver_post = HybridPosteriorSolver(; alg = OptimizationOptimisers.Adam(0.01), n
     (y1, θsP1, θsMs1) = (y, θsP, θsMs);
 
     () -> begin # prediction with fitted parameters  (should be smaller than mean)
-        y_pred_global, y_pred2, θMs = gf(prob1o, xM, xP; scenario)
+         y_pred2, θMs = gf(prob1o, xM, xP; scenario)
         scatterplot(θMs_true[1, :], θMs[1, :])
         scatterplot(θMs_true[2, :], θMs[2, :])
         hcat(θP_true, θP) # all parameters overestimated
@@ -366,7 +366,7 @@ end
         # ζMs = invt.transM.(θMs_i)
         # _f = get_hybridproblem_PBmodel(probo; scenario)
         # y_site = map(eachcol(θPs), θMs_i) do θP, θM
-        #     y_global, y = _f(θP, reshape(θM, (length(θM), 1)), xP[[i_site]])
+        #       y = _f(θP, reshape(θM, (length(θM), 1)), xP[[i_site]])
         #     y[:,1]
         # end |> stack
         nLs = get_hybridproblem_neg_logden_obs(

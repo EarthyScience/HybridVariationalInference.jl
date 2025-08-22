@@ -77,20 +77,23 @@ Returns a matrix `(n_obs x n_site)` of predictions.
 ```julia
 function f_doubleMM_sites(θc::ComponentMatrix, xPc::ComponentMatrix)
     # extract several covariates from xP
-    ST = typeof(getdata(xPc)[1:1,:])  # workaround for non-type-stable Symbol-indexing
-    S1 = (getdata(xPc[:S1,:])::ST)   
-    S2 = (getdata(xPc[:S2,:])::ST)
+    ST = typeof(CA.getdata(xPc)[1:1,:])  # workaround for non-type-stable Symbol-indexing
+    S1 = (CA.getdata(xPc[:S1,:])::ST)   
+    S2 = (CA.getdata(xPc[:S2,:])::ST)
     #
     # extract the parameters as vectors that are row-repeated into a matrix
+    VT = typeof(CA.getdata(θc)[:,1])   # workaround for non-type-stable Symbol-indexing
     n_obs = size(S1, 1)
-    VT = typeof(getdata(θc)[:,1])   # workaround for non-type-stable Symbol-indexing
+    rep_fac = ones_similar_x(xPc, n_obs)      # to reshape into matrix, avoiding repeat
     (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
-        p1 = getdata(θc[:, par]) ::VT
-        repeat(p1', n_obs)  # matrix: same for each concentration row in S1
+        p1 = CA.getdata(θc[:, par]) ::VT
+        #(r0 .* rep_fac)'    # move to computation below to save allocation
+        #repeat(p1', n_obs)  # matrix: same for each concentration row in S1
     end
     #
     # each variable is a matrix (n_obs x n_site)
-    r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
+    #r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
+    (r0 .* rep_fac)' .+ (r1 .* rep_fac)' .* S1 ./ ((K1 .* rep_fac)' .+ S1) .* S2 ./ ((K2 .* rep_fac)' .+ S2)
 end
 ```
 """
@@ -101,15 +104,18 @@ function f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
     S2 = (CA.getdata(xPc[:S2,:])::ST)
     #
     # extract the parameters as vectors that are row-repeated into a matrix
-    n_obs = size(S1, 1)
     VT = typeof(CA.getdata(θc)[:,1])   # workaround for non-type-stable Symbol-indexing
+    n_obs = size(S1, 1)
+    rep_fac = HVI.ones_similar_x(xPc, n_obs) # to reshape into matrix, avoiding repeat
     (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
         p1 = CA.getdata(θc[:, par]) ::VT
-        repeat(p1', n_obs)  # matrix: same for each concentration row in S1
+        #repeat(p1', n_obs)  # matrix: same for each concentration row in S1
+        #(rep_fac .* p1')    # move to computation below to save allocation
     end
     #
     # each variable is a matrix (n_obs x n_site)
-    r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
+    #r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
+    (rep_fac .* r0') .+ (rep_fac .* r1') .* S1 ./ ((rep_fac .* K1') .+ S1) .* S2 ./ ((rep_fac .* K2') .+ S2)
 end
 
 # function f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
@@ -204,7 +210,7 @@ end
 # end
 
 function HVI.get_hybridproblem_priors(::DoubleMMCase; scenario::Val{scen}) where {scen}
-    Dict(keys(θall) .=> fit.(LogNormal, θall, QuantilePoint.(θall .* 3, 0.95)))
+    Dict(keys(θall) .=> fit.(LogNormal, θall, QuantilePoint.(θall .* 3, 0.95), Val(:mode)))
 end
 
 function HVI.get_hybridproblem_MLapplicator(
@@ -371,21 +377,18 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     xP = int_xP_sites(vcat(repeat(xP_S1, 1, n_site), repeat(xP_S2, 1, n_site)))
     #xP[:S1,:]
     θP = par_templates.θP
-    y_global_true, y_true = f(θP, θMs_true', xP)
+    y_true = f(θP, θMs_true', xP)
     σ_o = FloatType(0.01)
     #σ_o = FloatType(0.002)
     logσ2_o = FloatType(2) .* log.(σ_o)
     #σ_o = 0.002
-    y_global_o = y_global_true .+ randn(rng, FloatType, size(y_global_true)) .* σ_o
     y_o = y_true .+ randn(rng, FloatType, size(y_true)) .* σ_o
     (;
         xM,
         θP_true = θP,
         θMs_true,
         xP,
-        y_global_true,
         y_true,
-        y_global_o,
         y_o,
         y_unc = fill(logσ2_o, size(y_o))
     )

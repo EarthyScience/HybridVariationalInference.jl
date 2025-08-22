@@ -18,7 +18,7 @@ Provided are implementations
 - `PBMSiteApplicator`: based on a function that computes predictions per site
 - `PBMPopulationApplicator`: based on a function that computes predictions for entire population
 - `NullPBMApplicator`: returning its input `θMs` for testing
-- `PlainPBMApplicator`: based on a function that takes the same arguments as `apply_model`
+- `DirectPBMApplicator`: based on a function that takes the same arguments as `apply_model`
 """
 abstract type AbstractPBMApplicator end
 
@@ -43,8 +43,7 @@ function apply_model(app::AbstractPBMApplicator, θsP::AbstractMatrix, θsMs::Ab
     # stack does not work on GPU, see specialized method for GPUArrays below
     y_pred = stack(
      map(eachcol(CA.getdata(θsP)), eachslice(CA.getdata(θsMs), dims=3)) do θP, θMs
-        y_global, y_pred_i = app(θP, θMs, xP)
-        y_pred_i
+        app(θP, θMs, xP)
     end)
 end
 function apply_model(app::AbstractPBMApplicator, θsP::GPUArraysCore.AbstractGPUMatrix, θsMs::GPUArraysCore.AbstractGPUArray{ET,3}, xP) where ET
@@ -55,8 +54,7 @@ function apply_model(app::AbstractPBMApplicator, θsP::GPUArraysCore.AbstractGPU
     y1 = apply_model(app, P1, Ms1, xP)[2]
     y1a = reshape(y1, size(y1)..., 1) # add one dimension
     y_pred = mapreduce((a,b) -> cat(a,b; dims=3), Pit, Msit; init=y1a) do θP, θMs
-        y_global, y_pred_i = app(θP, θMs, xP)
-        y_pred_i
+        y_pred_i = app(θP, θMs, xP)
     end
 end
 
@@ -73,6 +71,21 @@ struct NullPBMApplicator <: AbstractPBMApplicator end
 function apply_model(app::NullPBMApplicator, θP::AbstractVector, θMs::AbstractMatrix, xP)
     return CA.getdata(θMs)
 end
+
+"""
+    DirectPBMApplicator()
+
+Process-based-Model applicator that invokes directly given 
+function `f(θP::AbstractVector, θMs::AbstractMatrix, xP)`.
+"""
+struct DirectPBMApplicator{F} <: AbstractPBMApplicator 
+    f::F
+end
+
+function apply_model(app::DirectPBMApplicator, θP::AbstractVector, θMs::AbstractMatrix, xP)
+    return app.f(θP, θMs, xP)
+end
+
 
 
 struct PBMSiteApplicator{F, IT, IXT, VFT} <: AbstractPBMApplicator 
@@ -149,8 +162,7 @@ function apply_model(app::PBMSiteApplicator, θP::AbstractVector, θMs::Abstract
     #obs_vecs = (apply_PBMsite(θMs1, xP1) for (θMs1, xP1) in zip(eachrow(θMs), eachcol(xP)))
     #pred_sites = stack(obs_vecs; dims = 1)
     #pred_sites = stack(obs_vecs) # does not work with Zygote
-    local pred_global = eltype(pred_sites)[] # TODO remove
-    return pred_global, pred_sites
+    return pred_sites
 end
 
 struct PBMPopulationApplicator{MFT, IPT, IT, IXT, F} <: AbstractPBMApplicator 
@@ -219,7 +231,6 @@ function apply_model(app::PBMPopulationApplicator, θP::AbstractVector, θMs::Ab
     local θc = app.intθ(CA.getdata(θ))
     local xPc = app.int_xP(CA.getdata(xP))
     local pred_sites = app.fθpop(θc, xPc)
-    local pred_global = eltype(pred_sites)[] # TODO remove
-    return pred_global, pred_sites
+    return pred_sites
 end
 

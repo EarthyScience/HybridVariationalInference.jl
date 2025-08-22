@@ -20,8 +20,11 @@ using Distributions, DistributionFits
 using StaticArrays: StaticArrays as SA
 using Functors
 using Test: Test # @inferred
+using Missings
 
 export DoubleMM
+
+include("util.jl")
 
 export extend_stacked_nrow, StackedArray
 #public Exp 
@@ -41,6 +44,7 @@ export NullModelApplicator, MagnitudeModelApplicator, NormalScalingModelApplicat
 include("ModelApplicator.jl")
 
 export AbstractPBMApplicator, NullPBMApplicator, PBMSiteApplicator, PBMPopulationApplicator
+export DirectPBMApplicator
 include("PBMApplicator.jl")
 
 # export AbstractGPUDataHandler, NullGPUDataHandler, get_default_GPUHandler
@@ -87,13 +91,15 @@ include("util_opt.jl")
 export cpu_ca, apply_preserve_axes
 include("util_ca.jl")
 
+include("util_gpu.jl")
+
 export neg_logden_indep_normal, entropy_MvNormal
 include("logden_normal.jl")
 
 export get_ca_starts, get_ca_ends, get_cor_count
 include("cholesky.jl")
 
-export neg_elbo_gtf, sample_posterior, predict_hvi
+export neg_elbo_gtf, sample_posterior, predict_hvi, zero_penalty_loss
 include("elbo.jl")
 
 export init_hybrid_params, init_hybrid_ϕunc

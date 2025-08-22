@@ -24,7 +24,7 @@ scenario = Val((:default,))
 
 n_θM, n_θP = length.(values(get_hybridproblem_par_templates(prob; scenario)))
 
-(; xM, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o
+(; xM, θP_true, θMs_true, xP,  y_true,  y_o
 ) = gen_hybridproblem_synthetic(rng, prob; scenario)
 n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
 
