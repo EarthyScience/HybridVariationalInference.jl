@@ -176,16 +176,17 @@ function apply_model(app::PBMSiteApplicator, θP::AbstractVector, θMs::Abstract
     return pred_sites
 end
 
-struct PBMPopulationApplicator{MFT, IPT, IT, IXT, F} <: AbstractPBMApplicator 
+struct PBMPopulationApplicator{MFT, RFT, IT, IXT, F} <: AbstractPBMApplicator 
     fθpop::F
     θFixm::MFT # may be CuMatrix rather than Matrix
-    isP::IPT #Matrix{Int} # transferred to CuMatrix?
+    #isP::IPT #Matrix{Int} # transferred to CuMatrix?
+    rep_fac::RFT
     intθ::IT 
     int_xP::IXT
 end
 
 # let fmap not descend into isP, because indexing with isP on cpu is faster
-@functor PBMPopulationApplicator (θFixm, )
+@functor PBMPopulationApplicator (θFixm, rep_fac)
 
 """
     PBMPopulationApplicator(fθpop, n_batch; θP, θM, θFix, xPvec)
@@ -218,9 +219,11 @@ function PBMPopulationApplicator(fθpop, n_batch;
     #
     intθ = get_concrete(ComponentArrayInterpreter((n_batch,), intθvec))
     int_xP = get_concrete(ComponentArrayInterpreter(int_xP_vec, (n_batch,)))
-    isP = repeat(axes(θP, 1)', n_batch)
+    #isP = repeat(axes(θP, 1)', n_batch)
+    # n_site = size(θMs, 1)
+    rep_fac = ones_similar_x(θP, n_batch) # to reshape into matrix, avoiding repeat
     θFixm = CA.getdata(θFix[isFix])
-    PBMPopulationApplicator(fθpop, θFixm, isP, intθ, int_xP)        
+    PBMPopulationApplicator(fθpop, θFixm, rep_fac, intθ, int_xP)        
 end
 
 function apply_model(app::PBMPopulationApplicator, θP::AbstractVector, θMs::AbstractMatrix, xP) 
@@ -238,11 +241,8 @@ function apply_model(app::PBMPopulationApplicator, θP::AbstractVector, θMs::Ab
     #@benchmark CA.getdata(θP[app.isP])  
     #@benchmark CA.getdata(repeat(θP', size(θMs,1))) 
     #@benchmark rep_fac .* CA.getdata(θP)'  # 
-    # n_site = size(θMs, 1)
-    # rep_fac = ones_similar_x(θP, n_site) # to reshape into matrix, avoiding repeat
-
-    # local θ = hcat(rep_fac .* CA.getdata(θP)', CA.getdata(θMs), app.θFixm) 
-    local θ = hcat(CA.getdata(θP[app.isP]), CA.getdata(θMs), app.θFixm)
+    local θ = hcat(app.rep_fac .* CA.getdata(θP)', CA.getdata(θMs), app.θFixm) 
+    #local θ = hcat(CA.getdata(θP[app.isP]), CA.getdata(θMs), app.θFixm)
     #local θ = hcat(CA.getdata(repeat(θP', size(θMs,1))), CA.getdata(θMs), app.θFixm)
     local θc = app.intθ(CA.getdata(θ))
     local xPc = app.int_xP(CA.getdata(xP))
