@@ -11,7 +11,7 @@ all components of the returned Tuple, also when there were not `missing` in `vec
 * `vectup`: A Vector of identical Tuples 
 
 # Examples
-```jldoctest; output=false, setup = :(using Distributions)
+```jldoctest; output=false
 vectup = [(1,1.01, "string 1"), (2,2.02, "string 2")] 
 vectuptotupvec_allowmissing(vectup) == ([1, 2], [1.01, 2.02], ["string 1", "string 2"])
 # output
