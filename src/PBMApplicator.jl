@@ -46,16 +46,34 @@ function apply_model(app::AbstractPBMApplicator, θsP::AbstractMatrix, θsMs::Ab
         app(θP, θMs, xP)
     end)
 end
+# function apply_model(app::AbstractPBMApplicator, θsP::GPUArraysCore.AbstractGPUMatrix, θsMs::GPUArraysCore.AbstractGPUArray{ET,3}, xP) where ET
+#     # stack does not work on GPU, need to resort to slower mapreduce
+#     # for type stability, apply f at first iterate to supply init to mapreduce
+#     P1, Pit = Iterators.peel(eachcol(CA.getdata(θsP)));
+#     Ms1, Msit = Iterators.peel(eachslice(CA.getdata(θsMs), dims=3));
+#     y1 = apply_model(app, P1, Ms1, xP)[2]
+#     y1a = reshape(y1, size(y1)..., 1) # add one dimension
+#     y_pred = mapreduce((a,b) -> cat(a,b; dims=3), Pit, Msit; init=y1a) do θP, θMs
+#         y_pred_i = app(θP, θMs, xP)
+#     end
+# end
 function apply_model(app::AbstractPBMApplicator, θsP::GPUArraysCore.AbstractGPUMatrix, θsMs::GPUArraysCore.AbstractGPUArray{ET,3}, xP) where ET
     # stack does not work on GPU, need to resort to slower mapreduce
     # for type stability, apply f at first iterate to supply init to mapreduce
-    P1, Pit = Iterators.peel(eachcol(CA.getdata(θsP)));
-    Ms1, Msit = Iterators.peel(eachslice(CA.getdata(θsMs), dims=3));
-    y1 = apply_model(app, P1, Ms1, xP)[2]
-    y1a = reshape(y1, size(y1)..., 1) # add one dimension
-    y_pred = mapreduce((a,b) -> cat(a,b; dims=3), Pit, Msit; init=y1a) do θP, θMs
-        y_pred_i = app(θP, θMs, xP)
+    # avoid Iterators.peel for CUDA
+    y1 = apply_model(app, CA.getdata(θsP)[:,1], CA.getdata(θsMs)[:,:,1], xP)[2]
+    y1a = reshape(y1, :, 1) # add one dimension
+    n_sample = size(θsP,2)
+    y_pred = if (n_sample == 1)
+        y1a
+    else
+      mapreduce((a,b) -> cat(a,b; dims=3), 
+        eachcol(CA.getdata(θsP)[:,2:end]), eachslice(CA.getdata(θsMs)[:,:,2:end], dims=3); 
+        init=y1a) do θP, θMs
+            app(θP, θMs, xP)
+        end
     end
+    return(y_pred)
 end
 
 
@@ -155,13 +173,6 @@ function apply_model(app::PBMSiteApplicator, θP::AbstractVector, θMs::Abstract
     obs1 = apply_PBMsite(θMs1, xP1)
     local pred_sites = mapreduce(
          apply_PBMsite, hcat, it_θMs, it_xP; init=reshape(obs1, :, 1))
-    # # special case of mapreduce producing a vector rather than a matrix
-    # pred_sites = !(pred_sites0 isa AbstractMatrix) ? hcat(pred_sites0) : pred_sites0
-    #obs1 = apply_PBMsite(first(eachrow(θMs)), first(eachcol(xP)))
-    #obs_vecs = map(apply_PBMsite, eachrow(θMs), eachcol(xP))
-    #obs_vecs = (apply_PBMsite(θMs1, xP1) for (θMs1, xP1) in zip(eachrow(θMs), eachcol(xP)))
-    #pred_sites = stack(obs_vecs; dims = 1)
-    #pred_sites = stack(obs_vecs) # does not work with Zygote
     return pred_sites
 end
 
@@ -221,11 +232,16 @@ function apply_model(app::PBMPopulationApplicator, θP::AbstractVector, θMs::Ab
         "or compute PBM on CPU.")
     end
     # repeat θP and concatenate with 
-    # Main.@infiltrate_main
     # repeat is 2x slower for Vector and 100 times slower (with allocation) on GPU
     # app.isP on CPU is slightly faster than app.isP on GPU
+    # multiplication has one more allocation on CPU and same speed, but 5x faster on GPU
     #@benchmark CA.getdata(θP[app.isP])  
     #@benchmark CA.getdata(repeat(θP', size(θMs,1))) 
+    #@benchmark rep_fac .* CA.getdata(θP)'  # 
+    # n_site = size(θMs, 1)
+    # rep_fac = ones_similar_x(θP, n_site) # to reshape into matrix, avoiding repeat
+
+    # local θ = hcat(rep_fac .* CA.getdata(θP)', CA.getdata(θMs), app.θFixm) 
     local θ = hcat(CA.getdata(θP[app.isP]), CA.getdata(θMs), app.θFixm)
     #local θ = hcat(CA.getdata(repeat(θP', size(θMs,1))), CA.getdata(θMs), app.θFixm)
     local θc = app.intθ(CA.getdata(θ))

@@ -21,6 +21,7 @@ using StaticArrays: StaticArrays as SA
 using Functors
 using Test: Test # @inferred
 using Missings
+using FillArrays
 
 export DoubleMM
 

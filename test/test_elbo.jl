@@ -428,6 +428,7 @@ test_scenario = (scenario) -> begin
             xP_dev = ggdev(xP);
             f_pred_dev = fmap(ggdev, f_pred)
             y = @inferred f_pred_dev(θsP, θsMs, xP_dev)
+            #@benchmark f_pred_dev(θsP, θsMs, xP_dev)
             @test y isa GPUArraysCore.AbstractGPUArray
             @test size(y) == (size(y_o)..., n_sample_pred)
         end
