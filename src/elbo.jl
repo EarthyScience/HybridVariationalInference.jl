@@ -133,7 +133,7 @@ function neg_elbo_ζtf(ζsP, ζsMs, σ, f, py, xP, y_ob, y_unc;
     # only Vector inferred, need to provide type hint
     # make that all components use the same Float type
     map_res = map(f_sample, eachcol(ζsP), eachslice(ζsMs; dims=3))::Vector{NTuple{4,eltype(ζsP)}}
-    nLys, neg_log_priors, neglogjacs, loss_penaltys = vectuptotupvec(map_res)
+    nLys, neg_log_priors, neglogjacs, loss_penalties = vectuptotupvec(map_res)
     # For robustness may compute the expectation only on the n_smallest values
     # because its very sensitive to few large outliers
     #nLys_smallest = nsmallest(n_MC_cap, nLys) # does not work with Zygote
@@ -141,7 +141,7 @@ function neg_elbo_ζtf(ζsP, ζsMs, σ, f, py, xP, y_ob, y_unc;
         nLy = sum(nLys) / n_MC
         neg_log_prior = sum(neg_log_priors) / n_MC
         neg_log_jac = sum(neglogjacs) / n_MC
-        loss_penalty = sum(loss_penaltys) / n_MC
+        loss_penalty = sum(loss_penalties) / n_MC
     else
         @warn "neg_elbo_ζtf: TPDP n_MC_cap: implement for for logjac, loss_penalty, and neg_log_prior not capped"
         nLys_smallest = partialsort(nLys, 1:n_MC_cap)
