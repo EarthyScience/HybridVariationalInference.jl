@@ -10,7 +10,7 @@ using Zygote
     @test typeof(first(tupvec)) == Vector{Int}
     # empty not allowed
     @test_throws Exception tupvec = vectuptotupvec([])
-    # do not allow tuples of differnt types - note the Float64 in first entry
+    # do not allow tuples of different types - note the Float64 in first entry
     vectupm = [(1.00,1.01, "string 1"), (2,2.02, "string 2",:asymbol)] 
     @test_throws Exception tupvecm = vectuptotupvec(vectupm)
     #
@@ -36,7 +36,7 @@ end;
     # do not allow tuples of different length
     vectupm = [(1,1.01, "string 1"), (2,2.02, "string 2",:asymbol)] 
     @test_throws Exception tupvecm = vectuptotupvec_allowmissing(vectupm)
-    # do not allow tuples of differnt types - note the Float64 in first entry
+    # do not allow tuples of different types - note the Float64 in first entry
     vectupm = [(1.00,1.01, "string 1"), (2,2.02, "string 2",:asymbol)] 
     @test_throws Exception tupvecm = vectuptotupvec_allowmissing(vectupm)
     #

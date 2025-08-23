@@ -3,9 +3,9 @@
     vectuptotupvec_allowmissing(vectup)
 
 Typesafe convert from Vector of Tuples to Tuple of Vectors.
-The first variant does not allow for missings in `vectup`.
-The second variant allows for missing but has `eltype` of `Union{Missing, ...}` in  
-all components of the returned Tuple, also when there were not missings in `vectup`. 
+The first variant does not allow for `missing` in `vectup`.
+The second variant allows for `missing` but has `eltype` of `Union{Missing, ...}` in  
+all components of the returned Tuple, also when there were not `missing` in `vectup`. 
 
 # Arguments
 * `vectup`: A Vector of identical Tuples 

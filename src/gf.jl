@@ -188,7 +188,7 @@ function get_loss_gf(g, transM, transP, f,
                 g, transMs, transP, f, xM, xP, CA.getdata(ϕc.ϕg), CA.getdata(ϕc.ϕP), 
                 pbm_covar_indices; cdev, kwargs...)
             nLy = sum(abs2, (y_pred .- y_o) ./ σ) 
-            # logpdf ist not typestable for Distribution{Univariate, Continuous}
+            # logpdf is not typestable for Distribution{Univariate, Continuous}
             logpdf_t = (prior, θ) -> logpdf(prior, θ)::eltype(θP_pred)
             logpdf_tv = (prior, θ::AbstractVector) -> begin
                 map(Base.Fix1(logpdf, prior), θ)::Vector{eltype(θP_pred)}

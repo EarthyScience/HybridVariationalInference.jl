@@ -177,7 +177,7 @@ the likelihood of the observations given the parameters * prior probability
 of the parameters.
 
 Sometimes there is additional knowledge not encoded in the prior, such as
-one parameter must be larger than another, or entropy-weights of thhe
+one parameter must be larger than another, or entropy-weights of the
 ML-parameters, and the solver accept a function to add additional loss terms.
 
 Arguments
