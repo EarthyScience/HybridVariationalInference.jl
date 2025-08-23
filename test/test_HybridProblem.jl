@@ -47,7 +47,7 @@ function construct_problem(; scenario::Val{scen}) where scen
     # n_batch = 10
     n_site, n_batch = get_hybridproblem_n_site_and_batch(CP.DoubleMM.DoubleMMCase(); scenario)
     # dependency on DeoubleMMCase -> take care of changes in covariates
-    (; xM, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
+    (; xM, θP_true, θMs_true, xP,  y_true,  y_o, y_unc
     ) = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); scenario)
     n_covar = size(xM,1)
     n_input = (:covarK2 ∈ scen) ? n_covar +1 : n_covar
@@ -73,7 +73,7 @@ function construct_problem(; scenario::Val{scen}) where scen
     θall = vcat(θP, θM)
     priors_dict = Dict{Symbol, Distribution}(
         keys(θall) .=> fit.(LogNormal, θall, QuantilePoint.(θall .* 3, 0.95)))
-    priors_dict[:r1] = fit(Normal, θall.r1, qp_uu(3 * θall.r1)) # not transformed to log-scale
+    priors_dict[:r1] = fit(Normal, θall.r1, qp_uu(3 * θall.r1), Val(:mode)) # not transformed to log-scale
     # scale (0,1) outputs MLmodel to normal distribution fitted to priors translated to ζ
     priorsM = [priors_dict[k] for k in keys(θM)]
     lowers, uppers = get_quantile_transformed(priorsM, transM)
@@ -147,13 +147,15 @@ test_without_flux = (scenario) -> begin
         pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
         intϕ = ComponentArrayInterpreter(CA.ComponentVector(
             ϕg=1:length(ϕg0), ϕP=par_templates.θP))
+        priors = get_hybridproblem_priors(prob; scenario)
+        priorsP = [priors[k] for k in keys(par_templates.θP)]
+        priorsM = [priors[k] for k in keys(par_templates.θM)]
         # slightly disturb θP_true
         p = p0 = vcat(ϕg0, par_templates.θP .* convert(eltype(ϕg0), 0.8))  
 
         # Pass the site-data for the batches as separate vectors wrapped in a tuple
-        y_global_o = Float64[]
-        loss_gf = get_loss_gf(g, transM, transP, f, y_global_o, intϕ; 
-            pbm_covars, n_site_batch = n_batch)
+        loss_gf = get_loss_gf(g, transM, transP, f,  intϕ; 
+            pbm_covars, n_site_batch = n_batch, priorsP, priorsM)
         (_xM, _xP, _y_o, _y_unc, _i_sites) = first(train_loader)
         l1 = loss_gf(p0, _xM, _xP, _y_o, _y_unc, _i_sites)
 
@@ -173,9 +175,10 @@ test_without_flux = (scenario) -> begin
                 #        optprob, Adam(0.02), 
                 callback = callback_loss(100),
                 optprob, Adam(0.02), epochs = 150);
-            loss_gf_sites = get_loss_gf(g, transM, transP, f, y_global_o, intϕ; 
+            loss_gf_sites = get_loss_gf(g, transM, transP, f,  intϕ; 
                 pbm_covars, n_site_batch = n_site)
-            l1, y_pred_global, y_pred, θMs_pred = loss_gf_sites(res.u, train_loader.data...)
+            l1, y_pred, θMs_pred, θP, nLy, neg_log_prior = loss_gf_sites(
+                res.u, train_loader.data...)
             @test isapprox(par_templates.θP, transP(intϕ(res.u).ϕP), rtol=0.5)
         end
     end
@@ -258,8 +261,7 @@ test_with_flux_gpu = (scenario) -> begin
                 epochs = 2,
                 θmean_quant = 0.01,   # test constraining mean to initial prediction     
                 is_inferred = Val(true),
-                gdevs = (; gdev_M=gpu_device(), gdev_P=identity),
-        );
+                gdevs = (; gdev_M=gpu_device(), gdev_P=identity),);
             @test CA.getdata(ϕ) isa GPUArraysCore.AbstractGPUVector
             #@test cdev(ϕ.unc.ρsM)[1] > 0 # too few iterations in test -> may fail
             #
@@ -309,7 +311,6 @@ test_with_flux_gpu = (scenario) -> begin
                 is = vcat(pos.P, vec(pos.Ms[i_sites,:]))
                 cr[is,is]
             end
-
         end;
         @testset "HybridPosteriorSolver also f on gpu  $(last(CP._val_value(scenario)))" begin
             scenf = Val((CP._val_value(scenario)..., :use_Flux, :use_gpu, :omit_r0, :f_on_gpu))

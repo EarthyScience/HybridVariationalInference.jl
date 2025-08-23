@@ -28,8 +28,11 @@ expected value of the likelihood of observations.
   using the mechanistic model f.
 """
 function neg_elbo_gtf(args...; kwargs...)
-    nLy, entropy_ζ, nLmean_θ = neg_elbo_gtf_components(args...; kwargs...)
-    nLy - entropy_ζ + nLmean_θ
+    # TODO prior and penalty loss
+    (;nLjoint, entropy_ζ, loss_penalty, 
+        nLy, neg_log_prior, neg_log_jac, 
+        nLmean_θ) = neg_elbo_gtf_components(args...; kwargs...)
+    nLjoint - entropy_ζ + loss_penalty + nLmean_θ
 end
 
 function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
@@ -46,6 +49,8 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
     transP, transMs, 
     trans_mP =StackedArray(transP, n_MC), # provide with creating cost function
     trans_mMs =StackedArray(transMs.stacked, n_MC),
+    priorsP, priorsM,
+    floss_penalty = zero_penalty_loss,
 ) where {FT}
     n_MCr = isempty(priors_θP_mean) ? n_MC : max(n_MC, n_MC_mean)
     ζsP, ζsMs, σ = generate_ζ(rng, g, ϕ, xM; n_MC=n_MCr, cor_ends, pbm_covar_indices,
@@ -54,14 +59,16 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
     ζsMs_cpu = cdev(ζsMs) # fetch to CPU, because for <1000 sites (n_batch) this is faster
     #
     # maybe: translate ζ once and supply to both neg_elbo and negloglik_meanθ
-    nLy, entropy_ζ = neg_elbo_ζtf(
+    ϕc = int_μP_ϕg_unc(ϕ)
+    loss_comps = neg_elbo_ζtf(
         ζsP_cpu[:,1:n_MC], ζsMs_cpu[:,:,1:n_MC], σ, f, py, xP, y_ob, y_unc;
-        n_MC_cap, transP, transMs, )
+        n_MC_cap, transP, transMs, priorsP, priorsM, 
+        floss_penalty, ϕg = ϕc.ϕg, ϕunc = ϕc.unc,)
     #
     # maybe: provide trans_mP and trans_mMs with creating cost function
     nLmean_θ = _compute_negloglik_meanθ(ζsP_cpu, ζsMs_cpu; 
-        trans_mP, trans_mMs, priors_θP_mean, priors_θMs_mean, i_sites)
-    nLy, entropy_ζ, nLmean_θ
+        trans_mP, trans_mMs, priors_θP_mean, priors_θMs_mean, i_sites, )
+    (;loss_comps..., nLmean_θ)
 end
 
 function _compute_negloglik_meanθ(ζsP::AbstractMatrix{FT}, ζsMs; 
@@ -83,34 +90,60 @@ end
 Compute the neg_elbo for each sampled parameter vector (last dimension of ζs).
 - Transform and compute log-jac
 - call forward model
-- compute log-density of predictions
+- compute log-density of joint density of predictions and unconstrained parameters, `nLjoint`
+  and its components
+  - `nLy`: The likelihood of the data, given the parameters
+  - `neg_log_prior`: the prior of parameters at constrained scale
+  - `logjac`, negative logarithm of the absolute value of the determinant of the Jacobian of 
+    the transformation `θ=T(ζ)`.
+- `loss_penalty`: additional loss terms from floss_penalty
 - compute entropy of transformation
 """
 function neg_elbo_ζtf(ζsP, ζsMs, σ, f, py, xP, y_ob, y_unc;
     n_MC_cap=size(ζsP,2),
     transP,
-    transMs=StackedArray(transM, size(ζsMs, 2))
+    transMs=StackedArray(transM, size(ζsMs, 2)),
+    priorsP, priorsM,
+    floss_penalty, ϕg, ϕunc,
 )
     n_MC = size(ζsP,2)
-    nLys = map(eachcol(ζsP), eachslice(ζsMs; dims=3)) do ζP, ζMs
-        θP, θMs, logjac = transform_and_logjac_ζ(ζP, ζMs; transP, transMs)
-        y_pred_global, y_pred_i = f(θP, θMs, xP)
-        # TODO nLogDen prior on \theta
-        #nLy1 = neg_logden_indep_normal(y_ob, y_pred_i, y_unc)
-        # Main.@infiltrate_main
-        # Test.@inferred( f(θP, θMs, xP) )
-        # using ShareAdd
-        # @usingany Cthulhu
-        # @descend_code_warntype f(θP, θMs, xP)
-        nLy1 = py(y_ob, y_pred_i, y_unc)
-        nLy1 - logjac
-    end
+    cdev = cpu_device() #TODO avoid the cdev
+    f_sample = (ζP, ζMs) -> begin    
+            θP, θMs, logjac_i = transform_and_logjac_ζ(ζP, ζMs; transP, transMs)
+            logpdf_t = (prior, θ) -> logpdf(prior, θ)::eltype(θP)
+            logpdf_tv = (prior, θ::AbstractVector) -> begin
+                map(Base.Fix1(logpdf, prior), θ)::Vector{eltype(θMs)}
+            end
+            #TODO avoid the cdev, but compute prior on GPU because transfer takes very long
+            neg_log_prior_i = -sum(logpdf_t.(priorsP, cdev(θP))) - sum(map(
+                (priorMi, θMi) -> sum(logpdf_tv(priorMi, θMi)), priorsM, eachcol(cdev(θMs)))) 
+            y_pred_i = f(θP, θMs, xP)
+            #nLy1 = neg_logden_indep_normal(y_ob, y_pred_i, y_unc)
+            # Main.@infiltrate_main
+            # Test.@inferred( f(θP, θMs, xP) )
+            # using ShareAdd
+            # @usingany Cthulhu
+            # @descend_code_warntype f(θP, θMs, xP)
+            nLy_i = py(y_ob, y_pred_i, y_unc)
+            loss_penalty_i = convert(eltype(ζMs),floss_penalty(y_pred_i, θMs, θP, ϕg, ϕunc))
+            # make sure names to not match outer, otherwise Box type instability
+            (nLy_i, neg_log_prior_i, -logjac_i, loss_penalty_i)
+            #(nLy_i, 0.0, 0.0, 0.0)
+        end
+    # only Vector inferred, need to provide type hint
+    # make that all components use the same Float type
+    map_res = map(f_sample, eachcol(ζsP), eachslice(ζsMs; dims=3))::Vector{NTuple{4,eltype(ζsP)}}
+    nLys, neg_log_priors, neglogjacs, loss_penalties = vectuptotupvec(map_res)
     # For robustness may compute the expectation only on the n_smallest values
     # because its very sensitive to few large outliers
     #nLys_smallest = nsmallest(n_MC_cap, nLys) # does not work with Zygote
     if n_MC_cap == n_MC
         nLy = sum(nLys) / n_MC
+        neg_log_prior = sum(neg_log_priors) / n_MC
+        neg_log_jac = sum(neglogjacs) / n_MC
+        loss_penalty = sum(loss_penalties) / n_MC
     else
+        @warn "neg_elbo_ζtf: TPDP n_MC_cap: implement for for logjac, loss_penalty, and neg_log_prior not capped"
         nLys_smallest = partialsort(nLys, 1:n_MC_cap)
         nLy = sum(nLys_smallest) / n_MC_cap
     end
@@ -130,8 +163,37 @@ function neg_elbo_ζtf(ζsP, ζsMs, σ, f, py, xP, y_ob, y_unc;
     #     @show std(nLys), std(nLys)/abs(nLy)
     #     @show std(nLys_smallest), std(nLys_smallest)/abs(nLy)
     # end
-    nLy, entropy_ζ
+    nLjoint = nLy + neg_log_prior + neg_log_jac
+    (;nLjoint, entropy_ζ, loss_penalty, nLy, neg_log_prior, neg_log_jac)
 end
+
+"""
+    zero_penalty_loss(y_pred, θMs, θP, ϕg, ϕunc)
+
+Add zero i.e. no additional loss terms during the HVI fit.
+
+The basic cost in HVI is the negative log of the joint probability, i.e.
+the likelihood of the observations given the parameters * prior probability
+of the parameters.
+
+Sometimes there is additional knowledge not encoded in the prior, such as
+one parameter must be larger than another, or entropy-weights of the
+ML-parameters, and the solver accept a function to add additional loss terms.
+
+Arguments
+- y_pred::AbstractMatrix: Observations
+- θMs::AbstractMatrix: site parameters
+- θP::AbstractVector: global parameters
+- ϕg: ML-model parameters, 
+- ϕunc::AbstractVector, additional parameters of the posterior
+"""
+function zero_penalty_loss(
+    y_pred::AbstractMatrix, θMs::AbstractMatrix, θP::AbstractVector, 
+    ϕg, ϕunc::AbstractVector)
+    return zero(eltype(θMs))
+end
+
+
 
 """
     predict_hvi([rng], predict_hvi(rng, prob::AbstractHybridProblem)
@@ -275,71 +337,8 @@ function sample_posterior(rng, g, ϕ::AbstractVector, xM::AbstractMatrix;
     θsP, θsMs = is_infer ? 
         Test.@inferred(transform_ζs(ζsP, ζsMs; trans_mP, trans_mMs)) :
         transform_ζs(ζsP, ζsMs; trans_mP, trans_mMs)
-    # res_pred = is_infer ? 
-    #     apply_f_trans(ζsP_cpu, ζsMs_cpu, f, xP; transP, transM, kwargs...) :
-    #     Test.@inferred apply_f_trans(ζsP_cpu, ζsMs_cpu, f, xP; transP, transM, kwargs...) 
     (; θsP, θsMs, entropy_ζ)
 end
-
-
-# """ 
-# Compute predictions of the transformation at given
-# transformed parameters for each site. 
-# The number of sites is given by the number of rows in `ζsMs`.
-
-# Steps:
-# - transform the parameters to original constrained space
-# - Applies the mechanistic model for each site
-
-# `ζsP` and `ζsMs` are shaped according to the output of `generate_ζ`.
-# Results are of shape `(n_obs x n_site_pred x n_MC)`.
-# """
-# function apply_f_trans(ζsP::AbstractMatrix, ζsMs::AbstractArray, f, xP; 
-#     transP, transM::Stacked,
-#     trans_mP=StackedArray(transP, size(ζsP, 2)),
-#     trans_mMs=StackedArray(transM, size(ζsMs, 1) * size(ζsMs, 3))
-# )
-#     θsP, θsMs = transform_ζs(ζsP, ζsMs; trans_mP, trans_mMs)
-#     y = apply_process_model(θsP, θsMs, f, xP)
-#     (; y, θsP, θsMs)
-# end
-
-# function apply_f_trans(ζP::AbstractVector, ζMs::AbstractMatrix, f, xP; 
-#     transP, transM::Stacked, transMs::StackedArray=StackedArray(transM, size(ζMs, 1)),
-# )
-#     θP = transP(ζP)
-#     θMs = transMs(ζMs)
-#     y_global, y = f(θP, θMs, xP)
-#     (; y, θP, θMs)
-# end
-
-# """
-#     apply_process_model(θsP::AbstractMatrix, θsMs::AbstractArray{ET,3}, f, xP)
-
-# Call a PBM applicator for a sample of parameters of each site, and stack results
-
-# `θsP` and `θsMs` are shaped according to the output of `generate_ζ`, i.e.
-# `(n_site_pred x n_par x n_MC)`.
-# Results are of shape `(n_obs x n_site_pred x n_MC)`.
-# """
-# function apply_process_model(θsP::AbstractMatrix, θsMs::AbstractArray{ET,3}, f, xP) where ET
-#     error("deprecated, use f(θsP, θsMs, xP)")
-#     # stack does not work on GPU
-#     # y_pred = stack(
-#     #  map(eachcol(CA.getdata(θsP)), eachslice(CA.getdata(θsMs), dims=3)) do θP, θMs
-#     #     y_global, y_pred_i = f(θP, θMs, xP)
-#     #     y_pred_i
-#     # end)
-#     # for type stability, apply f at first iterate to supply init to mapreduce
-#     P1, Pit = Iterators.peel(eachcol(CA.getdata(θsP)));
-#     Ms1, Msit = Iterators.peel(eachslice(CA.getdata(θsMs), dims=3));
-#     y1 = f(P1, Ms1, xP)[2]
-#     y1a = reshape(y1, size(y1)..., 1) # add one dimension
-#     y_pred = mapreduce((a,b) -> cat(a,b; dims=3), Pit, Msit; init=y1a) do θP, θMs
-#         y_global, y_pred_i = f(θP, θMs, xP)
-#         y_pred_i
-#     end
-# end
 
 """
 Generate samples of (inv-transformed) model parameters, ζ, 

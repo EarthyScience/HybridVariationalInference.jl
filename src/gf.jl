@@ -97,6 +97,7 @@ function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, ζP;
 end
 
 
+
 function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, ζP, 
     pbm_covar_indices::AbstractVector{<:Integer}; 
     cdev)
@@ -112,8 +113,8 @@ function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, ζP,
     θMs = gtrans(g, transMs, xMP, ϕg; cdev)
     θP = transP(CA.getdata(ζP))
     θP_cpu = cdev(θP) 
-    y_pred_global, y_pred = f(θP_cpu, θMs, xP)
-    return y_pred_global, y_pred, θMs, θP_cpu
+    y_pred = f(θP_cpu, θMs, xP)
+    return y_pred, θMs, θP_cpu
 end
 
 """
@@ -136,7 +137,6 @@ Create a loss function for given
 - g(x, ϕ): machine learning model 
 - transM: transforamtion of parameters at unconstrained space
 - f(θMs, θP): mechanistic model 
-- y_o_global: site-independent observations
 - intϕ: interpreter attaching axis with components ϕg and ϕP
 - intP: interpreter attaching axis to ζP = ϕP with components used by f
 - kwargs: additional keyword arguments passed to gf, such as gdev or pbm_covars
@@ -148,19 +148,30 @@ The loss function `loss_gf(ϕ, xM, xP, y_o, y_unc, i_sites)` takes
 - y_o: matrix of observations, sites in columns
 - y_unc: vector of uncertainty information for each observation
 - i_sites: index of sites in the batch
+
+and returns a NamedTuple of 
+- `nLjoint`: the negative-log of the joint parameter probability (Likelihood * prior)
+- `y_pred`: predicted values
+- `θMs`, `θP`: PBM-parameters 
+- `nLy`: negative log-Likelihood of y_pred
+- `neg_log_prior`: negative log-prior of `θMs` and `θP`
+- `neg_log_prior`: negative log-prior of `θMs` and `θP`
 """
-function get_loss_gf(g, transM, transP, f, y_o_global, 
+function get_loss_gf(g, transM, transP, f,  
     intϕ::AbstractComponentArrayInterpreter,
     intP::AbstractComponentArrayInterpreter = ComponentArrayInterpreter(
         intϕ(1:length(intϕ)).ϕP);
     cdev=cpu_device(),
-    pbm_covars, n_site_batch, kwargs...)
+    pbm_covars, n_site_batch, 
+    priorsP, priorsM, floss_penalty = zero_penalty_loss,
+    kwargs...)
 
-    let g = g, transM = transM, transP = transP, f = f, y_o_global = y_o_global, 
+    let g = g, transM = transM, transP = transP, f = f, 
         intϕ = get_concrete(intϕ),
         transMs = StackedArray(transM, n_site_batch),
         cdev = cdev,
-        pbm_covar_indices = CA.getdata(intP(1:length(intP))[pbm_covars])
+        pbm_covar_indices = CA.getdata(intP(1:length(intP))[pbm_covars]),
+        priorsP = priorsP, priorsM = priorsM, floss_penalty = floss_penalty
         #, intP = get_concrete(intP)
         #inv_transP = inverse(transP), kwargs = kwargs
         function loss_gf(ϕ, xM, xP, y_o, y_unc, i_sites)
@@ -173,11 +184,21 @@ function get_loss_gf(g, transM, transP, f, y_o_global,
             # ζP_cpu = cdev(CA.getdata(μ_ζP))
             # ζMs_cpu = cdev(CA.getdata(μ_ζMs))
             # y_pred, _, _ = apply_f_trans(ζP_cpu, ζMs_cpu, f, xP; transM, transP)
-            y_pred_global, y_pred, θMs, θP = gf(
+            y_pred, θMs_pred, θP_pred = gf(
                 g, transMs, transP, f, xM, xP, CA.getdata(ϕc.ϕg), CA.getdata(ϕc.ϕP), 
                 pbm_covar_indices; cdev, kwargs...)
-            loss = sum(abs2, (y_pred .- y_o) ./ σ) #+ sum(abs2, y_pred_global .- y_o_global)
-            return loss, y_pred, θMs, θP
+            nLy = sum(abs2, (y_pred .- y_o) ./ σ) 
+            # logpdf is not typestable for Distribution{Univariate, Continuous}
+            logpdf_t = (prior, θ) -> logpdf(prior, θ)::eltype(θP_pred)
+            logpdf_tv = (prior, θ::AbstractVector) -> begin
+                map(Base.Fix1(logpdf, prior), θ)::Vector{eltype(θP_pred)}
+            end
+            neg_log_prior = -sum(logpdf_t.(priorsP, θP_pred)) - sum(map(
+                (priorMi, θMi) -> sum(logpdf_tv(priorMi, θMi)), priorsM, eachcol(θMs_pred))) 
+            ϕunc = eltype(θP_pred)[]  # no uncertainty parameters optimized
+            loss_penalty = floss_penalty(y_pred, θMs_pred, θP_pred, ϕc.ϕg, ϕunc)
+            nLjoint_pen = nLy + neg_log_prior + loss_penalty
+            return (;nLjoint_pen, y_pred, θMs_pred, θP_pred, nLy, neg_log_prior, loss_penalty)
         end
     end
 end

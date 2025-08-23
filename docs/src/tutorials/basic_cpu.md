@@ -104,14 +104,14 @@ HVI is an approximate bayesian analysis and combines prior information on
 the parameters with the model and observed data.
 
 Here, we provide a wide prior by fitting a Lognormal distributions to
-- the mean corresponding to the initial value provided above
-- the 0.95-quantile 3 times the mean
+- the mode corresponding to the initial value provided above
+- the 0.95-quantile 3 times the mode
 using the `DistributionFits.jl` package.
 
 ``` julia
 θall = vcat(θP, θM)
 priors_dict = Dict{Symbol, Distribution}(
-    keys(θall) .=> fit.(LogNormal, θall, QuantilePoint.(θall .* 3, 0.95)))
+    keys(θall) .=> fit.(LogNormal, θall, QuantilePoint.(θall .* 3, 0.95), Val(:mode)))
 ```
 
 ## Observations, model drivers and covariates

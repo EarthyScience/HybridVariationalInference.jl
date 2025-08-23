@@ -27,6 +27,7 @@ using StableRNGs
 using MLUtils
 using JLD2
 using Random
+using MLDataDevices
 # using CairoMakie
 # using PairPlots   # scatterplot matrices
 ```
@@ -88,15 +89,16 @@ Hence specify
 - `gdevs = (; gdev_M=gpu_device(), gdev_P=gpu_device())`: to move both ML model and PBM to GPU
 - `gdevs = (; gdev_M=gpu_device(), gdev_P=identity)`: to move both ML model to GPU but execute the PBM (and parameter transformation) on CPU
 
+Currently, putting the PBM on gpu is not efficient during inversion, because
+prior distribution needs to be evaluated for each sample.
+However, sampling and prediction using a fitted model is efficient.
+
 In addition, the libraries of the GPU device need to be activated by
 importing respective Julia packages.
 Currently, only CUDA is tested with this `HybridVariationalInference` package.
 
 ``` julia
 import CUDA, cuDNN # so that gpu_device() returns a CUDADevice
-#CUDA.device!(4)
-gdevs = (; gdev_M=gpu_device(), gdev_P=gpu_device())
-#gdevs = (; gdev_M=gpu_device(), gdev_P=identity)
 
 using OptimizationOptimisers
 import Zygote
@@ -105,7 +107,7 @@ solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)
 (; probo) = solve(prob_lux, solver; 
     callback = callback_loss(100), 
     epochs = 10,
-    gdevs,
+    gdevs = (; gdev_M=gpu_device(), gdev_P=identity)
 ); probo_lux = probo;
 ```
 
@@ -116,7 +118,8 @@ The sampling and prediction methods, also take this `gdevs` keyword argument.
 ``` julia
 n_sample_pred = 400
 (y_dev, θsP_dev, θsMs_dev) = (; y, θsP, θsMs) = predict_hvi(
-  rng, probo_lux; n_sample_pred, gdevs);
+  rng, probo_lux; n_sample_pred, 
+  gdevs = (; gdev_M=gpu_device(), gdev_P=gpu_device()));
 ```
 
 If `gdev_P` is not an `AbstractGPUDevice` then all the results are on CPU.

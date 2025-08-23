@@ -5,7 +5,7 @@
 CurrentModule = HybridVariationalInference  
 ```
 
-This tutorial leads you through querying relevant information from the
+This tutorial leads you through extracting relevant information from the
 inversion results and to produce some typical plots.
 
 First load necessary packages.
@@ -110,7 +110,7 @@ In addition to the uncertainty in parameters, we are also interested in
 the uncertainty of predictions, i.e. the predictive posterior.
 
 We cam either run the PBM for all the parameter samples that we obtained already,
-using the [`AbstractModelApplicator`](@ref), or use [`predict_hvi`](@ref) which combines
+using the [`AbstractPBMApplicator`](@ref), or use [`predict_hvi`](@ref) which combines
 sampling the posterior and predictive posterior and returns the additional
 `NamedTuple` entry `y`.
 

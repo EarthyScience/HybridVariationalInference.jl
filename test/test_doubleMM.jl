@@ -32,12 +32,12 @@ par_templates = get_hybridproblem_par_templates(prob; scenario)
 @testset "get_hybridproblem_priors" begin
     θall = vcat(par_templates...)
     priors = get_hybridproblem_priors(prob; scenario)
-    @test mean(priors[:K2]) == θall.K2
+    @test mode(priors[:K2]) == θall.K2
     @test quantile(priors[:K2], 0.95) ≈ θall.K2 * 3 # fitted in f_doubleMM
 end
 
 rng = StableRNG(111) # make sure to be the same as when constructing train_dataloader
-(; xM, θP_true, θMs_true, xP, y_global_true, y_true, y_global_o, y_o, y_unc
+(; xM, θP_true, θMs_true, xP,  y_true,  y_o, y_unc,
 ) = gen_hybridproblem_synthetic(rng, prob; scenario);
 n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
 i_sites = 1:n_site
@@ -82,7 +82,7 @@ end
 
     f_batch = PBMSiteApplicator(CP.DoubleMM.f_doubleMM; 
         θP = θP_true, θM = θMs_true[:,1], θFix=CA.ComponentVector(), xPvec=xP[:,1])
-    y_exp = f_batch(θP_true, θMs_true', xP)[2]
+    y_exp = f_batch(θP_true, θMs_true', xP)
     @test y == y_exp
     ygrad = Zygote.gradient(θv -> sum(fy(θv, xPM)), θvec)[1]
     if gdev isa MLDataDevices.AbstractGPUDevice
@@ -90,10 +90,10 @@ end
         # xPMg = gdev(xPM)
         # yg = CP.DoubleMM.f_doubleMM(θg, xPMg, intθ);
         θvecg = gdev(θvec); # errors without ";"
-        xPMg = CP.apply_preserve_axes(gdev, xPM) 
-        yg = @inferred fy(θvecg, xPMg)
+        xPMg = CP.apply_preserve_axes(gdev, xPM); 
+        yg = @inferred fy(θvecg, xPMg);
         @test cdev(yg) == y_exp
-        ygradg = Zygote.gradient(θv -> sum(fy(θv, xPMg)), θvecg)[1]
+        ygradg = Zygote.gradient(θv -> sum(fy(θv, xPMg)), θvecg)[1];
         @test ygradg isa CA.ComponentArray
         @test CA.getdata(ygradg) isa GPUArraysCore.AbstractGPUArray
         ygradgc = CP.apply_preserve_axes(cdev, ygradg) # can print the cpu version
@@ -199,6 +199,9 @@ end
     n_site, n_site_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = false)
     f2 = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = true)
+    priors = get_hybridproblem_priors(prob; scenario)
+    priorsP = [priors[k] for k in keys(par_templates.θP)]
+    priorsM = [priors[k] for k in keys(par_templates.θM)]
 
     intϕ = ComponentArrayInterpreter(CA.ComponentVector(
         ϕg = 1:length(ϕg0), ϕP = par_templates.θP))
@@ -214,12 +217,12 @@ end
     @assert train_loader.data == (xM, xP, y_o, y_unc, i_sites)
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
 
-    #loss_gf = get_loss_gf(g, transM, f, y_global_o, intϕ; gdev = identity)
-    loss_gf = get_loss_gf(g, transM, transP, f, y_global_o, intϕ;
-        pbm_covars, n_site_batch = n_batch)
-    loss_gf2 = get_loss_gf(g, transM, transP, f2, y_global_o, intϕ;
-        pbm_covars, n_site_batch = n_site)
-    l1 = @inferred first(loss_gf(p0, first(train_loader)...))
+    #loss_gf = get_loss_gf(g, transM, f,  intϕ; gdev = identity)
+    loss_gf = get_loss_gf(g, transM, transP, f,  intϕ;
+        pbm_covars, n_site_batch = n_batch, priorsP, priorsM)
+    loss_gf2 = get_loss_gf(g, transM, transP, f2,  intϕ;
+        pbm_covars, n_site_batch = n_site, priorsP, priorsM)
+    nLjoint = @inferred first(loss_gf(p0, first(train_loader)...))
     (xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch) = first(train_loader)
     # @usingany Cthulhu
     # @descend_code_warntype loss_gf(p0, xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch)
@@ -232,16 +235,19 @@ end
 
     res = Optimization.solve(
         #optprob, Adam(0.02), callback = callback_loss(100), maxiters = 5000);
-        optprob, Adam(0.02), maxiters = 1000)
+        optprob, Adam(0.02), maxiters = 2000)
 
-    l1, y_pred, θMs_pred, θP_pred = loss_gf2(res.u, train_loader.data...)
-    #l1, y_pred_global, y_pred, θMs_pred = loss_gf(p0, xM, xP, y_o, y_unc);
+    (;nLjoint_pen, y_pred, θMs_pred, θP_pred, nLy, neg_log_prior, loss_penalty) = loss_gf2(
+        res.u, train_loader.data...)
+    #(nLjoint,  y_pred, θMs_pred, θP, nLy, neg_log_prior, loss_penalty) = loss_gf(p0, xM, xP, y_o, y_unc);
     θMs_pred = CA.ComponentArray(θMs_pred, CA.getaxes(θMs_true'))
     #TODO @test isapprox(par_templates.θP, intϕ(res.u).ϕP, rtol = 0.15)
     #@test cor(vec(θMs_true), vec(θMs_pred)) > 0.8
     @test cor(θMs_true'[:, 1], θMs_pred[:, 1]) > 0.8
     @test cor(θMs_true'[:, 2], θMs_pred[:, 2]) > 0.8
     # started from low values -> increased but not too much above true values
+    # logpdf.(priorsP, θP_pred)
+    # logpdf.(priorsP, par_templates.θP)
     @test all(transP(intϕ(p0).ϕP) .< θP_pred .< (1.2 .* par_templates.θP))
 
     () -> begin

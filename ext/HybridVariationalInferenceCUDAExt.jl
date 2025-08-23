@@ -2,6 +2,7 @@ module HybridVariationalInferenceCUDAExt
 
 using HybridVariationalInference, CUDA
 using HybridVariationalInference: HybridVariationalInference as HVI
+using ComponentArrays: ComponentArrays as CA
 using ChainRulesCore
 
 # here, really CUDA-specific implementation, in case need to code other GPU devices
@@ -83,6 +84,12 @@ function HVI._create_randn(rng, v::CUDA.CuVector{T,M}, dims...) where {T,M}
     res = ChainRulesCore.@ignore_derivatives CUDA.randn(dims...)
     res::CUDA.CuArray{T, length(dims),M}
 end
+
+function HVI.ones_similar_x(x::CuArray, size_ret = size(x))
+    # call CUDA.ones rather than ones for x::CuArray
+    ChainRulesCore.@ignore_derivatives CUDA.ones(eltype(x), size_ret)
+end
+
 
 
 
