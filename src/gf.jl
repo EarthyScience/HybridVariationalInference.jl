@@ -138,8 +138,9 @@ Create a loss function for given
 - transM: transforamtion of parameters at unconstrained space
 - f(θMs, θP): mechanistic model 
 - intϕ: interpreter attaching axis with components ϕg and ϕP
-- intP: interpreter attaching axis to ζP = ϕP with components used by f
-- kwargs: additional keyword arguments passed to gf, such as gdev or pbm_covars
+- intP: interpreter attaching axis to ζP = ϕP with components used by f,
+  The default, uses `intϕ(ϕ)` as a template
+- kwargs: additional keyword arguments passed to `gf`, such as `gdev` or `pbm_covars`
 
 The loss function `loss_gf(ϕ, xM, xP, y_o, y_unc, i_sites)` takes   
 - parameter vector ϕ
@@ -147,6 +148,8 @@ The loss function `loss_gf(ϕ, xM, xP, y_o, y_unc, i_sites)` takes
 - xP: iteration of drivers for each site
 - y_o: matrix of observations, sites in columns
 - y_unc: vector of uncertainty information for each observation
+  Currently, hardcoes squared error loss of `(y_pred .- y_o) ./ σ`, 
+  with `σ = exp.(y_unc ./ 2)`.
 - i_sites: index of sites in the batch
 
 and returns a NamedTuple of 

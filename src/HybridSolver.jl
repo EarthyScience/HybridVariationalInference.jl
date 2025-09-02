@@ -54,6 +54,8 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     # Zygote.gradient(ϕ0_dev -> loss_gf(ϕ0_dev, data1...)[1], ϕ0_dev)
     optf = Optimization.OptimizationFunction((ϕ, data) -> loss_gf(ϕ, data...)[1],
         Optimization.AutoZygote())
+    # use CA.getdata(ϕ0_dev), i.e. the plain vector to avoid recompiling for specific CA
+    # loss_gf re-attaches the axes
     optprob = OptimizationProblem(optf, CA.getdata(ϕ0_dev), train_loader_dev)
     res = Optimization.solve(optprob, solver.alg; kwargs...)
     ϕ = intϕ(res.u)
