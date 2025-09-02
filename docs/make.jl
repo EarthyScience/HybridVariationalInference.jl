@@ -24,6 +24,7 @@ makedocs(;
         ],
         "How to" => [
             ".. use GPU" => "tutorials/lux_gpu.md",
+            ".. specify log-Likelihood" => "tutorials/logden_user.md",
             ".. model independent parameters" => "tutorials/blocks_corr.md",
             ".. model site-global corr" => "tutorials/corr_site_global.md",
         ],
