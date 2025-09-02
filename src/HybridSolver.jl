@@ -32,13 +32,14 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
         train_loader_dev = train_loader
     end
     f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites=false)
+    py = get_hybridproblem_neg_logden_obs(prob; scenario)
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     priors = get_hybridproblem_priors(prob; scenario)
     priorsP = [priors[k] for k in keys(par_templates.θP)]
     priorsM = [priors[k] for k in keys(par_templates.θM)]
     #intP = ComponentArrayInterpreter(par_templates.θP)
-    loss_gf = get_loss_gf(g_dev, transM, transP, f,  intϕ;
+    loss_gf = get_loss_gf(g_dev, transM, transP, f,  py, intϕ;
         cdev=infer_cdev(gdevs), pbm_covars, n_site_batch=n_batch, priorsP, priorsM,)
     # call loss function once
     l1 = is_infer ? 

@@ -199,6 +199,7 @@ end
     n_site, n_site_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = false)
     f2 = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = true)
+    py = get_hybridproblem_neg_logden_obs(prob; scenario)
     priors = get_hybridproblem_priors(prob; scenario)
     priorsP = [priors[k] for k in keys(par_templates.θP)]
     priorsM = [priors[k] for k in keys(par_templates.θM)]
@@ -218,9 +219,9 @@ end
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
 
     #loss_gf = get_loss_gf(g, transM, f,  intϕ; gdev = identity)
-    loss_gf = get_loss_gf(g, transM, transP, f,  intϕ;
+    loss_gf = get_loss_gf(g, transM, transP, f,  py, intϕ;
         pbm_covars, n_site_batch = n_batch, priorsP, priorsM)
-    loss_gf2 = get_loss_gf(g, transM, transP, f2,  intϕ;
+    loss_gf_site = get_loss_gf(g, transM, transP, f2, py, intϕ;
         pbm_covars, n_site_batch = n_site, priorsP, priorsM)
     nLjoint = @inferred first(loss_gf(p0, first(train_loader)...))
     (xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch) = first(train_loader)
@@ -237,7 +238,7 @@ end
         #optprob, Adam(0.02), callback = callback_loss(100), maxiters = 5000);
         optprob, Adam(0.02), maxiters = 2000)
 
-    (;nLjoint_pen, y_pred, θMs_pred, θP_pred, nLy, neg_log_prior, loss_penalty) = loss_gf2(
+    (;nLjoint_pen, y_pred, θMs_pred, θP_pred, nLy, neg_log_prior, loss_penalty) = loss_gf_site(
         res.u, train_loader.data...)
     #(nLjoint,  y_pred, θMs_pred, θP, nLy, neg_log_prior, loss_penalty) = loss_gf(p0, xM, xP, y_o, y_unc);
     θMs_pred = CA.ComponentArray(θMs_pred, CA.getaxes(θMs_true'))
