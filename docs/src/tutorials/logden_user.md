@@ -222,4 +222,4 @@ plot_sd_vs_mean(:K1)
 ![](logden_user_files/figure-commonmark/cell-12-output-1.png)
 
 For the assumed fixed relative error,the uncertainty in the model
-parameters, $K_1$, across sites is similar to the uncertainty with nornal log-likelihood.
+parameters, $K_1$, across sites is similar to the uncertainty with normal log-likelihood.

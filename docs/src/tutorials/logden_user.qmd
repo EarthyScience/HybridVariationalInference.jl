@@ -16,7 +16,7 @@ bibliography: twutz_txt.bib
 CurrentModule = HybridVariationalInference  
 ```
 
-This guide shows how the user can specify a customized log-density function.
+This guide shows how the user can specify a customized log-Likelihood function.
 
 ## Motivation
 The loglikelihood function assigns a cost to the mismatch between predictions and 
@@ -225,7 +225,7 @@ plot_sd_vs_mean(:K1)
 ```
 
 For the assumed fixed relative error,the uncertainty in the model
-parameters, $K_1$, across sites is similar to the uncertainty with nornal log-likelihood.
+parameters, $K_1$, across sites is similar to the uncertainty with normal log-likelihood.
 
 
 
