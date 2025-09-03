@@ -141,6 +141,7 @@ test_without_flux = (scenario) -> begin
         train_loader = get_hybridproblem_train_dataloader(prob; scenario)
         (xM, xP, y_o, y_unc, i_sites) = first(train_loader)
         f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = false)
+        py = get_hybridproblem_neg_logden_obs(prob; scenario)
         par_templates = get_hybridproblem_par_templates(prob; scenario)
         #f(par_templates.θP, hcat(par_templates.θM, par_templates.θM), xP[1:2])
         (; transM, transP) = get_hybridproblem_transforms(prob; scenario)
@@ -154,7 +155,7 @@ test_without_flux = (scenario) -> begin
         p = p0 = vcat(ϕg0, par_templates.θP .* convert(eltype(ϕg0), 0.8))  
 
         # Pass the site-data for the batches as separate vectors wrapped in a tuple
-        loss_gf = get_loss_gf(g, transM, transP, f,  intϕ; 
+        loss_gf = get_loss_gf(g, transM, transP, f, py, intϕ; 
             pbm_covars, n_site_batch = n_batch, priorsP, priorsM)
         (_xM, _xP, _y_o, _y_unc, _i_sites) = first(train_loader)
         l1 = loss_gf(p0, _xM, _xP, _y_o, _y_unc, _i_sites)

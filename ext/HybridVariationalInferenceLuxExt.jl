@@ -7,7 +7,10 @@ using Random
 using StatsFuns: logistic
 
 
-
+# AbstractModelApplicator that stores a Lux.StatefulLuxLayer, so that
+# it can be applied with given inputs and parameters
+# The `int_ϕ` ComponentArrayInterpreter, attaches the correct axes to the
+# supplied parameters, that do not need to keep the Axis information
 struct LuxApplicator{MT, IT} <: AbstractModelApplicator 
     stateful_layer::MT
     int_ϕ::IT
@@ -24,7 +27,7 @@ function HVI.construct_ChainsApplicator(rng::AbstractRNG, m::Chain, float_type=F
 end
 
 function HVI.apply_model(app::LuxApplicator, x, ϕ) 
-    ϕc = app.int_ϕ(ϕ)
+    ϕc = app.int_ϕ(CA.getdata(ϕ))
     app.stateful_layer(x, ϕc)
 end
 

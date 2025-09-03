@@ -1,7 +1,7 @@
 """
     neg_logden_indep_normal(obs, μ, logσ2s; σfac=1.0) 
 
-Compute the negative Log-density of `θM` for multiple independent normal distributions,
+Compute the negative Log-density of `obs` for multiple independent normal distributions,
 given estimated means `μ` and estimated log of variance parameters `logσ2s`.
 
 All the arguments should be vectors of the same length.

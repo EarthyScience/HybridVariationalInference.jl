@@ -11,10 +11,10 @@ a tuple with two components:
 - The applicator 
 - a sample parameter vector (type  depends on the used ML-framework)
 
-Implemented are
-- `construct_SimpleChainsApplicator`
-- `construct_FluxApplicator`
-- `construct_LuxApplicator`
+Implemented overloads of `construct_ChainsApplicator` for layers of 
+- `SimpleChains.SimpleChain`
+- `Flux.Chain`
+- `Lux.Chain`
 """
 abstract type AbstractModelApplicator end
 

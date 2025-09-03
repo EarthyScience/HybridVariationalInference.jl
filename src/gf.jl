@@ -137,9 +137,11 @@ Create a loss function for given
 - g(x, ϕ): machine learning model 
 - transM: transforamtion of parameters at unconstrained space
 - f(θMs, θP): mechanistic model 
+- py: `function(y_pred, y_obs, y_unc)` to compute negative log-likelihood, i.e. cost
 - intϕ: interpreter attaching axis with components ϕg and ϕP
-- intP: interpreter attaching axis to ζP = ϕP with components used by f
-- kwargs: additional keyword arguments passed to gf, such as gdev or pbm_covars
+- intP: interpreter attaching axis to ζP = ϕP with components used by f,
+  The default, uses `intϕ(ϕ)` as a template
+- kwargs: additional keyword arguments passed to `gf`, such as `gdev` or `pbm_covars`
 
 The loss function `loss_gf(ϕ, xM, xP, y_o, y_unc, i_sites)` takes   
 - parameter vector ϕ
@@ -147,6 +149,8 @@ The loss function `loss_gf(ϕ, xM, xP, y_o, y_unc, i_sites)` takes
 - xP: iteration of drivers for each site
 - y_o: matrix of observations, sites in columns
 - y_unc: vector of uncertainty information for each observation
+  Currently, hardcoes squared error loss of `(y_pred .- y_o) ./ σ`, 
+  with `σ = exp.(y_unc ./ 2)`.
 - i_sites: index of sites in the batch
 
 and returns a NamedTuple of 
@@ -157,7 +161,7 @@ and returns a NamedTuple of
 - `neg_log_prior`: negative log-prior of `θMs` and `θP`
 - `neg_log_prior`: negative log-prior of `θMs` and `θP`
 """
-function get_loss_gf(g, transM, transP, f,  
+function get_loss_gf(g, transM, transP, f, py,  
     intϕ::AbstractComponentArrayInterpreter,
     intP::AbstractComponentArrayInterpreter = ComponentArrayInterpreter(
         intϕ(1:length(intϕ)).ϕP);
@@ -175,7 +179,6 @@ function get_loss_gf(g, transM, transP, f,
         #, intP = get_concrete(intP)
         #inv_transP = inverse(transP), kwargs = kwargs
         function loss_gf(ϕ, xM, xP, y_o, y_unc, i_sites)
-            σ = exp.(y_unc ./ 2)
             ϕc = intϕ(ϕ)
             # μ_ζP = ϕc.ϕP
             # xMP = _append_each_covars(xM, CA.getdata(μ_ζP), pbm_covar_indices)
@@ -187,7 +190,9 @@ function get_loss_gf(g, transM, transP, f,
             y_pred, θMs_pred, θP_pred = gf(
                 g, transMs, transP, f, xM, xP, CA.getdata(ϕc.ϕg), CA.getdata(ϕc.ϕP), 
                 pbm_covar_indices; cdev, kwargs...)
-            nLy = sum(abs2, (y_pred .- y_o) ./ σ) 
+            #σ = exp.(y_unc ./ 2)
+            #nLy = sum(abs2, (y_pred .- y_o) ./ σ) 
+            nLy = py( y_pred, y_o, y_unc)
             # logpdf is not typestable for Distribution{Univariate, Continuous}
             logpdf_t = (prior, θ) -> logpdf(prior, θ)::eltype(θP_pred)
             logpdf_tv = (prior, θ::AbstractVector) -> begin
