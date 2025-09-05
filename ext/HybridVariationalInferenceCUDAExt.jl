@@ -85,10 +85,10 @@ function HVI._create_randn(rng, v::CUDA.CuVector{T,M}, dims...) where {T,M}
     res::CUDA.CuArray{T, length(dims),M}
 end
 
-function HVI.ones_similar_x(x::CuArray, size_ret = size(x))
-    # call CUDA.ones rather than ones for x::CuArray
-    ChainRulesCore.@ignore_derivatives CUDA.ones(eltype(x), size_ret)
-end
+# function HVI.ones_similar_x(x::CuArray, size_ret = size(x))
+#     # call CUDA.ones rather than ones for x::CuArray
+#     ChainRulesCore.@ignore_derivatives CUDA.ones(eltype(x), size_ret)
+# end
 
 
 

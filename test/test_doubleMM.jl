@@ -91,7 +91,10 @@ end
         # yg = CP.DoubleMM.f_doubleMM(θg, xPMg, intθ);
         θvecg = gdev(θvec); # errors without ";"
         xPMg = CP.apply_preserve_axes(gdev, xPM); 
+        yg = fy(θvecg, xPMg)
         yg = @inferred fy(θvecg, xPMg);
+        #@usingany Cthulhu
+        #@descend_code_warntype fy(θvecg, xPMg)
         @test cdev(yg) == y_exp
         ygradg = Zygote.gradient(θv -> sum(fy(θv, xPMg)), θvecg)[1];
         @test ygradg isa CA.ComponentArray

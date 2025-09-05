@@ -561,10 +561,11 @@ function _create_blockdiag(
     tmp = vcat(Uσ)
 end
 
+# TODO replace by KA.rand when it becomes available, see ones_similar
+# https://github.com/JuliaGPU/KernelAbstractions.jl/issues/488
 function _create_randn(rng, ::AbstractVector{T}, dims...) where {T}
     randn(rng, T, dims...)
 end
-
 #moved to HybridVariationalInferenceCUDAExt
 #function _create_randn(rng, ::CUDA.CuVector{T}, dims...) where {T}
 

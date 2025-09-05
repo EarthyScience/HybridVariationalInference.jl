@@ -22,6 +22,7 @@ using Functors
 using Test: Test # @inferred
 using Missings
 using FillArrays
+using KernelAbstractions
 
 export DoubleMM
 
