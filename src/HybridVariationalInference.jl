@@ -49,7 +49,7 @@ export NullModelApplicator, MagnitudeModelApplicator, NormalScalingModelApplicat
 include("ModelApplicator.jl")
 
 export AbstractPBMApplicator, NullPBMApplicator, PBMSiteApplicator, PBMPopulationApplicator
-export DirectPBMApplicator
+export DirectPBMApplicator, PBMPopulationGlobalApplicator
 include("PBMApplicator.jl")
 
 # export AbstractGPUDataHandler, NullGPUDataHandler, get_default_GPUHandler
@@ -96,7 +96,7 @@ include("util_opt.jl")
 export cpu_ca, apply_preserve_axes
 include("util_ca.jl")
 
-export repeat_rowvector_dummy, ones_similar_x
+export ones_similar_x
 include("util_gpu.jl")
 
 export neg_logden_indep_normal, entropy_MvNormal

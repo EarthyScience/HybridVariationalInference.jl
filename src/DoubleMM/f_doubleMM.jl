@@ -107,13 +107,14 @@ function f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
     VT = typeof(CA.getdata(θc)[:,1])   # workaround for non-type-stable Symbol-indexing
     #n_obs = size(S1, 1)
     #rep_fac = HVI.ones_similar_x(xPc, n_obs) # to reshape into matrix, avoiding repeat
-    #is_dummy = ChainRulesCore.@ignore_derivatives(isnan.(S1) .|| isnan.(S2))
-    is_dummy = isnan.(S1) .|| isnan.(S2)
+    #is_dummy = isnan.(S1) .|| isnan.(S2)
+    is_valid = isfinite.(S1) .&& isfinite.(S2)
     (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
         p1 = CA.getdata(θc[:, par]) ::VT
         #Main.@infiltrate_main
         # tmp = Zygote.gradient(p1 -> sum(repeat_rowvector_dummy(p1', is_dummy)), p1)[1]
-        p1_mat = repeat_rowvector_dummy(p1', is_dummy)
+        #p1_mat = repeat_rowvector_dummy(p1', is_dummy)
+        p1_mat = is_valid .* p1' # places zeros in dummy positions, prevents gradients there
         #repeat(p1', n_obs)  # matrix: same for each concentration row in S1
         #(rep_fac .* p1')    # move to computation below to save allocation
     end
