@@ -222,13 +222,13 @@ function PBMPopulationApplicator(fθpop, n_batch;
     #isP = repeat(axes(θP, 1)', n_batch)
     # n_site = size(θMs, 1)
     rep_fac = ones_similar_x(θP, n_batch) # to reshape into matrix, avoiding repeat
-    θFixm = CA.getdata(θFix[isFix])
+    θFixm = CA.ComponentMatrix(θFix[isFix], (CA.FlatAxis(), CA.getaxes(θFix)[1]))
     PBMPopulationApplicator(fθpop, θFixm, rep_fac, intθ, int_xP)        
 end
 
 function apply_model(app::PBMPopulationApplicator, θP::AbstractVector, θMs::AbstractMatrix, xP) 
     if (CA.getdata(θP) isa GPUArraysCore.AbstractGPUArray) && 
-        (!(app.θFixm isa GPUArraysCore.AbstractGPUArray) || 
+        (!(CA.getdata(app.θFixm) isa GPUArraysCore.AbstractGPUArray) || 
             !(CA.getdata(θMs) isa GPUArraysCore.AbstractGPUArray)) 
         error("concatenating GPUarrays with non-gpu arrays θFixm or θMs. " *
         "May transfer PBMPopulationApplicator to gdev, " *
@@ -241,7 +241,7 @@ function apply_model(app::PBMPopulationApplicator, θP::AbstractVector, θMs::Ab
     #@benchmark CA.getdata(θP[app.isP])  
     #@benchmark CA.getdata(repeat(θP', size(θMs,1))) 
     #@benchmark rep_fac .* CA.getdata(θP)'  # 
-    local θ = hcat(app.rep_fac .* CA.getdata(θP)', CA.getdata(θMs), app.θFixm) 
+    local θ = hcat(app.rep_fac .* CA.getdata(θP)', CA.getdata(θMs), CA.getdata(app.θFixm)) 
     #local θ = hcat(CA.getdata(θP[app.isP]), CA.getdata(θMs), app.θFixm)
     #local θ = hcat(CA.getdata(repeat(θP', size(θMs,1))), CA.getdata(θMs), app.θFixm)
     local θc = app.intθ(CA.getdata(θ))

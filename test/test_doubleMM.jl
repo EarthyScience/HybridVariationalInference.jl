@@ -131,10 +131,10 @@ end
         # θg = gdev(θ)
         # xPMg = gdev(xPM)
         # yg = CP.DoubleMM.f_doubleMM(θg, xPMg, intθ);
-        θvecg = gdev(θvec)
-        xPMg = gdev(xPM)
-        y_og = gdev(y_o)
-        y_uncg = gdev(y_unc)
+        θvecg = gdev(θvec);
+        xPMg = gdev(xPM);
+        y_og = gdev(y_o);
+        y_uncg = gdev(y_unc);
         costg = fcost(θvecg, xPMg, y_og, y_uncg)
         @test costg ≈ cost
         ygradg = Zygote.gradient(θv -> fcost(θv, xPMg, y_og, y_uncg), θvecg)[1]; # errors without ";"

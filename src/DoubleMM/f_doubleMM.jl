@@ -105,17 +105,22 @@ function f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
     #
     # extract the parameters as vectors that are row-repeated into a matrix
     VT = typeof(CA.getdata(θc)[:,1])   # workaround for non-type-stable Symbol-indexing
-    n_obs = size(S1, 1)
-    rep_fac = HVI.ones_similar_x(xPc, n_obs) # to reshape into matrix, avoiding repeat
+    #n_obs = size(S1, 1)
+    #rep_fac = HVI.ones_similar_x(xPc, n_obs) # to reshape into matrix, avoiding repeat
+    #is_dummy = ChainRulesCore.@ignore_derivatives(isnan.(S1) .|| isnan.(S2))
+    is_dummy = isnan.(S1) .|| isnan.(S2)
     (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
         p1 = CA.getdata(θc[:, par]) ::VT
+        #Main.@infiltrate_main
+        # tmp = Zygote.gradient(p1 -> sum(repeat_rowvector_dummy(p1', is_dummy)), p1)[1]
+        p1_mat = repeat_rowvector_dummy(p1', is_dummy)
         #repeat(p1', n_obs)  # matrix: same for each concentration row in S1
         #(rep_fac .* p1')    # move to computation below to save allocation
     end
     #
     # each variable is a matrix (n_obs x n_site)
-    #r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
-    (rep_fac .* r0') .+ (rep_fac .* r1') .* S1 ./ ((rep_fac .* K1') .+ S1) .* S2 ./ ((rep_fac .* K2') .+ S2)
+    r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
+    #(rep_fac .* r0') .+ (rep_fac .* r1') .* S1 ./ ((rep_fac .* K1') .+ S1) .* S2 ./ ((rep_fac .* K2') .+ S2)
 end
 
 # function f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
@@ -350,11 +355,22 @@ function HVI.get_hybridproblem_n_site_and_batch(prob::DoubleMMCase;
     (n_site, n_batch)
 end
 
-function HVI.get_hybridproblem_train_dataloader(prob::DoubleMMCase; scenario::Val,
+function HVI.get_hybridproblem_train_dataloader(prob::DoubleMMCase; scenario::Val{scen},
         rng::AbstractRNG = StableRNG(111), kwargs...
-)
+) where {scen}
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-    construct_dataloader_from_synthetic(rng, prob; scenario, n_batch, kwargs...)
+    if (:driverNAN ∈ scen)
+        (; xM, xP, y_o, y_unc) = gen_hybridproblem_synthetic(rng, prob; scenario)
+        n_site = size(xM,2)
+        i_sites = 1:n_site
+        # set the last two entries of the S1 drivers and observations of the second site NaN
+        view(@view(xP[:S1,2]), 7:8) .= NaN
+        y_o[7:8,2] .= NaN
+        train_loader = MLUtils.DataLoader((xM, xP, y_o, y_unc, i_sites);
+            batchsize = n_batch, partial = false)
+    else
+        construct_dataloader_from_synthetic(rng, prob; scenario, n_batch, kwargs...)
+    end
 end
 
 function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;

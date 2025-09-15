@@ -128,6 +128,11 @@ function gtrans(g, transMs, xMP, ϕg; cdev)
     ζMs = ζMst' 
     ζMs_cpu = cdev(ζMs)
     θMs = transMs(ζMs_cpu)
+    if !all(isfinite.(θMs))
+        @info "gtrans: encountered non-finite parameters"
+        @show θMs, ζMs_cpu
+    end
+    θMs
     #θMs = reduce(hcat, map(transM, eachcol(ζMs_cpu))) # transform each row
 end
 
@@ -175,7 +180,8 @@ function get_loss_gf(g, transM, transP, f, py,
         transMs = StackedArray(transM, n_site_batch),
         cdev = cdev,
         pbm_covar_indices = CA.getdata(intP(1:length(intP))[pbm_covars]),
-        priorsP = priorsP, priorsM = priorsM, floss_penalty = floss_penalty
+        priorsP = priorsP, priorsM = priorsM, floss_penalty = floss_penalty,
+        cpu_dev = cpu_device() # real cpu, different form cdev that maybe idenetity
         #, intP = get_concrete(intP)
         #inv_transP = inverse(transP), kwargs = kwargs
         function loss_gf(ϕ, xM, xP, y_o, y_unc, i_sites)
@@ -187,6 +193,10 @@ function get_loss_gf(g, transM, transP, f, py,
             # ζP_cpu = cdev(CA.getdata(μ_ζP))
             # ζMs_cpu = cdev(CA.getdata(μ_ζMs))
             # y_pred, _, _ = apply_f_trans(ζP_cpu, ζMs_cpu, f, xP; transM, transP)
+            if !all(isfinite.(ϕ)) 
+                @info "loss_gf: encountered non-finite ϕ"
+                #Main.@infiltrate_main
+            end
             y_pred, θMs_pred, θP_pred = gf(
                 g, transMs, transP, f, xM, xP, CA.getdata(ϕc.ϕg), CA.getdata(ϕc.ϕP), 
                 pbm_covar_indices; cdev, kwargs...)
@@ -198,8 +208,16 @@ function get_loss_gf(g, transM, transP, f, py,
             logpdf_tv = (prior, θ::AbstractVector) -> begin
                 map(Base.Fix1(logpdf, prior), θ)::Vector{eltype(θP_pred)}
             end
-            neg_log_prior = -sum(logpdf_t.(priorsP, θP_pred)) - sum(map(
-                (priorMi, θMi) -> sum(logpdf_tv(priorMi, θMi)), priorsM, eachcol(θMs_pred))) 
+            #Main.@infiltrate_main
+            #Maybe: move priors to GPU, for now need to move θ to cpu
+            θP_pred_cpu = cpu_dev(θP_pred)
+            θMs_pred_cpu = cpu_dev(θMs_pred)
+            neg_log_prior = -sum(logpdf_t.(priorsP, θP_pred_cpu)) - sum(map(
+                (priorMi, θMi) -> sum(logpdf_tv(priorMi, θMi)), priorsM, eachcol(θMs_pred_cpu))) 
+            if !isfinite(neg_log_prior)
+                @info "loss_gf: encountered non-finite prior density"
+                #Main.@infiltrate_main
+            end
             ϕunc = eltype(θP_pred)[]  # no uncertainty parameters optimized
             loss_penalty = floss_penalty(y_pred, θMs_pred, θP_pred, ϕc.ϕg, ϕunc)
             nLjoint_pen = nLy + neg_log_prior + loss_penalty

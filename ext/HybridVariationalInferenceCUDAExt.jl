@@ -12,20 +12,21 @@ function HVI.vec2utri(v::CUDA.CuVector{T}; n=invsumn(length(v)) ) where {T}
     m = CUDA.allowscalar() do
         CUDA.CuArray([j >= i ? (k += 1; v[k]) : z for i in 1:n, j in 1:n])
     end
+    # TODO test if without allowscalar is faster
     # m = CUDA.zeros(T,n,n)
     # @cuda threads = 256 vec2utri_gpu!(m, v) # planned to put v into positions of m
     return (m)
 end
 
-function vec2utri_gpu!(m, v::AbstractVector)
-    index = threadIdx().x    # this example only requires linear indexing, so just use `x`
-    stride = blockDim().x
-    for i in index:stride:length(v)
-        row, col = vec2utri_pos(i)
-        @inbounds m[row, col] = v[i]
-    end
-    return nothing # important
-end
+# function vec2utri_gpu!(m, v::AbstractVector)
+#     index = threadIdx().x    # this example only requires linear indexing, so just use `x`
+#     stride = blockDim().x
+#     for i in index:stride:length(v)
+#         row, col = vec2utri_pos(i)
+#         @inbounds m[row, col] = v[i]
+#     end
+#     return nothing # important
+# end
 
 
 #function vec2uutri(v::GPUArraysCore.AbstractGPUVector{T}; n=invsumn(length(v)) + one(T)) where {T}
@@ -85,10 +86,11 @@ function HVI._create_randn(rng, v::CUDA.CuVector{T,M}, dims...) where {T,M}
     res::CUDA.CuArray{T, length(dims),M}
 end
 
-# function HVI.ones_similar_x(x::CuArray, size_ret = size(x))
-#     # call CUDA.ones rather than ones for x::CuArray
-#     ChainRulesCore.@ignore_derivatives CUDA.ones(eltype(x), size_ret)
-# end
+# TODO ^eplace by KernalAbstractions after type stability is fixed
+function HVI.ones_similar_x(x::CuArray, size_ret = size(x))
+    # call CUDA.ones rather than ones for x::CuArray
+    ChainRulesCore.@ignore_derivatives CUDA.ones(eltype(x), size_ret)
+end
 
 
 

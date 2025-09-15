@@ -163,7 +163,14 @@ function apply_model(app::NormalScalingModelApplicator, x, ϕ)
     # @show typeof(app.μ)
     # @show typeof(ϕ)
     @assert eltype(app.μ) == eltype(ϕ)
-    norminvcdf.(app.μ, app.σ, y_perc) # from StatsFuns
+    ans = norminvcdf.(app.μ, app.σ, y_perc) # from StatsFuns
+    if !all(isfinite.(ans))
+        @info "NormalScalingModelApplicator.apply_model: encountered non-finite results"
+        @show ans, y_perc, app.μ, app.σ
+        @show app.app, x, ϕ
+        error("error to print stacktrace")
+    end
+    ans
 end
 
 

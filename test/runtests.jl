@@ -40,6 +40,8 @@ const GROUP = get(ENV, "GROUP", "All") # defined in in CI.yml
         # tests that need fixing (but should not be commented) at the end:
         #@safetestset "test" include("test/test_HybridProblem.jl")
         @time @safetestset "test_HybridProblem" include("test_HybridProblem.jl")
+        #@safetestset "test" include("test/test_missingdriver.jl")
+        @time @safetestset "test_missingdriver" include("test_missingdriver.jl")
     end
 end
 

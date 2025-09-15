@@ -5,7 +5,7 @@ using MLDataDevices
 import CUDA, cuDNN
 using FillArrays
 
-@testset "ones_similar_x" begin
+@testset "ones_similar_x" begin 
     A = rand(Float64, 3, 4); 
     @test @inferred HVI.ones_similar_x(A, 3) isa FillArrays.AbstractFill #Vector
     @test @inferred HVI.ones_similar_x(A, size(A,1)) isa FillArrays.AbstractFill #Vector#Vector

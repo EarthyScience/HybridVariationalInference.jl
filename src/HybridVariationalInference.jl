@@ -4,6 +4,7 @@ using ComponentArrays: ComponentArrays as CA
 using Random
 using StatsBase # fit ZScoreTransform
 using StatsFuns # norminvcdf
+using LogExpFunctions # logistic, loglogistic
 using Combinatorics # gen_hybridproblem_synthetic/combinations
 using GPUArraysCore
 using LinearAlgebra
@@ -23,6 +24,7 @@ using Test: Test # @inferred
 using Missings
 using FillArrays
 using KernelAbstractions
+import NaNMath # ignore missing observations in logDensity
 
 export DoubleMM
 
@@ -32,6 +34,7 @@ export extend_stacked_nrow, StackedArray
 #public Exp 
 #julia 1.10 public: https://github.com/JuliaLang/julia/pull/55097
 VERSION >= v"1.11.0-DEV.469" && eval(Meta.parse("public Exp")) 
+VERSION >= v"1.11.0-DEV.469" && eval(Meta.parse("public Logistic")) 
 include("bijectors_utils.jl")
 
 export AbstractComponentArrayInterpreter, ComponentArrayInterpreter,
@@ -93,6 +96,7 @@ include("util_opt.jl")
 export cpu_ca, apply_preserve_axes
 include("util_ca.jl")
 
+export repeat_rowvector_dummy, ones_similar_x
 include("util_gpu.jl")
 
 export neg_logden_indep_normal, entropy_MvNormal
