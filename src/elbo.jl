@@ -194,22 +194,21 @@ function zero_penalty_loss(
 end
 
 
-
 """
-    predict_hvi([rng], predict_hvi(rng, prob::AbstractHybridProblem)
+    predict_hvi([rng], prob::AbstractHybridProblem)
 
 Prediction function for hybrid variational inference parameter model. 
 
 ## Arguments
-- The problem for which to predict
-- xM: covariates for the machine-learning model (ML): Matrix (n_θM x n_site_pred).
-- xP: model drivers for process based model (PBM): Matrix with (n_site_pred) rows.
-  If provided a ComponentArray with a Tuple-Axis in rows, the PBM model can
-  access parts of it, e.g. `xP[:S1,...]`.
+- `prob`: The problem for which to predict
 
 ## Keyword arguments
 - `scenario`
 - `n_sample_pred`
+- `xM`: covariates for the machine-learning model (ML): Matrix (n_θM x n_site_pred).
+  Possibility to overide the default from `get_hybridproblem_train_dataloader`.
+- `xP`: model drivers for process based model (PBM): Matrix with (n_site_pred) rows.
+  Possibility to overide the default from `get_hybridproblem_train_dataloader`.
 
 Returns an NamedTuple `(; y, θsP, θsMs, entropy_ζ)` with entries
 - `y`: Array `(n_obs, n_site, n_sample_pred)` of model predictions.
@@ -222,11 +221,16 @@ Returns an NamedTuple `(; y, θsP, θsMs, entropy_ζ)` with entries
 """
 function predict_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()), 
     gdevs = get_gdev_MP(scenario), 
+    xM = nothing, xP = nothing,
     kwargs...
     )
-    dl = get_hybridproblem_train_dataloader(prob; scenario)
-    dl_dev = gdev_hybridproblem_dataloader(dl; gdevs)
-    xM, xP = dl_dev.data[1:2]
+    if isnothing(xM) || isnothing(xP)
+        dl = get_hybridproblem_train_dataloader(prob; scenario)
+        dl_dev = gdev_hybridproblem_dataloader(dl; gdevs)
+        xM_dl, xP_dl = dl_dev.data[1:2]
+        xM = isnothing(xM) ? xM_dl : xM
+        xP = isnothing(xP) ? xP_dl : xP
+    end
     (; θsP, θsMs, entropy_ζ) = sample_posterior(rng, prob, xM; scenario, gdevs, kwargs...)
     #
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)

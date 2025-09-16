@@ -250,3 +250,65 @@ function apply_model(app::PBMPopulationApplicator, θP::AbstractVector, θMs::Ab
     return pred_sites
 end
 
+struct PBMPopulationGlobalApplicator{MFT, IsT, IgT, IXT, F} <: AbstractPBMApplicator 
+    fθpop::F
+    θFix::MFT # may be CuVector rather than Vector
+    intθs::IsT 
+    intθg::IgT 
+    int_xP::IXT
+end
+
+"""
+    PBMPopulationGlobalApplicator(fθpop, n_batch; θP, θM, θFix, xPvec)
+
+Construct AbstractPBMApplicator from process-based model `fθ` that computes predictions
+across sites for a population of size `n_batch`.
+The applicator combines enclosed `θFix`, with provided `θMs` and `θP`
+to a `ComponentMatrix` with parameters with one row for each site, that
+can be column-indexed by Symbols.
+
+## Arguments 
+- `fθpop`: process model, process model `f(θsc, θgc, xPc)`, which is not
+  agnostic of the partitioning of parameters into fixed, global, and individual
+  to increase performance
+    - `θc`: parameters: `ComponentMatrix` (n_site x n_par_site) with each row a parameter vector
+    - `θgc`: parameters: `ComponentVector` (n_par_global) 
+    - `xPc`: observations: `ComponentMatrix` (n_obs x n_site) with each column 
+    observationsfor one site
+- `n_batch`: number of indiduals, i.e. rows in `θMs`
+- `θP`: `ComponentVector` template of global process model parameters
+- `θM`: `ComponentVector` template of individual process model parameters
+- `θFix`: `ComponentVector` of actual fixed process model parameters
+- `xPvec`: `ComponentVector` template of model drivers for a single site
+"""
+function PBMPopulationGlobalApplicator(fθpop, n_batch; 
+    θP::CA.ComponentVector, θM::CA.ComponentVector, θFix::CA.ComponentVector, 
+    xPvec::CA.ComponentVector
+    )
+    intθvec = ComponentArrayInterpreter(flatten1(CA.ComponentVector(; θP, θM, θFix)))
+    int_xP_vec = ComponentArrayInterpreter(xPvec)
+    intθs = get_concrete(ComponentArrayInterpreter((n_batch,), θM))
+    intθg = get_concrete(ComponentArrayInterpreter(vcat(θP, θFix)))
+    int_xP = get_concrete(ComponentArrayInterpreter(int_xP_vec, (n_batch,)))
+    PBMPopulationGlobalApplicator(fθpop, θFix, intθs, intθg, int_xP)        
+end
+
+function apply_model(app::PBMPopulationGlobalApplicator, θP::AbstractVector, θMs::AbstractMatrix, xP) 
+    if (CA.getdata(θP) isa GPUArraysCore.AbstractGPUArray) && 
+        (!(CA.getdata(app.θFix) isa GPUArraysCore.AbstractGPUArray) || 
+            !(CA.getdata(θMs) isa GPUArraysCore.AbstractGPUArray)) 
+        error("concatenating GPUarrays with non-gpu arrays θFixm or θMs. " *
+        "May transfer PBMPopulationGlobalApplicator to gdev, " *
+        "or compute PBM on CPU.")
+    end
+    local θs = CA.getdata(θMs)
+    local θg = vcat(CA.getdata(θP), CA.getdata(app.θFix)) 
+    local θsc = app.intθs(CA.getdata(θs))
+    local θgc = app.intθg(CA.getdata(θg))
+    local xPc = app.int_xP(CA.getdata(xP))
+    local pred_sites = app.fθpop(θsc, θgc, xPc)
+    return pred_sites
+end
+
+
+

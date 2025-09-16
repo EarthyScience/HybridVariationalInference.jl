@@ -83,7 +83,7 @@ export HybridProblem
 export get_quantile_transformed
 include("HybridProblem.jl")
 
-export gf, get_loss_gf
+export gf, get_loss_gf, predict_point_hvi
 #export map_f_each_site
 include("gf.jl")
 

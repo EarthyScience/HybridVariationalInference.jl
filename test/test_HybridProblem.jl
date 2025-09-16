@@ -156,7 +156,8 @@ test_without_flux = (scenario) -> begin
 
         # Pass the site-data for the batches as separate vectors wrapped in a tuple
         loss_gf = get_loss_gf(g, transM, transP, f, py, intϕ; 
-            pbm_covars, n_site_batch = n_batch, priorsP, priorsM)
+            pbm_covars, n_site_batch = n_batch, priorsP, priorsM,
+            )
         (_xM, _xP, _y_o, _y_unc, _i_sites) = first(train_loader)
         l1 = loss_gf(p0, _xM, _xP, _y_o, _y_unc, _i_sites)
 
@@ -198,7 +199,7 @@ gdev = gpu_device()
 test_with_flux = (scenario) -> begin
     prob = probc = construct_problem(;scenario);
 
-    @testset "HybridPointSolver $(last(CP._val_value(scenario)))" begin
+    @testset "HybridPointSolver + predict $(last(CP._val_value(scenario)))" begin
         rng = StableRNG(111)
         solver = HybridPointSolver(; alg=Adam(0.02))
         (; ϕ, resopt, probo) = solve(prob, solver; scenario, rng,
@@ -218,6 +219,9 @@ test_with_flux = (scenario) -> begin
         end)()
         @test θPo.r0 < 1.5 * θP.r0
         @test ϕ.ϕP.K2 < 1.5 * log(θP.K2)
+        (;y_pred, θMs, θP) = predict_point_hvi(rng, probo; scenario)
+        _,_,y_obs,_ = get_hybridproblem_train_dataloader(prob; scenario).data
+        @test size(y_pred) == size(y_obs)
     end;
 
     @testset "HybridPosteriorSolver  $(last(CP._val_value(scenario)))" begin

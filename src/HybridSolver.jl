@@ -7,11 +7,12 @@ end
 HybridPointSolver(; alg) = HybridPointSolver(alg)
 
 function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolver;
-    scenario, rng=Random.default_rng(),
-    gdevs = get_gdev_MP(scenario),
+    scenario=Val(()), rng=Random.default_rng(),
+    gdevs = nothing, # get_gdev_MP(scenario)
     is_inferred::Val{is_infer} = Val(false),
     kwargs...
 ) where is_infer
+    gdevs = isnothing(gdevs) ? get_gdev_MP(scenario) : gdevs
     par_templates = get_hybridproblem_par_templates(prob; scenario)
     g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
     FT = get_hybridproblem_float_type(prob; scenario)
