@@ -258,6 +258,9 @@ struct PBMPopulationGlobalApplicator{MFT, IsT, IgT, IXT, F} <: AbstractPBMApplic
     int_xP::IXT
 end
 
+@functor PBMPopulationGlobalApplicator 
+
+
 """
     PBMPopulationGlobalApplicator(fθpop, n_batch; θP, θM, θFix, xPvec)
 

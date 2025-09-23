@@ -240,8 +240,11 @@ function HVI.get_hybridproblem_MLapplicator(
         priors::AbstractVector{<:Distribution}, transM)
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     n_site_batch = use_all_sites ? n_site : n_batch
-    g = NormalScalingModelApplicator(
-        g_nomag, lowers, uppers, eltype(ϕ_g0))
+    g = if (:use_rangescaling ∈ scen)
+        RangeScalingModelApplicator(g_nomag, lowers, uppers, eltype(ϕ_g0))
+    else
+        NormalScalingModelApplicator(g_nomag, lowers, uppers, eltype(ϕ_g0))
+    end
     return g, ϕ_g0
 end
 

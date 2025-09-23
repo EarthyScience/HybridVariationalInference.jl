@@ -15,7 +15,7 @@ function HVI.construct_ChainsApplicator(rng::AbstractRNG, m::SimpleChain, FloatT
     SimpleChainsApplicator(m), ϕ
 end
 
-HVI.apply_model(app::SimpleChainsApplicator, x, ϕ) = app.m(x, ϕ)
+HVI.apply_model(app::SimpleChainsApplicator, x, ϕ; is_testmode=false) = app.m(x, ϕ)
 
 function HVI.construct_3layer_MLApplicator(
     rng::AbstractRNG, prob::HVI.AbstractHybridProblem, ::Val{:SimpleChains};

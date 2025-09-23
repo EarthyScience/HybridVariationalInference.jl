@@ -99,7 +99,7 @@ test_scenario = (scenario) -> begin
         CP.generate_ζ(
         rng, g, ϕ_ini, xM[:, 1:n_batch];
         n_MC, cor_ends, pbm_covar_indices,
-        int_unc=interpreters.unc, int_μP_ϕg_unc=interpreters.μP_ϕg_unc)
+        int_unc=interpreters.unc, int_μP_ϕg_unc=interpreters.μP_ϕg_unc, is_testmode = false)
     )
 
     @testset "generate_ζ $(last(CP._val_value(scenario)))" begin
@@ -116,7 +116,8 @@ test_scenario = (scenario) -> begin
                 _ζsP, _ζsMs, _σ = CP.generate_ζ(
                     rng, g, ϕ, xM[:, 1:n_batch];
                     n_MC=8, cor_ends, pbm_covar_indices,
-                    int_unc=interpreters.unc, int_μP_ϕg_unc=interpreters.μP_ϕg_unc)
+                    int_unc=interpreters.unc, int_μP_ϕg_unc=interpreters.μP_ϕg_unc,
+                     is_testmode = true)
                 sum(_ζsP) + sum(_ζsMs) + sum(_σ)
             end, CA.getdata(ϕ_ini))
         @test gr[1] isa Vector
@@ -156,7 +157,8 @@ test_scenario = (scenario) -> begin
                     CP.generate_ζ(
                     rng, g, _ϕ, xM_batch;
                     n_MC = n_predict, cor_ends, pbm_covar_indices,
-                    int_unc=interpreters.unc, int_μP_ϕg_unc=interpreters.μP_ϕg_unc)
+                    int_unc=interpreters.unc, int_μP_ϕg_unc=interpreters.μP_ϕg_unc,
+                    is_testmode = true)
                 )
             ζMs_g = g(xM_batch, probc.ϕg)' # have been generated with no scaling
             function test_distζ(_ζsP, _ζsMs, ϕunc_true, ζMs_g)
@@ -241,7 +243,8 @@ test_scenario = (scenario) -> begin
                 CP.generate_ζ(
                 rng, g_gpu, ϕ, xMg_batch;
                 n_MC, cor_ends, pbm_covar_indices,
-                int_unc=interpreters.unc, int_μP_ϕg_unc=interpreters.μP_ϕg_unc))
+                int_unc=interpreters.unc, int_μP_ϕg_unc=interpreters.μP_ϕg_unc,
+                is_testmode = true))
             @test ζsP_d isa Union{GPUArraysCore.AbstractGPUMatrix,
                 LinearAlgebra.Adjoint{FT,<:GPUArraysCore.AbstractGPUMatrix}}
             @test ζsMs_d isa Union{GPUArraysCore.AbstractGPUArray,
@@ -254,7 +257,8 @@ test_scenario = (scenario) -> begin
                     _ζsP, _ζsMs, _σ = CP.generate_ζ(
                         rng, g_gpu, ϕ, xMg_batch;
                         n_MC, cor_ends, pbm_covar_indices,
-                        int_unc=interpreters.unc, int_μP_ϕg_unc=interpreters.μP_ϕg_unc)
+                        int_unc=interpreters.unc, int_μP_ϕg_unc=interpreters.μP_ϕg_unc,
+                        is_testmode = false)
                     sum(_ζsP) + sum(_ζsMs) + sum(_σ)
                 end, CA.getdata(ϕ))
             @test gr[1] isa GPUArraysCore.AbstractGPUVector
@@ -338,14 +342,16 @@ test_scenario = (scenario) -> begin
             neg_elbo_gtf(rng, ϕ_ini, g, f, py,
             xM[:, i_sites], xP[:, i_sites], y_o[:, i_sites], y_unc[:, i_sites], i_sites;
             int_unc, int_μP_ϕg_unc,
-            cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,)
+            cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
+            is_testmode = true)
         )
         @test cost isa Float64
         gr = Zygote.gradient(
             ϕ -> neg_elbo_gtf(rng, ϕ, g, f, py,
                 xM[:, i_sites], xP[:, i_sites], y_o[:, i_sites], y_unc[:, i_sites], i_sites;
                 int_unc, int_μP_ϕg_unc,
-                cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,),
+                cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
+                is_testmode = false),
             CA.getdata(ϕ_ini))
         @test gr[1] isa Vector
     end
@@ -363,6 +369,7 @@ test_scenario = (scenario) -> begin
                 xMg_batch, xP_batch, y_o[:, i_sites], y_unc[:, i_sites], i_sites;
                 int_unc, int_μP_ϕg_unc,
                 n_MC=3, cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
+                is_testmode = true,
                 )
             )
             @test cost isa Float64
@@ -371,6 +378,7 @@ test_scenario = (scenario) -> begin
                     xMg_batch, xP_batch, y_o[:, i_sites], y_unc[:, i_sites], i_sites;
                     int_unc, int_μP_ϕg_unc,
                     n_MC=3, cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
+                    is_testmode = false,
                     ),
                 ϕ)
             @test gr[1] isa GPUArraysCore.AbstractGPUVector
@@ -391,7 +399,9 @@ test_scenario = (scenario) -> begin
                 int_μP_ϕg_unc, int_unc,
                 transP, transM,
                 cdev = identity,
-                n_sample_pred, cor_ends, pbm_covar_indices)
+                n_sample_pred, cor_ends, pbm_covar_indices,
+                is_testmode = true,
+                )
             )
         @test θsP isa AbstractMatrix
         @test θsMs isa AbstractArray{T,3} where {T}
@@ -417,7 +427,8 @@ test_scenario = (scenario) -> begin
                     transP, transM,
                     #cdev = cpu_device(),
                     cdev = identity, # do not transfer to CPU
-                    n_sample_pred, cor_ends, pbm_covar_indices)
+                    n_sample_pred, cor_ends, pbm_covar_indices,
+                    is_testmode = true)
                 )
             # this variant without the problem, does not attach axes
             @test θsP isa AbstractMatrix
@@ -426,7 +437,7 @@ test_scenario = (scenario) -> begin
             @test all(int_mP(θsP)[:r0, :] .> 0)
             #
             xP_dev = ggdev(xP);
-            f_pred_dev = fmap(ggdev, f_pred)
+            f_pred_dev = ggdev(f_pred) #fmap(ggdev, f_pred)
             y = @inferred f_pred_dev(θsP, θsMs, xP_dev)
             #@benchmark f_pred_dev(θsP, θsMs, xP_dev)
             @test y isa GPUArraysCore.AbstractGPUArray

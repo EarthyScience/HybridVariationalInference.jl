@@ -1,5 +1,5 @@
 """
-    AbstractModelApplicator(x, ϕ)
+    AbstractModelApplicator(x, ϕ; is_testmode = false)
 
 Abstraction of applying a machine learning model at covariate matrix, `x`,
 using parameters, `ϕ`. It returns a matrix of predictions with the same
@@ -20,7 +20,7 @@ abstract type AbstractModelApplicator end
 
 function apply_model end
 
-(app::AbstractModelApplicator)(x, ϕ) = apply_model(app, x, ϕ)
+(app::AbstractModelApplicator)(x, ϕ; kwargs...) = apply_model(app, x, ϕ; kwargs...)
 
 
 """
@@ -30,7 +30,7 @@ Model applicator that returns its inputs. Used for testing.
 """
 struct NullModelApplicator <: AbstractModelApplicator end
 
-function apply_model(app::NullModelApplicator, x, ϕ)
+function apply_model(app::NullModelApplicator, x, ϕ; kwargs...)
     return x
 end
 
@@ -102,11 +102,13 @@ struct MagnitudeModelApplicator{M,A} <: AbstractModelApplicator
     multiplier::M
 end
 
-function apply_model(app::MagnitudeModelApplicator, x, ϕ)
+function apply_model(app::MagnitudeModelApplicator, x, ϕ; kwargs...)
     #@show size(x), size(ϕ), app.multiplier
     @assert eltype(app.multiplier) == eltype(ϕ)
-    apply_model(app.app, x, ϕ) .* app.multiplier
+    apply_model(app.app, x, ϕ; kwargs...) .* app.multiplier
 end
+
+
 
 
 """
@@ -158,8 +160,8 @@ function NormalScalingModelApplicator(
     NormalScalingModelApplicator(app, μ, σ)
 end
 
-function apply_model(app::NormalScalingModelApplicator, x, ϕ)
-    y_perc = apply_model(app.app, x, ϕ)
+function apply_model(app::NormalScalingModelApplicator, x, ϕ; kwargs...)
+    y_perc = apply_model(app.app, x, ϕ; kwargs...)
     # @show typeof(app.μ)
     # @show typeof(ϕ)
     @assert eltype(app.μ) == eltype(ϕ)
@@ -172,6 +174,39 @@ function apply_model(app::NormalScalingModelApplicator, x, ϕ)
     # end
     ans
 end
+
+"""
+    RangeScalingModelApplicator(app, y0)
+
+Wrapper around AbstractModelApplicator assumed to predict on (0,1) wiht 
+a linear mappting to prededfined range.
+"""
+struct RangeScalingModelApplicator{VF,A} <: AbstractModelApplicator
+    offset::VF
+    width::VF
+    app::A
+end
+
+function apply_model(app::RangeScalingModelApplicator, x, ϕ; kwargs...)
+    res0 = apply_model(app.app, x, ϕ; kwargs...)
+    res = res0 .* app.width .+ app.offset
+end
+
+"""
+    RangeScalingModelApplicator(app, lowers, uppers, FT::Type; repeat_inner::Integer = 1) 
+
+Provide the target ragen by vectors `lower` and `upper`. The size of both
+outputs must correspond to the size of the output of `app`.
+"""
+function RangeScalingModelApplicator(
+    app::AbstractModelApplicator, 
+    lowers::VT, uppers::VT,
+    FT::Type) where VT<:AbstractVector
+    width = collect(FT, uppers .- lowers)
+    lowersFT = collect(FT, lowers) # convert eltype
+    RangeScalingModelApplicator(lowersFT, width, app)
+end
+
 
 
 

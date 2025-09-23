@@ -51,10 +51,11 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
     trans_mMs =StackedArray(transMs.stacked, n_MC),
     priorsP, priorsM,
     floss_penalty = zero_penalty_loss,
+    is_testmode,
 ) where {FT}
     n_MCr = isempty(priors_θP_mean) ? n_MC : max(n_MC, n_MC_mean)
     ζsP, ζsMs, σ = generate_ζ(rng, g, ϕ, xM; n_MC=n_MCr, cor_ends, pbm_covar_indices,
-        int_unc, int_μP_ϕg_unc)
+        int_unc, int_μP_ϕg_unc, is_testmode)
     ζsP_cpu = cdev(ζsP) # fetch to CPU, because for <1000 sites (n_batch) this is faster
     ζsMs_cpu = cdev(ζsMs) # fetch to CPU, because for <1000 sites (n_batch) this is faster
     #
@@ -222,6 +223,7 @@ Returns an NamedTuple `(; y, θsP, θsMs, entropy_ζ)` with entries
 function predict_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()), 
     gdevs = get_gdev_MP(scenario), 
     xM = nothing, xP = nothing,
+    is_testmode = true,
     kwargs...
     )
     if isnothing(xM) || isnothing(xP)
@@ -231,7 +233,8 @@ function predict_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()),
         xM = isnothing(xM) ? xM_dl : xM
         xP = isnothing(xP) ? xP_dl : xP
     end
-    (; θsP, θsMs, entropy_ζ) = sample_posterior(rng, prob, xM; scenario, gdevs, kwargs...)
+    (; θsP, θsMs, entropy_ζ) = sample_posterior(
+        rng, prob, xM; scenario, gdevs, is_testmode, kwargs...)
     #
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     n_site_pred = size(θsMs,1)
@@ -239,7 +242,7 @@ function predict_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()),
     @assert size(xP, 2) == n_site_pred
     f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites=!is_predict_batch)
     if gdevs.gdev_P isa MLDataDevices.AbstractGPUDevice
-        f_dev = fmap(gdevs.gdev_P, f)
+        f_dev = gdevs.gdev_P(f)#fmap(gdevs.gdev_P, f)
     else
         f_dev = f
     end
@@ -327,11 +330,11 @@ function sample_posterior(rng, g, ϕ::AbstractVector, xM::AbstractMatrix;
     cor_ends,
     pbm_covar_indices,
     is_inferred::Val{is_infer} = Val(false),
-    kwargs...
+    is_testmode,
 ) where is_infer
     ζsP_gpu, ζsMs_gpu, σ = generate_ζ(rng, g, CA.getdata(ϕ), CA.getdata(xM);
         int_μP_ϕg_unc, int_unc,
-        n_MC=n_sample_pred, cor_ends, pbm_covar_indices)
+        n_MC=n_sample_pred, cor_ends, pbm_covar_indices, is_testmode)
     ζsP = cdev(ζsP_gpu)
     ζsMs = cdev(ζsMs_gpu)
     logdetΣ = 2 * sum(log.(σ))
@@ -358,7 +361,9 @@ each MC sample and then transforming each parameter on block across sites.
 function generate_ζ(rng, g, ϕ::AbstractVector{FT}, xM::MT;
     int_μP_ϕg_unc::AbstractComponentArrayInterpreter,
     int_unc::AbstractComponentArrayInterpreter,
-    n_MC=3, cor_ends, pbm_covar_indices) where {FT,MT}
+    n_MC=3, cor_ends, pbm_covar_indices,
+    is_testmode,
+    ) where {FT,MT}
     # see documentation of neg_elbo_gtf
     ϕc = int_μP_ϕg_unc(CA.getdata(ϕ))
     μ_ζP = CA.getdata(ϕc.μP)
@@ -368,7 +373,7 @@ function generate_ζ(rng, g, ϕ::AbstractVector{FT}, xM::MT;
     xMP0 = _append_each_covars(xM, CA.getdata(μ_ζP), pbm_covar_indices)
     #Main.@infiltrate_main
 
-    μ_ζMs0 = g(xMP0, ϕg)
+    μ_ζMs0 = g(xMP0, ϕg; is_testmode)
     ζP_resids, ζMs_parfirst_resids, σ = sample_ζresid_norm(rng, μ_ζP, μ_ζMs0, ϕc.unc; n_MC, cor_ends, int_unc)
     if pbm_covar_indices isa SA.SVector{0}
         # do not need to predict again but just add the residuals to μ_ζP and μ_ζMs

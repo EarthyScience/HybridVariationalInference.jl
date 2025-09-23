@@ -159,17 +159,18 @@ test_without_flux = (scenario) -> begin
             pbm_covars, n_site_batch = n_batch, priorsP, priorsM,
             )
         (_xM, _xP, _y_o, _y_unc, _i_sites) = first(train_loader)
-        l1 = loss_gf(p0, _xM, _xP, _y_o, _y_unc, _i_sites)
+        #l1 = loss_gf(p0, _xM, _xP, _y_o, _y_unc, _i_sites; is_testmode = false)
 
         l1 = @inferred (
             # @descend_code_warntype (
-            loss_gf(p0, _xM, _xP, _y_o, _y_unc, _i_sites))
+            loss_gf(p0, _xM, _xP, _y_o, _y_unc, _i_sites; is_testmode = true))
         tld = first(train_loader)
-        gr = Zygote.gradient(p -> loss_gf(p, tld...)[1], CA.getdata(p0))
+        gr = Zygote.gradient(p -> loss_gf(p, tld...; is_testmode = false)[1], CA.getdata(p0))
         @test gr[1] isa Vector
 
         () -> begin
-            optf = Optimization.OptimizationFunction((ϕ, data) -> loss_gf(ϕ, data...)[1],
+            optf = Optimization.OptimizationFunction(
+                (ϕ, data) -> loss_gf(ϕ, data...; is_testmode = false)[1],
                 Optimization.AutoZygote())
             optprob = OptimizationProblem(optf, p0, train_loader)
 
@@ -199,7 +200,7 @@ gdev = gpu_device()
 test_with_flux = (scenario) -> begin
     prob = probc = construct_problem(;scenario);
 
-    @testset "HybridPointSolver + predict $(last(CP._val_value(scenario)))" begin
+    @testset "HybridPointSolver + predict_point_hvi $(last(CP._val_value(scenario)))" begin
         rng = StableRNG(111)
         solver = HybridPointSolver(; alg=Adam(0.02))
         (; ϕ, resopt, probo) = solve(prob, solver; scenario, rng,
@@ -224,10 +225,10 @@ test_with_flux = (scenario) -> begin
         @test size(y_pred) == size(y_obs)
     end;
 
-    @testset "HybridPosteriorSolver  $(last(CP._val_value(scenario)))" begin
+    @testset "HybridPosteriorSolver + predict_hvi $(last(CP._val_value(scenario)))" begin
         rng = StableRNG(111)
         solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)
-        (; ϕ, θP, resopt) = solve(prob, solver; scenario, rng,
+        (; probo, ϕ, θP, resopt) = solve(prob, solver; scenario, rng,
             #callback = callback_loss(100), maxiters = 1200,
             #maxiters = 20 # too small so that it yields error
             #maxiters=37, # still complains "need to specify maxiters or epochs"
@@ -241,6 +242,14 @@ test_with_flux = (scenario) -> begin
         @test exp(ϕ.μP.K2) == θP.K2 < 1.5 * θP.K2
         θP
         prob.θP
+        n_sample_pred = 12
+        (; y, θsP, θsMs, entropy_ζ) = predict_hvi(rng, probo; scenario, n_sample_pred);
+        _,_,y_obs,_ = get_hybridproblem_train_dataloader(prob; scenario).data
+        @test size(y) == (size(y_obs)..., n_sample_pred)
+        yc = cdev(y)
+        _ = map(eachslice(yc; dims = 3)) do ycs
+            @test all(isfinite.(ycs[isfinite.(y_obs)]))    
+        end
     end;
 end # test_with flux
 
@@ -325,8 +334,8 @@ test_with_flux_gpu = (scenario) -> begin
             # moved to solve and predict_hvi
             # probg = HybridProblem(
             #     probg, 
-            #     f_batch = fmap(gdev, probg.f_batch), 
-            #     f_allsites = fmap(gdev, probg.f_allsites))
+            #     f_batch = gdev(probg.f_batch), 
+            #     f_allsites = gdev(probg.f_allsites))
             #prob = CP.update(probg, transM = identity, transP = identity);
             solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)
             n_site, n_batch = get_hybridproblem_n_site_and_batch(probg; scenario = scenf)

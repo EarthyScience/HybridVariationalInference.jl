@@ -25,6 +25,7 @@ using Missings
 using FillArrays
 using KernelAbstractions
 import NaNMath # ignore missing observations in logDensity
+import Zygote
 
 export DoubleMM
 
@@ -46,6 +47,7 @@ include("ComponentArrayInterpreter.jl")
 export AbstractModelApplicator, construct_ChainsApplicator
 export construct_3layer_MLApplicator, select_ml_engine
 export NullModelApplicator, MagnitudeModelApplicator, NormalScalingModelApplicator
+export RangeScalingModelApplicator
 include("ModelApplicator.jl")
 
 export AbstractPBMApplicator, NullPBMApplicator, PBMSiteApplicator, PBMPopulationApplicator
@@ -116,5 +118,8 @@ include("HybridSolver.jl")
 
 export DoubleMM
 include("DoubleMM/DoubleMM.jl")
+
+export RRuleMonitor
+include("RRuleMonitor.jl")
 
 end

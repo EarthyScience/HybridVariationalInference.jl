@@ -226,14 +226,14 @@ end
         pbm_covars, n_site_batch = n_batch, priorsP, priorsM)
     loss_gf_site = get_loss_gf(g, transM, transP, f2, py, intϕ;
         pbm_covars, n_site_batch = n_site, priorsP, priorsM)
-    nLjoint = @inferred first(loss_gf(p0, first(train_loader)...))
+    nLjoint = @inferred first(loss_gf(p0, first(train_loader)...; is_testmode=true))
     (xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch) = first(train_loader)
     # @usingany Cthulhu
     # @descend_code_warntype loss_gf(p0, xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch)
     Zygote.gradient(
         p0 -> first(loss_gf(
-            p0, xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch)), CA.getdata(p0))
-    optf = Optimization.OptimizationFunction((ϕ, data) -> first(loss_gf(ϕ, data...)),
+            p0, xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch; is_testmode=false)), CA.getdata(p0))
+    optf = Optimization.OptimizationFunction((ϕ, data) -> first(loss_gf(ϕ, data...; is_testmode=false)),
         Optimization.AutoZygote())
     optprob = OptimizationProblem(optf, CA.getdata(p0), train_loader)
 
@@ -242,7 +242,7 @@ end
         optprob, Adam(0.02), maxiters = 2000)
 
     (;nLjoint_pen, y_pred, θMs_pred, θP_pred, nLy, neg_log_prior, loss_penalty) = loss_gf_site(
-        res.u, train_loader.data...)
+        res.u, train_loader.data...; is_testmode=true)
     #(nLjoint,  y_pred, θMs_pred, θP, nLy, neg_log_prior, loss_penalty) = loss_gf(p0, xM, xP, y_o, y_unc);
     θMs_pred = CA.ComponentArray(θMs_pred, CA.getaxes(θMs_true'))
     #TODO @test isapprox(par_templates.θP, intϕ(res.u).ϕP, rtol = 0.15)
