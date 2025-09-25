@@ -55,6 +55,7 @@ include("ModelApplicator.jl")
 
 export AbstractPBMApplicator, NullPBMApplicator, PBMSiteApplicator, PBMPopulationApplicator
 export DirectPBMApplicator, PBMPopulationGlobalApplicator
+export create_nsite_applicator
 include("PBMApplicator.jl")
 
 # export AbstractGPUDataHandler, NullGPUDataHandler, get_default_GPUHandler

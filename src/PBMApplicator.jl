@@ -28,6 +28,11 @@ function (app::AbstractPBMApplicator)(θP::AbstractArray, θMs::AbstractArray, x
     apply_model(app, θP, θMs, xP)
 end
 
+function create_nsite_applicator(app::AbstractPBMApplicator, n_site) 
+    copy(app)
+end
+
+
 """
     apply_model(app::AbstractPBMApplicator, θsP::AbstractVector, θsMs::AbstractMatrix, xP::AbstractMatrix) 
     apply_model(app::AbstractPBMApplicator, θsP::AbstractMatrix, θsMs::AbstractArray{ET,3}, xP) 
@@ -114,7 +119,7 @@ struct PBMSiteApplicator{F, IT, IXT, VFT} <: AbstractPBMApplicator
 end
 
 """
-    PBMSiteApplicator(fθ, n_batch; θP, θM, θFix, xPvec)
+    PBMSiteApplicator(fθ; θP, θM, θFix, xPvec)
 
 Construct AbstractPBMApplicator from process-based model `fθ` that computes predictions
 for a single site.
@@ -189,10 +194,10 @@ end
 @functor PBMPopulationApplicator (θFixm, rep_fac)
 
 """
-    PBMPopulationApplicator(fθpop, n_batch; θP, θM, θFix, xPvec)
+    PBMPopulationApplicator(fθpop, n_site; θP, θM, θFix, xPvec)
 
 Construct AbstractPBMApplicator from process-based model `fθ` that computes predictions
-across sites for a population of size `n_batch`.
+across sites for a population of size `n_site`.
 The applicator combines enclosed `θFix`, with provided `θMs` and `θP`
 to a `ComponentMatrix` with parameters with one row for each site, that
 can be column-indexed by Symbols.
@@ -203,27 +208,39 @@ can be column-indexed by Symbols.
     - `θc`: parameters: `ComponentMatrix` (n_site x n_par) with each row a parameter vector
     - `xPc`: observations: `ComponentMatrix` (n_obs x n_site) with each column 
     observationsfor one site
-- `n_batch`: number of indiduals, i.e. rows in `θMs`
+- `n_site`: number of indiduals, i.e. rows in `θMs`
 - `θP`: `ComponentVector` template of global process model parameters
 - `θM`: `ComponentVector` template of individual process model parameters
 - `θFix`: `ComponentVector` of actual fixed process model parameters
 - `xPvec`: `ComponentVector` template of model drivers for a single site
 """
-function PBMPopulationApplicator(fθpop, n_batch; 
+function PBMPopulationApplicator(fθpop, n_site; 
     θP::CA.ComponentVector, θM::CA.ComponentVector, θFix::CA.ComponentVector, 
     xPvec::CA.ComponentVector
     )
     intθvec = ComponentArrayInterpreter(flatten1(CA.ComponentVector(; θP, θM, θFix)))
     int_xP_vec = ComponentArrayInterpreter(xPvec)
-    isFix = repeat(axes(θFix, 1)', n_batch)
+    isFix = repeat(axes(θFix, 1)', n_site)
     #
-    intθ = get_concrete(ComponentArrayInterpreter((n_batch,), intθvec))
-    int_xP = get_concrete(ComponentArrayInterpreter(int_xP_vec, (n_batch,)))
-    #isP = repeat(axes(θP, 1)', n_batch)
+    intθ = get_concrete(ComponentArrayInterpreter((n_site,), intθvec))
+    int_xP = get_concrete(ComponentArrayInterpreter(int_xP_vec, (n_site,)))
+    #isP = repeat(axes(θP, 1)', n_site)
     # n_site = size(θMs, 1)
-    rep_fac = ones_similar_x(θP, n_batch) # to reshape into matrix, avoiding repeat
+    rep_fac = ones_similar_x(θP, n_site) # to reshape into matrix, avoiding repeat
     θFixm = CA.ComponentMatrix(θFix[isFix], (CA.FlatAxis(), CA.getaxes(θFix)[1]))
     PBMPopulationApplicator(fθpop, θFixm, rep_fac, intθ, int_xP)        
+end
+
+function create_nsite_applicator(app::PBMPopulationApplicator, n_site) 
+    θFix = app.θFixm[1,:]
+    isFix = repeat(axes(θFix, 1)', n_site)
+    θFixm = CA.ComponentMatrix(θFix[isFix], (CA.FlatAxis(), CA.getaxes(θFix)[1]))
+    #
+    intθ = get_concrete(ComponentArrayInterpreter((n_site,), (CA.getaxes(app.intθ)[2],),()))
+    int_xP = get_concrete(ComponentArrayInterpreter(
+        (), (CA.getaxes(app.int_xP)[1],), (n_site,)))
+    rep_fac = ones_similar_x(θFix, n_site) # to reshape into matrix, avoiding repeat
+    PBMPopulationApplicator(app.fθpop, θFixm, rep_fac, intθ, int_xP)        
 end
 
 function apply_model(app::PBMPopulationApplicator, θP::AbstractVector, θMs::AbstractMatrix, xP) 
@@ -262,10 +279,10 @@ end
 
 
 """
-    PBMPopulationGlobalApplicator(fθpop, n_batch; θP, θM, θFix, xPvec)
+    PBMPopulationGlobalApplicator(fθpop, n_site; θP, θM, θFix, xPvec)
 
 Construct AbstractPBMApplicator from process-based model `fθ` that computes predictions
-across sites for a population of size `n_batch`.
+across sites for a population of size `n_site`.
 The applicator combines enclosed `θFix`, with provided `θMs` and `θP`
 to a `ComponentMatrix` with parameters with one row for each site, that
 can be column-indexed by Symbols.
@@ -278,23 +295,32 @@ can be column-indexed by Symbols.
     - `θgc`: parameters: `ComponentVector` (n_par_global) 
     - `xPc`: observations: `ComponentMatrix` (n_obs x n_site) with each column 
     observationsfor one site
-- `n_batch`: number of indiduals, i.e. rows in `θMs`
+- `n_site`: number of indiduals, i.e. rows in `θMs`
 - `θP`: `ComponentVector` template of global process model parameters
 - `θM`: `ComponentVector` template of individual process model parameters
 - `θFix`: `ComponentVector` of actual fixed process model parameters
 - `xPvec`: `ComponentVector` template of model drivers for a single site
 """
-function PBMPopulationGlobalApplicator(fθpop, n_batch; 
+function PBMPopulationGlobalApplicator(fθpop, n_site; 
     θP::CA.ComponentVector, θM::CA.ComponentVector, θFix::CA.ComponentVector, 
     xPvec::CA.ComponentVector
     )
-    intθvec = ComponentArrayInterpreter(flatten1(CA.ComponentVector(; θP, θM, θFix)))
+    #intθvec = ComponentArrayInterpreter(flatten1(CA.ComponentVector(; θP, θM, θFix)))
     int_xP_vec = ComponentArrayInterpreter(xPvec)
-    intθs = get_concrete(ComponentArrayInterpreter((n_batch,), θM))
+    intθs = get_concrete(ComponentArrayInterpreter((n_site,), θM))
     intθg = get_concrete(ComponentArrayInterpreter(vcat(θP, θFix)))
-    int_xP = get_concrete(ComponentArrayInterpreter(int_xP_vec, (n_batch,)))
+    int_xP = get_concrete(ComponentArrayInterpreter(int_xP_vec, (n_site,)))
     PBMPopulationGlobalApplicator(fθpop, θFix, intθs, intθg, int_xP)        
 end
+
+function create_nsite_applicator(app::PBMPopulationGlobalApplicator, n_site) 
+    @info("called PBMPopulationGlobalApplicator.create_nsite_applicator")
+    intθs = get_concrete(ComponentArrayInterpreter((n_site,), (CA.getaxes(app.intθs)[2],),()))
+    int_xP = get_concrete(ComponentArrayInterpreter(
+        (), (CA.getaxes(app.int_xP)[1],), (n_site,)))
+    PBMPopulationGlobalApplicator(app.fθpop, app.θFix, intθs, app.intθg, int_xP)        
+end
+
 
 function apply_model(app::PBMPopulationGlobalApplicator, θP::AbstractVector, θMs::AbstractMatrix, xP) 
     if (CA.getdata(θP) isa GPUArraysCore.AbstractGPUArray) && 
