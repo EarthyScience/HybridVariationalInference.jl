@@ -162,9 +162,15 @@ function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, ζP,
     #xMP = _append_PBM_covars(xM, intP(ζP), pbm_covars) 
     xMP = _append_each_covars(xM, CA.getdata(ζP), pbm_covar_indices)
     θMs = gtrans(g, transMs, xMP, ϕg; cdev, is_testmode)
+    # transPM = RRuleMonitor("transP", ζP -> transP(ζP))
+    # θP = transPM(CA.getdata(ζP))
     θP = transP(CA.getdata(ζP))
     θP_cpu = cdev(θP) 
     y_pred = f(θP_cpu, θMs, xP)
+    # fM = RRuleMonitor("f in gf", (θP_cpu) -> f(θP_cpu, θMs, xP), DI.AutoForwardDiff())
+    # y_pred = fM(θP_cpu) 
+    # fM = RRuleMonitor("f in gf", (θP_cpu, θMs) -> f(θP_cpu, θMs, xP))
+    # y_pred = fM(θP_cpu, θMs) # very slow large JvP with θMs
     return y_pred, θMs, θP_cpu
 end
 
@@ -188,7 +194,6 @@ function gtrans(g, transMs, xMP, ϕg; cdev, is_testmode)
     θMs
     #θMs = reduce(hcat, map(transM, eachcol(ζMs_cpu))) # transform each row
 end
-
 
 """
 Create a loss function for given
@@ -252,7 +257,6 @@ function get_loss_gf(g, transM, transP, f, py,
             # y_pred, _, _ = apply_f_trans(ζP_cpu, ζMs_cpu, f, xP; transM, transP)
             if !all(isfinite.(ϕ)) 
                 @info "loss_gf: encountered non-finite ϕ"
-                @show keys(ϕc)
                 @show ϕc.ϕP
                 #Main.@infiltrate_main
             end
