@@ -231,11 +231,13 @@ function get_loss_gf(g, transM, transP, f, py,
     cdev=cpu_device(),
     pbm_covars, n_site_batch, 
     priorsP, priorsM, floss_penalty = zero_penalty_loss,
+    is_omit_priors = false,
     kwargs...)
 
     let g = g, transM = transM, transP = transP, f = f, 
         intϕ = get_concrete(intϕ),
         transMs = StackedArray(transM, n_site_batch),
+        is_omit_priors = is_omit_priors,
         cdev = cdev,
         pbm_covar_indices = CA.getdata(intP(1:length(intP))[pbm_covars]),
         priorsP = priorsP, priorsM = priorsM, floss_penalty = floss_penalty,
@@ -279,10 +281,10 @@ function get_loss_gf(g, transM, transP, f, py,
             θP_pred_cpu = CA.getdata(θP_pred)
             θMs_pred_cpu = CA.getdata(θMs_pred)
             # TODO account for prior cost on global parameters after debug
-            neg_log_prior = 
-            zero(nLy) #-sum(logpdf_t.(priorsP, θP_pred_cpu)) +
-            # -sum(map(
-            #     (priorMi, θMi) -> sum(logpdf_tv(priorMi, θMi)), priorsM, eachcol(θMs_pred_cpu))) 
+            neg_log_prior = is_omit_priors ? zero(nLy) :
+                -sum(logpdf_t.(priorsP, θP_pred_cpu)) +
+                -sum(map((priorMi, θMi) -> sum(
+                    logpdf_tv(priorMi, θMi)), priorsM, eachcol(θMs_pred_cpu))) 
             #neg_log_prior = min(sqrt(floatmax(neg_log_prior0)), neg_log_prior0)                
             if !isfinite(neg_log_prior)
                 @info "loss_gf: encountered non-finite prior density"

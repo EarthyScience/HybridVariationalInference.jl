@@ -17,6 +17,7 @@ using MLUtils  # dataloader
 using CommonSolve
 #using OptimizationOptimisers # default alg=Adam(0.02)
 using Optimization
+import Optimisers # for hand-coded optimization loop
 using Distributions, DistributionFits
 using StaticArrays: StaticArrays as SA
 using Functors
@@ -25,7 +26,9 @@ using Missings
 using FillArrays
 using KernelAbstractions
 import NaNMath # ignore missing observations in logDensity
+using DifferentiationInterface: DifferentiationInterface as DI
 import Zygote
+
 
 export DoubleMM
 
@@ -70,7 +73,7 @@ export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_
        get_hybridproblem_pbmpar_covars,
        gen_cov_pred,
        construct_dataloader_from_synthetic,
-       gdev_hybridproblem_dataloader,
+       gdev_hybridproblem_dataloader, gdev_hybridproblem_data,
        setup_PBMpar_interpreter,
        get_gdev_MP
 include("AbstractHybridProblem.jl")

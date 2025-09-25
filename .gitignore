@@ -15,3 +15,6 @@ docs/src/**/*.html
 docs/src/**/*.ipynb
 docs/src/**/*Manifest.toml
 docs/src_stash/*.ipynb
+docs/src/tutorials/test.*
+docs/src/tutorials/tmp*
+

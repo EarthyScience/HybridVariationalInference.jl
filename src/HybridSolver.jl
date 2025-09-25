@@ -10,6 +10,10 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     scenario=Val(()), rng=Random.default_rng(),
     gdevs = nothing, # get_gdev_MP(scenario)
     is_inferred::Val{is_infer} = Val(false),
+    ad_backend_loss = AutoZygote(),
+    epochs,
+    is_omitting_NaNbatches = false,
+    is_omit_priors = false,
     kwargs...
 ) where is_infer
     gdevs = isnothing(gdevs) ? get_gdev_MP(scenario) : gdevs
@@ -21,32 +25,50 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
         ϕg=1:length(ϕg0), ϕP=par_templates.θP))
     #ϕ0_cpu = vcat(ϕg0, par_templates.θP .* FT(0.9))  # slightly disturb θP_true
     ϕ0_cpu = vcat(ϕg0, apply_preserve_axes(inverse(transP), par_templates.θP))
+    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     train_loader = get_hybridproblem_train_dataloader(prob; scenario)
+    #TODO provide different test data
+    # TODO use 1/10 of the training data
+    # currently HybridProblem returns only applciators of size n_batch and n_site
+    # i_test = rand(1:n_site, Integer(floor(n_site/10)))
+    # test_data = map(train_loader.data) do data_comp
+    #     ndims(data_comp) == 2 ? data_comp[:, i_test] : data_comp[i_test]
+    # end
+    test_data = train_loader.data
     gdev = gdevs.gdev_M
     if gdev isa MLDataDevices.AbstractGPUDevice
         ϕ0_dev = gdev(ϕ0_cpu)
         g_dev = gdev(g)
         train_loader_dev = gdev_hybridproblem_dataloader(train_loader; gdevs)
+        test_data_dev = gdev_hybridproblem_data(test_data; gdevs)
     else
         ϕ0_dev = ϕ0_cpu
         g_dev = g
         train_loader_dev = train_loader
+        test_data_dev = test_data
     end
     f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites=false)
+    ftest = get_hybridproblem_PBmodel(prob; scenario, use_all_sites=true) # TODO specify n_batch
     if gdevs.gdev_P isa MLDataDevices.AbstractGPUDevice
-        f_dev = gdevs.gdev_P(f) #fmap(gdevs.gdev_P, f)
+        f_dev = gdevs.gdev_P(f) 
+        ftest_dev = gdevs.gdev_P(ftest) 
     else
         f_dev = f
+        ftest_dev = ftest
     end
     py = get_hybridproblem_neg_logden_obs(prob; scenario)
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
-    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    n_site_test = size(test_data[1],2)
     priors = get_hybridproblem_priors(prob; scenario)
     priorsP = [priors[k] for k in keys(par_templates.θP)]
     priorsM = [priors[k] for k in keys(par_templates.θM)]
     #intP = ComponentArrayInterpreter(par_templates.θP)
     loss_gf = get_loss_gf(g_dev, transM, transP, f_dev,  py, intϕ;
-        cdev=infer_cdev(gdevs), pbm_covars, n_site_batch=n_batch, priorsP, priorsM,)
+        n_site_batch=n_batch, 
+        cdev=infer_cdev(gdevs), pbm_covars, priorsP, priorsM, is_omit_priors,)
+    loss_gf_test = get_loss_gf(g_dev, transM, transP, ftest_dev,  py, intϕ;
+        n_site_batch=n_site_test,
+        cdev=infer_cdev(gdevs), pbm_covars, priorsP, priorsM, is_omit_priors,)
     # call loss function once
     l1 = is_infer ? 
         Test.@inferred(loss_gf(ϕ0_dev, first(train_loader_dev)...; is_testmode=true))[1] : 
@@ -59,13 +81,54 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     #             p -> loss_gf(p, xMg, xP, y_o, y_unc)[1],
     #             ϕ0_dev)
     # Zygote.gradient(ϕ0_dev -> loss_gf(ϕ0_dev, data1...)[1], ϕ0_dev)
-    optf = Optimization.OptimizationFunction((ϕ, data) -> loss_gf(ϕ, data...; is_testmode=false)[1],
-        Optimization.AutoZygote())
-    # use CA.getdata(ϕ0_dev), i.e. the plain vector to avoid recompiling for specific CA
-    # loss_gf re-attaches the axes
-    optprob = OptimizationProblem(optf, CA.getdata(ϕ0_dev), train_loader_dev)
-    res = Optimization.solve(optprob, solver.alg; kwargs...)
-    ϕ = intϕ(res.u)
+    if is_omitting_NaNbatches 
+        # implement training loop by hand to skip minibatches with NaN gradients
+        ps = CA.getdata(ϕ0_dev)
+        opt_st_new = Optimisers.setup(solver.alg, ps)
+        n_skips = 0
+        # prepare DI.gradient, need to access and update outside cope data_batch
+        # because cannot redefine fopt_loss_gf
+        data_batch = first(train_loader_dev)
+        is_testmode = false
+        function fopt_loss_gf(ϕ) 
+            #@show first(data_batch[5], 2)
+            loss_gf(ϕ, data_batch...; is_testmode)[1]
+        end
+        ad_prep = DI.prepare_gradient(fopt_loss_gf, ad_backend_loss, zero(ps))
+        grad = similar(ps)
+        stime = time()
+        for epoch in 1:epochs
+            is_testmode = false
+            #i,data_batch = first(enumerate(loader))
+            for (i, data_batch_) in enumerate(train_loader_dev)
+                data_batch = data_batch_  # propagate outside for to scope of fopt_loss_gf
+                DI.gradient!(fopt_loss_gf, grad, ad_prep, ad_backend_loss, ps)    
+                if any(isnan.(grad))
+                    n_skips += 1
+                    #println("Skipped NaN : Batch $i")
+                    print(",$i")
+                else
+                    Optimisers.update!(opt_st_new, ps, grad)
+                end
+            end
+            ttime = time() - stime
+            # compute loss for test data
+            l = loss_gf_test(ps, test_data_dev...; is_testmode = true)
+            println()
+            @show round(ttime, digits=1), epoch, l.nLy, l.neg_log_prior, l.loss_penalty
+            # TOOD log 
+        end
+        res = nothing  
+        ϕ = intϕ(ps)
+    else
+        optf = Optimization.OptimizationFunction((ϕ, data) -> loss_gf(ϕ, data...; is_testmode=false)[1],
+            ad_backend_loss)
+        # use CA.getdata(ϕ0_dev), i.e. the plain vector to avoid recompiling for specific CA
+        # loss_gf re-attaches the axes
+        optprob = OptimizationProblem(optf, CA.getdata(ϕ0_dev), train_loader_dev)
+        res = Optimization.solve(optprob, solver.alg; epochs, kwargs...)
+        ϕ = intϕ(res.u)
+    end
     θP = cpu_ca(apply_preserve_axes(transP, cpu_ca(ϕ).ϕP))
     probo = HybridProblem(prob; ϕg=cpu_ca(ϕ).ϕg, θP)
     (; ϕ, resopt=res, probo)
