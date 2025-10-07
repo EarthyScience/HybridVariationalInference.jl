@@ -207,9 +207,9 @@ Prediction function for hybrid variational inference parameter model.
 - `scenario`
 - `n_sample_pred`
 - `xM`: covariates for the machine-learning model (ML): Matrix (n_θM x n_site_pred).
-  Possibility to overide the default from `get_hybridproblem_train_dataloader`.
+  Possibility to override the default from `get_hybridproblem_train_dataloader`.
 - `xP`: model drivers for process based model (PBM): Matrix with (n_site_pred) rows.
-  Possibility to overide the default from `get_hybridproblem_train_dataloader`.
+  Possibility to override the default from `get_hybridproblem_train_dataloader`.
 
 Returns an NamedTuple `(; y, θsP, θsMs, entropy_ζ)` with entries
 - `y`: Array `(n_obs, n_site, n_sample_pred)` of model predictions.

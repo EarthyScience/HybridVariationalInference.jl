@@ -178,7 +178,7 @@ end
 """
     RangeScalingModelApplicator(app, y0)
 
-Wrapper around AbstractModelApplicator assumed to predict on (0,1) wiht 
+Wrapper around AbstractModelApplicator assumed to predict on (0,1) with 
 a linear mappting to prededfined range.
 """
 struct RangeScalingModelApplicator{VF,A} <: AbstractModelApplicator

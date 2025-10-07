@@ -116,7 +116,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
             l = loss_gf_test(ps, test_data_dev...; is_testmode = true)
             println()
             @show round(ttime, digits=1), epoch, l.nLy, l.neg_log_prior, l.loss_penalty
-            # TOOD log 
+            # TODO log 
         end
         res = nothing  
         ϕ = intϕ(ps)
