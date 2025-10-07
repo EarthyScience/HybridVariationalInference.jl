@@ -91,7 +91,7 @@ end
 """
     get_hybridproblem_transforms(::AbstractHybridProblem; scenario)
 
-Return a NamedTupe of
+Return a NamedTuple of
 - `transP`: Bijectors.Transform for the global PBM parameters, θP
 - `transM`: Bijectors.Transform for the single-site PBM parameters, θM
 """

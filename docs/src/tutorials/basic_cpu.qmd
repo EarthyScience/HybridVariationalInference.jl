@@ -59,7 +59,7 @@ access the components by its symbolic names in the provided `ComponentArray`.
 HVI requires the evaluation of the likelihood of the predictions.
 It corresponds to the cost of predictions given some observations.
 
-The user specifies a function of the negative log-Likehood 
+The user specifies a function of the negative log-Likelihood 
 `neg_logden(obs, pred, uncertainty_parameters)`,
 where all of the parameters are arrays with columns for sites.
 

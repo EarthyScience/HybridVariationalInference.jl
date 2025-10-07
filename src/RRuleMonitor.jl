@@ -6,7 +6,7 @@ and raises an error if the supplied cotangent or the jacobian
 contains non-finitie entries.
 
 Arguments
-- label: id (String, or symbole) used in the error message.
+- label: id (String, or symbol) used in the error message.
 - `ad_backend`: the AD backend used in `DifferentiationInterface.jacobian`.
   Defaults to `AutoZygote().`
 """

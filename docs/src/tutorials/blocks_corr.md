@@ -1,4 +1,4 @@
-# How to model indenpendent parameter-blocks in the posterior
+# How to model independent parameter-blocks in the posterior
 
 
 ``` @meta
