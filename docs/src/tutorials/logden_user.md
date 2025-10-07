@@ -5,7 +5,7 @@
 CurrentModule = HybridVariationalInference  
 ```
 
-This guide shows how the user can specify a customized log-density function.
+This guide shows how the user can specify a customized log-Likelihood function.
 
 ## Motivation
 

@@ -200,8 +200,8 @@ end
     g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     n_site, n_site_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-    f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = false)
-    f2 = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = true)
+    f = get_hybridproblem_PBmodel(prob; scenario)
+    f2 = create_nsite_applicator(f, n_site)
     py = get_hybridproblem_neg_logden_obs(prob; scenario)
     priors = get_hybridproblem_priors(prob; scenario)
     priorsP = [priors[k] for k in keys(par_templates.θP)]

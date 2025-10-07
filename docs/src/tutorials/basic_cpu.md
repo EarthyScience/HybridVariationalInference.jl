@@ -27,7 +27,8 @@ The example process based model (PBM) predicts a double-monod constrained rate
 for different substrate concentrations, `S1`, and `S2`.
 
 $$
-y = r_0+ r_1 \frac{S_1}{K_1 + S_1} \frac{S_2}{K_2 + S_2}$$
+y = r_0+ r_1 \frac{S_1}{K_1 + S_1} \frac{S_2}{K_2 + S_2}
+$$
 
 ``` julia
 function f_doubleMM(θc::CA.ComponentVector{ET}, x) where ET
@@ -229,10 +230,10 @@ given a vector of global parameters, and a matrix of site parameters to
 invocation of the process based model (PBM), defined at the beginning.
 
 ``` julia
-f_batch = f_allsites = PBMSiteApplicator(f_doubleMM; θP, θM, θFix, xPvec=xP[:,1])
+f_batch = PBMSiteApplicator(f_doubleMM; θP, θM, θFix, xPvec=xP[:,1])
 
 prob = HybridProblem(θP, θM, g_chain_scaled, ϕg0, 
-    f_batch, f_allsites, priors_dict, py,
+    f_batch, priors_dict, py,
     transM, transP, train_dataloader, n_covar, n_site, n_batch)
 ```
 
@@ -240,6 +241,11 @@ prob = HybridProblem(θP, θM, g_chain_scaled, ϕg0,
 
 Eventually, having assembled all the moving parts of the HVI, we can perform
 the inversion.
+
+``` julia
+# silence warning of no GPU backend found (because we did not import CUDA here)
+ENV["MLDATADEVICES_SILENCE_WARN_NO_GPU"] = 1
+```
 
 ``` julia
 using OptimizationOptimisers
@@ -313,8 +319,7 @@ The HVI Problem needs to be updated with this new applicatior.
 
 ``` julia
 f_batch = PBMPopulationApplicator(f_doubleMM_sites, n_batch; θP, θM, θFix, xPvec=xP[:,1])
-f_allsites = PBMPopulationApplicator(f_doubleMM_sites, n_site; θP, θM, θFix, xPvec=xP[:,1])
-probo_sites = HybridProblem(probo; f_batch, f_allsites)
+probo_sites = HybridProblem(probo; f_batch)
 ```
 
 For numerical efficiency, the number of sites within one batch is part of the
@@ -345,8 +350,7 @@ module `Main` to allow for easier reloading with JLD2.
 
 ``` julia
 f_batch = PBMPopulationApplicator(DoubleMM.f_doubleMM_sites, n_batch; θP, θM, θFix, xPvec=xP[:,1])
-f_allsites = PBMPopulationApplicator(DoubleMM.f_doubleMM_sites, n_site; θP, θM, θFix, xPvec=xP[:,1])
-probo2 = HybridProblem(probo; f_batch, f_allsites)
+probo2 = HybridProblem(probo; f_batch)
 ```
 
 ``` julia

@@ -1,0 +1,26 @@
+---
+title: "Basic workflow without GPU"
+engine: julia
+# julia:
+#     env: ["JULIA_DEPOT_PATH=/User/homes/twutz/scratch/twutz/julia_gpu_depots"]
+execute:
+  echo: true
+format:
+  commonmark:
+    variant: -raw_html+tex_math_dollars
+    wrap: preserve    
+# params:
+#   JULIA_DEPOT_PATH: /User/homes/twutz/scratch/twutz/julia_cluster_depots
+---
+```{julia}
+ENV["JULIA_DEPOT_PATH"]
+```
+
+```{julia}
+DEPOT_PATH
+```
+
+```{julia}
+#println(no_existing_var)
+```
+

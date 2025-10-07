@@ -47,8 +47,8 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
         train_loader_dev = train_loader
         test_data_dev = test_data
     end
-    f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites=false)
-    ftest = get_hybridproblem_PBmodel(prob; scenario, use_all_sites=true) # TODO specify n_batch
+    f = get_hybridproblem_PBmodel(prob; scenario)
+    ftest = create_nsite_applicator(f, size(test_data[1],2))
     if gdevs.gdev_P isa MLDataDevices.AbstractGPUDevice
         f_dev = gdevs.gdev_P(f) 
         ftest_dev = gdevs.gdev_P(ftest) 
@@ -210,7 +210,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
         g_dev = g
         train_loader_dev = train_loader
     end
-    f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites=false)
+    f = get_hybridproblem_PBmodel(prob; scenario)
     if gdevs.gdev_P isa MLDataDevices.AbstractGPUDevice
         f_dev = gdevs.gdev_P(f) #fmap(gdevs.gdev_P, f)
     else
@@ -300,15 +300,27 @@ function get_loss_elbo(g, transP, transMs, f, py;
     end
 end
 
+
+function compute_elbo_components(
+    prob::AbstractHybridProblem, solver::HybridPosteriorSolver; 
+    scenario, kwargs...
+    )
+    train_loader = get_hybridproblem_train_dataloader(prob; scenario)
+    data = train_loader.data 
+    compute_elbo_components(
+        prob::AbstractHybridProblem, solver::HybridPosteriorSolver, data; 
+        scenario, kwargs...
+        )
+end
+
 """
 Compute the components of the elbo for given initial conditions of the problems
 for the first batch of the trainloader.
 """
 function compute_elbo_components(
-    prob::AbstractHybridProblem, solver::HybridPosteriorSolver;
+    prob::AbstractHybridProblem, solver::HybridPosteriorSolver, data::Tuple;
     scenario, rng=Random.default_rng(), gdev=gpu_device(),
     θmean_quant=0.0,
-    use_all_sites=false,
     kwargs...)
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     par_templates = get_hybridproblem_par_templates(prob; scenario)
@@ -319,23 +331,27 @@ function compute_elbo_components(
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
         θP, θM, cor_ends, ϕg0, n_batch; transP, transM, ϕunc0)
-    train_loader = get_hybridproblem_train_dataloader(prob; scenario)
     if gdev isa MLDataDevices.AbstractGPUDevice
         ϕ0_dev = gdev(ϕ)
         g_dev = gdev(g) # zygote fails if  gdev is a CPUDevice, although should be non-op
-        train_loader_dev = gdev_hybridproblem_dataloader(train_loader; scenario, gdev)
+        data_dev = gdev_hybridproblem_data(data; scenario, gdev)
     else
         ϕ0_dev = ϕ
         g_dev = g
-        train_loader_dev = train_loader
+        data_dev = data
     end
-    f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites)
+    (xM, xP, y_o, y_unc, i_sites) = data_dev
+    n_site_pred = size(xP,2)
+    @assert size(xM, 2) == n_site_pred
+    @assert size(y_o, 2) == n_site_pred
+    @assert size(y_unc, 2) == n_site_pred
+    @assert length(i_sites) == n_site_pred
+    f_batch = get_hybridproblem_PBmodel(prob; scenario)
+    f = (n_site_pred == n_batch) ? f : create_nsite_applicator(f_batch, n_site_pred)
     py = get_hybridproblem_neg_logden_obs(prob; scenario)
     priors_θ_mean = construct_priors_θ_mean(
         prob, ϕ0_dev.ϕg, keys(θM), θP, θmean_quant, g_dev, transM;
         scenario, get_ca_int_PMs, gdev, cdev, pbm_covars)
-    # TODO replace train_loader.data by proper function that pulls all the data
-    xM, xP, y_o, y_unc, i_sites = use_all_sites ? train_loader_dev.data : first(train_loader_dev)
     neg_elbo_gtf_components(
         rng, ϕ0_dev, g_dev, transPMs_batch, f, py, xM, xP, y_o, y_unc, i_sites, interpreters;
         solver.n_MC, solver.n_MC_cap, cor_ends, priors_θ_mean)

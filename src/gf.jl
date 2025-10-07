@@ -111,11 +111,10 @@ function gf(prob::AbstractHybridProblem, xM::AbstractMatrix, xP::AbstractMatrix;
     gdevs = isnothing(gdevs) ? get_gdev_MP(scenario) : gdevs
     g, ϕg = get_hybridproblem_MLapplicator(prob; scenario)
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-    is_predict_batch = (n_batch == size(xP,2))
-    n_site_pred = is_predict_batch ? n_batch : n_site
-    @assert size(xP, 2) == n_site_pred
+    n_site_pred = size(xP,2)
     @assert size(xM, 2) == n_site_pred
-    f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = !is_predict_batch)
+    f_batch = get_hybridproblem_PBmodel(prob; scenario)
+    f = (n_site_pred == n_batch) ? f : create_nsite_applicator(f_batch, n_site_pred)
     if gdevs.gdev_P isa MLDataDevices.AbstractGPUDevice
         f_dev = gdevs.gdev_P(f) #fmap(gdevs.gdev_P, f)
     else

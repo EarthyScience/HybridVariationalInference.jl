@@ -82,11 +82,11 @@ function construct_problem(; scenario::Val{scen}) where scen
     #g_chain_scaled = app
     #ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(FT)) 
     pbm_covars = (:covarK2 ∈ scen) ? (:K2,) : ()
-    f_batch = f_sites = PBMSiteApplicator(
+    f_batch = PBMSiteApplicator(
         f_doubleMM; θP, θM, θFix=CA.ComponentVector{FT}(), 
         xPvec=xP[:,1])
     HybridProblem(θP, θM, g_chain_scaled, ϕg0, 
-        f_batch, f_sites, priors_dict, py,
+        f_batch, priors_dict, py,
         transM, transP, train_dataloader, n_covar, n_site, n_batch, 
         cor_ends, pbm_covars,
         #ϕunc0, 
@@ -140,7 +140,7 @@ test_without_flux = (scenario) -> begin
         n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
         train_loader = get_hybridproblem_train_dataloader(prob; scenario)
         (xM, xP, y_o, y_unc, i_sites) = first(train_loader)
-        f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = false)
+        f = get_hybridproblem_PBmodel(prob; scenario)
         py = get_hybridproblem_neg_logden_obs(prob; scenario)
         par_templates = get_hybridproblem_par_templates(prob; scenario)
         #f(par_templates.θP, hcat(par_templates.θM, par_templates.θM), xP[1:2])

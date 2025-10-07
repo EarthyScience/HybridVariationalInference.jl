@@ -237,10 +237,10 @@ function predict_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()),
         rng, prob, xM; scenario, gdevs, is_testmode, kwargs...)
     #
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-    n_site_pred = size(θsMs,1)
-    is_predict_batch = (n_site_pred == n_batch)
+    n_site_pred = size(θsMs,1) # determined by size(xM)
     @assert size(xP, 2) == n_site_pred
-    f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites=!is_predict_batch)
+    f_batch = get_hybridproblem_PBmodel(prob; scenario)
+    f = n_site_pred == n_batch ? f_batch : create_nsite_applicator(f_batch, n_site_pred)
     if gdevs.gdev_P isa MLDataDevices.AbstractGPUDevice
         f_dev = gdevs.gdev_P(f)#fmap(gdevs.gdev_P, f)
     else

@@ -227,7 +227,6 @@ end
 
 function HVI.get_hybridproblem_MLapplicator(
         rng::AbstractRNG, prob::HVI.DoubleMM.DoubleMMCase; scenario::Val{scen},
-        use_all_sites = false
 ) where {scen}
     ml_engine = select_ml_engine(; scenario)
     g_nomag, ϕ_g0 = construct_3layer_MLApplicator(rng, prob, ml_engine; scenario)
@@ -238,8 +237,7 @@ function HVI.get_hybridproblem_MLapplicator(
     (; transM) = get_hybridproblem_transforms(prob; scenario)
     lowers, uppers = HVI.get_quantile_transformed(
         priors::AbstractVector{<:Distribution}, transM)
-    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-    n_site_batch = use_all_sites ? n_site : n_batch
+    #n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     g = if (:use_rangescaling ∈ scen)
         RangeScalingModelApplicator(g_nomag, lowers, uppers, eltype(ϕ_g0))
     else
@@ -292,7 +290,7 @@ end
 #     cl::CLT
 # end
 
-function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; use_all_sites=false,  scenario::Val{scen}) where {scen}
+function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario::Val{scen}) where {scen}
     # θall defined in this module above
     # TODO check and test for population or sites, currently return only site specific
     pt = get_hybridproblem_par_templates(prob; scenario)
@@ -303,8 +301,7 @@ function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; use_all_sites=false, 
         PBMSiteApplicator(f_doubleMM; pt.θP, pt.θM, θFix, xPvec)
     else
         n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-        n_site_batch = use_all_sites ? n_site : n_batch
-        PBMPopulationApplicator(f_doubleMM_sites, n_site_batch; pt.θP, pt.θM, θFix, xPvec)
+        PBMPopulationApplicator(f_doubleMM_sites, n_batch; pt.θP, pt.θM, θFix, xPvec)
     end
 end
 
@@ -391,7 +388,8 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     int_θMs_sites = ComponentArrayInterpreter(θM, (n_site,))
     # normalize to be distributed around the prescribed true values
     θMs_true = int_θMs_sites(scale_centered_at(θMs_true0, θM, FloatType(0.1)))
-    f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = true)
+    f_batch = get_hybridproblem_PBmodel(prob; scenario)
+    f = create_nsite_applicator(f_batch, n_site)
     #xP = fill((; S1 = xP_S1, S2 = xP_S2), n_site)
     int_xP_sites = ComponentArrayInterpreter(int_xP1, (n_site,))
     xP = int_xP_sites(vcat(repeat(xP_S1, 1, n_site), repeat(xP_S2, 1, n_site)))

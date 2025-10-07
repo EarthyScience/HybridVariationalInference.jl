@@ -39,7 +39,7 @@ using function [`sample_posterior`](@ref).
 using StableRNGs
 rng = StableRNG(112)
 n_sample_pred = 400
-(; θsP, θsMs) = sample_posterior(rng, probo; n_sample_pred)
+(; θsP, θsMs) = sample_posterior(rng, probo; n_sample_pred, is_testmode = true)
 ```
 
 Lets look at the results.

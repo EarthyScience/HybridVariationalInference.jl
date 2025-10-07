@@ -28,9 +28,10 @@ function (app::AbstractPBMApplicator)(θP::AbstractArray, θMs::AbstractArray, x
     apply_model(app, θP, θMs, xP)
 end
 
-function create_nsite_applicator(app::AbstractPBMApplicator, n_site) 
-    copy(app)
-end
+"""
+create_nsite_applicator(app::AbstractPBMApplicator, n_site) 
+"""
+function create_nsite_applicator end
 
 
 """
@@ -95,6 +96,8 @@ function apply_model(app::NullPBMApplicator, θP::AbstractVector, θMs::Abstract
     return CA.getdata(θMs)
 end
 
+create_nsite_applicator(app::NullPBMApplicator, n_site) = app
+
 """
     DirectPBMApplicator()
 
@@ -108,6 +111,8 @@ end
 function apply_model(app::DirectPBMApplicator, θP::AbstractVector, θMs::AbstractMatrix, xP)
     return app.f(θP, θMs, xP)
 end
+create_nsite_applicator(app::DirectPBMApplicator, n_site) = app
+
 
 
 
@@ -142,19 +147,24 @@ function PBMSiteApplicator(fθ;
     )
     intθ1 = get_concrete(ComponentArrayInterpreter(flatten1(CA.ComponentVector(; θP, θM, θFix))))
     int_xPsite = get_concrete(ComponentArrayInterpreter(xPvec))
-    PBMSiteApplicator(fθ, intθ1, int_xPsite, CA.getdata(θFix))        
+    PBMSiteApplicator(fθ, intθ1, int_xPsite, θFix)        
 end
+
+function create_nsite_applicator(app::PBMSiteApplicator, n_site)
+    PBMSiteApplicator(app.fθ, app.intθ1, app.int_xPsite, app.θFix)        
+end
+
 
 function apply_model(app::PBMSiteApplicator, θP::AbstractVector, θMs::AbstractMatrix, xP) 
     function apply_PBMsite(θM, xP1)
         if (CA.getdata(θP) isa GPUArraysCore.AbstractGPUArray) && 
-            (!(app.θFix isa GPUArraysCore.AbstractGPUArray) || 
+            (!(CA.getdata(app.θFix) isa GPUArraysCore.AbstractGPUArray) || 
              !(CA.getdata(θMs) isa GPUArraysCore.AbstractGPUArray)) 
             error("concatenating GPUarrays with non-gpu arrays θFix or θMs. " *
             "May fmap PBMModelapplicators to gdev, " *
             "or compute PBMmodel on CPU")
         end
-        θ = vcat(CA.getdata(θP), CA.getdata(θM), app.θFix)
+        θ = vcat(CA.getdata(θP), CA.getdata(θM), CA.getdata(app.θFix))
         θc = app.intθ1(θ);  # show errors without ";"
         xPc = app.int_xPsite(xP1);
         ans = CA.getdata(app.fθ(θc, xPc))
@@ -234,7 +244,11 @@ end
 function create_nsite_applicator(app::PBMPopulationApplicator, n_site) 
     θFix = app.θFixm[1,:]
     isFix = repeat(axes(θFix, 1)', n_site)
-    θFixm = CA.ComponentMatrix(θFix[isFix], (CA.FlatAxis(), CA.getaxes(θFix)[1]))
+    θFixm = if length(θFix) == 0
+        CA.ComponentMatrix(θFix[isFix], (CA.FlatAxis(), CA.FlatAxis()))
+    else
+        CA.ComponentMatrix(θFix[isFix], (CA.FlatAxis(), CA.getaxes(θFix)[1]))
+    end
     #
     intθ = get_concrete(ComponentArrayInterpreter((n_site,), (CA.getaxes(app.intθ)[2],),()))
     int_xP = get_concrete(ComponentArrayInterpreter(

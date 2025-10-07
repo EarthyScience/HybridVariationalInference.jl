@@ -560,7 +560,8 @@ end
 end
 
 #ζi = first(eachrow(Array(chain)))
-f_allsites = get_hybridproblem_PBmodel(prob0; scenario, use_all_sites = true)
+f = get_hybridproblem_PBmodel(probc; scenario)
+f_allsites = create_nsite_applicator(f, n_site)
 #ζs = mapreduce(ζi -> transposeMs(ζi, intm_PMs_gen, true), hcat, eachrow(Array(chain)));
 ζsP = Array(chain)[:,1:n_θP]'
 ζsMst = reshape(Array(chain)[:,(n_θP+1) : end], n_sample_NUTS, n_site, n_θM)
