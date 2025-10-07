@@ -27,6 +27,35 @@ end
 # end
 Bijectors.is_monotonically_increasing(::Exp) = true
 
+#----------------------- Logistic
+"""
+    Logistic()
+
+A bijector that applies broadcasted exponential function, i.e. `logit.(x)`.
+It is equivalent to `elementwise(exp)` but works better with automatic
+differentiation on GPU.
+"""
+struct Logistic <: Bijector
+end
+
+#Functors.@functor Logistic
+Bijectors.transform(b::Logistic, x) = logistic.(x) # note the broadcast
+Bijectors.transform(ib::Inverse{<:Logistic}, y) = logit.(y)
+
+# `logabsdetjac`
+# https://en.wikipedia.org/wiki/Logistic_function#Derivative
+Bijectors.logabsdetjac(b::Logistic, x) = sum(loglogistic.(x) + log1mlogistic.(x)) 
+
+`with_logabsdet_jacobian`
+function Bijectors.with_logabsdet_jacobian(b::Logistic, x)
+    return transform(b,x), logabsdetjac(b,x)
+end
+# function Bijectors.with_logabsdet_jacobian(ib::Inverse{<:Logistic}, y)
+#     x = transform(ib, y)
+#     return x, -logabsdetjac(inverse(ib), x)
+# end
+Bijectors.is_monotonically_increasing(::Logistic) = true
+
 
 """
     StackedArray(stacked, nrow) 

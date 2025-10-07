@@ -12,7 +12,7 @@ using Suppressor
 gdev = Suppressor.@suppress gpu_device() # not loaded CUDA
 cdev = cpu_device()
 
-@testset "construct StaticComponentArrayInterepreter" begin
+@testset "construct StaticComponentArrayInterpreter" begin
     intv = @inferred CP.StaticComponentArrayInterpreter(CA.ComponentVector(a=1:3, b=reshape(4:9,3,2)))
     ints = @inferred CP.StaticComponentArrayInterpreter((;a=Val(3), b = Val((3,2))))
     # @descend_code_warntype CP.StaticComponentArrayInterpreter((;a=Val(3), b = Val((3,2))))

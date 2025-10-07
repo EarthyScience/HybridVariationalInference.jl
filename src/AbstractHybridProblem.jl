@@ -91,7 +91,7 @@ end
 """
     get_hybridproblem_transforms(::AbstractHybridProblem; scenario)
 
-Return a NamedTupe of
+Return a NamedTuple of
 - `transP`: Bijectors.Transform for the global PBM parameters, θP
 - `transM`: Bijectors.Transform for the single-site PBM parameters, θM
 """
@@ -197,7 +197,7 @@ end
 
 Put relevant parts of the DataLoader to gpu, depending on scenario.
 """
-function gdev_hybridproblem_dataloader(dataloader::MLUtils.DataLoader; gdevs,
+function gdev_hybridproblem_dataloader(dataloader::MLUtils.DataLoader; gdevs = nothing,
     gdev_M = gdevs.gdev_M,
     gdev_P = gdevs.gdev_P,
     # scenario::Val{scen} = Val(()), 
@@ -207,12 +207,26 @@ function gdev_hybridproblem_dataloader(dataloader::MLUtils.DataLoader; gdevs,
     batchsize = dataloader.batchsize,
     partial = dataloader.partial
     ) 
-    xM, xP, y_o, y_unc, i_sites = dataloader.data
+    # xM, xP, y_o, y_unc, i_sites = dataloader.data
+    # xM_dev = gdev_M(xM)
+    # xP_dev, y_o_dev, y_unc_dev = (gdev_P(xP), gdev_P(y_o), gdev_P(y_unc)) 
+    data_dev = gdev_hybridproblem_data(dataloader.data; gdev_M, gdev_P)
+    train_loader_dev = MLUtils.DataLoader(data_dev; batchsize, partial)
+    return(train_loader_dev)
+end
+
+function gdev_hybridproblem_data(data::Tuple; gdevs = nothing,
+    gdev_M = gdevs.gdev_M,
+    gdev_P = gdevs.gdev_P,
+    # scenario::Val{scen} = Val(()), 
+    # gdev = gpu_device(),
+    # gdev_M = :use_gpu ∈ _val_value(scenario) ? gdev : identity,
+    # gdev_P = :f_on_gpu ∈ _val_value(scenario) ? gdev : identity,
+    ) 
+    xM, xP, y_o, y_unc, i_sites = data
     xM_dev = gdev_M(xM)
     xP_dev, y_o_dev, y_unc_dev = (gdev_P(xP), gdev_P(y_o), gdev_P(y_unc)) 
-    train_loader_dev = MLUtils.DataLoader((xM_dev, xP_dev, y_o_dev, y_unc_dev, i_sites);
-        batchsize, partial)
-    return(train_loader_dev)
+    (xM_dev, xP_dev, y_o_dev, y_unc_dev, i_sites)
 end
 
 """

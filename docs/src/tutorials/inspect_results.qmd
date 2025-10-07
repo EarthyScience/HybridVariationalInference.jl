@@ -53,9 +53,7 @@ probo = load(fname, "probo");
 _xP_batch = first(probo.train_dataloader)[2]
 f_batch = PBMPopulationApplicator(
   f_doubleMM_sites, probo.n_batch; probo.θP, probo.θM, θFix, xPvec=_xP_batch[:,1])
-f_allsites = PBMPopulationApplicator(
-  f_doubleMM_sites, probo.n_site; probo.θP, probo.θM, θFix, xPvec=_xP_batch[:,1])
-probo = HybridProblem(probo; f_batch, f_allsites)
+probo = HybridProblem(probo; f_batch)
 ```
 ## Sample the posterior
 
@@ -66,7 +64,7 @@ using function [`sample_posterior`](@ref).
 using StableRNGs
 rng = StableRNG(112)
 n_sample_pred = 400
-(; θsP, θsMs) = sample_posterior(rng, probo; n_sample_pred)
+(; θsP, θsMs) = sample_posterior(rng, probo; n_sample_pred, is_testmode = true)
 ```
 
 Lets look at the results.

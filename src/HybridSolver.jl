@@ -7,11 +7,16 @@ end
 HybridPointSolver(; alg) = HybridPointSolver(alg)
 
 function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolver;
-    scenario, rng=Random.default_rng(),
-    gdevs = get_gdev_MP(scenario),
+    scenario=Val(()), rng=Random.default_rng(),
+    gdevs = nothing, # get_gdev_MP(scenario)
     is_inferred::Val{is_infer} = Val(false),
+    ad_backend_loss = AutoZygote(),
+    epochs,
+    is_omitting_NaNbatches = false,
+    is_omit_priors = false,
     kwargs...
 ) where is_infer
+    gdevs = isnothing(gdevs) ? get_gdev_MP(scenario) : gdevs
     par_templates = get_hybridproblem_par_templates(prob; scenario)
     g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
     FT = get_hybridproblem_float_type(prob; scenario)
@@ -20,46 +25,110 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
         ϕg=1:length(ϕg0), ϕP=par_templates.θP))
     #ϕ0_cpu = vcat(ϕg0, par_templates.θP .* FT(0.9))  # slightly disturb θP_true
     ϕ0_cpu = vcat(ϕg0, apply_preserve_axes(inverse(transP), par_templates.θP))
+    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     train_loader = get_hybridproblem_train_dataloader(prob; scenario)
+    #TODO provide different test data
+    # TODO use 1/10 of the training data
+    # currently HybridProblem returns only applciators of size n_batch and n_site
+    # i_test = rand(1:n_site, Integer(floor(n_site/10)))
+    # test_data = map(train_loader.data) do data_comp
+    #     ndims(data_comp) == 2 ? data_comp[:, i_test] : data_comp[i_test]
+    # end
+    test_data = train_loader.data
     gdev = gdevs.gdev_M
     if gdev isa MLDataDevices.AbstractGPUDevice
         ϕ0_dev = gdev(ϕ0_cpu)
         g_dev = gdev(g)
-        train_loader_dev = gdev_hybridproblem_dataloader(train_loader; scenario, gdev)
+        train_loader_dev = gdev_hybridproblem_dataloader(train_loader; gdevs)
+        test_data_dev = gdev_hybridproblem_data(test_data; gdevs)
     else
         ϕ0_dev = ϕ0_cpu
         g_dev = g
         train_loader_dev = train_loader
+        test_data_dev = test_data
     end
-    f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites=false)
+    f = get_hybridproblem_PBmodel(prob; scenario)
+    ftest = create_nsite_applicator(f, size(test_data[1],2))
+    if gdevs.gdev_P isa MLDataDevices.AbstractGPUDevice
+        f_dev = gdevs.gdev_P(f) 
+        ftest_dev = gdevs.gdev_P(ftest) 
+    else
+        f_dev = f
+        ftest_dev = ftest
+    end
     py = get_hybridproblem_neg_logden_obs(prob; scenario)
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
-    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    n_site_test = size(test_data[1],2)
     priors = get_hybridproblem_priors(prob; scenario)
     priorsP = [priors[k] for k in keys(par_templates.θP)]
     priorsM = [priors[k] for k in keys(par_templates.θM)]
     #intP = ComponentArrayInterpreter(par_templates.θP)
-    loss_gf = get_loss_gf(g_dev, transM, transP, f,  py, intϕ;
-        cdev=infer_cdev(gdevs), pbm_covars, n_site_batch=n_batch, priorsP, priorsM,)
+    loss_gf = get_loss_gf(g_dev, transM, transP, f_dev,  py, intϕ;
+        n_site_batch=n_batch, 
+        cdev=infer_cdev(gdevs), pbm_covars, priorsP, priorsM, is_omit_priors,)
+    loss_gf_test = get_loss_gf(g_dev, transM, transP, ftest_dev,  py, intϕ;
+        n_site_batch=n_site_test,
+        cdev=infer_cdev(gdevs), pbm_covars, priorsP, priorsM, is_omit_priors,)
     # call loss function once
     l1 = is_infer ? 
-        Test.@inferred(loss_gf(ϕ0_dev, first(train_loader_dev)...))[1] : 
+        Test.@inferred(loss_gf(ϕ0_dev, first(train_loader_dev)...; is_testmode=true))[1] : 
         # using ShareAdd; @usingany Cthulhu
         # @descend_code_warntype loss_gf(ϕ0_dev, first(train_loader_dev)...)
-        loss_gf(ϕ0_dev, first(train_loader_dev)...)[1]
+        loss_gf(ϕ0_dev, first(train_loader_dev)...; is_testmode=true)[1]
     # and gradient
     # xMg, xP, y_o, y_unc = first(train_loader_dev)
     # gr1 = Zygote.gradient(
     #             p -> loss_gf(p, xMg, xP, y_o, y_unc)[1],
     #             ϕ0_dev)
     # Zygote.gradient(ϕ0_dev -> loss_gf(ϕ0_dev, data1...)[1], ϕ0_dev)
-    optf = Optimization.OptimizationFunction((ϕ, data) -> loss_gf(ϕ, data...)[1],
-        Optimization.AutoZygote())
-    # use CA.getdata(ϕ0_dev), i.e. the plain vector to avoid recompiling for specific CA
-    # loss_gf re-attaches the axes
-    optprob = OptimizationProblem(optf, CA.getdata(ϕ0_dev), train_loader_dev)
-    res = Optimization.solve(optprob, solver.alg; kwargs...)
-    ϕ = intϕ(res.u)
+    if is_omitting_NaNbatches 
+        # implement training loop by hand to skip minibatches with NaN gradients
+        ps = CA.getdata(ϕ0_dev)
+        opt_st_new = Optimisers.setup(solver.alg, ps)
+        n_skips = 0
+        # prepare DI.gradient, need to access and update outside cope data_batch
+        # because cannot redefine fopt_loss_gf
+        data_batch = first(train_loader_dev)
+        is_testmode = false
+        function fopt_loss_gf(ϕ) 
+            #@show first(data_batch[5], 2)
+            loss_gf(ϕ, data_batch...; is_testmode)[1]
+        end
+        ad_prep = DI.prepare_gradient(fopt_loss_gf, ad_backend_loss, zero(ps))
+        grad = similar(ps)
+        stime = time()
+        for epoch in 1:epochs
+            is_testmode = false
+            #i,data_batch = first(enumerate(loader))
+            for (i, data_batch_) in enumerate(train_loader_dev)
+                data_batch = data_batch_  # propagate outside for to scope of fopt_loss_gf
+                DI.gradient!(fopt_loss_gf, grad, ad_prep, ad_backend_loss, ps)    
+                if any(isnan.(grad))
+                    n_skips += 1
+                    #println("Skipped NaN : Batch $i")
+                    print(",$i")
+                else
+                    Optimisers.update!(opt_st_new, ps, grad)
+                end
+            end
+            ttime = time() - stime
+            # compute loss for test data
+            l = loss_gf_test(ps, test_data_dev...; is_testmode = true)
+            println()
+            @show round(ttime, digits=1), epoch, l.nLy, l.neg_log_prior, l.loss_penalty
+            # TODO log 
+        end
+        res = nothing  
+        ϕ = intϕ(ps)
+    else
+        optf = Optimization.OptimizationFunction((ϕ, data) -> loss_gf(ϕ, data...; is_testmode=false)[1],
+            ad_backend_loss)
+        # use CA.getdata(ϕ0_dev), i.e. the plain vector to avoid recompiling for specific CA
+        # loss_gf re-attaches the axes
+        optprob = OptimizationProblem(optf, CA.getdata(ϕ0_dev), train_loader_dev)
+        res = Optimization.solve(optprob, solver.alg; epochs, kwargs...)
+        ϕ = intϕ(res.u)
+    end
     θP = cpu_ca(apply_preserve_axes(transP, cpu_ca(ϕ).ϕP))
     probo = HybridProblem(prob; ϕg=cpu_ca(ϕ).ϕg, θP)
     (; ϕ, resopt=res, probo)
@@ -141,9 +210,9 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
         g_dev = g
         train_loader_dev = train_loader
     end
-    f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites=false)
+    f = get_hybridproblem_PBmodel(prob; scenario)
     if gdevs.gdev_P isa MLDataDevices.AbstractGPUDevice
-        f_dev = fmap(gdevs.gdev_P, f)
+        f_dev = gdevs.gdev_P(f) #fmap(gdevs.gdev_P, f)
     else
         f_dev = f
     end
@@ -164,9 +233,10 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     # @usingany Cthulhu
     # @descend_code_warntype loss_elbo(ϕ0_dev, rng, first(train_loader_dev)...)
     l0 = is_infer ? 
-        (Test.@inferred loss_elbo(ϕ0_dev, rng, first(train_loader_dev)...)) :
-        loss_elbo(ϕ0_dev, rng, first(train_loader_dev)...)
-    optf = Optimization.OptimizationFunction((ϕ, data) -> first(loss_elbo(ϕ, rng, data...)),
+        (Test.@inferred loss_elbo(ϕ0_dev, rng, first(train_loader_dev)...; is_testmode=true)) :
+        loss_elbo(ϕ0_dev, rng, first(train_loader_dev)...; is_testmode=false)
+    optf = Optimization.OptimizationFunction(
+        (ϕ, data) -> first(loss_elbo(ϕ, rng, data...; is_testmode=false)),
         Optimization.AutoZygote())
     optprob = OptimizationProblem(optf, CA.getdata(ϕ0_dev), train_loader_dev)
     res = Optimization.solve(optprob, solver.alg; kwargs...)
@@ -216,7 +286,7 @@ function get_loss_elbo(g, transP, transMs, f, py;
         trans_mMs=StackedArray(transMs.stacked, n_MC_mean),
         priorsP=priorsP, priorsM=priorsM, floss_penalty=floss_penalty
 
-        function loss_elbo(ϕ, rng, xM, xP, y_o, y_unc, i_sites)
+        function loss_elbo(ϕ, rng, xM, xP, y_o, y_unc, i_sites; is_testmode)
             #ϕc = int_μP_ϕg_unc(ϕ)
             neg_elbo_gtf(
                 rng, ϕ, g, f, py, xM, xP, y_o, y_unc, i_sites;
@@ -224,9 +294,23 @@ function get_loss_elbo(g, transP, transMs, f, py;
                 n_MC, n_MC_cap, n_MC_mean, cor_ends, priors_θP_mean, priors_θMs_mean,
                 cdev, pbm_covar_indices, transP, transMs, trans_mP, trans_mMs,
                 priorsP, priorsM, floss_penalty, #ϕg = ϕc.ϕg, ϕunc = ϕc.unc,
+                is_testmode,
             )
         end
     end
+end
+
+
+function compute_elbo_components(
+    prob::AbstractHybridProblem, solver::HybridPosteriorSolver; 
+    scenario, kwargs...
+    )
+    train_loader = get_hybridproblem_train_dataloader(prob; scenario)
+    data = train_loader.data 
+    compute_elbo_components(
+        prob::AbstractHybridProblem, solver::HybridPosteriorSolver, data; 
+        scenario, kwargs...
+        )
 end
 
 """
@@ -234,10 +318,9 @@ Compute the components of the elbo for given initial conditions of the problems
 for the first batch of the trainloader.
 """
 function compute_elbo_components(
-    prob::AbstractHybridProblem, solver::HybridPosteriorSolver;
+    prob::AbstractHybridProblem, solver::HybridPosteriorSolver, data::Tuple;
     scenario, rng=Random.default_rng(), gdev=gpu_device(),
     θmean_quant=0.0,
-    use_all_sites=false,
     kwargs...)
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     par_templates = get_hybridproblem_par_templates(prob; scenario)
@@ -248,23 +331,27 @@ function compute_elbo_components(
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
         θP, θM, cor_ends, ϕg0, n_batch; transP, transM, ϕunc0)
-    train_loader = get_hybridproblem_train_dataloader(prob; scenario)
     if gdev isa MLDataDevices.AbstractGPUDevice
         ϕ0_dev = gdev(ϕ)
         g_dev = gdev(g) # zygote fails if  gdev is a CPUDevice, although should be non-op
-        train_loader_dev = gdev_hybridproblem_dataloader(train_loader; scenario, gdev)
+        data_dev = gdev_hybridproblem_data(data; scenario, gdev)
     else
         ϕ0_dev = ϕ
         g_dev = g
-        train_loader_dev = train_loader
+        data_dev = data
     end
-    f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites)
+    (xM, xP, y_o, y_unc, i_sites) = data_dev
+    n_site_pred = size(xP,2)
+    @assert size(xM, 2) == n_site_pred
+    @assert size(y_o, 2) == n_site_pred
+    @assert size(y_unc, 2) == n_site_pred
+    @assert length(i_sites) == n_site_pred
+    f_batch = get_hybridproblem_PBmodel(prob; scenario)
+    f = (n_site_pred == n_batch) ? f : create_nsite_applicator(f_batch, n_site_pred)
     py = get_hybridproblem_neg_logden_obs(prob; scenario)
     priors_θ_mean = construct_priors_θ_mean(
         prob, ϕ0_dev.ϕg, keys(θM), θP, θmean_quant, g_dev, transM;
         scenario, get_ca_int_PMs, gdev, cdev, pbm_covars)
-    # TODO replace train_loader.data by proper function that pulls all the data
-    xM, xP, y_o, y_unc, i_sites = use_all_sites ? train_loader_dev.data : first(train_loader_dev)
     neg_elbo_gtf_components(
         rng, ϕ0_dev, g_dev, transPMs_batch, f, py, xM, xP, y_o, y_unc, i_sites, interpreters;
         solver.n_MC, solver.n_MC_cap, cor_ends, priors_θ_mean)
@@ -275,7 +362,8 @@ In order to let mean of θ stay close to initial point parameter estimates
 construct a prior on mean θ to a Normal around initial prediction.
 """
 function construct_priors_θ_mean(prob, ϕg, keysθM, θP, θmean_quant, g_dev, transM, transP;
-    scenario::Val{scen}, get_ca_int_PMs, gdevs, pbm_covars) where {scen}
+    scenario::Val{scen}, get_ca_int_PMs, gdevs, pbm_covars,
+    ) where {scen}
     iszero(θmean_quant) ? ([],[]) :
     begin
         gdev=gdevs.gdev_M
@@ -294,7 +382,8 @@ function construct_priors_θ_mean(prob, ϕg, keysθM, θP, θmean_quant, g_dev, 
         # ζMs = g_dev(xMP_all, CA.getdata(ϕg))'  # transpose to par-last for StackedArray
         # ζMs_cpu = cdev(ζMs)
         # θMs = transMs(ζMs_cpu)
-        θMs = gtrans(g_dev, transMs, xMP_all, CA.getdata(ϕg); cdev=cpu_device())
+        θMs = gtrans(
+            g_dev, transMs, xMP_all, CA.getdata(ϕg); cdev=cpu_device(), is_testmode = true)
         priors_dict = get_hybridproblem_priors(prob; scenario)
         priorsP = [priors_dict[k] for k in keys(θP)]
         priors_θP_mean = map(priorsP, θP) do priorsP, θPi

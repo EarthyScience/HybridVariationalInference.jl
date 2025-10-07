@@ -31,7 +31,7 @@ component information that might be present in the dimensions.
 function compose_axes(axtuples::NamedTuple)
     ls = map(axtuple -> Val(prod(axis_length.(axtuple))), axtuples)
     # to work on types, need to construct value types of intervals
-    intervals = _construct_invervals(;lengths=ls)
+    intervals = _construct_intervals(;lengths=ls)
     named_intervals = (;zip(keys(axtuples),intervals)...)
     axc = map(named_intervals, axtuples) do interval, axtuple
         ax = length(axtuple) == 1 ? axtuple[1] : CA.ShapedAxis(axis_length.(axtuple))
@@ -40,7 +40,7 @@ function compose_axes(axtuples::NamedTuple)
     CA.Axis(; axc...)
 end
 
-function _construct_invervals(;lengths) 
+function _construct_intervals(;lengths) 
     reduce((ranges,length) -> _add_interval(;ranges, length), 
         Iterators.tail(lengths), init=(Val(1:_val_value(first(lengths))),))    
 end

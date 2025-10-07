@@ -1,6 +1,7 @@
 using Test
 using HybridVariationalInference
 using HybridVariationalInference: HybridVariationalInference as CP
+using StatsFuns
 
 using Bijectors
 
@@ -51,6 +52,21 @@ end;
     @test dys == dy
 end;
 
+@testset "Logistic" begin
+    c3 = HybridVariationalInference.Logistic()
+    c3s = Stacked((c3,c3), (1:3,4:4))
+    y1 = @inferred c3(x)
+    y2 = @inferred c3s(x)
+    @test all(inverse(c3)(y2) .≈ x)
+    @test all(inverse(c3s)(y2) .≈ x)
+    # test logabsdetjac
+    gr = Zygote.gradient(x -> sum(logistic.(x)), x)[1]
+    logjac = Bijectors.logabsdetjac(c3s, x) 
+    @test logjac ≈ sum(log.(gr))
+    y2b, logjac2= Bijectors.with_logabsdet_jacobian(c3s, x)
+    @test y2b == y2
+    @test logjac2== logjac
+end;
 
 if gdev isa MLDataDevices.AbstractGPUDevice
     xd = gdev(x)

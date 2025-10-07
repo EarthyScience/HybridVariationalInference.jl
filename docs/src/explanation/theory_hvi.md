@@ -28,7 +28,7 @@ In order to learn $\phi_g$, the user needs to provide a batch of $i \in \{1 \ldo
 ## Estimation using the ELBO
 
 In order to find the parameters of the approximation of the posterior, HVI
-minizes the KL divergence between the approximation and the true posterior.
+minimizes the KL divergence between the approximation and the true posterior.
 This is achieve by maximizing the evidence lower bound (ELBO).
 
 $$\mathcal{L}(\phi) = \mathbb{E}_{q(\theta)} \left[\log p(y,\theta) \right] - \mathbb{E}_{q(\theta)} \left[\log q(\theta) \right]$$
@@ -128,7 +128,7 @@ $\phi = (\phi_P, \phi_g, \phi_u)$, comprises
 -  $\phi_P = \mu_{\zeta_P}$: the  means of the distributions of the transformed global   
   parameters, 
 -  $\phi_g$: the parameters of the machine learning model, and 
--  $\phi_u$: paramerization of $\Sigma_\zeta$ that is additional to the means. 
+-  $\phi_u$: parameterization of $\Sigma_\zeta$ that is additional to the means. 
 
 ### Details
 Specifically, $\phi_u= (log\sigma^2_P, log\sigma^2_{M0}, log\sigma^2_{M\eta}, a_P, a_M)$, 

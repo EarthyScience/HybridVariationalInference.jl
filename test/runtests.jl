@@ -3,6 +3,8 @@ const GROUP = get(ENV, "GROUP", "All") # defined in in CI.yml
 
 @time begin
     if GROUP == "All" || GROUP == "Basic"
+        #@safetestset "test" include("test/test_RRuleMonitor.jl")
+        @time @safetestset "test_RRuleMonitor" include("test_RRuleMonitor.jl")
         #@safetestset "test" include("test/test_bijectors_utils.jl")
         @time @safetestset "test_bijectors_utils" include("test_bijectors_utils.jl")
         #@safetestset "test" include("test/test_util.jl")
@@ -15,6 +17,8 @@ const GROUP = get(ENV, "GROUP", "All") # defined in in CI.yml
         @time @safetestset "test_ComponentArrayInterpreter" include("test_ComponentArrayInterpreter.jl")
         #@safetestset "test" include("test/test_hybridprobleminterpreters.jl")
         @time @safetestset "test_hybridprobleminterpreters" include("test_hybridprobleminterpreters.jl")
+        #@safetestset "test" include("test/test_PBMApplicator.jl")
+        @time @safetestset "test_PBMApplicator" include("test_PBMApplicator.jl")
         #@safetestset "test" include("test/test_ModelApplicator.jl")
         @time @safetestset "test_ModelApplicator" include("test_ModelApplicator.jl")
         #@safetestset "test" include("test/test_gencovar.jl")
@@ -40,6 +44,8 @@ const GROUP = get(ENV, "GROUP", "All") # defined in in CI.yml
         # tests that need fixing (but should not be commented) at the end:
         #@safetestset "test" include("test/test_HybridProblem.jl")
         @time @safetestset "test_HybridProblem" include("test_HybridProblem.jl")
+        #@safetestset "test" include("test/test_missingdriver.jl")
+        @time @safetestset "test_missingdriver" include("test_missingdriver.jl")
     end
 end
 

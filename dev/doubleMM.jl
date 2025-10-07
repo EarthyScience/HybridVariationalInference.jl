@@ -42,7 +42,7 @@ train_dataloader = MLUtils.DataLoader(
     (xM, xP, y_o, y_unc, 1:n_site);
     batchsize = n_batch, partial = false)
 σ_o = exp.(y_unc[:, 1] / 2)
-# assign the train_loader, otherwise it eatch time creates another version of synthetic data
+# assign the train_loader, otherwise it each time creates another version of synthetic data
 prob0 = HybridProblem(prob0_; train_dataloader)
 #tmp = HVI.get_hybridproblem_ϕunc(prob0; scenario)
 #prob0.covar
@@ -248,7 +248,7 @@ end
     (y2_K1global, θsP2_K1global, θsMs2_K1global) = (y, θsP, θsMs);
 end
 
-() -> begin # otpimize using LUX
+() -> begin # optimize using LUX
     #using Lux
     g_lux = Lux.Chain(
         # dense layer with bias that maps to 8 outputs and applies `tanh` activation
@@ -560,7 +560,8 @@ end
 end
 
 #ζi = first(eachrow(Array(chain)))
-f_allsites = get_hybridproblem_PBmodel(prob0; scenario, use_all_sites = true)
+f = get_hybridproblem_PBmodel(probc; scenario)
+f_allsites = create_nsite_applicator(f, n_site)
 #ζs = mapreduce(ζi -> transposeMs(ζi, intm_PMs_gen, true), hcat, eachrow(Array(chain)));
 ζsP = Array(chain)[:,1:n_θP]'
 ζsMst = reshape(Array(chain)[:,(n_θP+1) : end], n_sample_NUTS, n_site, n_θM)

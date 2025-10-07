@@ -6,8 +6,7 @@ Fields:
 - `θP::ComponentVector`, `θM::ComponentVector`: parameter templates
 - `g::AbstractModelApplicator`, `ϕg::AbstractVector`: ML model and its parameters 
 - `ϕunc::ComponentVector`: parameters for the Covariance matrix of the approximate posterior
-- `f_batch`: Process-based model predicing for `n_batch` sites
-- `f_allsites`: Process-based model predicing for `n_site` sites
+- `f_batch`: Process-based model predicting for n_batch sites
 - `priors`: AbstractDict: Prior distributions for all PBM parameters on constrained scale
 - `py`: Likelihood function
 - `transM::Stacked`, `transP::Stacked`: bijectors transforming from unconstrained to 
@@ -27,7 +26,6 @@ struct HybridProblem <: AbstractHybridProblem
     θP::CA.ComponentVector
     θM::CA.ComponentVector
     f_batch::Any
-    f_allsites::Any
     g::AbstractModelApplicator
     ϕg::Any # depends on framework
     ϕunc::CA.ComponentVector
@@ -46,7 +44,6 @@ struct HybridProblem <: AbstractHybridProblem
             θP::CA.ComponentVector, θM::CA.ComponentVector,
             g::AbstractModelApplicator, ϕg::AbstractVector,
             f_batch, 
-            f_allsites,
             priors::AbstractDict,
             py,
             transM::Stacked,
@@ -61,7 +58,7 @@ struct HybridProblem <: AbstractHybridProblem
             ϕunc::CA.ComponentVector = init_hybrid_ϕunc(cor_ends, zero(eltype(θM))),
     ) where N
         new(
-            θP, θM, f_batch, f_allsites, g, ϕg, ϕunc, priors, py, transM, transP, cor_ends, 
+            θP, θM, f_batch, g, ϕg, ϕunc, priors, py, transM, transP, cor_ends, 
             train_dataloader, n_covar, n_site, n_batch, pbm_covars)
     end
 end
@@ -86,8 +83,7 @@ function HybridProblem(prob::AbstractHybridProblem; scenario = (),
     θM = get_hybridproblem_par_templates(prob; scenario).θM,
     g = get_hybridproblem_MLapplicator(prob; scenario)[1],
     ϕg = get_hybridproblem_MLapplicator(prob; scenario)[2],
-    f_batch = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = false),
-    f_allsites = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = true),
+    f_batch = get_hybridproblem_PBmodel(prob; scenario),
     priors = get_hybridproblem_priors(prob; scenario),
     py = get_hybridproblem_neg_logden_obs(prob; scenario),
     transP = get_hybridproblem_transforms(prob; scenario).transP,
@@ -100,7 +96,7 @@ function HybridProblem(prob::AbstractHybridProblem; scenario = (),
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario),
     ϕunc = get_hybridproblem_ϕunc(prob; scenario),
     )
-    HybridProblem(θP, θM, g, ϕg, f_batch, f_allsites, priors, py, transM, transP, train_dataloader,
+    HybridProblem(θP, θM, g, ϕg, f_batch, priors, py, transM, transP, train_dataloader,
         n_covar, n_site, n_batch, cor_ends, pbm_covars, ϕunc)
 end
 
@@ -156,8 +152,8 @@ end
 #     (; n_covar=prob.n_covar, n_batch=prob.n_batch, n_θM, n_θP)
 # end
 
-function get_hybridproblem_PBmodel(prob::HybridProblem; scenario = (), use_all_sites=false)
-    use_all_sites ? prob.f_allsites : prob.f_batch
+function get_hybridproblem_PBmodel(prob::HybridProblem; scenario = ())
+    prob.f_batch
 end
 
 function get_hybridproblem_MLapplicator(prob::HybridProblem; scenario = ())

@@ -23,7 +23,7 @@ function HVI.construct_ChainsApplicator(rng::AbstractRNG, m::Chain, float_type::
     FluxApplicator(rebuild), ϕ
 end
 
-function HVI.apply_model(app::FluxApplicator, x::T, ϕ) where T
+function HVI.apply_model(app::FluxApplicator, x::T, ϕ; is_testmode=false) where T
     # assume no size informmation in x -> can hint the type of the result
     # to be the same as the type of the input
     m = app.rebuild(ϕ)
@@ -38,7 +38,7 @@ function HVI.construct_partric(app::FluxApplicator{RT}, x, ϕ) where RT
     PartricFluxApplicator{RT, typeof(m), typeof(y)}(app.rebuild)
 end
 
-function HVI.apply_model(app::PartricFluxApplicator{RT, MT, YT}, x, ϕ) where {RT, MT, YT}
+function HVI.apply_model(app::PartricFluxApplicator{RT, MT, YT}, x, ϕ; is_testmode=false) where {RT, MT, YT}
     m = app.rebuild(ϕ)::MT
     res = m(x)::YT
     res

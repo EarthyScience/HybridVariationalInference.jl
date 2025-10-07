@@ -3,6 +3,10 @@ project:
   render: 
     - src/tutorials/basic_cpu.qmd
     - src/tutorials/*.qmd
+# julia:
+#     # workaround for quarto not pciking up the correct environment variable
+#     # https://github.com/quarto-dev/quarto-cli/issues/13416#issuecomment-3333700286
+#     env: ["JULIA_DEPOT_PATH=/User/homes/twutz/scratch/twutz/julia_gpu_depots"]
     
 
 

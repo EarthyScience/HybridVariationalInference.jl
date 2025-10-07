@@ -91,7 +91,10 @@ end
         # yg = CP.DoubleMM.f_doubleMM(θg, xPMg, intθ);
         θvecg = gdev(θvec); # errors without ";"
         xPMg = CP.apply_preserve_axes(gdev, xPM); 
+        yg = fy(θvecg, xPMg)
         yg = @inferred fy(θvecg, xPMg);
+        #@usingany Cthulhu
+        #@descend_code_warntype fy(θvecg, xPMg)
         @test cdev(yg) == y_exp
         ygradg = Zygote.gradient(θv -> sum(fy(θv, xPMg)), θvecg)[1];
         @test ygradg isa CA.ComponentArray
@@ -128,10 +131,10 @@ end
         # θg = gdev(θ)
         # xPMg = gdev(xPM)
         # yg = CP.DoubleMM.f_doubleMM(θg, xPMg, intθ);
-        θvecg = gdev(θvec)
-        xPMg = gdev(xPM)
-        y_og = gdev(y_o)
-        y_uncg = gdev(y_unc)
+        θvecg = gdev(θvec);
+        xPMg = gdev(xPM);
+        y_og = gdev(y_o);
+        y_uncg = gdev(y_unc);
         costg = fcost(θvecg, xPMg, y_og, y_uncg)
         @test costg ≈ cost
         ygradg = Zygote.gradient(θv -> fcost(θv, xPMg, y_og, y_uncg), θvecg)[1]; # errors without ";"
@@ -197,8 +200,8 @@ end
     g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     n_site, n_site_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-    f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = false)
-    f2 = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = true)
+    f = get_hybridproblem_PBmodel(prob; scenario)
+    f2 = create_nsite_applicator(f, n_site)
     py = get_hybridproblem_neg_logden_obs(prob; scenario)
     priors = get_hybridproblem_priors(prob; scenario)
     priorsP = [priors[k] for k in keys(par_templates.θP)]
@@ -223,14 +226,14 @@ end
         pbm_covars, n_site_batch = n_batch, priorsP, priorsM)
     loss_gf_site = get_loss_gf(g, transM, transP, f2, py, intϕ;
         pbm_covars, n_site_batch = n_site, priorsP, priorsM)
-    nLjoint = @inferred first(loss_gf(p0, first(train_loader)...))
+    nLjoint = @inferred first(loss_gf(p0, first(train_loader)...; is_testmode=true))
     (xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch) = first(train_loader)
     # @usingany Cthulhu
     # @descend_code_warntype loss_gf(p0, xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch)
     Zygote.gradient(
         p0 -> first(loss_gf(
-            p0, xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch)), CA.getdata(p0))
-    optf = Optimization.OptimizationFunction((ϕ, data) -> first(loss_gf(ϕ, data...)),
+            p0, xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch; is_testmode=false)), CA.getdata(p0))
+    optf = Optimization.OptimizationFunction((ϕ, data) -> first(loss_gf(ϕ, data...; is_testmode=false)),
         Optimization.AutoZygote())
     optprob = OptimizationProblem(optf, CA.getdata(p0), train_loader)
 
@@ -239,7 +242,7 @@ end
         optprob, Adam(0.02), maxiters = 2000)
 
     (;nLjoint_pen, y_pred, θMs_pred, θP_pred, nLy, neg_log_prior, loss_penalty) = loss_gf_site(
-        res.u, train_loader.data...)
+        res.u, train_loader.data...; is_testmode=true)
     #(nLjoint,  y_pred, θMs_pred, θP, nLy, neg_log_prior, loss_penalty) = loss_gf(p0, xM, xP, y_o, y_unc);
     θMs_pred = CA.ComponentArray(θMs_pred, CA.getaxes(θMs_true'))
     #TODO @test isapprox(par_templates.θP, intϕ(res.u).ϕP, rtol = 0.15)

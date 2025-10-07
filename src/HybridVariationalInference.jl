@@ -4,6 +4,7 @@ using ComponentArrays: ComponentArrays as CA
 using Random
 using StatsBase # fit ZScoreTransform
 using StatsFuns # norminvcdf
+using LogExpFunctions # logistic, loglogistic
 using Combinatorics # gen_hybridproblem_synthetic/combinations
 using GPUArraysCore
 using LinearAlgebra
@@ -16,12 +17,18 @@ using MLUtils  # dataloader
 using CommonSolve
 #using OptimizationOptimisers # default alg=Adam(0.02)
 using Optimization
+import Optimisers # for hand-coded optimization loop
 using Distributions, DistributionFits
 using StaticArrays: StaticArrays as SA
 using Functors
 using Test: Test # @inferred
 using Missings
 using FillArrays
+using KernelAbstractions
+import NaNMath # ignore missing observations in logDensity
+using DifferentiationInterface: DifferentiationInterface as DI
+import Zygote
+
 
 export DoubleMM
 
@@ -31,6 +38,7 @@ export extend_stacked_nrow, StackedArray
 #public Exp 
 #julia 1.10 public: https://github.com/JuliaLang/julia/pull/55097
 VERSION >= v"1.11.0-DEV.469" && eval(Meta.parse("public Exp")) 
+VERSION >= v"1.11.0-DEV.469" && eval(Meta.parse("public Logistic")) 
 include("bijectors_utils.jl")
 
 export AbstractComponentArrayInterpreter, ComponentArrayInterpreter,
@@ -42,10 +50,12 @@ include("ComponentArrayInterpreter.jl")
 export AbstractModelApplicator, construct_ChainsApplicator
 export construct_3layer_MLApplicator, select_ml_engine
 export NullModelApplicator, MagnitudeModelApplicator, NormalScalingModelApplicator
+export RangeScalingModelApplicator
 include("ModelApplicator.jl")
 
 export AbstractPBMApplicator, NullPBMApplicator, PBMSiteApplicator, PBMPopulationApplicator
-export DirectPBMApplicator
+export DirectPBMApplicator, PBMPopulationGlobalApplicator
+export create_nsite_applicator
 include("PBMApplicator.jl")
 
 # export AbstractGPUDataHandler, NullGPUDataHandler, get_default_GPUHandler
@@ -64,7 +74,7 @@ export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_
        get_hybridproblem_pbmpar_covars,
        gen_cov_pred,
        construct_dataloader_from_synthetic,
-       gdev_hybridproblem_dataloader,
+       gdev_hybridproblem_dataloader, gdev_hybridproblem_data,
        setup_PBMpar_interpreter,
        get_gdev_MP
 include("AbstractHybridProblem.jl")
@@ -79,7 +89,7 @@ export HybridProblem
 export get_quantile_transformed
 include("HybridProblem.jl")
 
-export gf, get_loss_gf
+export gf, get_loss_gf, predict_point_hvi
 #export map_f_each_site
 include("gf.jl")
 
@@ -92,6 +102,7 @@ include("util_opt.jl")
 export cpu_ca, apply_preserve_axes
 include("util_ca.jl")
 
+export ones_similar_x
 include("util_gpu.jl")
 
 export neg_logden_indep_normal, entropy_MvNormal
@@ -111,5 +122,8 @@ include("HybridSolver.jl")
 
 export DoubleMM
 include("DoubleMM/DoubleMM.jl")
+
+export RRuleMonitor
+include("RRuleMonitor.jl")
 
 end

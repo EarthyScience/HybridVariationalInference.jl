@@ -105,17 +105,23 @@ function f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
     #
     # extract the parameters as vectors that are row-repeated into a matrix
     VT = typeof(CA.getdata(θc)[:,1])   # workaround for non-type-stable Symbol-indexing
-    n_obs = size(S1, 1)
-    rep_fac = HVI.ones_similar_x(xPc, n_obs) # to reshape into matrix, avoiding repeat
+    #n_obs = size(S1, 1)
+    #rep_fac = HVI.ones_similar_x(xPc, n_obs) # to reshape into matrix, avoiding repeat
+    #is_dummy = isnan.(S1) .|| isnan.(S2)
+    is_valid = isfinite.(S1) .&& isfinite.(S2)
     (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
         p1 = CA.getdata(θc[:, par]) ::VT
+        #Main.@infiltrate_main
+        # tmp = Zygote.gradient(p1 -> sum(repeat_rowvector_dummy(p1', is_dummy)), p1)[1]
+        #p1_mat = repeat_rowvector_dummy(p1', is_dummy)
+        p1_mat = is_valid .* p1' # places zeros in dummy positions, prevents gradients there
         #repeat(p1', n_obs)  # matrix: same for each concentration row in S1
         #(rep_fac .* p1')    # move to computation below to save allocation
     end
     #
     # each variable is a matrix (n_obs x n_site)
-    #r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
-    (rep_fac .* r0') .+ (rep_fac .* r1') .* S1 ./ ((rep_fac .* K1') .+ S1) .* S2 ./ ((rep_fac .* K2') .+ S2)
+    r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
+    #(rep_fac .* r0') .+ (rep_fac .* r1') .* S1 ./ ((rep_fac .* K1') .+ S1) .* S2 ./ ((rep_fac .* K2') .+ S2)
 end
 
 # function f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
@@ -221,7 +227,6 @@ end
 
 function HVI.get_hybridproblem_MLapplicator(
         rng::AbstractRNG, prob::HVI.DoubleMM.DoubleMMCase; scenario::Val{scen},
-        use_all_sites = false
 ) where {scen}
     ml_engine = select_ml_engine(; scenario)
     g_nomag, ϕ_g0 = construct_3layer_MLApplicator(rng, prob, ml_engine; scenario)
@@ -232,10 +237,12 @@ function HVI.get_hybridproblem_MLapplicator(
     (; transM) = get_hybridproblem_transforms(prob; scenario)
     lowers, uppers = HVI.get_quantile_transformed(
         priors::AbstractVector{<:Distribution}, transM)
-    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-    n_site_batch = use_all_sites ? n_site : n_batch
-    g = NormalScalingModelApplicator(
-        g_nomag, lowers, uppers, eltype(ϕ_g0))
+    #n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    g = if (:use_rangescaling ∈ scen)
+        RangeScalingModelApplicator(g_nomag, lowers, uppers, eltype(ϕ_g0))
+    else
+        NormalScalingModelApplicator(g_nomag, lowers, uppers, eltype(ϕ_g0))
+    end
     return g, ϕ_g0
 end
 
@@ -283,7 +290,7 @@ end
 #     cl::CLT
 # end
 
-function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; use_all_sites=false,  scenario::Val{scen}) where {scen}
+function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario::Val{scen}) where {scen}
     # θall defined in this module above
     # TODO check and test for population or sites, currently return only site specific
     pt = get_hybridproblem_par_templates(prob; scenario)
@@ -294,8 +301,7 @@ function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; use_all_sites=false, 
         PBMSiteApplicator(f_doubleMM; pt.θP, pt.θM, θFix, xPvec)
     else
         n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-        n_site_batch = use_all_sites ? n_site : n_batch
-        PBMPopulationApplicator(f_doubleMM_sites, n_site_batch; pt.θP, pt.θM, θFix, xPvec)
+        PBMPopulationApplicator(f_doubleMM_sites, n_batch; pt.θP, pt.θM, θFix, xPvec)
     end
 end
 
@@ -350,11 +356,22 @@ function HVI.get_hybridproblem_n_site_and_batch(prob::DoubleMMCase;
     (n_site, n_batch)
 end
 
-function HVI.get_hybridproblem_train_dataloader(prob::DoubleMMCase; scenario::Val,
+function HVI.get_hybridproblem_train_dataloader(prob::DoubleMMCase; scenario::Val{scen},
         rng::AbstractRNG = StableRNG(111), kwargs...
-)
+) where {scen}
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-    construct_dataloader_from_synthetic(rng, prob; scenario, n_batch, kwargs...)
+    if (:driverNAN ∈ scen)
+        (; xM, xP, y_o, y_unc) = gen_hybridproblem_synthetic(rng, prob; scenario)
+        n_site = size(xM,2)
+        i_sites = 1:n_site
+        # set the last two entries of the S1 drivers and observations of the second site NaN
+        view(@view(xP[:S1,2]), 7:8) .= NaN
+        y_o[7:8,2] .= NaN
+        train_loader = MLUtils.DataLoader((xM, xP, y_o, y_unc, i_sites);
+            batchsize = n_batch, partial = false)
+    else
+        construct_dataloader_from_synthetic(rng, prob; scenario, n_batch, kwargs...)
+    end
 end
 
 function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
@@ -371,7 +388,8 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     int_θMs_sites = ComponentArrayInterpreter(θM, (n_site,))
     # normalize to be distributed around the prescribed true values
     θMs_true = int_θMs_sites(scale_centered_at(θMs_true0, θM, FloatType(0.1)))
-    f = get_hybridproblem_PBmodel(prob; scenario, use_all_sites = true)
+    f_batch = get_hybridproblem_PBmodel(prob; scenario)
+    f = create_nsite_applicator(f_batch, n_site)
     #xP = fill((; S1 = xP_S1, S2 = xP_S2), n_site)
     int_xP_sites = ComponentArrayInterpreter(int_xP1, (n_site,))
     xP = int_xP_sites(vcat(repeat(xP_S1, 1, n_site), repeat(xP_S2, 1, n_site)))
