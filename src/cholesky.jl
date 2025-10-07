@@ -147,7 +147,7 @@ This can be used to fit parameters that yield an upper Cholesky-Factor
 of a Covariance matrix.
 
 It uses the upper triangular matrix rather than the lower because it
-involes a sum across columns, whereas the alternative of a lower triangular
+involves a sum across columns, whereas the alternative of a lower triangular
 uses sum across rows. 
 Sum across columns is often faster, because entries of columns are contiguous.
 """
