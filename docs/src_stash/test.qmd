@@ -21,6 +21,10 @@ DEPOT_PATH
 ```
 
 ```{julia}
+VERSION
+```
+
+```{julia}
 #println(no_existing_var)
 ```
 

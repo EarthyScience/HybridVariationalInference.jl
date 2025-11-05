@@ -194,6 +194,9 @@ end
 
 function HVI.get_hybridproblem_par_templates(
         ::DoubleMMCase; scenario::Val{scen}) where {scen}
+    if (:no_globals ∈ scen)
+        return ((; θP = CA.ComponentVector{Float32}(), θM))
+    end
     if (:omit_r0 ∈ scen)
         #return ((; θP = θP_nor0, θM, θf = θP[(:K2r)]))
         if (:K1global ∈ scen)

@@ -10,7 +10,9 @@
 A code block with `#| echo: false`.
 
     Status `/Net/Groups/BGI/people/twutz/julia/dev/HybridVariationalInference/docs/src_stash/Project.toml`
-      [91a5bcdd] Plots v1.40.19
+      [033835bb] JLD2 v0.6.2
+    ⌃ [91a5bcdd] Plots v1.40.19
+    Info Packages marked with ⌃ have new versions available and may be upgradable.
 
 ``` julia
 run(`which julia`);

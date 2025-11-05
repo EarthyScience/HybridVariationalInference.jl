@@ -150,6 +150,11 @@ function ComponentArrayInterpreter(component_shapes::NamedTuple)
     m1 = ComponentArrayInterpreter((ax,))
 end
 
+# handle the case of an empty component of a ComponentArray, which is denoted by 1:0
+function ComponentArrayInterpreter(vc::UnitRange{Int64})
+    ComponentArrayInterpreter((CA.FlatAxis(),))
+end
+
 function ComponentArrayInterpreter(vc::CA.AbstractComponentArray)
     ComponentArrayInterpreter(CA.getaxes(vc))
 end

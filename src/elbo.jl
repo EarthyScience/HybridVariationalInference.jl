@@ -32,7 +32,14 @@ function neg_elbo_gtf(args...; kwargs...)
     (;nLjoint, entropy_ζ, loss_penalty, 
         nLy, neg_log_prior, neg_log_jac, 
         nLmean_θ) = neg_elbo_gtf_components(args...; kwargs...)
-    nLjoint - entropy_ζ + loss_penalty + nLmean_θ
+    nL = nLjoint - entropy_ζ + loss_penalty + nLmean_θ
+    # if !isfinite(nL) 
+    #     @show nL
+    #     @show nLjoint, entropy_ζ, loss_penalty, nLy, 
+    #     @show neg_log_prior, neg_log_jac, nLmean_θ
+    #     Main.@infiltrate_main
+    # end
+    return(nL)
 end
 
 function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
@@ -109,15 +116,29 @@ function neg_elbo_ζtf(ζsP, ζsMs, σ, f, py, xP, y_ob, y_unc;
 )
     n_MC = size(ζsP,2)
     cdev = cpu_device() #TODO avoid the cdev
+    #ETPrior = isempty(priorsP) ? eltype(eltype(priorsM)) : promote_type(eltype(priorsP), eltype(eltype(priorsM)))
+    ETPrior = isempty(priorsP) ? eltype(ζsMs) : promote_type(eltype(ζsP), eltype(ζsMs))
     f_sample = (ζP, ζMs) -> begin    
             θP, θMs, logjac_i = transform_and_logjac_ζ(ζP, ζMs; transP, transMs)
             logpdf_t = (prior, θ) -> logpdf(prior, θ)::eltype(θP)
             logpdf_tv = (prior, θ::AbstractVector) -> begin
-                map(Base.Fix1(logpdf, prior), θ)::Vector{eltype(θMs)}
+                tmp = map(Base.Fix1(logpdf, prior), θ)
+                tmp::Vector{eltype(θ)}
             end
-            #TODO avoid the cdev, but compute prior on GPU because transfer takes very long
-            neg_log_prior_i = -sum(logpdf_t.(priorsP, cdev(θP))) - sum(map(
+            #TODO avoid the cdev, but compute prior on GPU because transfer takes long
+            #    but currently logpdf only works on CPU
+            # handle edge case of no global parameters, where priorsP is empty
+            nlP0 = isempty(priorsP) ? zero(ETPrior) : -sum(logpdf_t.(priorsP, cdev(θP)))
+            neg_log_prior_i = nlP0 - sum(map(
                 (priorMi, θMi) -> sum(logpdf_tv(priorMi, θMi)), priorsM, eachcol(cdev(θMs)))) 
+            if !isfinite(neg_log_prior_i)
+                @show neg_log_prior_i, nlP0
+                @show θMs
+                @show priorsM
+                error("inspect non-finite priors")
+                i_par = 2
+                priorMi, θMi = priorsM[i_par], eachcol(cdev(θMs))[2]
+            end
             y_pred_i = f(θP, θMs, xP)
             #nLy1 = neg_logden_indep_normal(y_ob, y_pred_i, y_unc)
             # Main.@infiltrate_main
@@ -133,7 +154,8 @@ function neg_elbo_ζtf(ζsP, ζsMs, σ, f, py, xP, y_ob, y_unc;
         end
     # only Vector inferred, need to provide type hint
     # make that all components use the same Float type
-    map_res = map(f_sample, eachcol(ζsP), eachslice(ζsMs; dims=3))::Vector{NTuple{4,eltype(ζsP)}}
+    #map_res = map(f_sample, eachcol(ζsP), eachslice(ζsMs; dims=3))::Vector{NTuple{4,eltype(ζsP)}}
+    map_res = map(f_sample, eachcol(ζsP), eachslice(ζsMs; dims=3))::Vector{Tuple{eltype(y_ob),ETPrior, eltype(ζsP), eltype(ζsP)}}
     nLys, neg_log_priors, neglogjacs, loss_penalties = vectuptotupvec(map_res)
     # For robustness may compute the expectation only on the n_smallest values
     # because its very sensitive to few large outliers
@@ -371,14 +393,19 @@ function generate_ζ(rng, g, ϕ::AbstractVector{FT}, xM::MT;
     # first pass: append μ_ζP_to covars, need ML prediction for magnitude of ζMs
     # TODO replace pbm_covar_indices by ComponentArray? dimensions to be type-inferred?
     xMP0 = _append_each_covars(xM, CA.getdata(μ_ζP), pbm_covar_indices)
-    #Main.@infiltrate_main
-
     μ_ζMs0 = g(xMP0, ϕg; is_testmode)
     ζP_resids, ζMs_parfirst_resids, σ = sample_ζresid_norm(rng, μ_ζP, μ_ζMs0, ϕc.unc; n_MC, cor_ends, int_unc)
     if pbm_covar_indices isa SA.SVector{0}
         # do not need to predict again but just add the residuals to μ_ζP and μ_ζMs
-        ζsP = (μ_ζP .+ ζP_resids)  # n_par x n_MC 
+        #ζsP = μ_ζP .+ ζP_resids  # n_par x n_MC # .+ on empty view does not work
+        ζsP = isempty(μ_ζP) ? ζP_resids : (μ_ζP .+ ζP_resids)  # n_par x n_MC 
         ζsMs = permutedims(μ_ζMs0 .+ ζMs_parfirst_resids, (2, 1, 3)) # n_site x n_par x n_MC
+        if any(ζsMs[:,2,:] .> 80.0)
+            @show ζsMs
+            @show ζMs_parfirst_resids
+            @show ϕc.unc.coef_logσ2_ζMs
+            error("encountered scaled residual outside envisoned range. Debug") 
+        end
     else
         #rP, rMs = first(zip(eachcol(ζP_resids), eachslice(ζMs_parfirst_resids;dims=3)))
         ζst = map(eachcol(ζP_resids), eachslice(ζMs_parfirst_resids; dims=3)) do rP, rMs
@@ -500,12 +527,14 @@ function sample_ζresid_norm(urandn::AbstractMatrix, ζP::TP, ζMs::TM,
     σP = exp.(logσ2_ζP ./ 2)
     # BlockDiagonal does work with CUDA, but not with combination of Zygote and CUDA
     # need to construct full matrix for CUDA
-    Uσ = _create_blockdiag(UP, UM, σP, σMs, n_batch)
-    σ = diag(Uσ)   # elements of the diagonal: standard deviations
+    Uσ = _create_blockdiag(UP, UM, σP, σMs, n_batch) # inferred only BlockDiagonal
+    σ = diag(Uσ)::typeof(σP)   # elements of the diagonal: standard deviations
     n_MC = size(urandn, 2) # TODO transform urandn
-    ζ_resids_parfirst = Uσ' * urandn # n_par x n_MC
+    # is this multiplication efficient if Uσ is not concrete but only sumtype BlockDiagonal?
+    ζ_resids_parfirst = (Uσ' * urandn) #::typeof(urandn) # n_par x n_MC
     #ζ_resids_parfirst = urandn' * Uσ # n_MC x n_par
-    ζP_resids = ζ_resids_parfirst[1:n_θP, :]
+    # need to handle empty(ζP) explicitly, otherwise Zygote tries to take gradient
+    ζP_resids = isempty(ζP) ? ζ_resids_parfirst[1:0, :] : ζ_resids_parfirst[1:n_θP, :]
     ζMs_parfirst_resids = reshape(ζ_resids_parfirst[(n_θP+1):end, :], n_θM, n_batch, n_MC)
     ζP_resids, ζMs_parfirst_resids, σ
     # #map(std, eachcol(ζ_resids_parfirst[:, 3:8]))
@@ -550,7 +579,12 @@ function transpose_mPMs_sitefirst(Xt;
 end
 
 function _create_blockdiag(UP::AbstractMatrix{T}, UM, σP, σMs, n_batch) where {T}
-    v = [i == 0 ? UP * Diagonal(σP) : UM * Diagonal(σMs[:, i]) for i in 0:n_batch]
+    # v = if isempty(UP) 
+    #   [UM * Diagonal(σMs[:, i]) for i in 1:n_batch] #::Vector{<:AbstractMatrix{T}}
+    # else
+    #   [i == 0 ? UP * Diagonal(σP) : UM * Diagonal(σMs[:, i]) for i in 0:n_batch] #::Vector{<:AbstractMatrix{T}}
+    # end
+    v = [i == 0 ? UP * Diagonal(σP) : UM * Diagonal(σMs[:, i]) for i in 0:n_batch] 
     BlockDiagonal(v)
 end
 function _create_blockdiag(
@@ -561,6 +595,11 @@ function _create_blockdiag(
     # Uσ = cat([i == 0 ? UP * Diagonal(σP) : UM * Diagonal(σMs[:, i]) for i in 0:n_batch]...;
     #     dims=(1, 2))
     # on GPU use only one big multiplication rather than many small ones
+    # U = if isempty(UP) 
+    #   cat([UM for i in 1:n_batch]...; dims=(1, 2))
+    # else
+    #   cat([i == 0 ? UP : UM for i in 0:n_batch]...; dims=(1, 2))
+    # end
     U = cat([i == 0 ? UP : UM for i in 0:n_batch]...; dims=(1, 2))
     #Main.@infiltrate_main
     σD = Diagonal(vcat(σP, vec(σMs)))
@@ -589,6 +628,20 @@ function transform_and_logjac_ζ(ζP::AbstractVector, ζMs::AbstractMatrix;
     transMs::StackedArray=StackedArray(transM, size(ζMs, 1)))
     θP, logjac_P = Bijectors.with_logabsdet_jacobian(transP, ζP)
     θMs, logjac_M = Bijectors.with_logabsdet_jacobian(transMs, ζMs)
+    # if !all(isfinite.(θMs)) 
+    #     @show θMs
+    #     @show ζMs
+    #     @show transMs
+    #     warning("encountered non-finite θMs. Debug the inversion. " *
+    #     "This may happen for example if transforming a large value in sampling space by "*
+    #     "exponential to parameter space. You may use a RangeScalingChian instead.")
+    # end   
+    # constrain parameters to sqrt of range of numeric type
+    # due to sampling they might exceed the range
+    θMs = min.(sqrt(floatmax(eltype(θMs))), θMs) 
+    θMs = max.(sqrt(floatmin(eltype(θMs))), θMs) 
+    θP = min.(sqrt(floatmax(eltype(θP))), θP) 
+    θP = max.(sqrt(floatmin(eltype(θP))), θP) 
     θP, θMs, logjac_P + logjac_M
 end
 
@@ -602,12 +655,20 @@ function transform_ζs(ζsP::AbstractMatrix, ζsMs::AbstractArray;
     trans_mMs::StackedArray=StackedArray(transM, n_MC * n_site_batch)
 )
     # transform to parameter-last that can apply transformations effectively
-    θsPt = trans_mP(ζsP')
     θsMst = trans_mMs(permutedims(ζsMs, (3, 1, 2)))
-    # backtransform to n_mc last for efficient mapping?
-    # TODO test if faster than mapping
-    θsP = θsPt'
+    # backtransform to n_mc last for efficient mapping
     θsMs = permutedims(θsMst, (2, 3, 1))
+    θsPt = trans_mP(ζsP') # Bijectors use copy and copy(ζsP') errors if ζsP is an empty CuArray
+    θsP = θsPt'
+    # θsP = if isempty(ζsP) 
+    #     # trans_mP(ζsP') of empty array has problems with AD
+    #     # copy(ζsP')'  # copy of empty array does no harm but ensures type is Adjoint
+    #     ζsP  # leads to type instability
+    #     #θsMs[1, 1:0, :] # workaround: extract empty matrix from first mc_batch of θsMs not the same type
+    # else
+    #     θsPt = trans_mP(ζsP')
+    #     θsP = θsPt'
+    # end
     θsP, θsMs
 end
 

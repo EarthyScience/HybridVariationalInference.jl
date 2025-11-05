@@ -18,3 +18,7 @@ docs/src_stash/*.ipynb
 docs/src/tutorials/test.*
 docs/src/tutorials/tmp*
 
+docs/src_stash/test1_files/figure-commonmark/fig-limits-output-1.svg
+docs/src_stash/*_files
+docs/src_stash/*.md
+docs/src_stash/*.html

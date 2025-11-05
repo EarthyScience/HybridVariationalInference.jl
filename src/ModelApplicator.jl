@@ -189,7 +189,7 @@ end
 
 function apply_model(app::RangeScalingModelApplicator, x, ϕ; kwargs...)
     res0 = apply_model(app.app, x, ϕ; kwargs...)
-    res = res0 .* app.width .+ app.offset
+    res0 .* app.width .+ app.offset
 end
 
 """
