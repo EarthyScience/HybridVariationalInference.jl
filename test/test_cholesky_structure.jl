@@ -182,26 +182,33 @@ end;
     # always a BlockDiagonal
     # T = eltype(v)
     # UT = Union{BlockDiagonals.BlockDiagonal{T, UpperTriangular{T}}, UpperTriangular{T}} 
-    U = @inferred CP.transformU_block_cholesky1(ρ)
+    TEmpty = Matrix{eltype(ρ)}
+    U = @inferred TEmpty CP.transformU_block_cholesky1(ρ)
     #U = @inferred UT CP.transformU_block_cholesky1(ρ)
     #@descend_code_warntype CP.transformU_block_cholesky1(ρ)
-    U = @inferred CP.transformU_block_cholesky1(v, cor_ends)
+    U = @inferred TEmpty CP.transformU_block_cholesky1(v, cor_ends)
     #U = @inferred UT CP.transformU_block_cholesky1(v, cor_ends)
     #@descend_code_warntype CP.transformU_block_cholesky1(v, cor_ends)
     @test diag(U' * U) ≈ ones(4)
     @test U[1:3, 4:4] ≈ zeros(3, 1)
     gr1 = Zygote.gradient(v -> sum(CP.transformU_block_cholesky1(v, cor_ends)), v)[1]; # works nice
-    # degenerate case of no correlations
+    # degenerate case of no correlations for one parameter
     vc0 = CA.ComponentVector{Float32}()
     cor_ends0 = @inferred get_ca_ends(vc0)
     #@descend_code_warntype get_ca_ends(vc0)
     ρ0 = collect(1f0:get_cor_count(cor_ends0))
     #ns=(CP.invsumn(length(v[k])) + 1 for k in keys(v))
     #collect(ns)
-    U = @inferred CP.transformU_block_cholesky1(CA.getdata(ρ0), cor_ends0)
+    U = @inferred TEmpty CP.transformU_block_cholesky1(CA.getdata(ρ0), cor_ends0)
     #U = @inferred UT CP.transformU_block_cholesky1(CA.getdata(ρ0), cor_ends0)
     @test diag(U) == [1f0]
     gr1 = Zygote.gradient(v -> sum(CP.transformU_block_cholesky1(ρ0, cor_ends0)), v)[1]; # works nice
+    #
+    # degenerate case of no correlations for zero parameters
+    U = @inferred TEmpty CP.transformU_block_cholesky1(CA.getdata(ρ0), [0])
+    @test U == [;;]
+    gr1 = Zygote.gradient(v -> sum(CP.transformU_block_cholesky1(ρ0, [length(v)])), v[1:0])[1]; 
+    @test isnothing(gr1)
 
     if ggdev isa MLDataDevices.AbstractGPUDevice # only run the test, if CUDA is working (not on Github ci)
         vc = v_orig = CA.ComponentVector(b1 = ggdev(1.0f0:3.0f0), b2 = ggdev([5.0f0]))
@@ -222,6 +229,10 @@ end;
         #U = @inferred UT CP.transformU_block_cholesky1(ρ0, cor_ends0)
         @test U isa GPUArraysCore.AbstractGPUArray
         @test cdev(diag(U)) == [1f0]
+        #
+        U = @inferred CP.transformU_block_cholesky1(CA.getdata(ρ)[1:0], [0])
+        @test U isa GPUArraysCore.AbstractGPUArray
+        @test cdev(U) == [;;]
     end
 end;
 

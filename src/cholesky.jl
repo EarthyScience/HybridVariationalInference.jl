@@ -150,21 +150,32 @@ It uses the upper triangular matrix rather than the lower because it
 involves a sum across columns, whereas the alternative of a lower triangular
 uses sum across rows. 
 Sum across columns is often faster, because entries of columns are contiguous.
+
+An empty parameterization 
 """
-function transformU_cholesky1(v::AbstractVector;
-    n=invsumn(length(v)) + 1
+function transformU_cholesky1(v::AbstractVector; 
+    n=invsumn(length(v)) + 1, create_empty = false,)
+    U = _transformU_cholesky1_getU(v; n, create_empty)
+    # ? UpperTriangular has problems with AD (which tries to set elements in lower)
+    #return U
+    return (UpperTriangular(U))
+end
+
+function _transformU_cholesky1_getU(v::AbstractVector;
+    n=invsumn(length(v)) + 1,
+    create_empty = false,
 )
+    create_empty && return(reshape(v, 0, 0)) # same type as v
     U_scaled = vec2uutri(v; n)
     #Sc_inv = sqrt.(sum(abs2, U_scaled, dims=1))
     #U_scaled * Diagonal(1 ./ vec(Sc_inv))
     #U = U_scaled ./ Sc_inv
     U = U_scaled ./ sqrt.(sum(abs2, U_scaled, dims=1))
-    return (UpperTriangular(U))
 end
-function transformU_cholesky1(
-    v::GPUArraysCore.AbstractGPUVector; n=invsumn(length(v)) + 1)
-    U_scaled = vec2uutri(v; n)
-    U = U_scaled ./ sqrt.(sum(abs2, U_scaled, dims=1))
+
+function transformU_cholesky1(v::GPUArraysCore.AbstractGPUVector; 
+    n=invsumn(length(v)) + 1, create_empty = false)
+    U = _transformU_cholesky1_getU(v; n, create_empty)
     # do not convert to UpperTrinangular on GPU, but full matrix
     #return (UpperTriangular(U))
     return U
@@ -247,12 +258,17 @@ into the this matrix.
 `cor_ends` is an AbstractVector of Integers specifying the last column of each block. 
 E.g. For a matrix with a 3x3, a 2x2, and another single-entry block, 
 the blocks start at columns (3,5,6). It defaults to a single entire block.
+
+An correlation parameterization can parameterize a block of a single parameter, 
+or an empty parameter block. To indicate the empty block, provide `cor_ends == [0]`.
 """
 function transformU_block_cholesky1(
     v::AbstractVector{T}, cor_ends::AbstractVector{TI}=Int[]) where {T,TI<:Integer}
+    # (cor_ends == [0]) no parameters at all (and also no correclation)
     if length(cor_ends) <= 1 # if there is only one block, return it 
         # for type stability create a BlockDiagonal of a single block
-        return _create_blockdiag(v, [transformU_cholesky1(v)])
+        create_empty = (cor_ends == [0])
+        return _create_blockdiag(v, [transformU_cholesky1(v; create_empty)])
     end
     cor_counts = get_cor_counts(cor_ends) # number of correlation parameters
     #@show cor_counts

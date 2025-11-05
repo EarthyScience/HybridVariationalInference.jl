@@ -311,8 +311,10 @@ test_scenario = (scenario) -> begin
     @testset "transform_ζs $(last(CP._val_value(scenario)))" begin
         n_site_batch, _, n_MC = size(ζsMs)
         trans_mP = StackedArray(transP, n_MC)
+        #trans_mP = StackedArray(Stacked((identity,),(1:n_θP,)), n_MC)
         trans_mMs = StackedArray(transM, n_MC * n_site_batch)
         θsP, θsMs = @inferred CP.transform_ζs(ζsP, ζsMs; trans_mP, trans_mMs)
+        #@descend_code_warntype CP.transform_ζs(ζsP, ζsMs; trans_mP, trans_mMs)
         @test size(θsP) == (n_θP, n_MC)
         @test size(θsMs) == (n_site_batch, n_θM, n_MC)
         @test θsP[:, 1] == transP(ζsP[:, 1])

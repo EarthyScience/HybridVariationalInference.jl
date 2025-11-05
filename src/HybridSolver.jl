@@ -129,7 +129,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
         res = Optimization.solve(optprob, solver.alg; epochs, kwargs...)
         ϕ = intϕ(res.u)
     end
-    θP = cpu_ca(apply_preserve_axes(transP, cpu_ca(ϕ).ϕP))
+    θP = !isempty(ϕ.ϕP) ? cpu_ca(apply_preserve_axes(transP, cpu_ca(ϕ).ϕP)) : CA.ComponentVector{eltype(ϕ)}()
     probo = HybridProblem(prob; ϕg=cpu_ca(ϕ).ϕg, θP)
     (; ϕ, resopt=res, probo)
 end
@@ -241,7 +241,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     optprob = OptimizationProblem(optf, CA.getdata(ϕ0_dev), train_loader_dev)
     res = Optimization.solve(optprob, solver.alg; kwargs...)
     ϕc = interpreters.μP_ϕg_unc(res.u)
-    θP = cpu_ca(apply_preserve_axes(transP, ϕc.μP))
+    θP = !isempty(ϕc.μP) ? cpu_ca(apply_preserve_axes(transP, ϕc.μP)) : CA.ComponentVector{eltype(ϕc)}()
     probo = HybridProblem(prob; ϕg=cpu_ca(ϕc).ϕg, θP=θP, ϕunc=cpu_ca(ϕc).unc)
     (; probo, interpreters, ϕ=ϕc, θP, resopt=res)
 end

@@ -122,6 +122,22 @@ end;
     testm(mmi)
 end;
 
+@testset "ComponentArrayInterpreter empty subcomponent" begin
+    cv = CA.ComponentVector(a=1:2, b = CA.ComponentVector())
+    int1 = ComponentArrayInterpreter(cv)
+    cv2 = int1(1:length(int1)).b
+    int = ComponentArrayInterpreter(cv2)
+    @test int isa ComponentArrayInterpreter
+    @test keys(CA.getaxes(int)[1]) == ()
+    #
+    cv = CA.ComponentVector(a=1:2, b = CA.ComponentVector(bs = CA.ComponentVector()))
+    int2 = ComponentArrayInterpreter(cv.b)
+    @test int2 isa ComponentArrayInterpreter
+    @test length(int2) == 0
+    cv2 = int2(1:length(int2))
+    @test length(cv2.bs) == 0
+end
+
 @testset "stack_ca_int" begin
     mvi = get_concrete(ComponentArrayInterpreter(CA.ComponentVector(c1=1:2, c2=1:3)))
     #mvi = ComponentArrayInterpreter(CA.ComponentVector(c1=1:2, c2=1:3))

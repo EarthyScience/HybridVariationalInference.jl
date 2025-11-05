@@ -130,7 +130,7 @@ end;
             ζP_resids, ζMs_parfirst_resids, σ = @inferred CP.sample_ζresid_norm(
                 rng, CA.getdata(ϕcd.P), CA.getdata(ϕcd.Ms), CA.getdata(ϕcd.unc);
                 n_MC = n_MC_pred, cor_ends, int_unc)
-            #@descend_code_warntype CP.sample_ζresid_norm(rng, CA.getdata(ϕc.P), CA.getdata(ϕc.Ms), CA.getdata(ϕc.unc); n_MC, cor_ends, int_unc)
+            #@descend_code_warntype CP.sample_ζresid_norm(rng, CA.getdata(ϕcd.P), CA.getdata(ϕcd.Ms), CA.getdata(ϕcd.unc); n_MC = n_MC_pred, cor_ends, int_unc)
             @test ζP_resids isa GPUArraysCore.AbstractGPUArray
             @test ζMs_parfirst_resids isa GPUArraysCore.AbstractGPUArray
             @test size(ζP_resids) == (n_θP, n_MC_pred)

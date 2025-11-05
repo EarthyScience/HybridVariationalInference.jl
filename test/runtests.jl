@@ -46,6 +46,8 @@ const GROUP = get(ENV, "GROUP", "All") # defined in in CI.yml
         @time @safetestset "test_HybridProblem" include("test_HybridProblem.jl")
         #@safetestset "test" include("test/test_missingdriver.jl")
         @time @safetestset "test_missingdriver" include("test_missingdriver.jl")
+        #@safetestset "test" include("test/test_no_globals.jl")
+        @time @safetestset "test_no_globals" include("test_no_globals.jl")
     end
 end
 

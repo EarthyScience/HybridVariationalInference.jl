@@ -272,7 +272,11 @@ function apply_model(app::PBMPopulationApplicator, θP::AbstractVector, θMs::Ab
     #@benchmark CA.getdata(θP[app.isP])  
     #@benchmark CA.getdata(repeat(θP', size(θMs,1))) 
     #@benchmark rep_fac .* CA.getdata(θP)'  # 
-    local θ = hcat(app.rep_fac .* CA.getdata(θP)', CA.getdata(θMs), CA.getdata(app.θFixm)) 
+    local θ = if !isempty(θP) 
+        hcat(app.rep_fac .* CA.getdata(θP)', CA.getdata(θMs), CA.getdata(app.θFixm)) 
+    else
+        hcat(CA.getdata(θMs), CA.getdata(app.θFixm)) 
+    end
     #local θ = hcat(CA.getdata(θP[app.isP]), CA.getdata(θMs), app.θFixm)
     #local θ = hcat(CA.getdata(repeat(θP', size(θMs,1))), CA.getdata(θMs), app.θFixm)
     local θc = app.intθ(CA.getdata(θ))

@@ -197,7 +197,7 @@ end
 """
 Create a loss function for given
 - g(x, ϕ): machine learning model 
-- transM: transforamtion of parameters at unconstrained space
+- transM: transformation of parameters at unconstrained space
 - f(θMs, θP): mechanistic model 
 - py: `function(y_pred, y_obs, y_unc)` to compute negative log-likelihood, i.e. cost
 - intϕ: interpreter attaching axis with components ϕg and ϕP
@@ -275,15 +275,25 @@ function get_loss_gf(g, transM, transP, f, py,
             #Main.@infiltrate_main
             #Maybe: move priors to GPU, for now need to move θ to cpu
             # currently does not work on gpu, moving to dpu has problems with gradient
-            # θP_pred_cpu = cpu_dev(CA.getdata(θP_pred))
-            # θMs_pred_cpu = cpu_dev(CA.getdata(θMs_pred))
-            θP_pred_cpu = CA.getdata(θP_pred)
-            θMs_pred_cpu = CA.getdata(θMs_pred)
-            # TODO account for prior cost on global parameters after debug
-            neg_log_prior = is_omit_priors ? zero(nLy) :
-                -sum(logpdf_t.(priorsP, θP_pred_cpu)) +
-                -sum(map((priorMi, θMi) -> sum(
-                    logpdf_tv(priorMi, θMi)), priorsM, eachcol(θMs_pred_cpu))) 
+            #    need to specify is_omit_priors if PBM is on GPU
+            neg_log_prior = if is_omit_priors
+                    zero(nLy)
+            else
+                nLP = if isempty(θP_pred) 
+                    zero(nLy)
+                else
+                    θP_pred_cpu = CA.getdata(θP_pred)
+                    -sum(logpdf_t.(priorsP, θP_pred_cpu))
+                end
+                θMs_pred_cpu = CA.getdata(θMs_pred)
+                nLM = -sum(map((priorMi, θMi) -> sum(
+                    logpdf_tv(priorMi, θMi)), priorsM, eachcol(θMs_pred_cpu)))
+                nLP + nLM
+            end
+            # neg_log_prior = is_omit_priors ? zero(nLy) :
+            #     (isempty() ? zero(nLy) : ) +
+            #     -sum(map((priorMi, θMi) -> sum(
+            #         logpdf_tv(priorMi, θMi)), priorsM, eachcol(θMs_pred_cpu))) 
             #neg_log_prior = min(sqrt(floatmax(neg_log_prior0)), neg_log_prior0)                
             if !isfinite(neg_log_prior)
                 @info "loss_gf: encountered non-finite prior density"
