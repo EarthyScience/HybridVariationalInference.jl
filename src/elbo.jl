@@ -527,8 +527,8 @@ function sample_ζresid_norm(urandn::AbstractMatrix, ζP::TP, ζMs::TM,
     σP = exp.(logσ2_ζP ./ 2)
     # BlockDiagonal does work with CUDA, but not with combination of Zygote and CUDA
     # need to construct full matrix for CUDA
-    Uσ = _create_blockdiag(UP, UM, σP, σMs, n_batch) # inferred only BlockDiagonal
-    σ = diag(Uσ)::typeof(σP)   # elements of the diagonal: standard deviations
+    Uσ, diagUσ = _compute_choleskyfactor(UP, UM, σP, σMs, n_batch) # inferred only BlockDiagonal
+    #diagUσ = diag(Uσ)::typeof(σP)   # elements of the diagonal: standard deviations
     n_MC = size(urandn, 2) # TODO transform urandn
     # is this multiplication efficient if Uσ is not concrete but only sumtype BlockDiagonal?
     ζ_resids_parfirst = (Uσ' * urandn) #::typeof(urandn) # n_par x n_MC
@@ -536,13 +536,13 @@ function sample_ζresid_norm(urandn::AbstractMatrix, ζP::TP, ζMs::TM,
     # need to handle empty(ζP) explicitly, otherwise Zygote tries to take gradient
     ζP_resids = isempty(ζP) ? ζ_resids_parfirst[1:0, :] : ζ_resids_parfirst[1:n_θP, :]
     ζMs_parfirst_resids = reshape(ζ_resids_parfirst[(n_θP+1):end, :], n_θM, n_batch, n_MC)
-    ζP_resids, ζMs_parfirst_resids, σ
+    ζP_resids, ζMs_parfirst_resids, diagUσ
     # #map(std, eachcol(ζ_resids_parfirst[:, 3:8]))
     # ζ_resid = transpose_mPMs_sitefirst(ζ_resids_parfirst; intm_PMs_parfirst)
     # #map(std, eachcol(ζ_resid[:, 3:8])) # all ~ 0.1 in sample_ζresid_norm cpu
     # #map(std, eachcol(ζ_resid[:, 2 + n_batch .+ (-1:5)])) # all ~ 100, except first two
     # # returns AbstractGPUuArrays to either continue on GPU or need to transfer to CPU
-    # ζ_resid, σ
+    # ζ_resid, diagUσ
 end
 
 """
@@ -578,16 +578,26 @@ function transpose_mPMs_sitefirst(Xt;
     # reshape(CA.getdata(X_site_first), rev(size(Xt)))::typeof(CA.getdata(Xt))
 end
 
-function _create_blockdiag(UP::AbstractMatrix{T}, UM, σP, σMs, n_batch) where {T}
+"""
+Create Cholesky-factor of Covariance matrix.
+from Cholesky-factors of correlation matrices (UP, UM) and diagonal sqrt(variances) (σP, σMs)
+Return this factor and its diagonal
+"""
+function _compute_choleskyfactor(UP::AbstractMatrix{T}, UM, σP, σMs, n_batch) where {T}
     # v = if isempty(UP) 
     #   [UM * Diagonal(σMs[:, i]) for i in 1:n_batch] #::Vector{<:AbstractMatrix{T}}
     # else
     #   [i == 0 ? UP * Diagonal(σP) : UM * Diagonal(σMs[:, i]) for i in 0:n_batch] #::Vector{<:AbstractMatrix{T}}
     # end
-    v = [i == 0 ? UP * Diagonal(σP) : UM * Diagonal(σMs[:, i]) for i in 0:n_batch] 
-    BlockDiagonal(v)
+    #v = [i == 0 ? UP * Diagonal(σP) : UM * Diagonal(σMs[:, i]) for i in 0:n_batch] 
+    Uσ_blocks = vcat([UP * Diagonal(σP)], [UM * Diagonal(σMs[:, i]) for i in 1:n_batch])
+    Uσ = BlockDiagonal(Uσ_blocks)
+    # diag(Uσ) is a performance bottleneck, therefore construct explicitly
+    diagUσ = vcat(diag(UP) .* σP, reduce(vcat, [diag(UM) .* σMs[:, i] for i in 1:n_batch]))
+    # diagUσ == diag(Uσ)
+    Uσ, diagUσ
 end
-function _create_blockdiag(
+function _compute_choleskyfactor(
     UP::GPUArraysCore.AbstractGPUMatrix{T}, UM, σP, σMs, n_batch) where {T}
     # using BlockDiagonal leads to Scalar operations downstream
     # v = [i == 0 ? UP * Diagonal(σP) : UM * Diagonal(σMs[:, i]) for i in 0:n_batch]
@@ -600,13 +610,16 @@ function _create_blockdiag(
     # else
     #   cat([i == 0 ? UP : UM for i in 0:n_batch]...; dims=(1, 2))
     # end
-    U = cat([i == 0 ? UP : UM for i in 0:n_batch]...; dims=(1, 2))
+    #U = cat([i == 0 ? UP : UM for i in 0:n_batch]...; dims=(1, 2))
+    #U = cat(UP,[UM for i in 1:n_batch]...; dims=(1, 2)) # Zygote not work with generator
+    U = cat(UP,Tuple(UM for i in 1:n_batch)...; dims=(1, 2)) # Zygote not work with generator
     #Main.@infiltrate_main
     σD = Diagonal(vcat(σP, vec(σMs)))
     Uσ = U * σD
     # need for Zygote why?
-    # tmp = cat(Uσ; dims=(1,2))
-    tmp = vcat(Uσ)
+    B = vcat(Uσ)
+    diagUσ = diag(B)
+    B, diagUσ
 end
 
 # TODO replace by KA.rand when it becomes available, see ones_similar
