@@ -254,13 +254,13 @@ end;
     v = collect(1:length(cai))
     cv = cai(v)
 
-    cv2 = @inferred CP.tmpf(v; cv) # cai by keyword argument
+    cv2 = @inferred CP.test_apply_cai(v; cv) # cai by keyword argument
     #cv2 = @inferred CP.tmpf(v; cv=nothing, cai = cai0) # not inferred
-    cv2 = CP.tmpf(v; cv=nothing, cai = cai0) # not inferred
-    cv2 = @inferred CP.tmpf1(v; cai = get_concrete(cai0)) # cai by keyword argument
+    cv2 = CP.test_apply_cai(v; cv=nothing, cai = cai0) # not inferred
+    cv2 = @inferred CP.test_apply_cai1(v; cai = get_concrete(cai0)) # cai by keyword argument
     #cv2 = @inferred CP.tmpf1(v; cai = cai0) # inside function does not infer
-    cv2 = CP.tmpf1(v; cai = cai0) # get_concrete inside function does not infer outside
-    cv2 = @inferred CP.tmpf2(v; cai=cai0) # only when specifying return type
+    cv2 = CP.test_apply_cai1(v; cai = cai0) # get_concrete inside function does not infer outside
+    cv2 = @inferred CP.test_apply_cai2(v; cai=cai0) # only when specifying return type
     # () -> begin
     #     #cv2 = @code_warntype CP.tmpf(cai0) # Any
     #     #cv2 = @code_warntype CP.tmpf(cai)  # ok

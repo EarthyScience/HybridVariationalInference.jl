@@ -73,7 +73,8 @@ n_MC = 3
     intm_PMs_sitefirst = ComponentArrayInterpreter(
         P = (n_MC, _nP), Ms = (n_MC, _nsite, _nM))
     Xc = intm_PMs_sitefirst(X)
-    @test Xc.P == Xtc.P
+    #@test Xc.P == @inferred Xtc[:P]  # need to use Val for type stability
+    @test Xc.P == @inferred Xtc[Val(:P)]
     @test Xc.Ms[:,1,:] == Xtc.Ms[:,:,1] # first site
     @test Xc.Ms[:,2,:] == Xtc.Ms[:,:,2]
     @test Xc.Ms[:,:,2] == Xtc.Ms[:,2,:] # second parameter
@@ -89,11 +90,8 @@ end;
     n_site_batch = size(ϕc.Ms,2)
     ζP_resids, ζMs_parfirst_resids, σ = @inferred CP.sample_ζresid_norm(rng, ϕc.P, ϕc.Ms, ϕc.unc;
         n_MC=n_MC_pred, cor_ends, int_unc) 
-    # ζ_resid, σ = @inferred CP.sample_ζresid_norm(rng, ϕc.P, ϕc.Ms, ϕc.unc; 
-    #     n_MC, cor_ends, int_unc = interpreters.unc)
     #@usingany Cthulhu
-    #@descend_code_warntype CP.sample_ζresid_norm(rng, ϕc.P, ϕc.Ms, ϕc.unc; n_MC, cor_ends, int_unc = get_concrete(interpreters.unc))
-    #@descend_code_warntype CP.sample_ζresid_norm(rng, ϕc.P, ϕc.Ms, ϕc.unc; n_MC, cor_ends, int_unc = interpreters.unc)
+    #@descend_code_warntype CP.sample_ζresid_norm(rng, ϕc.P, ϕc.Ms, ϕc.unc; n_MC, cor_ends, int_unc)
     #@test size(ζ_resid) == (length(ϕc.P) + n_site * n_θM, n_MC)
     n_θM = size(ϕc.Ms,1)
     @test size(ζP_resids) == (n_θP, n_MC_pred)
@@ -163,7 +161,7 @@ end
 #     n_sample_pred = 200
 #     intm_PMs_gen = ComponentArrayInterpreter(CA.ComponentVector(; θP_true,
 #         θMs=CA.ComponentMatrix(
-#             zeros(n_θM, n_site), first(CA.getaxes(θMs_true)), CA.Axis(i=1:n_sample_pred))))
+#             zeros(n_θM, n_site), first(CA.getaxes(θMs_true)), CA.Shaped1DAxis((n_site,)))))
 #     int_μP_ϕg_unc=ComponentArrayInterpreter(ϕ_true)
 #     interpreters = (; PMs = intm_PMs_gen, μP_ϕg_unc = int_μP_ϕg_unc  )
 #     ζs, _ = CP.generate_ζ(rng, g, ϕ, xM, interpreters; n_MC=n_sample_pred)

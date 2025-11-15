@@ -31,8 +31,9 @@ function neg_elbo_gtf(args...; kwargs...)
     # TODO prior and penalty loss
     (;nLjoint, entropy_ζ, loss_penalty, 
         nLy, neg_log_prior, neg_log_jac, 
-        nLmean_θ) = neg_elbo_gtf_components(args...; kwargs...)
-    nL = nLjoint - entropy_ζ + loss_penalty + nLmean_θ
+        #nLmean_θ
+        ) = neg_elbo_gtf_components(args...; kwargs...)
+    nL = nLjoint - entropy_ζ + loss_penalty #+ nLmean_θ
     # if !isfinite(nL) 
     #     @show nL
     #     @show nLjoint, entropy_ζ, loss_penalty, nLy, 
@@ -59,6 +60,8 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
     priorsP, priorsM,
     floss_penalty = zero_penalty_loss,
     is_testmode,
+    is_omit_priors,
+    zero_prior_logdensity,
 ) where {FT}
     n_MCr = isempty(priors_θP_mean) ? n_MC : max(n_MC, n_MC_mean)
     ζsP, ζsMs, σ = generate_ζ(rng, g, ϕ, xM; n_MC=n_MCr, cor_ends, pbm_covar_indices,
@@ -68,15 +71,19 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
     #
     # maybe: translate ζ once and supply to both neg_elbo and negloglik_meanθ
     ϕc = int_μP_ϕg_unc(ϕ)
+    VT= typeof(@view(ϕ[1:1]))
+    ϕg = CA.getdata(ϕc.ϕg)::VT
+    ϕunc = CA.getdata(ϕc.unc)::VT
     loss_comps = neg_elbo_ζtf(
         ζsP_cpu[:,1:n_MC], ζsMs_cpu[:,:,1:n_MC], σ, f, py, xP, y_ob, y_unc;
         n_MC_cap, transP, transMs, priorsP, priorsM, 
-        floss_penalty, ϕg = ϕc.ϕg, ϕunc = ϕc.unc,)
+        floss_penalty, ϕg, ϕunc, is_omit_priors, zero_prior_logdensity,)
     #
     # maybe: provide trans_mP and trans_mMs with creating cost function
-    nLmean_θ = _compute_negloglik_meanθ(ζsP_cpu, ζsMs_cpu; 
-        trans_mP, trans_mMs, priors_θP_mean, priors_θMs_mean, i_sites, )
-    (;loss_comps..., nLmean_θ)
+    # not used any more and merging named tuples takes long
+    # nLmean_θ = _compute_negloglik_meanθ(ζsP_cpu, ζsMs_cpu; 
+    #     trans_mP, trans_mMs, priors_θP_mean, priors_θMs_mean, i_sites, )
+    # (;loss_comps..., nLmean_θ)
 end
 
 function _compute_negloglik_meanθ(ζsP::AbstractMatrix{FT}, ζsMs; 
@@ -92,6 +99,20 @@ function _compute_negloglik_meanθ(ζsP::AbstractMatrix{FT}, ζsMs;
     nLmean_θMs = map((d, θi) -> -logpdf(d, θi), priors_θMs_mean[i_sites], mean_θMs)
     nLmean_θ = sum(nLmean_θP) + sum(nLmean_θMs)
     convert(FT,nLmean_θ)::FT
+end
+
+"""
+    get_zero_prior_logdensity(priorsP::Tuple, priorsM::Tuple, θP, θM)
+
+invoke logpdf of prior and sum, to infer return type and proper zero of prior density.
+"""
+function get_zero_prior_logdensity(priorsP::Tuple, priorsM::Tuple, θP, θM)
+    zd = get_zero_prior_logdensity(priorsM, θM) 
+    isempty(priorsP) ? zd : zd + get_zero_prior_logdensity(priorsP, θP) 
+end
+function get_zero_prior_logdensity(priors::Tuple, θ)
+    logpdf_t = (prior, θ) -> logpdf(prior, θ)
+    zero(sum(map(logpdf_t, priors, θ)))
 end
 
 """ 
@@ -113,32 +134,13 @@ function neg_elbo_ζtf(ζsP, ζsMs, σ, f, py, xP, y_ob, y_unc;
     transMs=StackedArray(transM, size(ζsMs, 2)),
     priorsP, priorsM,
     floss_penalty, ϕg, ϕunc,
-)
+    is_omit_priors::Val{omit_priors},
+    zero_prior_logdensity,
+) where omit_priors
     n_MC = size(ζsP,2)
-    cdev = cpu_device() #TODO avoid the cdev
-    #ETPrior = isempty(priorsP) ? eltype(eltype(priorsM)) : promote_type(eltype(priorsP), eltype(eltype(priorsM)))
-    ETPrior = isempty(priorsP) ? eltype(ζsMs) : promote_type(eltype(ζsP), eltype(ζsMs))
     f_sample = (ζP, ζMs) -> begin    
             θP, θMs, logjac_i = transform_and_logjac_ζ(ζP, ζMs; transP, transMs)
-            logpdf_t = (prior, θ) -> logpdf(prior, θ)::eltype(θP)
-            logpdf_tv = (prior, θ::AbstractVector) -> begin
-                tmp = map(Base.Fix1(logpdf, prior), θ)
-                tmp::Vector{eltype(θ)}
-            end
-            #TODO avoid the cdev, but compute prior on GPU because transfer takes long
-            #    but currently logpdf only works on CPU
-            # handle edge case of no global parameters, where priorsP is empty
-            nlP0 = isempty(priorsP) ? zero(ETPrior) : -sum(logpdf_t.(priorsP, cdev(θP)))
-            neg_log_prior_i = nlP0 - sum(map(
-                (priorMi, θMi) -> sum(logpdf_tv(priorMi, θMi)), priorsM, eachcol(cdev(θMs)))) 
-            if !isfinite(neg_log_prior_i)
-                @show neg_log_prior_i, nlP0
-                @show θMs
-                @show priorsM
-                error("inspect non-finite priors")
-                i_par = 2
-                priorMi, θMi = priorsM[i_par], eachcol(cdev(θMs))[2]
-            end
+            #  currently logpdf only works on CPU
             y_pred_i = f(θP, θMs, xP)
             #nLy1 = neg_logden_indep_normal(y_ob, y_pred_i, y_unc)
             # Main.@infiltrate_main
@@ -147,15 +149,30 @@ function neg_elbo_ζtf(ζsP, ζsMs, σ, f, py, xP, y_ob, y_unc;
             # @usingany Cthulhu
             # @descend_code_warntype f(θP, θMs, xP)
             nLy_i = py(y_ob, y_pred_i, y_unc)
-            loss_penalty_i = convert(eltype(ζMs),floss_penalty(y_pred_i, θMs, θP, ϕg, ϕunc))
+            loss_penalty_i = convert(eltype(nLy_i),floss_penalty(y_pred_i, θMs, θP, ϕg, ϕunc))
+            neg_log_prior_i = if omit_priors
+                zero_prior_logdensity
+            elseif (θP isa AbstractGPUArray) || (θMs isa AbstractGPUArray)
+                @warn("neg_elbo_ζtf: Cannot apply priors to gpu array. Piors are omitted. " *
+                "either compute PBM on CPU or omit priors.")
+                zero_prior_logdensity
+            else
+                compute_priors_logdensity(priorsP, priorsM, θP, θMs, zero_prior_logdensity)
+            end
+
             # make sure names to not match outer, otherwise Box type instability
             (nLy_i, neg_log_prior_i, -logjac_i, loss_penalty_i)
             #(nLy_i, 0.0, 0.0, 0.0)
         end
     # only Vector inferred, need to provide type hint
     # make that all components use the same Float type
-    #map_res = map(f_sample, eachcol(ζsP), eachslice(ζsMs; dims=3))::Vector{NTuple{4,eltype(ζsP)}}
-    map_res = map(f_sample, eachcol(ζsP), eachslice(ζsMs; dims=3))::Vector{Tuple{eltype(y_ob),ETPrior, eltype(ζsP), eltype(ζsP)}}
+    # Test.@inferred f_sample(first(eachcol(ζsP)), first(eachslice(ζsMs; dims=3)))
+    # Test.@inferred map(f_sample, eachcol(ζsP), eachslice(ζsMs; dims=3))
+    #using ShareAdd
+    #@usingany Cthulhu
+    #@descend_code_warntype f_sample(first(eachcol(ζsP)), first(eachslice(ζsMs; dims=3)))
+    #map_res = Test.@inferred map(f_sample, eachcol(ζsP), eachslice(ζsMs; dims=3))
+    map_res = map(f_sample, eachcol(ζsP), eachslice(ζsMs; dims=3))
     nLys, neg_log_priors, neglogjacs, loss_penalties = vectuptotupvec(map_res)
     # For robustness may compute the expectation only on the n_smallest values
     # because its very sensitive to few large outliers
@@ -188,6 +205,52 @@ function neg_elbo_ζtf(ζsP, ζsMs, σ, f, py, xP, y_ob, y_unc;
     # end
     nLjoint = nLy + neg_log_prior + neg_log_jac
     (;nLjoint, entropy_ζ, loss_penalty, nLy, neg_log_prior, neg_log_jac)
+end
+
+function compute_priors_logdensity(priorsP, priorsM, θP, θMs, zero_prior_logdensity)
+    logpdf_t = (prior, θ) -> logpdf(prior, θ)::eltype(θP)
+    function logpdf_tv_sum(prior, θ::AbstractVector{T}) where T 
+        # logpdf_tv_sum_inner = let prior = prior
+        #     function(θi)
+        #         lp = logpdf(prior, θi)
+        #         # TT = ChainRulesCore.@ignore_derivatives Base.return_types(logpdf, Tuple{typeof(prior), typeof(θi)})
+        #         # if TT != [typeof(lp)] 
+        #         #     error("encountered unstable logpdf: $TT")
+        #         # end
+        #         lp
+        #     end
+        # end
+        # sum(logpdf_tv_sum_inner, θ)
+        sum(θi -> logpdf(prior, θi), θ)
+    end
+    # handle edge case of no global parameters, where priorsP is empty
+    nlP0 = isempty(priorsP) ? zero_prior_logdensity : -sum(logpdf_t.(priorsP, θP))
+    # fi = (priorMi, θMi) -> begin
+    #     logpdf_tv_sum(priorMi, θMi)
+    #     sum(logpdf_tv_sum(priorMi, θMi))::eltype(θMi)
+    # end
+    f_col = let priorsM=priorsM, θMs=θMs
+        function f_col_inner(i)
+            # TP = ChainRulesCore.@ignore_derivatives Base.return_types(getindex, Tuple{typeof(priorsM), typeof(i)})
+            # if TP != [typeof(priorsM[i])] 
+            #     error("encountered unstable priorsM: $TP")
+            # end
+            logpdf_tv_sum(priorsM[i], θMs[:,i])
+            #Tθ = Base.return_types(getindex, Tuple{typeof(θMs), Colon, typeof(i)})
+            #TRET = Base.return_types(logpdf_tv_sum, Tuple{typeof(priorsM[i]), typeof(θMs[:,i])})
+        end
+    end
+    nlMs_sum = sum(f_col, 1:length(priorsM))
+    neg_log_prior_i = nlP0 - nlMs_sum
+    if !isfinite(neg_log_prior_i)
+        @show neg_log_prior_i, nlP0
+        @show θMs
+        @show priorsM
+        error("inspect non-finite priors")
+        i_par = 2
+        priorMi, θMi = priorsM[i_par], eachcol(θMs)[2]
+    end
+    neg_log_prior_i
 end
 
 """
@@ -388,13 +451,15 @@ function generate_ζ(rng, g, ϕ::AbstractVector{FT}, xM::MT;
     ) where {FT,MT}
     # see documentation of neg_elbo_gtf
     ϕc = int_μP_ϕg_unc(CA.getdata(ϕ))
-    μ_ζP = CA.getdata(ϕc.μP)
-    ϕg = CA.getdata(ϕc.ϕg)
+    VT= typeof(@view(ϕ[1:1]))
+    μ_ζP = CA.getdata(ϕc.μP)::VT
+    ϕg = CA.getdata(ϕc.ϕg)::VT
+    unc = CA.getdata(ϕc.unc)::VT 
     # first pass: append μ_ζP_to covars, need ML prediction for magnitude of ζMs
     # TODO replace pbm_covar_indices by ComponentArray? dimensions to be type-inferred?
     xMP0 = _append_each_covars(xM, CA.getdata(μ_ζP), pbm_covar_indices)
     μ_ζMs0 = g(xMP0, ϕg; is_testmode)
-    ζP_resids, ζMs_parfirst_resids, σ = sample_ζresid_norm(rng, μ_ζP, μ_ζMs0, ϕc.unc; n_MC, cor_ends, int_unc)
+    ζP_resids, ζMs_parfirst_resids, σ = sample_ζresid_norm(rng, μ_ζP, μ_ζMs0, unc; n_MC, cor_ends, int_unc)
     if pbm_covar_indices isa SA.SVector{0}
         # do not need to predict again but just add the residuals to μ_ζP and μ_ζMs
         #ζsP = μ_ζP .+ ζP_resids  # n_par x n_MC # .+ on empty view does not work
@@ -502,7 +567,9 @@ function sample_ζresid_norm(rng::Random.AbstractRNG, ζP::AbstractVector, ζMs:
     #urandn = _create_randn(rng, CA.getdata(ζP), n_MC, n_θP + n_θMs)
     urandn = _create_randn(rng, CA.getdata(ζP), n_θP + n_θMs, n_MC)
     sample_ζresid_norm(urandn, CA.getdata(ζP), CA.getdata(ζMs), args...;
-        cor_ends, int_unc=get_concrete(int_unc))
+        cor_ends, 
+        int_unc=get_concrete(int_unc)
+    )
 end
 
 function sample_ζresid_norm(urandn::AbstractMatrix, ζP::TP, ζMs::TM,
@@ -513,15 +580,15 @@ function sample_ζresid_norm(urandn::AbstractMatrix, ζP::TP, ζMs::TM,
     ϕuncc = int_unc(CA.getdata(ϕunc))
     n_θP, n_θMs, (n_θM, n_batch) = length(ζP), length(ζMs), size(ζMs)
     # do not create a UpperTriangular Matrix of an AbstractGÜUArray in transformU_cholesky1
-    ρsP = isempty(ϕuncc.ρsP) ? similar(ϕuncc.ρsP) : ϕuncc.ρsP # required by zygote
+    ρsP = isempty(ϕuncc[Val(:ρsP)]) ? similar(ϕuncc[Val(:ρsP)]) : ϕuncc[Val(:ρsP)] # required by zygote
     UP = transformU_block_cholesky1(ρsP, cor_ends.P)
-    ρsM = isempty(ϕuncc.ρsM) ? similar(ϕuncc.ρsM) : ϕuncc.ρsM # required by zygote
+    ρsM = isempty(ϕuncc[Val(:ρsM)]) ? similar(ϕuncc[Val(:ρsM)]) : ϕuncc[Val(:ρsM)] # required by zygote
     # cholesky factor of the correlation: diag(UM' * UM) .== 1
     # coefficients ρsM can be larger than 1, still yielding correlations <1 in UM' * UM
     UM = transformU_block_cholesky1(ρsM, cor_ends.M)
-    cf = ϕuncc.coef_logσ2_ζMs
+    cf = ϕuncc[Val(:coef_logσ2_ζMs)]
     logσ2_logMs = vec(cf[1, :] .+ cf[2, :] .* ζMs)
-    logσ2_ζP = vec(CA.getdata(ϕuncc.logσ2_ζP))
+    logσ2_ζP = vec(CA.getdata(ϕuncc[Val(:logσ2_ζP)]))
     # CUDA cannot multiply BlockDiagonal * Diagonal, construct already those blocks
     σMs = reshape(exp.(logσ2_logMs ./ 2), n_θM, :)
     σP = exp.(logσ2_ζP ./ 2)
@@ -571,6 +638,9 @@ function transpose_mPMs_sitefirst(Xt;
 
     # map(std, eachrow(tmp[3:8,:]))
     # _Ms = permutedims(Xtc.Ms, (1, 3, 2))
+    #Main.@infiltrate_main
+    #tmp = Test.@inferred getindex(Xtc, Val(:Ms))
+    #tmp2= Test.@inferred getindex(Xtc, Val(:P))
     X_site_first = CA.ComponentVector(P=Xtc.P, Ms=permutedims(Xtc.Ms, (1, 3, 2)))
     reshape(CA.getdata(X_site_first), size(Xt))::typeof(CA.getdata(Xt))
     # X_site_first = CA.ComponentVector(
@@ -589,11 +659,18 @@ function _compute_choleskyfactor(UP::AbstractMatrix{T}, UM, σP, σMs, n_batch) 
     # else
     #   [i == 0 ? UP * Diagonal(σP) : UM * Diagonal(σMs[:, i]) for i in 0:n_batch] #::Vector{<:AbstractMatrix{T}}
     # end
-    #v = [i == 0 ? UP * Diagonal(σP) : UM * Diagonal(σMs[:, i]) for i in 0:n_batch] 
-    Uσ_blocks = vcat([UP * Diagonal(σP)], [UM * Diagonal(σMs[:, i]) for i in 1:n_batch])
+    Uσ_blocks = [i == 0 ? UP * Diagonal(σP) : UM * Diagonal(σMs[:, i]) for i in 0:n_batch] 
+    # vcat not type stable
+    #Uσ_blocks = vcat([UP * Diagonal(σP)], [UM * Diagonal(σMs[:, i]) for i in 1:n_batch]) 
     Uσ = BlockDiagonal(Uσ_blocks)
     # diag(Uσ) is a performance bottleneck, therefore construct explicitly
-    diagUσ = vcat(diag(UP) .* σP, reduce(vcat, [diag(UM) .* σMs[:, i] for i in 1:n_batch]))
+    #diagUσ = [i == 0 ? diag(UP) .* σP : diag(UM) .* σMs[:, i] for i in 0:n_batch]
+    # not type stable diagUσM = reduce(vcat, Tuple(diag(UM) .* σMs[:, i] for i in 1:n_batch); init = σP[1:0])
+    #diagUσM = reduce(vcat, [diag(UM) .* σMs[:, i] for i in 1:n_batch]; init = σMs[1:0])
+    empty_arr = ChainRulesCore.@ignore_derivatives eltype(σMs)[]
+    #diagUσM = reduce(vcat, [diag(UM) .* σMs[:, i] for i in 1:n_batch]; init=empty_arr)
+    diagUσM = vcat([diag(UM) .* σMs[:, i] for i in 1:n_batch]...)::Vector{T}
+    diagUσ = vcat(diag(UP) .* σP, diagUσM)
     # diagUσ == diag(Uσ)
     Uσ, diagUσ
 end
@@ -639,7 +716,6 @@ Transform parameters and compute absolute of determinant of Jacobian of the tran
 function transform_and_logjac_ζ(ζP::AbstractVector, ζMs::AbstractMatrix;
     transP::Bijectors.Transform,
     transMs::StackedArray=StackedArray(transM, size(ζMs, 1)))
-    θP, logjac_P = Bijectors.with_logabsdet_jacobian(transP, ζP)
     θMs, logjac_M = Bijectors.with_logabsdet_jacobian(transMs, ζMs)
     # if !all(isfinite.(θMs)) 
     #     @show θMs
@@ -653,8 +729,14 @@ function transform_and_logjac_ζ(ζP::AbstractVector, ζMs::AbstractMatrix;
     # due to sampling they might exceed the range
     θMs = min.(sqrt(floatmax(eltype(θMs))), θMs) 
     θMs = max.(sqrt(floatmin(eltype(θMs))), θMs) 
-    θP = min.(sqrt(floatmax(eltype(θP))), θP) 
-    θP = max.(sqrt(floatmin(eltype(θP))), θP) 
+    θP, logjac_P = if isempty(ζP)
+        ζP, zero(logjac_M)  
+    else
+        θP, logjac_P = Bijectors.with_logabsdet_jacobian(transP, ζP)
+        θP = min.(sqrt(floatmax(eltype(θP))), θP) 
+        θP = max.(sqrt(floatmin(eltype(θP))), θP) 
+        θP, logjac_P
+    end
     θP, θMs, logjac_P + logjac_M
 end
 

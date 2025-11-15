@@ -29,7 +29,6 @@ import NaNMath # ignore missing observations in logDensity
 using DifferentiationInterface: DifferentiationInterface as DI
 import Zygote
 
-
 export DoubleMM
 
 include("util.jl")
@@ -125,5 +124,7 @@ include("DoubleMM/DoubleMM.jl")
 
 export RRuleMonitor
 include("RRuleMonitor.jl")
+
+include("chainrulescore.jl")
 
 end

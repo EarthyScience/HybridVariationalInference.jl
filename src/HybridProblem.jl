@@ -191,7 +191,7 @@ Get the inverse-transformation of lower and upper quantiles of a Vector of Distr
 This can be used to get proper confidence intervals at unconstrained (log) ζ-scale
 for priors on normal θ-scale for constructing a NormalScalingModelApplicator.
 """
-function get_quantile_transformed(priors::AbstractVector{<:Distribution}, trans; 
+function get_quantile_transformed(priors::Tuple, trans; 
     q95 = (0.05, 0.95))
     θq = ([quantile(d, q) for d in priors] for q in q95)
     lowers, uppers = inverse(trans).(θq)

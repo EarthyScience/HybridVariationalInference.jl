@@ -345,7 +345,8 @@ test_scenario = (scenario) -> begin
             xM[:, i_sites], xP[:, i_sites], y_o[:, i_sites], y_unc[:, i_sites], i_sites;
             int_unc, int_μP_ϕg_unc,
             cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
-            is_testmode = true)
+            is_testmode = true, 
+            is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini)))
         )
         @test cost isa Float64
         gr = Zygote.gradient(
@@ -353,7 +354,8 @@ test_scenario = (scenario) -> begin
                 xM[:, i_sites], xP[:, i_sites], y_o[:, i_sites], y_unc[:, i_sites], i_sites;
                 int_unc, int_μP_ϕg_unc,
                 cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
-                is_testmode = false),
+                is_testmode = false, 
+                is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini))),
             CA.getdata(ϕ_ini))
         @test gr[1] isa Vector
     end
@@ -372,6 +374,7 @@ test_scenario = (scenario) -> begin
                 int_unc, int_μP_ϕg_unc,
                 n_MC=3, cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
                 is_testmode = true,
+                is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini)),
                 )
             )
             @test cost isa Float64
@@ -381,6 +384,7 @@ test_scenario = (scenario) -> begin
                     int_unc, int_μP_ϕg_unc,
                     n_MC=3, cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
                     is_testmode = false,
+                    is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini)),
                     ),
                 ϕ)
             @test gr[1] isa GPUArraysCore.AbstractGPUVector

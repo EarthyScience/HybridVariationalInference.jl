@@ -77,16 +77,16 @@ With fewer correlations, also the number of those parameters changes,
 and those parameters must be reinitialized after changing the block structure in
 the correlation matrix.
 
-Here, we obtain construct initial estimates. using [`init_hybrid_ϕunc`](@ref)
+Here, we obtain construct initial estimates. using [`init_hybrid_ϕq`](@ref)
 
 ``` julia
-ϕunc = init_hybrid_ϕunc(cor_ends, zero(eltype(prob.θM)))
+ϕq = init_hybrid_ϕq(cor_ends, zero(eltype(prob.θM)))
 ```
 
 In this two-site parameter case, the the blocked structure saves only one degree of freedom:
 
 ``` julia
-length(ϕunc), length(probo_cor.ϕunc)
+length(ϕq), length(probo_cor.ϕq)
 ```
 
     (5, 6)
@@ -94,7 +94,7 @@ length(ϕunc), length(probo_cor.ϕunc)
 ## Update the problem and redo the inversion
 
 ``` julia
-prob_ind = HybridProblem(prob; cor_ends, ϕunc)
+prob_ind = HybridProblem(prob; cor_ends, ϕq)
 ```
 
 ``` julia

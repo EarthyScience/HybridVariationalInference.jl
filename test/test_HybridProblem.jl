@@ -69,13 +69,13 @@ function construct_problem(; scenario::Val{scen}) where scen
     #     end
     # end
     train_dataloader = MLUtils.DataLoader(
-        (xM, xP, y_o, y_unc, i_sites), batchsize=n_batch, partial=false)
+        (CA.getdata(xM), CA.getdata(xP), y_o, y_unc, i_sites), batchsize=n_batch, partial=false)
     θall = vcat(θP, θM)
     priors_dict = Dict{Symbol, Distribution}(
         keys(θall) .=> fit.(LogNormal, θall, QuantilePoint.(θall .* 3, 0.95)))
     priors_dict[:r1] = fit(Normal, θall.r1, qp_uu(3 * θall.r1), Val(:mode)) # not transformed to log-scale
     # scale (0,1) outputs MLmodel to normal distribution fitted to priors translated to ζ
-    priorsM = [priors_dict[k] for k in keys(θM)]
+    priorsM = Tuple(priors_dict[k] for k in keys(θM))
     lowers, uppers = get_quantile_transformed(priorsM, transM)
     app, ϕg0 = construct_ChainsApplicator(rng, g_chain)
     g_chain_scaled = NormalScalingModelApplicator(app, lowers, uppers, FT)
@@ -326,34 +326,38 @@ test_with_flux_gpu = (scenario) -> begin
                 cr[is,is]
             end
         end;
-        @testset "HybridPosteriorSolver also f on gpu  $(last(CP._val_value(scenario)))" begin
-            scenf = Val((CP._val_value(scenario)..., :use_Flux, :use_gpu, :omit_r0, :f_on_gpu))
-            rng = StableRNG(111)
-            probg = HybridProblem(DoubleMM.DoubleMMCase(); scenario = scenf);
-            # put Applicator to gpu (θFix)
-            # moved to solve and predict_hvi
-            # probg = HybridProblem(
-            #     probg, 
-            #     f_batch = gdev(probg.f_batch), 
-            #     f_allsites = gdev(probg.f_allsites))
-            #prob = CP.update(probg, transM = identity, transP = identity);
-            solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)
-            n_site, n_batch = get_hybridproblem_n_site_and_batch(probg; scenario = scenf)
-            n_batches_in_epoch = n_site ÷ n_batch
-            (; ϕ, θP, resopt, probo) = solve(probg, solver; scenario = scenf, rng,
-                #maxiters = 37, # smallest value by trial and error
-                #maxiters = 20, # too small so that it yields error
-                epochs = 1,
-                #θmean_quant = 0.01,   # TODO make possible on gpu
-                gdevs = (; gdev_M=gpu_device(), gdev_P=gpu_device()),
-                is_inferred = Val(true),
-            );
-            @test CA.getdata(ϕ) isa GPUArraysCore.AbstractGPUVector
-            n_sample_pred = 11
-            (; y, θsP, θsMs) = predict_hvi(
-                rng, probo; scenario = scenf, n_sample_pred,is_inferred = Val(true));
-            # @test cdev(ϕ.unc.ρsM)[1] > 0 # too few iterations
-        end;    
+        # allowscalar and indescing into ComponentArray does not work
+        if !(:useSitePBM ∈ typeof(scenario).parameters[1]) 
+            @testset "HybridPosteriorSolver also f on gpu  $(last(CP._val_value(scenario)))" begin
+                scenf = Val((CP._val_value(scenario)..., :use_Flux, :use_gpu, :omit_r0, :f_on_gpu))
+                rng = StableRNG(111)
+                probg = HybridProblem(DoubleMM.DoubleMMCase(); scenario = scenf);
+                # put Applicator to gpu (θFix)
+                # moved to solve and predict_hvi
+                # probg = HybridProblem(
+                #     probg, 
+                #     f_batch = gdev(probg.f_batch), 
+                #     f_allsites = gdev(probg.f_allsites))
+                #prob = CP.update(probg, transM = identity, transP = identity);
+                solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)
+                n_site, n_batch = get_hybridproblem_n_site_and_batch(probg; scenario = scenf)
+                n_batches_in_epoch = n_site ÷ n_batch
+                (; ϕ, θP, resopt, probo) = solve(probg, solver; scenario = scenf, rng,
+                    #maxiters = 37, # smallest value by trial and error
+                    #maxiters = 20, # too small so that it yields error
+                    epochs = 1,
+                    #θmean_quant = 0.01,   # TODO make possible on gpu
+                    gdevs = (; gdev_M=gpu_device(), gdev_P=gpu_device()),
+                    is_inferred = Val(true),
+                    is_omit_priors = Val(true), # cannot evaluate on gpu
+                );
+                @test CA.getdata(ϕ) isa GPUArraysCore.AbstractGPUVector
+                n_sample_pred = 11
+                (; y, θsP, θsMs) = predict_hvi(
+                    rng, probo; scenario = scenf, n_sample_pred,is_inferred = Val(true));
+                # @test cdev(ϕ.unc.ρsM)[1] > 0 # too few iterations
+            end;    
+        end
     end # if gdev isa MLDataDevices.AbstractGPUDevice 
 end # test_with flux
 

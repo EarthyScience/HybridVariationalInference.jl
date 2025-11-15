@@ -50,10 +50,11 @@ function f_doubleMM(θc::CA.ComponentVector{ET}, x) where ET
         #θc = intθ1(θ)
         #using ComponentArrays: ComponentArrays as CA
         #r0, r1, K1, K2 = θc[(:r0, :r1, :K1, :K2)] # does not work on Zygote+GPU
-        (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
-            # vector will be repeated when broadcasted by a matrix
-            CA.getdata(θc[par])::ET
-        end
+        # (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
+        #     # vector will be repeated when broadcasted by a matrix
+        #     CA.getdata(θc[par])::ET
+        # end
+        @unpack r0, r1, K1, K2 = θc
         # r0 = θc[:r0]
         # r1 = θc[:r1]
         # K1 = θc[:K1]
@@ -99,26 +100,39 @@ end
 """
 function f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
     # extract several covariates from xP
-    ST = typeof(CA.getdata(xPc)[1:1,:])  # workaround for non-type-stable Symbol-indexing
-    S1 = (CA.getdata(xPc[:S1,:])::ST)   
-    S2 = (CA.getdata(xPc[:S2,:])::ST)
+    # ST = typeof(CA.getdata(xPc)[1:1,:])  # workaround for non-type-stable Symbol-indexing
+    # S1 = (CA.getdata(xPc[:S1,:])::ST)   
+    # S2 = (CA.getdata(xPc[:S2,:])::ST)
+    S1 = view(xPc, Val(:S1), :)
+    S2 = view(xPc, Val(:S2), :)
+
+    # S1 = @view CA.getdata(xPc[Val(:S1),:])
+    # S2 = @view CA.getdata(xPc[Val(:S2),:])
+    is_valid = isfinite.(S1) .&& isfinite.(S2)
     #
     # extract the parameters as vectors that are row-repeated into a matrix
-    VT = typeof(CA.getdata(θc)[:,1])   # workaround for non-type-stable Symbol-indexing
-    #n_obs = size(S1, 1)
-    #rep_fac = HVI.ones_similar_x(xPc, n_obs) # to reshape into matrix, avoiding repeat
-    #is_dummy = isnan.(S1) .|| isnan.(S2)
-    is_valid = isfinite.(S1) .&& isfinite.(S2)
-    (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
-        p1 = CA.getdata(θc[:, par]) ::VT
-        #Main.@infiltrate_main
-        # tmp = Zygote.gradient(p1 -> sum(repeat_rowvector_dummy(p1', is_dummy)), p1)[1]
-        #p1_mat = repeat_rowvector_dummy(p1', is_dummy)
-        p1_mat = is_valid .* p1' # places zeros in dummy positions, prevents gradients there
-        #repeat(p1', n_obs)  # matrix: same for each concentration row in S1
-        #(rep_fac .* p1')    # move to computation below to save allocation
-    end
+    # VT = typeof(CA.getdata(θc)[:,1])   # workaround for non-type-stable Symbol-indexing
+    # #n_obs = size(S1, 1)
+    # #rep_fac = HVI.ones_similar_x(xPc, n_obs) # to reshape into matrix, avoiding repeat
+    # #is_dummy = isnan.(S1) .|| isnan.(S2)
+    
+    # (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
+    #     p1 = CA.getdata(θc[:, par]) ::VT
+    #     #Main.@infiltrate_main
+    #     # tmp = Zygote.gradient(p1 -> sum(repeat_rowvector_dummy(p1', is_dummy)), p1)[1]
+    #     #p1_mat = repeat_rowvector_dummy(p1', is_dummy)
+    #     p1_mat = is_valid .* p1' # places zeros in dummy positions, prevents gradients there
+    #     #repeat(p1', n_obs)  # matrix: same for each concentration row in S1
+    #     #(rep_fac .* p1')    # move to computation below to save allocation
+    # end
     #
+    r0 = is_valid .* CA.getdata(θc[:, Val(:r0)])'
+    r1 = is_valid .* CA.getdata(θc[:, Val(:r1)])'
+    K1 = is_valid .* CA.getdata(θc[:, Val(:K1)])'
+    K2 = is_valid .* CA.getdata(θc[:, Val(:K2)])'
+    #
+    #, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
+
     # each variable is a matrix (n_obs x n_site)
     r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
     #(rep_fac .* r0') .+ (rep_fac .* r1') .* S1 ./ ((rep_fac .* K1') .+ S1) .* S2 ./ ((rep_fac .* K2') .+ S2)
@@ -236,10 +250,9 @@ function HVI.get_hybridproblem_MLapplicator(
     # construct normal distribution from quantiles at unconstrained scale
     priors_dict = get_hybridproblem_priors(prob; scenario)
     (; θM) = get_hybridproblem_par_templates(prob; scenario)
-    priors = [priors_dict[k] for k in keys(θM)]
+    priors = Tuple(priors_dict[k] for k in keys(θM))
     (; transM) = get_hybridproblem_transforms(prob; scenario)
-    lowers, uppers = HVI.get_quantile_transformed(
-        priors::AbstractVector{<:Distribution}, transM)
+    lowers, uppers = HVI.get_quantile_transformed(priors, transM)
     #n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     g = if (:use_rangescaling ∈ scen)
         RangeScalingModelApplicator(g_nomag, lowers, uppers, eltype(ϕ_g0))
@@ -370,7 +383,7 @@ function HVI.get_hybridproblem_train_dataloader(prob::DoubleMMCase; scenario::Va
         # set the last two entries of the S1 drivers and observations of the second site NaN
         view(@view(xP[:S1,2]), 7:8) .= NaN
         y_o[7:8,2] .= NaN
-        train_loader = MLUtils.DataLoader((xM, xP, y_o, y_unc, i_sites);
+        train_loader = MLUtils.DataLoader((CA.getdata(xM), CA.getdata(xP), y_o, y_unc, i_sites);
             batchsize = n_batch, partial = false)
     else
         construct_dataloader_from_synthetic(rng, prob; scenario, n_batch, kwargs...)

@@ -13,9 +13,9 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     ad_backend_loss = AutoZygote(),
     epochs,
     is_omitting_NaNbatches = false,
-    is_omit_priors = false,
+    is_omit_priors::Val{is_omit_prior} = Val(false),
     kwargs...
-) where is_infer
+) where {is_infer, is_omit_prior}
     gdevs = isnothing(gdevs) ? get_gdev_MP(scenario) : gdevs
     par_templates = get_hybridproblem_par_templates(prob; scenario)
     g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
@@ -60,8 +60,8 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
     n_site_test = size(test_data[1],2)
     priors = get_hybridproblem_priors(prob; scenario)
-    priorsP = [priors[k] for k in keys(par_templates.θP)]
-    priorsM = [priors[k] for k in keys(par_templates.θM)]
+    priorsP = Tuple(priors[k] for k in keys(par_templates.θP))
+    priorsM = Tuple(priors[k] for k in keys(par_templates.θM))
     #intP = ComponentArrayInterpreter(par_templates.θP)
     loss_gf = get_loss_gf(g_dev, transM, transP, f_dev,  py, intϕ;
         n_site_batch=n_batch, 
@@ -180,8 +180,9 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     gdevs = get_gdev_MP(scenario), 
     θmean_quant=0.0,
     is_inferred::Val{is_infer} = Val(false),
+    is_omit_priors::Val{omit_priors} = Val(false),
     kwargs...
-) where {scen, is_infer}
+) where {scen, is_infer, omit_priors}
     par_templates = get_hybridproblem_par_templates(prob; scenario)
     (; θP, θM) = par_templates
     cor_ends = get_hybridproblem_cor_ends(prob; scenario)
@@ -197,10 +198,19 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     int_μP_ϕg_unc = interpreters.μP_ϕg_unc
     transMs = StackedArray(transM, n_batch)
     priors = get_hybridproblem_priors(prob; scenario)
-    priorsP = [priors[k] for k in keys(par_templates.θP)]
-    priorsM = [priors[k] for k in keys(par_templates.θM)]
-    #
+    priorsP = Tuple(priors[k] for k in keys(par_templates.θP))
+    priorsM = Tuple(priors[k] for k in keys(par_templates.θM))
+    zero_prior_logdensity = omit_priors ? 0f0 : get_zero_prior_logdensity(priorsP, priorsM, θP, θM)     
     train_loader = get_hybridproblem_train_dataloader(prob; scenario)
+    if first(train_loader)[1] isa CA.ComponentArray
+        @warn("ML model covariates (1) were provided as ComponentArray. " * 
+        "Consider providing them as a plain array.")
+    end
+    if first(train_loader)[2] isa CA.ComponentArray
+        error("debug providing xP")
+        @warn("PBM drivers (2) were provided as ComponentArray. " * 
+        "Consider providing them as a plain array.")
+    end
     if gdevs.gdev_M isa MLDataDevices.AbstractGPUDevice
         ϕ0_dev = gdevs.gdev_M(ϕ)
         g_dev = gdevs.gdev_M(g) # zygote fails if  gdev is a CPUDevice, although should be non-op
@@ -226,14 +236,18 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     loss_elbo = get_loss_elbo(
         g_dev, transP, transMs, f_dev, py;
         solver.n_MC, solver.n_MC_cap, cor_ends, priors_θP_mean, priors_θMs_mean, 
-        cdev=infer_cdev(gdevs), pbm_covars, θP, int_unc, int_μP_ϕg_unc, priorsP, priorsM,)
+        cdev=infer_cdev(gdevs), pbm_covars, θP, int_unc, int_μP_ϕg_unc, priorsP, priorsM,
+        is_omit_priors, zero_prior_logdensity,
+        )
     # test loss function once
     # tmp = first(train_loader_dev)
     # using ShareAdd
     # @usingany Cthulhu
     # @descend_code_warntype loss_elbo(ϕ0_dev, rng, first(train_loader_dev)...)
-    l0 = is_infer ? 
-        (Test.@inferred loss_elbo(ϕ0_dev, rng, first(train_loader_dev)...; is_testmode=true)) :
+    # omit for type stability in AD
+    l0 = 
+    #is_infer ? 
+    #     (Test.@inferred loss_elbo(ϕ0_dev, rng, first(train_loader_dev)...; is_testmode=true)) :
         loss_elbo(ϕ0_dev, rng, first(train_loader_dev)...; is_testmode=false)
     optf = Optimization.OptimizationFunction(
         (ϕ, data) -> first(loss_elbo(ϕ, rng, data...; is_testmode=false)),
@@ -275,6 +289,7 @@ function get_loss_elbo(g, transP, transMs, f, py;
     cor_ends, priors_θP_mean, priors_θMs_mean, cdev, pbm_covars, θP,
     int_unc, int_μP_ϕg_unc,
     priorsP, priorsM, floss_penalty = zero_penalty_loss,
+    is_omit_priors, zero_prior_logdensity,
 )
     let g = g, transP = transP, transMs = transMs, f = f, py = py, 
         n_MC = n_MC, n_MC_cap = n_MC_cap, n_MC_mean = n_MC_mean,
@@ -284,7 +299,8 @@ function get_loss_elbo(g, transP, transMs, f, py;
         pbm_covar_indices = get_pbm_covar_indices(θP, pbm_covars),
         trans_mP=StackedArray(transP, n_MC_mean), 
         trans_mMs=StackedArray(transMs.stacked, n_MC_mean),
-        priorsP=priorsP, priorsM=priorsM, floss_penalty=floss_penalty
+        priorsP=priorsP, priorsM=priorsM, floss_penalty=floss_penalty,
+        is_omit_priors = is_omit_priors, zero_prior_logdensity = zero_prior_logdensity
 
         function loss_elbo(ϕ, rng, xM, xP, y_o, y_unc, i_sites; is_testmode)
             #ϕc = int_μP_ϕg_unc(ϕ)
@@ -294,7 +310,7 @@ function get_loss_elbo(g, transP, transMs, f, py;
                 n_MC, n_MC_cap, n_MC_mean, cor_ends, priors_θP_mean, priors_θMs_mean,
                 cdev, pbm_covar_indices, transP, transMs, trans_mP, trans_mMs,
                 priorsP, priorsM, floss_penalty, #ϕg = ϕc.ϕg, ϕunc = ϕc.unc,
-                is_testmode,
+                is_testmode, is_omit_priors, zero_prior_logdensity,
             )
         end
     end
@@ -389,7 +405,7 @@ function construct_priors_θ_mean(prob, ϕg, keysθM, θP, θmean_quant, g_dev, 
         priors_θP_mean = map(priorsP, θP) do priorsP, θPi
             fit_narrow_normal(θPi, priorsP, θmean_quant)
         end
-        priorsM = [priors_dict[k] for k in keysθM]
+        priorsM = Tuple(priors_dict[k] for k in keysθM) 
         i_par = 1
         i_site = 1
         priors_θMs_mean = map(Iterators.product(axes(θMs)...)) do (i_site, i_par)

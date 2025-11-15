@@ -59,7 +59,7 @@ function init_hybrid_params(θP::AbstractVector{FT}, θM::AbstractVector{FT},
     #     function get_ca_int_PMs_inner(n_site)
     #         ComponentArrayInterpreter(CA.ComponentVector(; P = θP,
     #             Ms = CA.ComponentMatrix(
-    #                 zeros(n_θM, n_site), first(CA.getaxes(θM)), CA.Axis(i = 1:n_site))))
+    #                 zeros(n_θM, n_site), first(CA.getaxes(θM)), CA.Shaped1DAxis((n_site,)))))
     #     end
     # end
     interpreters = map(get_concrete,

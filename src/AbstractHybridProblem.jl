@@ -183,7 +183,7 @@ function construct_dataloader_from_synthetic(rng::AbstractRNG, prob::AbstractHyb
     @assert size(y_o,2) == n_site
     @assert size(y_unc,2) == n_site
     i_sites = 1:n_site
-    train_loader = MLUtils.DataLoader((xM, xP, y_o, y_unc, i_sites);
+    train_loader = MLUtils.DataLoader((CA.getdata(xM), CA.getdata(xP), y_o, y_unc, i_sites);
         batchsize = n_batch, partial = false)
     return (train_loader)
 end

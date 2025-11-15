@@ -27,6 +27,7 @@ using SimpleChains
 using StatsFuns
 using MLUtils
 using DistributionFits
+using UnPack
 ```
 
 Next, specify many moving parts of the Hybrid variational inference (HVI)
@@ -42,9 +43,7 @@ $$
 ```{julia}
 function f_doubleMM(θc::CA.ComponentVector{ET}, x) where ET
     # extract parameters not depending on order, i.e whether they are in θP or θM
-    (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
-        CA.getdata(θc[par])::ET
-    end
+    @unpack r0, r1, K1, K2 = θc
     r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
 end    
 ```
@@ -174,7 +173,8 @@ index to the sites inside a tuple.
 n_site = size(y_o,2)
 n_batch = 20
 train_dataloader = MLUtils.DataLoader(
-    (xM, xP, y_o, y_unc, 1:n_site), batchsize=n_batch, partial=false)
+    (CA.getdata(xM), CA.getdata(xP), y_o, y_unc, 1:n_site), 
+    batchsize=n_batch, partial=false)
 ```
 
 ## The Machine-Learning model
@@ -220,7 +220,7 @@ However, for simplicity, a [`NormalScalingModelApplicator`](@ref)
 is fitted to the transformed 5% and 95% quantiles of the original prior.
 
 ```{julia}
-priorsM = [priors_dict[k] for k in keys(θM)]
+priorsM = Tuple(priors_dict[k] for k in keys(θM))
 lowers, uppers = get_quantile_transformed(priorsM, transM)
 g_chain_scaled = NormalScalingModelApplicator(g_chain_app, lowers, uppers, FT)
 ```
@@ -325,18 +325,18 @@ one site. For the drivers and predictions, one column corresponds to one site.
 ```{julia}
 function f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
     # extract several covariates from xP
-    ST = typeof(CA.getdata(xPc)[1:1,:])  # workaround for non-type-stable Symbol-indexing
-    S1 = (CA.getdata(xPc[:S1,:])::ST)   
-    S2 = (CA.getdata(xPc[:S2,:])::ST)
+    S1 = view(xPc, Val(:S1), :)
+    S2 = view(xPc, Val(:S2), :)
     #
     # extract the parameters as row-repeated vectors
-    n_obs = size(S1, 1)
-    VT = typeof(CA.getdata(θc)[:,1])   # workaround for non-type-stable Symbol-indexing
-    (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
-        p1 = CA.getdata(θc[:, par]) ::VT
-        repeat(p1', n_obs)  # matrix: same for each concentration row in S1
-    end
-    #
+    #   θc[:,:r0] is paramter r0 for each site in batch
+    #   dot-multiplication  of full matrix times row-vector repeats for each observation row
+    #   also introduces zero for missing observations, leading to zero gradient there
+    is_valid = isfinite.(S1) .&& isfinite.(S2)
+    r0 = is_valid .* CA.getdata(θc[:, Val(:r0)])'
+    r1 = is_valid .* CA.getdata(θc[:, Val(:r1)])'
+    K1 = is_valid .* CA.getdata(θc[:, Val(:K1)])'
+    K2 = is_valid .* CA.getdata(θc[:, Val(:K2)])'
     # each variable is a matrix (n_obs x n_site)
     r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
 end

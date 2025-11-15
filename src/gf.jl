@@ -230,13 +230,12 @@ function get_loss_gf(g, transM, transP, f, py,
     cdev=cpu_device(),
     pbm_covars, n_site_batch, 
     priorsP, priorsM, floss_penalty = zero_penalty_loss,
-    is_omit_priors = false,
-    kwargs...)
+    is_omit_priors::Val{is_omit_prior} = Val(false),
+    kwargs...) where is_omit_prior
 
     let g = g, transM = transM, transP = transP, f = f, 
         intϕ = get_concrete(intϕ),
         transMs = StackedArray(transM, n_site_batch),
-        is_omit_priors = is_omit_priors,
         cdev = cdev,
         pbm_covar_indices = CA.getdata(intP(1:length(intP))[pbm_covars]),
         priorsP = priorsP, priorsM = priorsM, floss_penalty = floss_penalty,
@@ -276,7 +275,7 @@ function get_loss_gf(g, transM, transP, f, py,
             #Maybe: move priors to GPU, for now need to move θ to cpu
             # currently does not work on gpu, moving to dpu has problems with gradient
             #    need to specify is_omit_priors if PBM is on GPU
-            neg_log_prior = if is_omit_priors
+            neg_log_prior = if is_omit_prior
                     zero(nLy)
             else
                 nLP = if isempty(θP_pred) 
