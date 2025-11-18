@@ -191,7 +191,6 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-    hpints = HybridProblemInterpreters(prob; scenario)
     ϕq = get_hybridproblem_ϕq(prob; scenario)
     (; ϕ, interpreters) = init_hybrid_params(ϕg0, ϕq)
     int_ϕq = interpreters.ϕq

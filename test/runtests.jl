@@ -15,8 +15,6 @@ const GROUP = get(ENV, "GROUP", "All") # defined in in CI.yml
         @time @safetestset "test_util_gpu" include("test_util_gpu.jl")
         #@safetestset "test" include("test/test_ComponentArrayInterpreter.jl")
         @time @safetestset "test_ComponentArrayInterpreter" include("test_ComponentArrayInterpreter.jl")
-        #@safetestset "test" include("test/test_hybridprobleminterpreters.jl")
-        @time @safetestset "test_hybridprobleminterpreters" include("test_hybridprobleminterpreters.jl")
         #@safetestset "test" include("test/test_PBMApplicator.jl")
         @time @safetestset "test_PBMApplicator" include("test_PBMApplicator.jl")
         #@safetestset "test" include("test/test_ModelApplicator.jl")

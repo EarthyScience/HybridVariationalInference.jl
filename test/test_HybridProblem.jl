@@ -311,7 +311,14 @@ test_with_flux_gpu = (scenario) -> begin
                 n_sample_pred = 201
                 (; y, θsP, θsMs) = predict_hvi(rng, probo; scenario = scenf, n_sample_pred);            
                 # to inspect correlations among θP and θMs construct ComponentVector
-                hpints = HybridProblemInterpreters(prob; scenario)
+                # TODO redo get_int_PMst_site
+    # get_ca_int_PMs = let
+    #     function get_ca_int_PMs_inner(n_site)
+    #         ComponentArrayInterpreter(CA.ComponentVector(; P = θP,
+    #             Ms = CA.ComponentMatrix(
+    #                 zeros(n_θM, n_site), first(CA.getaxes(θM)), CA.Shaped1DAxis((n_site,)))))
+    #     end
+    # end
                 int_mPMs = stack_ca_int(Val((n_sample_pred,)), get_int_PMst_site(hpints))
                 θs =  int_mPMs(CP.flatten_hybrid_pars(θsP, θsMs))
                 mean_θ = CA.ComponentVector(vec(mean(CA.getdata(θs), dims=1)), last(CA.getaxes(θs)))
