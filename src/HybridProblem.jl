@@ -5,7 +5,7 @@ one struct.
 Fields:
 - `θP::ComponentVector`, `θM::ComponentVector`: parameter templates
 - `g::AbstractModelApplicator`, `ϕg::AbstractVector`: ML model and its parameters 
-- `ϕunc::ComponentVector`: parameters for the Covariance matrix of the approximate posterior
+- `ϕq::ComponentVector`: parameters for the Covariance matrix of the approximate posterior
 - `f_batch`: Process-based model predicting for n_batch sites
 - `priors`: AbstractDict: Prior distributions for all PBM parameters on constrained scale
 - `py`: Likelihood function
@@ -23,12 +23,12 @@ Fields:
 
 """
 struct HybridProblem <: AbstractHybridProblem
-    θP::CA.ComponentVector
+    #θP::CA.ComponentVector
     θM::CA.ComponentVector
     f_batch::Any
     g::AbstractModelApplicator
     ϕg::Any # depends on framework
-    ϕunc::CA.ComponentVector
+    ϕq::CA.ComponentVector
     priors::AbstractDict
     py::Any # any callable
     transM::Stacked
@@ -41,8 +41,10 @@ struct HybridProblem <: AbstractHybridProblem
     pbm_covars::NTuple{_N, Symbol} where _N
     #inner constructor to constrain the types
     function HybridProblem(
-            θP::CA.ComponentVector, θM::CA.ComponentVector,
-            g::AbstractModelApplicator, ϕg::AbstractVector,
+            θM::CA.ComponentVector,
+            ϕq::CA.ComponentVector, # = init_hybrid_ϕunc(cor_ends, zero(eltype(θM))),
+            g::AbstractModelApplicator, 
+            ϕg::AbstractVector,
             f_batch, 
             priors::AbstractDict,
             py,
@@ -53,24 +55,40 @@ struct HybridProblem <: AbstractHybridProblem
             n_covar::Int,
             n_site::Int,
             n_batch::Int,
-            cor_ends::NamedTuple = (P = [length(θP)], M = [length(θM)]),
+            cor_ends::NamedTuple = (P = [length(ϕq[Val(:μP)])], M = [length(θM)]),
             pbm_covars::NTuple{N,Symbol} = (),
-            ϕunc::CA.ComponentVector = init_hybrid_ϕunc(cor_ends, zero(eltype(θM))),
     ) where N
         new(
-            θP, θM, f_batch, g, ϕg, ϕunc, priors, py, transM, transP, cor_ends, 
+            θM, f_batch, g, ϕg, ϕq, priors, py, transM, transP, cor_ends, 
             train_dataloader, n_covar, n_site, n_batch, pbm_covars)
     end
 end
 
-# function HybridProblem(θP::CA.ComponentVector, θM::CA.ComponentVector,
-#         # note no ϕg argument and g_chain unconstrained
-#         g_chain, f_batch,
-#         args...; rng = Random.default_rng(), kwargs...)
-#     # dispatches on type of g_chain
-#     g, ϕg = construct_ChainsApplicator(rng, g_chain, eltype(θM))
-#     HybridProblem(θP, θM, g, ϕg, f_batch, args...; kwargs...)
-# end
+"""
+    init_hybrid_ϕq(θP, θM, transP; cor_ends)
+
+Initialize the non-ML parameter vector.    
+"""
+function init_hybrid_ϕq(
+    θP::CA.ComponentVector,
+    θM::CA.ComponentVector,
+    transP::Stacked,
+    cor_ends::NamedTuple = (P = [length(θP)], M = [length(θM)]),
+)
+    FT = promote_type(eltype(θP), eltype(θM))
+    ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(FT))
+    ϕq = update_μP_by_θP(ϕunc0, θP, transP)
+end
+
+"""
+    create_ϕq(θP, ϕunc, transP::Stacked)
+
+Add information on μP to ϕunc.
+"""
+function update_μP_by_θP(ϕq::CA.ComponentVector, θP::CA.ComponentVector, transP::Stacked)
+    μP = inverse(transP)(θP)
+    ϕq = CA.ComponentVector(ϕq; μP)
+end
 
 """
     HybridProblem(prob::AbstractHybridProblem; scenario = ()
@@ -79,7 +97,6 @@ Gather all information from another `AbstractHybridProblem` with possible
 updating of some of the entries.
 """
 function HybridProblem(prob::AbstractHybridProblem; scenario = (),
-    θP = get_hybridproblem_par_templates(prob; scenario).θP,
     θM = get_hybridproblem_par_templates(prob; scenario).θM,
     g = get_hybridproblem_MLapplicator(prob; scenario)[1],
     ϕg = get_hybridproblem_MLapplicator(prob; scenario)[2],
@@ -92,12 +109,28 @@ function HybridProblem(prob::AbstractHybridProblem; scenario = (),
     n_covar = get_hybridproblem_n_covar(prob; scenario),
     n_site = get_hybridproblem_n_site_and_batch(prob; scenario)[1],
     n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)[2],
-    cor_ends = get_hybridproblem_cor_ends(prob; scenario),
+    cor_ends = nothing,
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario),
-    ϕunc = get_hybridproblem_ϕunc(prob; scenario),
+    ϕq = get_hybridproblem_ϕq(prob; scenario),
+    θP = nothing,
+    ϕunc = nothing,
     )
-    HybridProblem(θP, θM, g, ϕg, f_batch, priors, py, transM, transP, train_dataloader,
-        n_covar, n_site, n_batch, cor_ends, pbm_covars, ϕunc)
+    cor_ends_new = if !isnothing(cor_ends)
+        # if new cor_ends was specified then re-initialize the ρsP and ρsM in ϕq
+        ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(eltype(ϕq)))
+        ϕq = CA.ComponentVector(;ϕq..., ρsP = ϕunc0.ρsP, ρsM = ϕunc0.ρsM)
+        cor_ends
+    else
+        get_hybridproblem_cor_ends(prob; scenario)
+    end
+    if !isnothing(θP)
+        ϕq = update_μP_by_θP(ϕq, θP, transP)
+    end
+    if !isnothing(ϕunc)
+        ϕq = CA.ComponentVector(ϕq; ϕunc...)
+    end
+    HybridProblem(θM, ϕq, g, ϕg, f_batch, priors, py, transM, transP, train_dataloader,
+        n_covar, n_site, n_batch, cor_ends_new, pbm_covars)
 end
 
 # """
@@ -110,7 +143,7 @@ end
 #         θM::CA.ComponentVector = prob.θM,
 #         g::AbstractModelApplicator = prob.g, 
 #         ϕg::AbstractVector = prob.ϕg,
-#         ϕunc::CA.ComponentVector = prob.ϕunc,
+#         ϕq::CA.ComponentVector = prob.ϕq,
 #         f_batch = prob.f_batch,
 #         f_allsites = prob.f_allsites,
 #         priors::AbstractDict = prob.priors,
@@ -126,16 +159,17 @@ end
 #         n_site::Integer = prob.n_site,
 #         n_batch::Integer = prob.n_batch,
 # ) where N
-#     HybridProblem(θP, θM, g, ϕg, f_batch, f_allsites, priors, py, transM, transP, 
-#         train_dataloader, n_covar, n_site, n_batch, cor_ends, pbm_covars, ϕunc)
+#     HybridProblem(θM, ϕq, g, ϕg, f_batch, f_allsites, priors, py, transM, transP, 
+#         train_dataloader, n_covar, n_site, n_batch, cor_ends, pbm_covars)
 # end
 
 function get_hybridproblem_par_templates(prob::HybridProblem; scenario = ())
-    (; θP = prob.θP, θM = prob.θM)
+    θP = get_hybridproblem_θP(prob; scenario)
+    (; θP, θM = prob.θM)
 end
 
-function get_hybridproblem_ϕunc(prob::HybridProblem; scenario = ())
-    prob.ϕunc
+function get_hybridproblem_ϕq(prob::HybridProblem; scenario = ())
+    prob.ϕq
 end
 
 function get_hybridproblem_neg_logden_obs(prob::HybridProblem; scenario = ())
@@ -180,6 +214,7 @@ end
 function get_hybridproblem_priors(prob::HybridProblem; scenario = ())
     prob.priors
 end
+
 
 # function get_hybridproblem_float_type(prob::HybridProblem; scenario = ()) 
 #     eltype(prob.θM)

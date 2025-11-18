@@ -61,7 +61,7 @@ include("PBMApplicator.jl")
 # include("GPUDataHandler.jl")
 
 export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_PBmodel,
-       get_hybridproblem_ϕunc,
+       get_hybridproblem_ϕq, get_hybridproblem_θP,
        get_hybridproblem_float_type, gen_hybridproblem_synthetic,
        get_hybridproblem_par_templates, get_hybridproblem_transforms,
        get_hybridproblem_train_dataloader,
@@ -75,7 +75,8 @@ export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_
        construct_dataloader_from_synthetic,
        gdev_hybridproblem_dataloader, gdev_hybridproblem_data,
        setup_PBMpar_interpreter,
-       get_gdev_MP
+       get_gdev_MP,
+        init_hybrid_ϕq       
 include("AbstractHybridProblem.jl")
 
 export AbstractHybridProblemInterpreters, HybridProblemInterpreters,

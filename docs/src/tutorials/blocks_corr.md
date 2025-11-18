@@ -54,7 +54,8 @@ The defaults specifies a single entry, meaning, there is only one big
 block respectively, spanning all parameters.
 
 ``` julia
-cor_ends0 = (P=[length(prob.θP)], M=[length(prob.θM)])
+pt = get_hybridproblem_par_templates(prob)
+cor_ends0 = (P=[length(pt.θP)], M=[length(pt.θM)])
 ```
 
     (P = [1], M = [2])
@@ -64,38 +65,28 @@ in the correlation block the site parameters, i.e. treating all parameters
 independently with not modelling any correlations between them.
 
 ``` julia
-cor_ends = (P=[length(prob.θP)], M=1:length(prob.θM))
+cor_ends = (P=[length(pt.θP)], M=1:length(pt.θM))
 ```
 
     (P = [1], M = 1:2)
 
-## Reinitialize parameters for the posterior approximation.
-
-HVI uses additional fitted parameters to represent the means and the
-covariance matrix of the posterior distribution of model parameters.
-With fewer correlations, also the number of those parameters changes,
-and those parameters must be reinitialized after changing the block structure in
-the correlation matrix.
-
-Here, we obtain construct initial estimates. using [`init_hybrid_ϕq`](@ref)
-
-``` julia
-ϕq = init_hybrid_ϕq(cor_ends, zero(eltype(prob.θM)))
-```
-
-In this two-site parameter case, the the blocked structure saves only one degree of freedom:
-
-``` julia
-length(ϕq), length(probo_cor.ϕq)
-```
-
-    (5, 6)
-
 ## Update the problem and redo the inversion
 
 ``` julia
-prob_ind = HybridProblem(prob; cor_ends, ϕq)
+prob_ind = HybridProblem(prob; cor_ends)
 ```
+
+HVI uses additional fitted parameters to represent the means and the
+covariance matrix of the posterior distribution of model parameters.
+With fewer correlations, also the correlation parameters changes.
+
+Check that the new specification uses fewer parameters.
+
+``` julia
+length(get_hybridproblem_ϕq(prob)), length(get_hybridproblem_ϕq(prob_ind))
+```
+
+    (7, 6)
 
 ``` julia
 using OptimizationOptimisers
@@ -128,7 +119,7 @@ i_site = 1
 plt = pairplot(θ1_nt)
 ```
 
-![](blocks_corr_files/figure-commonmark/cell-11-output-1.png)
+![](blocks_corr_files/figure-commonmark/cell-10-output-1.png)
 
 The corner plot of the independent-parameters estimate shows
 no correlations between site parameters, *r*₁ and *K*₁.
@@ -146,7 +137,7 @@ axislegend(ax, unique=true)
 fig
 ```
 
-![](blocks_corr_files/figure-commonmark/cell-12-output-1.png)
+![](blocks_corr_files/figure-commonmark/cell-11-output-1.png)
 
 ``` julia
 plot_sd_vs_mean = (par) -> begin
@@ -163,7 +154,7 @@ end
 plot_sd_vs_mean(:K1)
 ```
 
-![](blocks_corr_files/figure-commonmark/cell-13-output-1.png)
+![](blocks_corr_files/figure-commonmark/cell-12-output-1.png)
 
 The inversion that neglects correlations among site parameters results in
 the same magnitude of estimated uncertainty of predictions.

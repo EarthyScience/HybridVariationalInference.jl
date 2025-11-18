@@ -86,8 +86,9 @@ function predict_point_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()),
         xP = isnothing(xP) ? xP_dl : xP
     end
     y_pred, θMs, θP = gf(prob, xM, xP; scenario, gdevs, is_testmode, kwargs...)    
-    θPc = ComponentArrayInterpreter(prob.θP)(θP)
-    θMsc = ComponentArrayInterpreter((size(θMs,1),), prob.θM)(θMs)
+    pt = get_hybridproblem_par_templates(prob)
+    θPc = ComponentArrayInterpreter(pt.θP)(θP)
+    θMsc = ComponentArrayInterpreter((size(θMs,1),), pt.θM)(θMs)
     (;y_pred, θMs=θMsc, θP=θPc)
 end
 
@@ -120,13 +121,14 @@ function gf(prob::AbstractHybridProblem, xM::AbstractMatrix, xP::AbstractMatrix;
     else
         f_dev = f
     end
-    (; θP, θM) = get_hybridproblem_par_templates(prob; scenario)
+    pt = get_hybridproblem_par_templates(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     transMs = StackedArray(transM, n_site_pred)
-    intP = ComponentArrayInterpreter(θP)
+    intP = ComponentArrayInterpreter(pt.θP)
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
     pbm_covar_indices = CA.getdata(intP(1:length(intP))[pbm_covars])
-    ζP = inverse(transP)(θP)
+    ϕq = get_hybridproblem_ϕq(prob; scenario)
+    ζP = ϕq[Val(:μP)];
     gdev, cdev = gdevs.gdev_M, infer_cdev(gdevs)
     g_dev, ϕg_dev, xM_dev, ζP_dev =  gdev(g), gdev(ϕg), gdev(CA.getdata(xM)), gdev(CA.getdata(ζP))
     # most of the properties of prob are not type-inferred
@@ -299,8 +301,8 @@ function get_loss_gf(g, transM, transP, f, py,
                 @show θP_pred, θMs_pred, ϕc.ϕP
                 error("debug get_loss_gf")
             end
-            ϕunc = eltype(θP_pred)[]  # no uncertainty parameters optimized
-            loss_penalty = floss_penalty(y_pred, θMs_pred, θP_pred, ϕc.ϕg, ϕunc)
+            ϕq = eltype(θP_pred)[]  # no uncertainty parameters optimized
+            loss_penalty = floss_penalty(y_pred, θMs_pred, θP_pred, ϕc.ϕg, ϕq)
             #@show nLy, neg_log_prior, loss_penalty
             nLjoint_pen = nLy + neg_log_prior + loss_penalty
             return (;nLjoint_pen, y_pred, θMs_pred, θP_pred, nLy, neg_log_prior, loss_penalty)

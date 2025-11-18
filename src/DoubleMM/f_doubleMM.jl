@@ -397,8 +397,6 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     n_covar = get_hybridproblem_n_covar(prob; scenario)
     n_θM = length(θM)
     FloatType = get_hybridproblem_float_type(prob; scenario)
-    par_templates = get_hybridproblem_par_templates(prob; scenario)
-    #XXTODO transform θMs_true
     xM, θMs_true0 = gen_cov_pred(rng, FloatType, n_covar_pc, n_covar, n_site, n_θM;
         rhodec = 8, is_using_dropout = false)
     int_θMs_sites = ComponentArrayInterpreter(θM, (n_site,))
@@ -410,7 +408,8 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     int_xP_sites = ComponentArrayInterpreter(int_xP1, (n_site,))
     xP = int_xP_sites(vcat(repeat(xP_S1, 1, n_site), repeat(xP_S2, 1, n_site)))
     #xP[:S1,:]
-    θP = par_templates.θP
+    #θP = get_θP(prob) # for DoubleMMCase par_templtes gives correct θP
+    θP = get_hybridproblem_θP(prob; scenario)
     y_true = f(θP, θMs_true', xP)
     σ_o = FloatType(0.01)
     #σ_o = FloatType(0.002)
@@ -438,5 +437,16 @@ function HVI.get_hybridproblem_cor_ends(prob::DoubleMMCase; scenario::Val{scen})
         (P = [length(pt.θP)], M = [length(pt.θM)])
     end
 end
+
+function HVI.get_hybridproblem_ϕq(prob::DoubleMMCase; scenario)
+    FT = get_hybridproblem_float_type(prob; scenario) 
+    cor_ends = get_hybridproblem_cor_ends(prob; scenario)
+    ϕunc = init_hybrid_ϕunc(cor_ends, zero(FT))    
+    # for DoubleMMCase templates gives the correct values
+    θP = get_hybridproblem_par_templates(prob; scenario).θP
+    transP = get_hybridproblem_transforms(prob; scenario).transP
+    ϕq = HVI.update_μP_by_θP(ϕunc, θP, transP)
+end
+
 
 

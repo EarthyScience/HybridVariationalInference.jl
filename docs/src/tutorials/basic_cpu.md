@@ -231,8 +231,9 @@ invocation of the process based model (PBM), defined at the beginning.
 
 ``` julia
 f_batch = PBMSiteApplicator(f_doubleMM; θP, θM, θFix, xPvec=xP[:,1])
+ϕq0 = init_hybrid_ϕq(θP, θM, transP)
 
-prob = HybridProblem(θP, θM, g_chain_scaled, ϕg0, 
+prob = HybridProblem(θM, ϕq0, g_chain_scaled, ϕg0, 
     f_batch, priors_dict, py,
     transM, transP, train_dataloader, n_covar, n_site, n_batch)
 ```

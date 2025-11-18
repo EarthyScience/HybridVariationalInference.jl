@@ -19,7 +19,8 @@ using Lux  # in order to load extension
 function test_no_globals(scenario::Val{scen})  where scen
     scenario = Val((scen..., :no_globals))
     prob = HybridProblem(DoubleMM.DoubleMMCase(); scenario);
-    @test isempty(prob.θP)
+    θP0, θM0 = get_hybridproblem_par_templates(prob)
+    @test isempty(θP0)
     solver_point = HybridPointSolver(; alg=Adam(0.02))
     rng = StableRNG(111)
     (;ϕ, resopt, probo) = solve(prob, solver_point; rng,
@@ -45,7 +46,7 @@ function test_no_globals(scenario::Val{scen})  where scen
             epochs = 2,
             scenario,
         );    
-        @test all(isfinite.(probo.θP))
+        @test all(isfinite.(CP.get_hybridproblem_θP(probo)))
         n_sample_pred = 12
         (; y, θsP, θsMs, entropy_ζ) = predict_hvi(rng, probo; scenario, n_sample_pred);
         @test size(y) == (size(y_pred)..., n_sample_pred)

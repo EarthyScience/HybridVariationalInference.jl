@@ -71,12 +71,14 @@ test_scenario = (scenario) -> begin
     # transP = elementwise(exp)
     # transM = Stacked(elementwise(identity), elementwise(exp))
     #transM = Stacked(elementwise(identity), elementwise(exp), elementwise(exp)) # test mismatch
-    ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(FT))
+    ϕq0 = init_hybrid_ϕq(par_templates.θP, par_templates.θM, transP, cor_ends)
+    # ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(FT))
+    # ϕq0 = CP.update_μP_by_θP(ϕunc0, θP_true, transP)
     hpints = HybridProblemInterpreters(probc; scenario)
     (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
-        θP_true, θMs_true[:, 1], cor_ends, ϕg0, hpints; transP, transM)
-    int_unc = interpreters.unc
-    int_μP_ϕg_unc = interpreters.μP_ϕg_unc
+        θP_true, θMs_true[:, 1], cor_ends, ϕg0, hpints; transP, transM, ϕunc0 = ϕq0)
+    int_ϕq = interpreters.ϕq
+    int_ϕg_ϕq = interpreters.ϕg_ϕq
 
     # @descend_code_warntype init_hybrid_params(θP_true, θMs_true[:, 1], cor_ends, ϕg0, n_batch; transP, transM)
     # @descend_code_warntype CA.ComponentVector(nt)
@@ -99,7 +101,7 @@ test_scenario = (scenario) -> begin
         CP.generate_ζ(
         rng, g, ϕ_ini, xM[:, 1:n_batch];
         n_MC, cor_ends, pbm_covar_indices,
-        int_unc=interpreters.unc, int_μP_ϕg_unc=interpreters.μP_ϕg_unc, is_testmode = false)
+        int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq, is_testmode = false)
     )
 
     @testset "generate_ζ $(last(CP._val_value(scenario)))" begin
@@ -116,7 +118,7 @@ test_scenario = (scenario) -> begin
                 _ζsP, _ζsMs, _σ = CP.generate_ζ(
                     rng, g, ϕ, xM[:, 1:n_batch];
                     n_MC=8, cor_ends, pbm_covar_indices,
-                    int_unc=interpreters.unc, int_μP_ϕg_unc=interpreters.μP_ϕg_unc,
+                    int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq,
                      is_testmode = true)
                 sum(_ζsP) + sum(_ζsMs) + sum(_σ)
             end, CA.getdata(ϕ_ini))
@@ -127,7 +129,7 @@ test_scenario = (scenario) -> begin
         # can only test distribution if g is not repeated
         @testset "generate_ζ check sd residuals $(last(CP._val_value(scenario)))" begin
             # prescribe very different uncertainties 
-            ϕunc_true = copy(probc.ϕunc)
+            ϕunc_true = copy(probc.ϕq)
             sd_ζP_true = [0.2,20]
             sd_ζMs_a_true = [0.1,2]  # sd at_variance at θ==0
             logσ2_ζMs_b_true = [-0.3,+0.2]  # slope of log_variance with θ
@@ -145,9 +147,9 @@ test_scenario = (scenario) -> begin
             UC = CP.transformU_cholesky1(ϕunc_true.ρsM); Σ = UC' * UC
             @test Σ[1,2] ≈ ρsM_true[1]
 
-            probd = HybridProblem(probc;  ϕunc=ϕunc_true);
+            probd = HybridProblem(probc;  ϕq=ϕunc_true);
         
-            _ϕ = vcat(ϕ_ini.μP, probc.ϕg, probd.ϕunc)
+            _ϕ = vcat(probc.ϕg, probd.ϕq)
             #hcat(ϕ_ini, ϕ, _ϕ)[1:4,:]
             #hcat(ϕ_ini, ϕ, _ϕ)[(end-20):end,:]
             n_predict = 10_000 #8_000
@@ -157,7 +159,7 @@ test_scenario = (scenario) -> begin
                     CP.generate_ζ(
                     rng, g, _ϕ, xM_batch;
                     n_MC = n_predict, cor_ends, pbm_covar_indices,
-                    int_unc=interpreters.unc, int_μP_ϕg_unc=interpreters.μP_ϕg_unc,
+                    int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq,
                     is_testmode = true)
                 )
             ζMs_g = g(xM_batch, probc.ϕg)' # have been generated with no scaling
@@ -214,7 +216,7 @@ test_scenario = (scenario) -> begin
             @testset "predict_hvi check sd" begin
                 # test if uncertainty and reshaping is propagated
                 # here inverse the predicted θs and then test distribution 
-                probcu = HybridProblem(probc, ϕunc=ϕunc_true);
+                probcu = HybridProblem(probc, ϕq=ϕunc_true);
                 n_sample_pred = 10_000 #2_400
                 #n_sample_pred = 400
                 (; y, θsP, θsMs, entropy_ζ) = predict_hvi(rng, probcu; scenario, n_sample_pred);
@@ -243,7 +245,7 @@ test_scenario = (scenario) -> begin
                 CP.generate_ζ(
                 rng, g_gpu, ϕ, xMg_batch;
                 n_MC, cor_ends, pbm_covar_indices,
-                int_unc=interpreters.unc, int_μP_ϕg_unc=interpreters.μP_ϕg_unc,
+                int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq,
                 is_testmode = true))
             @test ζsP_d isa Union{GPUArraysCore.AbstractGPUMatrix,
                 LinearAlgebra.Adjoint{FT,<:GPUArraysCore.AbstractGPUMatrix}}
@@ -257,7 +259,7 @@ test_scenario = (scenario) -> begin
                     _ζsP, _ζsMs, _σ = CP.generate_ζ(
                         rng, g_gpu, ϕ, xMg_batch;
                         n_MC, cor_ends, pbm_covar_indices,
-                        int_unc=interpreters.unc, int_μP_ϕg_unc=interpreters.μP_ϕg_unc,
+                        int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq,
                         is_testmode = false)
                     sum(_ζsP) + sum(_ζsMs) + sum(_σ)
                 end, CA.getdata(ϕ))
@@ -343,7 +345,7 @@ test_scenario = (scenario) -> begin
         #@descend_code_warntype (
             neg_elbo_gtf(rng, ϕ_ini, g, f, py,
             xM[:, i_sites], xP[:, i_sites], y_o[:, i_sites], y_unc[:, i_sites], i_sites;
-            int_unc, int_μP_ϕg_unc,
+            int_ϕq, int_ϕg_ϕq,
             cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
             is_testmode = true, 
             is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini)))
@@ -352,7 +354,7 @@ test_scenario = (scenario) -> begin
         gr = Zygote.gradient(
             ϕ -> neg_elbo_gtf(rng, ϕ, g, f, py,
                 xM[:, i_sites], xP[:, i_sites], y_o[:, i_sites], y_unc[:, i_sites], i_sites;
-                int_unc, int_μP_ϕg_unc,
+                int_ϕq, int_ϕg_ϕq,
                 cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
                 is_testmode = false, 
                 is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini))),
@@ -371,7 +373,7 @@ test_scenario = (scenario) -> begin
             #@descend_code_warntype (
                 neg_elbo_gtf(rng, ϕ, g_gpu, f, py,
                 xMg_batch, xP_batch, y_o[:, i_sites], y_unc[:, i_sites], i_sites;
-                int_unc, int_μP_ϕg_unc,
+                int_ϕq, int_ϕg_ϕq,
                 n_MC=3, cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
                 is_testmode = true,
                 is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini)),
@@ -381,7 +383,7 @@ test_scenario = (scenario) -> begin
             gr = Zygote.gradient(
                 ϕ -> neg_elbo_gtf(rng, ϕ, g_gpu, f, py,
                     xMg_batch, xP_batch, y_o[:, i_sites], y_unc[:, i_sites], i_sites;
-                    int_unc, int_μP_ϕg_unc,
+                    int_ϕq, int_ϕg_ϕq,
                     n_MC=3, cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
                     is_testmode = false,
                     is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini)),
@@ -402,7 +404,7 @@ test_scenario = (scenario) -> begin
         #Cthulhu.@descend_code_warntype (
             @inferred (
                 sample_posterior(rng, g, ϕ_ini, xM;
-                int_μP_ϕg_unc, int_unc,
+                int_ϕg_ϕq, int_ϕq,
                 transP, transM,
                 cdev = identity,
                 n_sample_pred, cor_ends, pbm_covar_indices,
@@ -429,7 +431,7 @@ test_scenario = (scenario) -> begin
             #Cthulhu.@descend_code_warntype (
                 @inferred (
                     sample_posterior(rng, g_gpu, ϕ_ini_g, xMg;
-                    int_μP_ϕg_unc, int_unc,
+                    int_ϕg_ϕq, int_ϕq,
                     transP, transM,
                     #cdev = cpu_device(),
                     cdev = identity, # do not transfer to CPU

@@ -44,7 +44,7 @@ train_dataloader = MLUtils.DataLoader(
 σ_o = exp.(y_unc[:, 1] / 2)
 # assign the train_loader, otherwise it each time creates another version of synthetic data
 prob0 = HybridProblem(prob0_; train_dataloader)
-#tmp = HVI.get_hybridproblem_ϕunc(prob0; scenario)
+#tmp = HVI.get_hybridproblem_ϕq(prob0; scenario)
 #prob0.covar
 
 #------- pointwise hybrid model fit
@@ -184,11 +184,11 @@ end
 #----------- HVI without strong prior on θmean
 #prob2 = HybridProblem(prob1o);  # copy
 prob2 = HybridProblem(prob0o);  # copy
-function fstate_ϕunc(state)
+function fstate_ϕq(state)
     u = state.u |> cpu
     #Main.@infiltrate_main
-    uc = interpreters.μP_ϕg_unc(u)
-    uc.unc.ρsM
+    uc = interpreters.ϕg_ϕq(u)
+    uc.ϕq.ρsM
 end
 n_epoch = 100
 #n_epoch = 400
@@ -197,7 +197,7 @@ n_epoch = 100
     HybridProblem(solver_post, n_MC = 12);
     #HybridProblem(solver_post, n_MC = 30);
     scenario, rng, maxiters = n_batches_in_epoch * n_epoch,
-    #callback = HVI.callback_loss_fstate(n_batches_in_epoch*5, fstate_ϕunc),
+    #callback = HVI.callback_loss_fstate(n_batches_in_epoch*5, fstate_ϕq),
     callback = callback_loss(n_batches_in_epoch * 5),    
     );
 prob2o = probo;
@@ -270,9 +270,9 @@ end
     g_flux = g_luxs
 end
 
-ζ_VIc = interpreters.μP_ϕg_unc(resopt.u |> Flux.cpu)
+ζ_VIc = interpreters.ϕg_ϕq(resopt.u |> Flux.cpu)
 #ζMs_VI = g_flux(xM_gpu, ζ_VIc.ϕg |> Flux.gpu) |> Flux.cpu
-ϕunc_VI = interpreters.unc(ζ_VIc.unc)
+ϕunc_VI = interpreters.ϕq(ζ_VIc.ϕq)
 ϕunc_VI.ρsM
 exp.(ϕunc_VI.logσ2_ζP)
 exp.(ϕunc_VI.coef_logσ2_ζMs[1, :])
@@ -323,7 +323,7 @@ histogram(θsP)
     # (; ϕ, θP, resopt, interpreters) = solve(prob1o, solver_MC; scenario,
     #     rng, callback = callback_loss(n_batches_in_epoch), maxiters = 14);
     # resopt.objective
-    # probo = prob3o = HybridProblem(prob2; ϕg = cpu_ca(ϕ).ϕg, θP = θP, ϕunc = cpu_ca(ϕ).unc)
+    # probo = prob3o = HybridProblem(prob2; ϕg = cpu_ca(ϕ).ϕg, θP = θP, ϕq = cpu_ca(ϕ).ϕq)
 
     solver_post2 = HybridPosteriorSolver(solver_post; n_MC = 30)
     #solver_post2 = HybridPosteriorSolver(solver_post; n_MC = 3)
@@ -500,7 +500,7 @@ model = fsites(y_o; f = prob0.f_allsites, n_θP, n_θM, σ_o)
 # setup transformers and interpreters for forward prediction
 cor_ends = get_hybridproblem_cor_ends(prob; scenario)
 g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
-ϕunc0 = get_hybridproblem_ϕunc(prob; scenario)
+ϕunc0 = get_hybridproblem_ϕq(prob; scenario)
 (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
 hpints = HybridProblemInterpreters(prob; scenario)
 (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = HVI.init_hybrid_params(

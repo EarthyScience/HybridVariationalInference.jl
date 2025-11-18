@@ -8,7 +8,7 @@ For a specific prob, provide functions that specify details
 - `get_hybridproblem_PBmodel`
 - `get_hybridproblem_neg_logden_obs`
 - `get_hybridproblem_par_templates`
-- `get_hybridproblem_ϕunc`
+- `get_hybridproblem_ϕq`
 - `get_hybridproblem_train_dataloader` (may use `construct_dataloader_from_synthetic`)
 - `get_hybridproblem_priors` 
 - `get_hybridproblem_n_covar` 
@@ -24,7 +24,7 @@ optionally
 The initial value of parameters to estimate is spread
 - `ϕg`: parameter of the MLapplicator: returned by `get_hybridproblem_MLapplicator`
 - `ζP`: mean of the PBmodel parameters: returned by `get_hybridproblem_par_templates`
-- `ϕunc`: additional parameters of the approximte posterior: returned by `get_hybridproblem_ϕunc`
+- `ϕq`: additional parameters of the approximte posterior: returned by `get_hybridproblem_ϕq`
 """
 abstract type AbstractHybridProblem end;
 
@@ -77,16 +77,31 @@ Provide tuple of templates of ComponentVectors `θP` and `θM`.
 function get_hybridproblem_par_templates end
 
 """
-    get_hybridproblem_ϕunc(::AbstractHybridProblem; scenario)
+    get_hybridproblem_ϕq(::AbstractHybridProblem; scenario)
 
-Provide a ComponentArray of the initial additional parameters of the approximate posterior.
-Defaults to zero correlation and log_σ2 of 1e-10.
+Provide a ComponentArray of the non-ML parameters. Usually those
+contain the means of the unconstrained scale population parameters, μP.
 """
-function get_hybridproblem_ϕunc(prob::AbstractHybridProblem; scenario)
-    FT = get_hybridproblem_float_type(prob; scenario) 
-    cor_ends = get_hybridproblem_cor_ends(prob; scenario)
-    init_hybrid_ϕunc(cor_ends, zero(FT))    
+function get_hybridproblem_ϕq(prob::AbstractHybridProblem; scenario) end
+
+"""
+    get_hybridproblem_θP(::AbstractHybridProblem; scenario)
+
+Provide current expectations of population level PBM parameters on
+constrained original scale.
+Defaults to inverse-transform of `ϕq.μP`.
+"""
+function get_hybridproblem_θP(prob::AbstractHybridProblem; scenario = Val(())) 
+    ϕq = get_hybridproblem_ϕq(prob; scenario)
+    transP = get_hybridproblem_transforms(prob; scenario).transP
+    μP = ϕq[Val(:μP)];
+    θP = if isempty(μP) 
+        CA.ComponentVector{eltype(ϕq)}()
+    else
+        apply_preserve_axes(transP, μP)
+    end
 end
+
 
 """
     get_hybridproblem_transforms(::AbstractHybridProblem; scenario)
@@ -260,7 +275,7 @@ end
     get_hybridproblem_priors(::AbstractHybridProblem; scenario)
 
 Return a dictionary of marginal prior distributions for components in `θP` and `θM`.
-Defaults for each component `θ` to `Normal(θ, max(θ, 1.0))`.
+Defaults for each component `θ` to `Normal(θ, max(θ, 1.0))` from parameter templates.
 """
 function get_hybridproblem_priors(prob::AbstractHybridProblem; scenario = ())
     pt = get_hybridproblem_par_templates(prob; scenario)

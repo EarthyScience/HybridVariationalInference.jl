@@ -26,6 +26,24 @@ function init_hybrid_params(θP::AbstractVector{FT}, θM::AbstractVector{FT},
         cor_ends::NamedTuple, ϕg::AbstractVector{FT}, hpints::HybridProblemInterpreters;
         transP = elementwise(identity), transM = elementwise(identity),
         ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(FT))) where {FT}
+    ϕq = ϕunc0
+    n_ϕg = length(ϕg)
+    ϕ = CA.ComponentVector(; ϕg, ϕq)
+    interpreters = map(get_concrete,
+        (;
+            ϕg_ϕq = ComponentArrayInterpreter(ϕ),
+            PMs = get_int_PMst_batch(hpints),
+            ϕq = ComponentArrayInterpreter(ϕq)
+        ))
+    get_transPMs = transPMs_batch = Val(Symbol("deprecated , use stack_ca_int(intPMs)"))
+    get_ca_int_PMs = Val(Symbol("deprecated , use get_int_PMst_site(HybridProblemInterpreters(prob; scenario))"))
+    (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs)
+end
+
+function init_hybrid_params_old(θP::AbstractVector{FT}, θM::AbstractVector{FT},
+        cor_ends::NamedTuple, ϕg::AbstractVector{FT}, hpints::HybridProblemInterpreters;
+        transP = elementwise(identity), transM = elementwise(identity),
+        ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(FT))) where {FT}
     n_θP = length(θP)
     n_θM = length(θM)
     @assert cor_ends.P[end] == n_θP
@@ -34,10 +52,9 @@ function init_hybrid_params(θP::AbstractVector{FT}, θM::AbstractVector{FT},
     # check translating parameters - can match length?
     _ = Bijectors.inverse(transP)(θP)
     _ = Bijectors.inverse(transM)(θM)
-    ϕ = CA.ComponentVector(;
-        μP = apply_preserve_axes(inverse(transP), θP),
-        ϕg = ϕg,
-        unc = ϕunc0)
+    # TODO add and test θP
+    ϕq = update_μP_by_θP(ϕunc0, θP, transP)
+    ϕ = CA.ComponentVector(; ϕg, ϕq)
     #
     # get_transPMs = let transP = transP, transM = transM, n_θP = n_θP, n_θM = n_θM
     #     function get_transPMs_inner(n_site)
@@ -64,9 +81,9 @@ function init_hybrid_params(θP::AbstractVector{FT}, θM::AbstractVector{FT},
     # end
     interpreters = map(get_concrete,
         (;
-            μP_ϕg_unc = ComponentArrayInterpreter(ϕ),
+            ϕg_ϕq = ComponentArrayInterpreter(ϕ),
             PMs = get_int_PMst_batch(hpints),
-            unc = ComponentArrayInterpreter(ϕunc0)
+            ϕq = ComponentArrayInterpreter(ϕq)
         ))
     (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs)
 end

@@ -77,15 +77,17 @@ function construct_problem(; scenario::Val{scen}) where scen
     # scale (0,1) outputs MLmodel to normal distribution fitted to priors translated to ζ
     priorsM = Tuple(priors_dict[k] for k in keys(θM))
     lowers, uppers = get_quantile_transformed(priorsM, transM)
-    app, ϕg0 = construct_ChainsApplicator(rng, g_chain)
+    
+    app, ϕg0 = construct_ChainsApplicator(rng, g_chain, FT)
     g_chain_scaled = NormalScalingModelApplicator(app, lowers, uppers, FT)
     #g_chain_scaled = app
-    #ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(FT)) 
     pbm_covars = (:covarK2 ∈ scen) ? (:K2,) : ()
     f_batch = PBMSiteApplicator(
         f_doubleMM; θP, θM, θFix=CA.ComponentVector{FT}(), 
         xPvec=xP[:,1])
-    HybridProblem(θP, θM, g_chain_scaled, ϕg0, 
+    ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(FT)) 
+    ϕq = CP.update_μP_by_θP(ϕunc0, θP, transP)
+    HybridProblem(θM, ϕq, g_chain_scaled, ϕg0, 
         f_batch, priors_dict, py,
         transM, transP, train_dataloader, n_covar, n_site, n_batch, 
         cor_ends, pbm_covars,
@@ -239,9 +241,7 @@ test_with_flux = (scenario) -> begin
         )
         θPt = get_hybridproblem_par_templates(prob; scenario).θP
         @test θP.r0 < 1.5 * θPt.r0
-        @test exp(ϕ.μP.K2) == θP.K2 < 1.5 * θP.K2
-        θP
-        prob.θP
+        @test exp(ϕ.ϕq.μP.K2) == θP.K2 < 1.5 * θP.K2
         n_sample_pred = 12
         (; y, θsP, θsMs, entropy_ζ) = predict_hvi(rng, probo; scenario, n_sample_pred);
         _,_,y_obs,_ = get_hybridproblem_train_dataloader(prob; scenario).data
@@ -269,41 +269,44 @@ test_with_flux_gpu = (scenario) -> begin
             solver = HybridPosteriorSolver(; alg=Adam(0.02),  n_MC=3)
             n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario = scenf)
             n_batches_in_epoch =  n_site ÷ n_batch
-            (; ϕ, θP, resopt) = solve(prob, solver; scenario = scenf, rng,
+            (; probo, ϕ, resopt) = solve(prob, solver; scenario = scenf, rng,
                 #maxiters = 37, # smallest value by trial and error
                 #maxiters = 20 # too small so that it yields error
                 epochs = 2,
                 θmean_quant = 0.01,   # test constraining mean to initial prediction     
                 is_inferred = Val(true),
                 gdevs = (; gdev_M=gpu_device(), gdev_P=identity),);
-            @test CA.getdata(ϕ) isa GPUArraysCore.AbstractGPUVector
-            #@test cdev(ϕ.unc.ρsM)[1] > 0 # too few iterations in test -> may fail
+            @test resopt.u isa GPUArraysCore.AbstractGPUVector
+            @test !(CA.getdata(ϕ) isa GPUArraysCore.AbstractGPUVector)
+            #@test cdev(ϕ.ϕq.ρsM)[1] > 0 # too few iterations in test -> may fail
             #
             solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)
-            (; ϕ, θP, resopt, probo) = solve(prob, solver; scenario = scenf,
+            (; probo, ϕ, resopt) = solve(prob, solver; scenario = scenf,
                 #maxiters = 37, 
                 epochs = 2,
                 gdevs = (; gdev_M=gpu_device(), gdev_P=identity),
                 is_inferred = Val(true),
             );
-            @test cdev(ϕ.unc.ρsM)[1] > 0 
-            @test probo.ϕunc == cdev(ϕ.unc)
+            @test cdev(ϕ.ϕq.ρsM)[1] > 0 
+            @test probo.ϕq == cdev(ϕ.ϕq)
             n_sample_pred = 22
             (; y, θsP, θsMs) = predict_hvi(
                 rng, probo; scenario = scenf, n_sample_pred, is_inferred=Val(true));            
-            (_xM, _xP, _y_o, _y_unc, _i_sites) = get_hybridproblem_train_dataloader(prob; scenario).data
+            (_xM, _xP, _y_o, _y_unc, _i_sites) = get_hybridproblem_train_dataloader(
+                prob; scenario).data
             @test size(y) == (size(_y_o)..., n_sample_pred)
-            @test size(θsP) == (size(probo.θP,1), n_sample_pred)
+            @test size(θsP) == (
+                length(get_hybridproblem_par_templates(probo).θP), n_sample_pred)
             
             test_correlation = () -> begin
                 n_epoch = 20 # requires 
-                (; ϕ, θP, resopt, probo) = solve(prob, solver; scenario = scenf,
+                (; ϕ, resopt, probo) = solve(prob, solver; scenario = scenf,
                     maxiters = n_batches_in_epoch * n_epoch, 
                     gdevs = (; gdev_M=gpu_device(), gdev_P=identity),
                     callback = callback_loss(n_batches_in_epoch*5)
                 );
-                @test cdev(ϕ.unc.ρsM)[1] > 0 
-                @test probo.ϕunc == cdev(ϕ.unc)
+                @test cdev(ϕ.ϕq.ρsM)[1] > 0 
+                @test probo.ϕq == cdev(ϕ.ϕq)
                 # predict using problem and its associated dataloader
                 n_sample_pred = 201
                 (; y, θsP, θsMs) = predict_hvi(rng, probo; scenario = scenf, n_sample_pred);            
@@ -351,11 +354,11 @@ test_with_flux_gpu = (scenario) -> begin
                     is_inferred = Val(true),
                     is_omit_priors = Val(true), # cannot evaluate on gpu
                 );
-                @test CA.getdata(ϕ) isa GPUArraysCore.AbstractGPUVector
+                @test resopt.u isa GPUArraysCore.AbstractGPUVector
                 n_sample_pred = 11
                 (; y, θsP, θsMs) = predict_hvi(
                     rng, probo; scenario = scenf, n_sample_pred,is_inferred = Val(true));
-                # @test cdev(ϕ.unc.ρsM)[1] > 0 # too few iterations
+                # @test cdev(ϕ.ϕq.ρsM)[1] > 0 # too few iterations
             end;    
         end
     end # if gdev isa MLDataDevices.AbstractGPUDevice 
