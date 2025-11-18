@@ -231,16 +231,20 @@ function get_loss_gf(g, transM, transP, f, py,
         intϕ(1:length(intϕ)).ϕP);
     cdev=cpu_device(),
     pbm_covars, n_site_batch, 
-    priorsP, priorsM, floss_penalty = zero_penalty_loss,
-    is_omit_priors::Val{is_omit_prior} = Val(false),
-    kwargs...) where is_omit_prior
+    floss_penalty = zero_penalty_loss,
+    priorsP, priorsM, 
+    is_omit_priors::Val = Val(false),
+    zero_prior_logdensity,
+    kwargs...) 
 
     let g = g, transM = transM, transP = transP, f = f, 
         intϕ = get_concrete(intϕ),
         transMs = StackedArray(transM, n_site_batch),
         cdev = cdev,
         pbm_covar_indices = CA.getdata(intP(1:length(intP))[pbm_covars]),
-        priorsP = priorsP, priorsM = priorsM, floss_penalty = floss_penalty,
+        zero_prior_logdensity = zero_prior_logdensity, is_omit_priors = is_omit_priors,
+        priorsP = priorsP, priorsM = priorsM, 
+        floss_penalty = floss_penalty,
         cpu_dev = cpu_device() # real cpu, different form infer_cdev(gdevs) that maybe idenetity
         #, intP = get_concrete(intP)
         #inv_transP = inverse(transP), kwargs = kwargs
@@ -273,29 +277,8 @@ function get_loss_gf(g, transM, transP, f, py,
             logpdf_tv = (prior, θ::AbstractVector) -> begin
                 map(Base.Fix1(logpdf, prior), θ)::Vector{eltype(θP_pred)}
             end
-            #Main.@infiltrate_main
-            #Maybe: move priors to GPU, for now need to move θ to cpu
-            # currently does not work on gpu, moving to dpu has problems with gradient
-            #    need to specify is_omit_priors if PBM is on GPU
-            neg_log_prior = if is_omit_prior
-                    zero(nLy)
-            else
-                nLP = if isempty(θP_pred) 
-                    zero(nLy)
-                else
-                    θP_pred_cpu = CA.getdata(θP_pred)
-                    -sum(logpdf_t.(priorsP, θP_pred_cpu))
-                end
-                θMs_pred_cpu = CA.getdata(θMs_pred)
-                nLM = -sum(map((priorMi, θMi) -> sum(
-                    logpdf_tv(priorMi, θMi)), priorsM, eachcol(θMs_pred_cpu)))
-                nLP + nLM
-            end
-            # neg_log_prior = is_omit_priors ? zero(nLy) :
-            #     (isempty() ? zero(nLy) : ) +
-            #     -sum(map((priorMi, θMi) -> sum(
-            #         logpdf_tv(priorMi, θMi)), priorsM, eachcol(θMs_pred_cpu))) 
-            #neg_log_prior = min(sqrt(floatmax(neg_log_prior0)), neg_log_prior0)                
+            neg_log_prior = compute_priors_logdensity(priorsP, priorsM, θP_pred, θMs_pred,
+                is_omit_priors, zero_prior_logdensity)
             if !isfinite(neg_log_prior)
                 @info "loss_gf: encountered non-finite prior density"
                 @show θP_pred, θMs_pred, ϕc.ϕP

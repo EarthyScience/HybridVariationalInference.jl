@@ -1,6 +1,7 @@
 using Test
 using HybridVariationalInference
 using HybridVariationalInference: HybridVariationalInference as CP
+using UnPack
 using StableRNGs
 using Random
 using Statistics
@@ -18,6 +19,7 @@ using MLDataDevices
 using Suppressor
 
 using Functors
+
 
 cdev = cpu_device()
 
@@ -106,9 +108,7 @@ end
     function test_f_doubleMM(θ::AbstractVector{ET}, x; intθ1) where ET
         # extract parameters not depending on order, i.e whether they are in θP or θM
         θc = intθ1(θ)
-        (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
-            CA.getdata(θc[par])::ET
-        end
+        @unpack r0, r1, K1, K2 = θc
         r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
     end    
     y = @inferred test_f_doubleMM(CA.getdata(θ2), xP1; intθ1 = int_θdoubleMM)
@@ -151,14 +151,16 @@ test_without_flux = (scenario) -> begin
         intϕ = ComponentArrayInterpreter(CA.ComponentVector(
             ϕg=1:length(ϕg0), ϕP=par_templates.θP))
         priors = get_hybridproblem_priors(prob; scenario)
-        priorsP = [priors[k] for k in keys(par_templates.θP)]
-        priorsM = [priors[k] for k in keys(par_templates.θM)]
+        priorsP = Tuple(priors[k] for k in keys(par_templates.θP))
+        priorsM = Tuple(priors[k] for k in keys(par_templates.θM))
         # slightly disturb θP_true
         p = p0 = vcat(ϕg0, par_templates.θP .* convert(eltype(ϕg0), 0.8))  
 
         # Pass the site-data for the batches as separate vectors wrapped in a tuple
+        zero_prior_logdensity = CP.get_zero_prior_logdensity(
+            priorsP, priorsM, par_templates.θP, par_templates.θM)     
         loss_gf = get_loss_gf(g, transM, transP, f, py, intϕ; 
-            pbm_covars, n_site_batch = n_batch, priorsP, priorsM,
+            pbm_covars, n_site_batch = n_batch, priorsP, priorsM, zero_prior_logdensity,
             )
         (_xM, _xP, _y_o, _y_unc, _i_sites) = first(train_loader)
         #l1 = loss_gf(p0, _xM, _xP, _y_o, _y_unc, _i_sites; is_testmode = false)
@@ -312,13 +314,13 @@ test_with_flux_gpu = (scenario) -> begin
                 (; y, θsP, θsMs) = predict_hvi(rng, probo; scenario = scenf, n_sample_pred);            
                 # to inspect correlations among θP and θMs construct ComponentVector
                 # TODO redo get_int_PMst_site
-    # get_ca_int_PMs = let
-    #     function get_ca_int_PMs_inner(n_site)
-    #         ComponentArrayInterpreter(CA.ComponentVector(; P = θP,
-    #             Ms = CA.ComponentMatrix(
-    #                 zeros(n_θM, n_site), first(CA.getaxes(θM)), CA.Shaped1DAxis((n_site,)))))
-    #     end
-    # end
+                # get_ca_int_PMs = let
+                #     function get_ca_int_PMs_inner(n_site)
+                #         ComponentArrayInterpreter(CA.ComponentVector(; P = θP,
+                #             Ms = CA.ComponentMatrix(
+                #                 zeros(n_θM, n_site), first(CA.getaxes(θM)), CA.Shaped1DAxis((n_site,)))))
+                #     end
+                # end
                 int_mPMs = stack_ca_int(Val((n_sample_pred,)), get_int_PMst_site(hpints))
                 θs =  int_mPMs(CP.flatten_hybrid_pars(θsP, θsMs))
                 mean_θ = CA.ComponentVector(vec(mean(CA.getdata(θs), dims=1)), last(CA.getaxes(θs)))

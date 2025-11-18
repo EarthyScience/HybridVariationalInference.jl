@@ -134,9 +134,9 @@ function neg_elbo_ζtf(ζsP, ζsMs, σ, f, py, xP, y_ob, y_unc;
     transMs=StackedArray(transM, size(ζsMs, 2)),
     priorsP, priorsM,
     floss_penalty, ϕg, ϕq,
-    is_omit_priors::Val{omit_priors},
+    is_omit_priors::Val,
     zero_prior_logdensity,
-) where omit_priors
+) 
     n_MC = size(ζsP,2)
     f_sample = (ζP, ζMs) -> begin    
             θP, θMs, logjac_i = transform_and_logjac_ζ(ζP, ζMs; transP, transMs)
@@ -150,16 +150,8 @@ function neg_elbo_ζtf(ζsP, ζsMs, σ, f, py, xP, y_ob, y_unc;
             # @descend_code_warntype f(θP, θMs, xP)
             nLy_i = py(y_ob, y_pred_i, y_unc)
             loss_penalty_i = convert(eltype(nLy_i),floss_penalty(y_pred_i, θMs, θP, ϕg, ϕq))
-            neg_log_prior_i = if omit_priors
-                zero_prior_logdensity
-            elseif (θP isa AbstractGPUArray) || (θMs isa AbstractGPUArray)
-                @warn("neg_elbo_ζtf: Cannot apply priors to gpu array. Piors are omitted. " *
-                "either compute PBM on CPU or omit priors.")
-                zero_prior_logdensity
-            else
-                compute_priors_logdensity(priorsP, priorsM, θP, θMs, zero_prior_logdensity)
-            end
-
+            neg_log_prior_i = compute_priors_logdensity(priorsP, priorsM, θP, θMs,
+                is_omit_priors, zero_prior_logdensity)
             # make sure names to not match outer, otherwise Box type instability
             (nLy_i, neg_log_prior_i, -logjac_i, loss_penalty_i)
             #(nLy_i, 0.0, 0.0, 0.0)
@@ -205,6 +197,19 @@ function neg_elbo_ζtf(ζsP, ζsMs, σ, f, py, xP, y_ob, y_unc;
     # end
     nLjoint = nLy + neg_log_prior + neg_log_jac
     (;nLjoint, entropy_ζ, loss_penalty, nLy, neg_log_prior, neg_log_jac)
+end
+
+function compute_priors_logdensity(priorsP, priorsM, θP, θMs,
+        ::Val{omit_priors}, zero_prior_logdensity) where {omit_priors}
+    if omit_priors
+        zero_prior_logdensity
+    elseif (θP isa AbstractGPUArray) || (θMs isa AbstractGPUArray)
+        @warn("neg_elbo_ζtf: Cannot apply priors to gpu array. Piors are omitted. "*
+        "either compute PBM on CPU or omit priors.")
+        zero_prior_logdensity
+    else
+        compute_priors_logdensity(priorsP, priorsM, θP, θMs, zero_prior_logdensity)
+    end
 end
 
 function compute_priors_logdensity(priorsP, priorsM, θP, θMs, zero_prior_logdensity)

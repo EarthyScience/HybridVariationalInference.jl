@@ -13,9 +13,9 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     ad_backend_loss = AutoZygote(),
     epochs,
     is_omitting_NaNbatches = false,
-    is_omit_priors::Val{is_omit_prior} = Val(false),
+    is_omit_priors::Val{omit_priors} = Val(false),
     kwargs...
-) where {is_infer, is_omit_prior}
+) where {is_infer, omit_priors}
     gdevs = isnothing(gdevs) ? get_gdev_MP(scenario) : gdevs
     pt = get_hybridproblem_par_templates(prob; scenario)
     g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
@@ -63,13 +63,17 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     priors = get_hybridproblem_priors(prob; scenario)
     priorsP = Tuple(priors[k] for k in keys(pt.θP))
     priorsM = Tuple(priors[k] for k in keys(pt.θM))
+    zero_prior_logdensity = omit_priors ? 0f0 : get_zero_prior_logdensity(
+        priorsP, priorsM, pt.θP, pt.θM)     
     #intP = ComponentArrayInterpreter(pt.θP)
     loss_gf = get_loss_gf(g_dev, transM, transP, f_dev,  py, intϕ;
         n_site_batch=n_batch, 
-        cdev=infer_cdev(gdevs), pbm_covars, priorsP, priorsM, is_omit_priors,)
+        cdev=infer_cdev(gdevs), pbm_covars, 
+        priorsP, priorsM, is_omit_priors, zero_prior_logdensity,)
     loss_gf_test = get_loss_gf(g_dev, transM, transP, ftest_dev,  py, intϕ;
         n_site_batch=n_site_test,
-        cdev=infer_cdev(gdevs), pbm_covars, priorsP, priorsM, is_omit_priors,)
+        cdev=infer_cdev(gdevs), pbm_covars, 
+        priorsP, priorsM, is_omit_priors, zero_prior_logdensity,)
     # call loss function once
     l1 = is_infer ? 
         Test.@inferred(loss_gf(ϕ0_dev, first(train_loader_dev)...; is_testmode=true))[1] : 
