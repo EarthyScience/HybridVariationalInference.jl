@@ -22,22 +22,14 @@ Returns a NamedTuple of
     because this direction is used much more often.
 - `ϕunc0` initial uncertainty parameters, ComponentVector with format of `init_hybrid_ϕunc.`
 """
-function init_hybrid_params(θP::AbstractVector{FT}, θM::AbstractVector{FT},
-        cor_ends::NamedTuple, ϕg::AbstractVector{FT}, hpints::HybridProblemInterpreters;
-        transP = elementwise(identity), transM = elementwise(identity),
-        ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(FT))) where {FT}
-    ϕq = ϕunc0
-    n_ϕg = length(ϕg)
+function init_hybrid_params(ϕg::AbstractVector{FT}, ϕq::AbstractVector{FT}) where {FT}
     ϕ = CA.ComponentVector(; ϕg, ϕq)
     interpreters = map(get_concrete,
         (;
             ϕg_ϕq = ComponentArrayInterpreter(ϕ),
-            PMs = get_int_PMst_batch(hpints),
             ϕq = ComponentArrayInterpreter(ϕq)
         ))
-    get_transPMs = transPMs_batch = Val(Symbol("deprecated , use stack_ca_int(intPMs)"))
-    get_ca_int_PMs = Val(Symbol("deprecated , use get_int_PMst_site(HybridProblemInterpreters(prob; scenario))"))
-    (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs)
+    (; ϕ, interpreters)
 end
 
 function init_hybrid_params_old(θP::AbstractVector{FT}, θM::AbstractVector{FT},

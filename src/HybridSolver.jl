@@ -193,9 +193,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     hpints = HybridProblemInterpreters(prob; scenario)
     ϕq = get_hybridproblem_ϕq(prob; scenario)
-    (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
-        get_hybridproblem_θP(prob; scenario), pt.θM, cor_ends, ϕg0, hpints; 
-        transP, transM, ϕunc0 = ϕq)
+    (; ϕ, interpreters) = init_hybrid_params(ϕg0, ϕq)
     int_ϕq = interpreters.ϕq
     int_ϕg_ϕq = interpreters.ϕg_ϕq
     transMs = StackedArray(transM, n_batch)
@@ -233,7 +231,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
 
     priors_θP_mean, priors_θMs_mean = construct_priors_θ_mean(
         prob, ϕ0_dev.ϕg, keys(pt.θM), pt.θP, θmean_quant, g_dev, transM, transP;
-        scenario, get_ca_int_PMs, gdevs, pbm_covars)
+        scenario, gdevs, pbm_covars)
 
     loss_elbo = get_loss_elbo(
         g_dev, transP, transMs, f_dev, py;
@@ -349,8 +347,7 @@ function compute_elbo_components(
     g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
     ϕq = get_hybridproblem_ϕq(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
-    (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
-        θP, θM, cor_ends, ϕg0, n_batch; transP, transM, ϕunc0 = ϕq)
+    (; ϕ, interpreters) = init_hybrid_params(ϕg0, ϕq)
     if gdev isa MLDataDevices.AbstractGPUDevice
         ϕ0_dev = gdev(ϕ)
         g_dev = gdev(g) # zygote fails if  gdev is a CPUDevice, although should be non-op
@@ -371,7 +368,7 @@ function compute_elbo_components(
     py = get_hybridproblem_neg_logden_obs(prob; scenario)
     priors_θ_mean = construct_priors_θ_mean(
         prob, ϕ0_dev.ϕg, keys(θM), θP, θmean_quant, g_dev, transM;
-        scenario, get_ca_int_PMs, gdev, cdev, pbm_covars)
+        scenario, gdev, cdev, pbm_covars)
     neg_elbo_gtf_components(
         rng, ϕ0_dev, g_dev, transPMs_batch, f, py, xM, xP, y_o, y_unc, i_sites, interpreters;
         solver.n_MC, solver.n_MC_cap, cor_ends, priors_θ_mean)
@@ -382,7 +379,7 @@ In order to let mean of θ stay close to initial point parameter estimates
 construct a prior on mean θ to a Normal around initial prediction.
 """
 function construct_priors_θ_mean(prob, ϕg, keysθM, θP, θmean_quant, g_dev, transM, transP;
-    scenario::Val{scen}, get_ca_int_PMs, gdevs, pbm_covars,
+    scenario::Val{scen}, gdevs, pbm_covars,
     ) where {scen}
     iszero(θmean_quant) ? ([],[]) :
     begin

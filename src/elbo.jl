@@ -392,9 +392,7 @@ function sample_posterior(rng, prob::AbstractHybridProblem, xM::AbstractMatrix;
     pbm_covar_indices = get_pbm_covar_indices(par_templates.θP, pbm_covars)
     hpints = HybridProblemInterpreters(prob; scenario)
     # TODO remove par_templates from init_hybrid_params - might not get updated θP
-    (; ϕ, transPMs_batch, interpreters, get_transPMs) = init_hybrid_params(
-        get_hybridproblem_θP(prob; scenario), par_templates.θM, cor_ends, ϕg0, hpints; 
-        transP, transM, ϕunc0=ϕq)
+    (; ϕ, interpreters) = init_hybrid_params(ϕg0, ϕq)
     int_ϕg_ϕq = interpreters.ϕg_ϕq
     int_ϕq = interpreters.ϕq
     transMs = StackedArray(transM, n_batch)        

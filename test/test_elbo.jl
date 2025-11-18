@@ -74,19 +74,14 @@ test_scenario = (scenario) -> begin
     ϕq0 = init_hybrid_ϕq(par_templates.θP, par_templates.θM, transP, cor_ends)
     # ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(FT))
     # ϕq0 = CP.update_μP_by_θP(ϕunc0, θP_true, transP)
-    hpints = HybridProblemInterpreters(probc; scenario)
-    (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = init_hybrid_params(
-        θP_true, θMs_true[:, 1], cor_ends, ϕg0, hpints; transP, transM, ϕunc0 = ϕq0)
+    (; ϕ, interpreters) = init_hybrid_params(ϕg0, ϕq0)
     int_ϕq = interpreters.ϕq
     int_ϕg_ϕq = interpreters.ϕg_ϕq
-
-    # @descend_code_warntype init_hybrid_params(θP_true, θMs_true[:, 1], cor_ends, ϕg0, n_batch; transP, transM)
-    # @descend_code_warntype CA.ComponentVector(nt)
     ϕ_ini = ϕ
-    transform_tools = nothing # TODO remove
-    # transform_tools = @inferred CP.setup_transform_ζ(
-    #     transP, transM, get_int_PMst_batch(hpints))
-    int_PMs = get_int_PMst_batch(hpints)
+    # transform_tools = nothing # TODO remove
+    # # transform_tools = @inferred CP.setup_transform_ζ(
+    # #     transP, transM, get_int_PMst_batch(hpints))
+    # int_PMs = get_int_PMst_batch(hpints)
 
     if ggdev isa MLDataDevices.AbstractGPUDevice
         scenario_flux = Val((CP._val_value(scenario)..., :use_Flux, :use_gpu))
