@@ -39,6 +39,7 @@ struct HybridProblem <: AbstractHybridProblem
     n_site::Int
     n_batch::Int
     pbm_covars::NTuple{_N, Symbol} where _N
+    approx::AbstractHVIApproximation
     #inner constructor to constrain the types
     function HybridProblem(
             θM::CA.ComponentVector,
@@ -57,10 +58,11 @@ struct HybridProblem <: AbstractHybridProblem
             n_batch::Int,
             cor_ends::NamedTuple = (P = [length(ϕq[Val(:μP)])], M = [length(θM)]),
             pbm_covars::NTuple{N,Symbol} = (),
+            approx::AbstractHVIApproximation = MeanHVIApproximation()
     ) where N
         new(
             θM, f_batch, g, ϕg, ϕq, priors, py, transM, transP, cor_ends, 
-            train_dataloader, n_covar, n_site, n_batch, pbm_covars)
+            train_dataloader, n_covar, n_site, n_batch, pbm_covars, approx)
     end
 end
 
@@ -96,7 +98,10 @@ end
 Gather all information from another `AbstractHybridProblem` with possible
 updating of some of the entries.
 """
-function HybridProblem(prob::AbstractHybridProblem; scenario = (),
+function HybridProblem(prob::AbstractHybridProblem; scenario = Val(()), kwargs...)
+    update_hybridProblem(prob; scenario, kwargs...)
+end
+function update_hybridProblem(prob::AbstractHybridProblem; scenario, 
     θM = get_hybridproblem_par_templates(prob; scenario).θM,
     g = get_hybridproblem_MLapplicator(prob; scenario)[1],
     ϕg = get_hybridproblem_MLapplicator(prob; scenario)[2],
@@ -114,6 +119,7 @@ function HybridProblem(prob::AbstractHybridProblem; scenario = (),
     ϕq = get_hybridproblem_ϕq(prob; scenario),
     θP = nothing,
     ϕunc = nothing,
+    approx::AbstractHVIApproximation = MeanHVIApproximation(),
     )
     cor_ends_new = if !isnothing(cor_ends)
         # if new cor_ends was specified then re-initialize the ρsP and ρsM in ϕq
@@ -130,8 +136,13 @@ function HybridProblem(prob::AbstractHybridProblem; scenario = (),
         ϕq = CA.ComponentVector(ϕq; ϕunc...)
     end
     HybridProblem(θM, ϕq, g, ϕg, f_batch, priors, py, transM, transP, train_dataloader,
-        n_covar, n_site, n_batch, cor_ends_new, pbm_covars)
+        n_covar, n_site, n_batch, cor_ends_new, pbm_covars, approx)
 end
+
+function HybridProblem(prob::HybridProblem; kwargs... )
+    update_hybridProblem(prob; scenario = Val(()), kwargs..., approx = prob.approx)
+end
+
 
 # """
 #     update(prob::HybridProblem; ...)

@@ -62,9 +62,10 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
     is_testmode,
     is_omit_priors,
     zero_prior_logdensity,
+    approx::AbstractHVIApproximation,
 ) where {FT}
     n_MCr = isempty(priors_θP_mean) ? n_MC : max(n_MC, n_MC_mean)
-    ζsP, ζsMs, σ = generate_ζ(rng, g, ϕ, xM; n_MC=n_MCr, cor_ends, pbm_covar_indices,
+    ζsP, ζsMs, σ = generate_ζ(approx, rng, g, ϕ, xM; n_MC=n_MCr, cor_ends, pbm_covar_indices,
         int_ϕq, int_ϕg_ϕq, is_testmode)
     ζsP_cpu = cdev(ζsP) # fetch to CPU, because for <1000 sites (n_batch) this is faster
     ζsMs_cpu = cdev(ζsMs) # fetch to CPU, because for <1000 sites (n_batch) this is faster
@@ -382,6 +383,7 @@ function sample_posterior(rng, prob::AbstractHybridProblem, xM::AbstractMatrix;
     scenario=Val(()),
     n_sample_pred=200,
     gdevs = get_gdev_MP(scenario),
+    approx = nothing,
     kwargs...
 )
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
@@ -400,9 +402,13 @@ function sample_posterior(rng, prob::AbstractHybridProblem, xM::AbstractMatrix;
     int_ϕq = interpreters.ϕq
     transMs = StackedArray(transM, n_batch)        
     g_dev, ϕ_dev = gdevs.gdev_M(g), gdevs.gdev_M(ϕ)
+    if isnothing(approx) 
+        approx = prob.approx  # assuming has field approx, e.g. if its a HybridProblem
+    end
     (; θsP, θsMs, entropy_ζ) = sample_posterior(rng, g_dev, ϕ_dev, xM;
         int_ϕg_ϕq, int_ϕq, transP, transM, 
-        n_sample_pred, cdev=infer_cdev(gdevs), cor_ends, pbm_covar_indices, kwargs...)
+        n_sample_pred, cdev=infer_cdev(gdevs), cor_ends, pbm_covar_indices, approx,
+        kwargs...)
     θsPc = ComponentArrayInterpreter(par_templates.θP, (n_sample_pred,))(θsP)
     θsMsc = ComponentArrayInterpreter((n_site,), par_templates.θM, (n_sample_pred,))(θsMs)
     (; θsP=θsPc, θsMs=θsMsc, entropy_ζ)
@@ -418,8 +424,9 @@ function sample_posterior(rng, g, ϕ::AbstractVector, xM::AbstractMatrix;
     pbm_covar_indices,
     is_inferred::Val{is_infer} = Val(false),
     is_testmode,
+    approx::AbstractHVIApproximation,
 ) where is_infer
-    ζsP_gpu, ζsMs_gpu, σ = generate_ζ(rng, g, CA.getdata(ϕ), CA.getdata(xM);
+    ζsP_gpu, ζsMs_gpu, σ = generate_ζ(approx, rng, g, CA.getdata(ϕ), CA.getdata(xM);
         int_ϕg_ϕq, int_ϕq,
         n_MC=n_sample_pred, cor_ends, pbm_covar_indices, is_testmode)
     ζsP = cdev(ζsP_gpu)
@@ -434,6 +441,7 @@ function sample_posterior(rng, g, ϕ::AbstractVector, xM::AbstractMatrix;
     (; θsP, θsMs, entropy_ζ)
 end
 
+
 """
 Generate samples of (inv-transformed) model parameters, ζ, 
 and the vector of standard deviations, σ, i.e. the diagonal of the cholesky-factor.
@@ -445,7 +453,8 @@ model.
 The output shape of size `(n_site x n_par x n_MC)` is tailored to iterating
 each MC sample and then transforming each parameter on block across sites.
 """
-function generate_ζ(rng, g, ϕ::AbstractVector{FT}, xM::MT;
+function generate_ζ(approx::AbstractMeanHVIApproximation, rng::AbstractRNG, 
+    g, ϕ::AbstractVector{FT}, xM::MT;
     int_ϕg_ϕq::AbstractComponentArrayInterpreter,
     int_ϕq::AbstractComponentArrayInterpreter,
     n_MC=3, cor_ends, pbm_covar_indices,
@@ -462,7 +471,7 @@ function generate_ζ(rng, g, ϕ::AbstractVector{FT}, xM::MT;
     # TODO replace pbm_covar_indices by ComponentArray? dimensions to be type-inferred?
     xMP0 = _append_each_covars(xM, CA.getdata(μ_ζP), pbm_covar_indices)
     μ_ζMs0 = g(xMP0, ϕg; is_testmode)
-    ζP_resids, ζMs_parfirst_resids, σ = sample_ζresid_norm(rng, μ_ζP, μ_ζMs0, ϕq; n_MC, cor_ends, int_ϕq)
+    ζP_resids, ζMs_parfirst_resids, σ = sample_ζresid_norm(approx, rng, μ_ζP, μ_ζMs0, ϕq; n_MC, cor_ends, int_ϕq)
     if pbm_covar_indices isa SA.SVector{0}
         # do not need to predict again but just add the residuals to μ_ζP and μ_ζMs
         #ζsP = μ_ζP .+ ζP_resids  # n_par x n_MC # .+ on empty view does not work
@@ -559,8 +568,9 @@ ML-model predcitions of size `(n_θM, n_site)`.
 * `int_ϕq`: Interpret vector as ComponentVector with components
    ρsP, ρsM, logσ2_ζP, coef_logσ2_ζMs(intercept + slope), 
 """
-function sample_ζresid_norm(rng::Random.AbstractRNG, ζP::AbstractVector, ζMs::AbstractMatrix,
-    args...; n_MC, cor_ends, int_ϕq)
+function sample_ζresid_norm(approx::AbstractHVIApproximation, rng::Random.AbstractRNG, 
+    ζP::AbstractVector, ζMs::AbstractMatrix, args...; 
+    n_MC, cor_ends, int_ϕq)
     n_θP, n_θMs = length(ζP), length(ζMs)
     # intm_PMs_parfirst = !isnothing(intm_PMs_parfirst) ? intm_PMs_parfirst : begin
     #     n_θM, n_site_batch = size(ζMs)
@@ -569,14 +579,14 @@ function sample_ζresid_norm(rng::Random.AbstractRNG, ζP::AbstractVector, ζMs:
     # end
     #urandn = _create_randn(rng, CA.getdata(ζP), n_MC, n_θP + n_θMs)
     urandn = _create_randn(rng, CA.getdata(ζP), n_θP + n_θMs, n_MC)
-    sample_ζresid_norm(urandn, CA.getdata(ζP), CA.getdata(ζMs), args...;
+    sample_ζresid_norm(approx, urandn, CA.getdata(ζP), CA.getdata(ζMs), args...;
         cor_ends, 
         int_ϕq=get_concrete(int_ϕq)
     )
 end
 
-function sample_ζresid_norm(urandn::AbstractMatrix, ζP::TP, ζMs::TM,
-    ϕq::AbstractVector;
+function sample_ζresid_norm(approx::MeanHVIApproximationMat, urandn::AbstractMatrix, 
+    ζP::TP, ζMs::TM, ϕq::AbstractVector;
     int_ϕq=get_concrete(ComponentArrayInterpreter(ϕq)),
     cor_ends
 ) where {T,TP<:AbstractVector{T},TM<:AbstractMatrix{T}}

@@ -253,7 +253,7 @@ end
 """
     transformU_block_cholesky1(v::AbstractVector, cor_ends)
 
-Transform a parameterization v of a blockdiagonal of upper triangular matrices
+Transform a parameterization, `v`, of a blockdiagonal of upper triangular matrices
 into the this matrix.
 `cor_ends` is an AbstractVector of Integers specifying the last column of each block. 
 E.g. For a matrix with a 3x3, a 2x2, and another single-entry block, 
@@ -262,6 +262,26 @@ the blocks start at columns (3,5,6). It defaults to a single entire block.
 An correlation parameterization can parameterize a block of a single parameter, 
 or an empty parameter block. To indicate the empty block, provide `cor_ends == [0]`.
 """
+function transformU_blocks_cholesky1(
+    v::AbstractVector{T}, cor_ends::AbstractVector{TI}=Int[]) where {T,TI<:Integer}
+    if length(cor_ends) <= 1 # if there is only one block, return it 
+        # (cor_ends == [0]) no parameters at all (and also no correclation)
+        # (cor_ends == [1]) a single parameter (and also no correclation)
+        create_empty = (cor_ends == [0])
+        return [transformU_cholesky1(v; create_empty)], 1:0
+    end
+    cor_counts = get_cor_counts(cor_ends) # number of correlation parameters
+    #@show cor_counts
+    ranges = ChainRulesCore.@ignore_derivatives (
+        begin
+            cor_start = (i == 1 ? one(TI) : cor_counts[i-1] + one(TI))
+            cor_start:cor_counts[i]
+        end for i in 1:length(cor_counts)
+    )
+    #@show collect(ranges)
+    [transformU_cholesky1(v[r]) for r in ranges], ranges
+end
+
 function transformU_block_cholesky1(
     v::AbstractVector{T}, cor_ends::AbstractVector{TI}=Int[]) where {T,TI<:Integer}
     # (cor_ends == [0]) no parameters at all (and also no correclation)
@@ -283,6 +303,7 @@ function transformU_block_cholesky1(
     U = _create_blockdiag(v, blocks) # v only for dispatch: plain matrix for gpu
     return (U)
 end
+
 
 function _create_blockdiag(::AbstractArray{T}, blocks::AbstractArray) where {T}
     BlockDiagonal(blocks)

@@ -88,7 +88,8 @@ end;
     int_ϕq = get_concrete(ComponentArrayInterpreter(ϕc.ϕq))
     n_MC_pred = 300 # larger n_MC to test σ2
     n_site_batch = size(ϕc.Ms,2)
-    ζP_resids, ζMs_parfirst_resids, σ = @inferred CP.sample_ζresid_norm(rng, ϕc.P, ϕc.Ms, ϕc.ϕq;
+    app = MeanHVIApproximationMat()
+    ζP_resids, ζMs_parfirst_resids, σ = @inferred CP.sample_ζresid_norm(app, rng, ϕc.P, ϕc.Ms, ϕc.ϕq;
         n_MC=n_MC_pred, cor_ends, int_ϕq) 
     #@usingany Cthulhu
     #@descend_code_warntype CP.sample_ζresid_norm(rng, ϕc.P, ϕc.Ms, ϕc.ϕq; n_MC, cor_ends, int_ϕq)
@@ -98,7 +99,7 @@ end;
     @test size(ζMs_parfirst_resids) == (n_θM, n_site_batch, n_MC_pred)
     gr = Zygote.gradient(ϕc -> begin
         ζP_resids, ζMs_parfirst_resids, σ = CP.sample_ζresid_norm(
-            rng, ϕc.P, ϕc.Ms, ϕc.ϕq;
+            app, rng, ϕc.P, ϕc.Ms, ϕc.ϕq;
             n_MC, cor_ends, int_ϕq)
         sum(ζP_resids) + sum(ζMs_parfirst_resids)
     end, ϕc)[1]
@@ -125,8 +126,9 @@ end;
             #include(joinpath(@__DIR__, "uncNN", "elbo.jl")) # callback_loss
             #ζ_resid, σ = sample_ζresid_norm(urandn, ϕc.P, ϕc.Ms, ϕc.ϕq; n_MC)
             #Zygote.gradient(ϕc -> sum(sample_ζresid_norm(urandn, ϕc.P, ϕc.Ms, ϕc.ϕq; n_MC)[1]), ϕc)[1]; 
+            app = MeanHVIApproximationMat()
             ζP_resids, ζMs_parfirst_resids, σ = @inferred CP.sample_ζresid_norm(
-                rng, CA.getdata(ϕcd.P), CA.getdata(ϕcd.Ms), CA.getdata(ϕcd.ϕq);
+                app, rng, CA.getdata(ϕcd.P), CA.getdata(ϕcd.Ms), CA.getdata(ϕcd.ϕq);
                 n_MC = n_MC_pred, cor_ends, int_ϕq)
             #@descend_code_warntype CP.sample_ζresid_norm(rng, CA.getdata(ϕcd.P), CA.getdata(ϕcd.Ms), CA.getdata(ϕcd.ϕq); n_MC = n_MC_pred, cor_ends, int_ϕq)
             @test ζP_resids isa GPUArraysCore.AbstractGPUArray
@@ -138,7 +140,7 @@ end;
             ϕcd_few = CA.ComponentVector(; P = ϕcd.P, Ms = ϕcd.Ms[:,1:n_site_few], ϕq = ϕcd.ϕq);
             gr = Zygote.gradient(ϕc -> begin
                 ζP_resids, ζMs_parfirst_resids, σ = CP.sample_ζresid_norm(
-                    rng, CA.getdata(ϕc.P), CA.getdata(ϕc.Ms), CA.getdata(ϕc.ϕq);
+                    app, rng, CA.getdata(ϕc.P), CA.getdata(ϕc.Ms), CA.getdata(ϕc.ϕq);
                     n_MC, cor_ends, int_ϕq)
                 sum(ζP_resids) + sum(ζMs_parfirst_resids)
             end, ϕcd_few)[1];  # semicolon required
@@ -155,15 +157,3 @@ end;
         end
     end
 end
-
-# @testset "generate_ζ" begin
-#     ϕ = CA.getdata(ϕ_cpu)
-#     n_sample_pred = 200
-#     intm_PMs_gen = ComponentArrayInterpreter(CA.ComponentVector(; θP_true,
-#         θMs=CA.ComponentMatrix(
-#             zeros(n_θM, n_site), first(CA.getaxes(θMs_true)), CA.Shaped1DAxis((n_site,)))))
-#     int_ϕg_ϕq=ComponentArrayInterpreter(ϕ_true)
-#     interpreters = (; PMs = intm_PMs_gen, ϕg_ϕq = int_ϕg_ϕq  )
-#     ζs, _ = CP.generate_ζ(rng, g, ϕ, xM, interpreters; n_MC=n_sample_pred)
-
-# end;

@@ -40,6 +40,10 @@ VERSION >= v"1.11.0-DEV.469" && eval(Meta.parse("public Exp"))
 VERSION >= v"1.11.0-DEV.469" && eval(Meta.parse("public Logistic")) 
 include("bijectors_utils.jl")
 
+export AbstractHVIApproximation, AbstractMeanHVIApproximation
+export MeanHVIApproximation, MeanHVIApproximationMat
+include("HVIApproximation.jl")
+
 export AbstractComponentArrayInterpreter, ComponentArrayInterpreter,
        StaticComponentArrayInterpreter
 export flatten1, get_concrete, get_positions, stack_ca_int, compose_interpreters
@@ -107,6 +111,7 @@ include("cholesky.jl")
 
 export neg_elbo_gtf, sample_posterior, predict_hvi, zero_penalty_loss
 include("elbo.jl")
+include("elbo2.jl")
 
 export init_hybrid_params, init_hybrid_ϕunc
 include("init_hybrid_params.jl")

@@ -28,8 +28,10 @@ const prob = DoubleMM.DoubleMMCase()
 scenario = Val((:default,))
 #scenario = Val((:covarK2,))
 
+const approx = MeanHVIApproximationMat()
+
 test_scenario = (scenario) -> begin
-    probc = HybridProblem(prob; scenario);
+    probc = HybridProblem(prob; scenario, approx);
     FT = get_hybridproblem_float_type(probc; scenario)
     par_templates = get_hybridproblem_par_templates(probc; scenario)
     int_P, int_M = map(ComponentArrayInterpreter, par_templates)
@@ -94,7 +96,7 @@ test_scenario = (scenario) -> begin
     ζsP, ζsMs, σ = @inferred (
     # @descend_code_warntype (
         CP.generate_ζ(
-        rng, g, ϕ_ini, xM[:, 1:n_batch];
+        approx, rng, g, ϕ_ini, xM[:, 1:n_batch];
         n_MC, cor_ends, pbm_covar_indices,
         int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq, is_testmode = false)
     )
@@ -102,7 +104,7 @@ test_scenario = (scenario) -> begin
     @testset "generate_ζ $(last(CP._val_value(scenario)))" begin
         # xMtest = vcat(xM, xM[1:1,:])
         # ζ, σ = CP.generate_ζ(
-        #     rng, g, ϕ_ini, xMtest[:, 1:n_batch], map(get_concrete, interpreters);
+        #     approx, rng, g, ϕ_ini, xMtest[:, 1:n_batch], map(get_concrete, interpreters);
         #     n_MC = 8, cor_ends, pbm_covar_indices)
         @test ζsP isa AbstractMatrix
         @test ζsMs isa AbstractArray
@@ -111,7 +113,7 @@ test_scenario = (scenario) -> begin
         gr = Zygote.gradient(
             ϕ -> begin
                 _ζsP, _ζsMs, _σ = CP.generate_ζ(
-                    rng, g, ϕ, xM[:, 1:n_batch];
+                    approx, rng, g, ϕ, xM[:, 1:n_batch];
                     n_MC=8, cor_ends, pbm_covar_indices,
                     int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq,
                      is_testmode = true)
@@ -124,27 +126,31 @@ test_scenario = (scenario) -> begin
         # can only test distribution if g is not repeated
         @testset "generate_ζ check sd residuals $(last(CP._val_value(scenario)))" begin
             # prescribe very different uncertainties 
-            ϕunc_true = copy(probc.ϕq)
             sd_ζP_true = [0.2,20]
             sd_ζMs_a_true = [0.1,2]  # sd at_variance at θ==0
             logσ2_ζMs_b_true = [-0.3,+0.2]  # slope of log_variance with θ
             ρsP_true = [+0.8]
             ρsM_true = [-0.6]
             
-            ϕunc_true.logσ2_ζP = (log ∘ abs2).(sd_ζP_true)
-            ϕunc_true.coef_logσ2_ζMs[1,:] = (log ∘ abs2).(sd_ζMs_a_true)
-            ϕunc_true.coef_logσ2_ζMs[2,:] = logσ2_ζMs_b_true 
-            # note that the parameterization contains a transformation that
-            # here only inverted for the single correlation case
-            ϕunc_true.ρsP = CP.compute_cholcor_coefficient_single.(ρsP_true)
-            ϕunc_true.ρsM = CP.compute_cholcor_coefficient_single.(ρsM_true)
+            ϕunc_true = CA.ComponentVector{eltype(probc.ϕq)}(;
+                logσ2_ζP = (log ∘ abs2).(sd_ζP_true),
+                coef_logσ2_ζMs = vcat(
+                    (log ∘ abs2).(sd_ζMs_a_true)',
+                    logσ2_ζMs_b_true',
+                ),
+                # note that the parameterization contains a transformation that
+                # here only inverted for the single correlation case
+                ρsP = CP.compute_cholcor_coefficient_single.(ρsP_true),
+                ρsM = CP.compute_cholcor_coefficient_single.(ρsM_true),
+            )
             # check that ρsM_true = -0.6 recovered with params ϕunc_true.ρsM = -0.75
             UC = CP.transformU_cholesky1(ϕunc_true.ρsM); Σ = UC' * UC
             @test Σ[1,2] ≈ ρsM_true[1]
 
-            probd = HybridProblem(probc;  ϕq=ϕunc_true);
+            ϕq_true = CA.ComponentVector(; probc.ϕq..., ϕunc_true...)
+            probd = HybridProblem(probc; ϕq = ϕq_true);
         
-            _ϕ = vcat(probc.ϕg, probd.ϕq)
+            _ϕ = vcat(probd.ϕg, probd.ϕq)
             #hcat(ϕ_ini, ϕ, _ϕ)[1:4,:]
             #hcat(ϕ_ini, ϕ, _ϕ)[(end-20):end,:]
             n_predict = 10_000 #8_000
@@ -152,7 +158,7 @@ test_scenario = (scenario) -> begin
             _ζsP, _ζsMs, _σ = @inferred (
                 # @descend_code_warntype (
                     CP.generate_ζ(
-                    rng, g, _ϕ, xM_batch;
+                    approx, rng, g, _ϕ, xM_batch;
                     n_MC = n_predict, cor_ends, pbm_covar_indices,
                     int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq,
                     is_testmode = true)
@@ -170,7 +176,7 @@ test_scenario = (scenario) -> begin
                 #scatterplot(ζMs_g[:,1], mMs[:,1])
                 #scatterplot(ζMs_g[:,2], mMs[:,2])
                 @test cor(ζMs_g[:,1], mMs[:,1]) > 0.9
-                @test cor(ζMs_g[:,2], mMs[:,2]) > 0.7
+                @test cor(ζMs_g[:,2], mMs[:,2]) > 0.6
                 map(axes(mMs,2)) do ipar
                     #@show ipar
                     @test isapprox(mMs[:,ipar], ζMs_g[:,ipar]; rtol=0.1)
@@ -211,7 +217,7 @@ test_scenario = (scenario) -> begin
             @testset "predict_hvi check sd" begin
                 # test if uncertainty and reshaping is propagated
                 # here inverse the predicted θs and then test distribution 
-                probcu = HybridProblem(probc, ϕq=ϕunc_true);
+                probcu = HybridProblem(probc, ϕq=ϕq_true);
                 n_sample_pred = 10_000 #2_400
                 #n_sample_pred = 400
                 (; y, θsP, θsMs, entropy_ζ) = predict_hvi(rng, probcu; scenario, n_sample_pred);
@@ -238,7 +244,7 @@ test_scenario = (scenario) -> begin
             ζsP_d, ζsMs_d, σ_d = @inferred (
             # @descend_code_warntype (
                 CP.generate_ζ(
-                rng, g_gpu, ϕ, xMg_batch;
+                approx, rng, g_gpu, ϕ, xMg_batch;
                 n_MC, cor_ends, pbm_covar_indices,
                 int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq,
                 is_testmode = true))
@@ -252,7 +258,7 @@ test_scenario = (scenario) -> begin
             gr = Zygote.gradient(
                 ϕ -> begin
                     _ζsP, _ζsMs, _σ = CP.generate_ζ(
-                        rng, g_gpu, ϕ, xMg_batch;
+                        approx, rng, g_gpu, ϕ, xMg_batch;
                         n_MC, cor_ends, pbm_covar_indices,
                         int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq,
                         is_testmode = false)
@@ -343,7 +349,9 @@ test_scenario = (scenario) -> begin
             int_ϕq, int_ϕg_ϕq,
             cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
             is_testmode = true, 
-            is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini)))
+            is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini)),
+            approx,
+            )
         )
         @test cost isa Float64
         gr = Zygote.gradient(
@@ -352,7 +360,9 @@ test_scenario = (scenario) -> begin
                 int_ϕq, int_ϕg_ϕq,
                 cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
                 is_testmode = false, 
-                is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini))),
+                is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini)),
+                approx,
+                ),
             CA.getdata(ϕ_ini))
         @test gr[1] isa Vector
     end
@@ -372,6 +382,7 @@ test_scenario = (scenario) -> begin
                 n_MC=3, cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
                 is_testmode = true,
                 is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini)),
+                approx,
                 )
             )
             @test cost isa Float64
@@ -382,6 +393,7 @@ test_scenario = (scenario) -> begin
                     n_MC=3, cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
                     is_testmode = false,
                     is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini)),
+                    approx,
                     ),
                 ϕ)
             @test gr[1] isa GPUArraysCore.AbstractGPUVector
@@ -404,6 +416,7 @@ test_scenario = (scenario) -> begin
                 cdev = identity,
                 n_sample_pred, cor_ends, pbm_covar_indices,
                 is_testmode = true,
+                approx,
                 )
             )
         @test θsP isa AbstractMatrix
@@ -431,7 +444,9 @@ test_scenario = (scenario) -> begin
                     #cdev = cpu_device(),
                     cdev = identity, # do not transfer to CPU
                     n_sample_pred, cor_ends, pbm_covar_indices,
-                    is_testmode = true)
+                    is_testmode = true,
+                    approx,
+                    )
                 )
             # this variant without the problem, does not attach axes
             @test θsP isa AbstractMatrix

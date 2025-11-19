@@ -187,6 +187,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     θmean_quant=0.0,
     is_inferred::Val{is_infer} = Val(false),
     is_omit_priors::Val{omit_priors} = Val(false),
+    approx = prob.approx,
     kwargs...
 ) where {scen, is_infer, omit_priors}
     pt = get_hybridproblem_par_templates(prob; scenario)
@@ -240,7 +241,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
         g_dev, transP, transMs, f_dev, py;
         solver.n_MC, solver.n_MC_cap, cor_ends, priors_θP_mean, priors_θMs_mean, 
         cdev=infer_cdev(gdevs), pbm_covars, pt.θP, int_ϕq, int_ϕg_ϕq, priorsP, priorsM,
-        is_omit_priors, zero_prior_logdensity,
+        is_omit_priors, zero_prior_logdensity, approx,
         )
     # test loss function once
     # tmp = first(train_loader_dev)
@@ -294,7 +295,7 @@ function get_loss_elbo(g, transP, transMs, f, py;
     cor_ends, priors_θP_mean, priors_θMs_mean, cdev, pbm_covars, θP,
     int_ϕq, int_ϕg_ϕq,
     priorsP, priorsM, floss_penalty = zero_penalty_loss,
-    is_omit_priors, zero_prior_logdensity,
+    is_omit_priors, zero_prior_logdensity, approx,
 )
     let g = g, transP = transP, transMs = transMs, f = f, py = py, 
         n_MC = n_MC, n_MC_cap = n_MC_cap, n_MC_mean = n_MC_mean,
@@ -305,7 +306,8 @@ function get_loss_elbo(g, transP, transMs, f, py;
         trans_mP=StackedArray(transP, n_MC_mean), 
         trans_mMs=StackedArray(transMs.stacked, n_MC_mean),
         priorsP=priorsP, priorsM=priorsM, floss_penalty=floss_penalty,
-        is_omit_priors = is_omit_priors, zero_prior_logdensity = zero_prior_logdensity
+        is_omit_priors = is_omit_priors, zero_prior_logdensity = zero_prior_logdensity,
+        approx = approx
 
         function loss_elbo(ϕ, rng, xM, xP, y_o, y_unc, i_sites; is_testmode)
             #ϕc = int_ϕg_ϕq(ϕ)
@@ -315,7 +317,7 @@ function get_loss_elbo(g, transP, transMs, f, py;
                 n_MC, n_MC_cap, n_MC_mean, cor_ends, priors_θP_mean, priors_θMs_mean,
                 cdev, pbm_covar_indices, transP, transMs, trans_mP, trans_mMs,
                 priorsP, priorsM, floss_penalty, #ϕg = ϕc.ϕg, ϕq = ϕc.ϕq,
-                is_testmode, is_omit_priors, zero_prior_logdensity,
+                is_testmode, is_omit_priors, zero_prior_logdensity, approx,
             )
         end
     end

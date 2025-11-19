@@ -23,7 +23,8 @@ using Functors
 
 cdev = cpu_device()
 
-#scenario = Val((:default,))
+#scenario = Val((:default, ))
+#scenario = Val((:MeanHVIApproxMat,))
 #scenario = Val((:covarK2,))
 #scen = CP._val_value(scenario)
 
@@ -89,10 +90,15 @@ function construct_problem(; scenario::Val{scen}) where scen
         xPvec=xP[:,1])
     ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(FT)) 
     ϕq = CP.update_μP_by_θP(ϕunc0, θP, transP)
+    approx = if (:MeanHVIApproxMat ∈ scen) 
+        MeanHVIApproximationMat() 
+    else
+        MeanHVIApproximation()
+    end
     HybridProblem(θM, ϕq, g_chain_scaled, ϕg0, 
         f_batch, priors_dict, py,
         transM, transP, train_dataloader, n_covar, n_site, n_batch, 
-        cor_ends, pbm_covars,
+        cor_ends, pbm_covars, approx,
         #ϕunc0, 
         )
 end 
@@ -191,6 +197,7 @@ test_without_flux = (scenario) -> begin
     end
 end
 
+#test_without_flux(Val((:MeanHVIApproximation,)))  # not used in loss_gf
 test_without_flux(Val((:default,)))
 test_without_flux(Val((:covarK2,)))
 
@@ -198,7 +205,8 @@ import CUDA, cuDNN
 using GPUArraysCore
 import Flux
 
-gdev = gpu_device()
+CUDA.device!(2)   # TODO remove after GPU 0 becomes available again
+gdev = gpu_device() 
 #methods(CP.vec2uutri)
 
 test_with_flux = (scenario) -> begin
@@ -373,6 +381,7 @@ test_with_flux_gpu = (scenario) -> begin
     end # if gdev isa MLDataDevices.AbstractGPUDevice 
 end # test_with flux
 
+test_with_flux_gpu(Val((:MeanHVIApproxMat,)))
 test_with_flux_gpu(Val((:default,)))
 test_with_flux_gpu(Val((:covarK2,)))
 test_with_flux_gpu(Val((:default,:useSitePBM)))
