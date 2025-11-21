@@ -86,6 +86,7 @@ function test_with_scenario(scenario)
 
     # approx = MeanHVIApproximation()
     # approx = MeanHVIApproximationMat()
+    # approx = CP.MeanHVIApproximationDev()
     function test_sample_ζresid_norm(approx)    
         ϕ = CA.getdata(ϕ_cpu)
         ϕc = interpreters.pmu(ϕ)
@@ -98,10 +99,10 @@ function test_with_scenario(scenario)
         # @inferred gives any, while Cthulhu inferres concrete type
         # ζP_resids, ζMs_parfirst_resids, σ = @inferred CP.sample_ζresid_norm(approx, rng, ϕc.P, ϕc.Ms, ϕc.ϕq;
         #     n_MC=n_MC_pred, cor_ends, int_ϕq) 
-        @inferred first(CP.sample_ζresid_norm(approx, rng, ϕc.P, ϕc.Ms, ϕc.ϕq;
-            n_MC=n_MC_pred, cor_ends, int_ϕq))
-        ζP_resids, ζMs_parfirst_resids, σ = CP.sample_ζresid_norm(approx, rng, ϕc.P, ϕc.Ms, ϕc.ϕq;
-            n_MC=n_MC_pred, cor_ends, int_ϕq) 
+        # @inferred first(CP.sample_ζresid_norm(approx, rng, ϕc.P, ϕc.Ms, ϕc.ϕq;
+        #     n_MC=n_MC_pred, cor_ends, int_ϕq))
+        # ζP_resids, ζMs_parfirst_resids, σ = CP.sample_ζresid_norm(approx, rng, ϕc.P, ϕc.Ms, ϕc.ϕq;
+        #     n_MC=n_MC_pred, cor_ends, int_ϕq) 
         ζP_resids, ζMs_parfirst_resids, σ = @inferred CP.sample_ζresid_norm(approx, rng, ϕc.P, ϕc.Ms, ϕc.ϕq;
             n_MC=n_MC_pred, cor_ends, int_ϕq) 
         #@code_warntype CP.sample_ζresid_norm(approx, rng, ϕc.P, ϕc.Ms, ϕc.ϕq; n_MC=n_MC_pred, cor_ends, int_ϕq) 
@@ -111,7 +112,8 @@ function test_with_scenario(scenario)
         n_θM = size(ϕc.Ms,1)
         @test size(ζP_resids) == (n_θP, n_MC_pred)
         @test size(ζMs_parfirst_resids) == (n_θM, n_site_batch, n_MC_pred)
-        gr = Zygote.gradient(ϕc -> begin
+        gr = 
+            Zygote.gradient(ϕc -> begin
             ζP_resids, ζMs_parfirst_resids, σ = CP.sample_ζresid_norm(
                 approx, rng, ϕc.P, ϕc.Ms, ϕc.ϕq;
                 n_MC, cor_ends, int_ϕq)
@@ -139,12 +141,12 @@ function test_with_scenario(scenario)
                 #include(joinpath(@__DIR__, "uncNN", "elbo.jl")) # callback_loss
                 #ζ_resid, σ = sample_ζresid_norm(urandn, ϕc.P, ϕc.Ms, ϕc.ϕq; n_MC)
                 #Zygote.gradient(ϕc -> sum(sample_ζresid_norm(urandn, ϕc.P, ϕc.Ms, ϕc.ϕq; n_MC)[1]), ϕc)[1]; 
-                @inferred first(CP.sample_ζresid_norm(
-                    approx, rng, CA.getdata(ϕcd.P), CA.getdata(ϕcd.Ms), CA.getdata(ϕcd.ϕq);
-                    n_MC = n_MC_pred, cor_ends, int_ϕq))
-                ζP_resids, ζMs_parfirst_resids, σ = CP.sample_ζresid_norm(
-                    approx, rng, CA.getdata(ϕcd.P), CA.getdata(ϕcd.Ms), CA.getdata(ϕcd.ϕq);
-                    n_MC = n_MC_pred, cor_ends, int_ϕq)
+                # @inferred first(CP.sample_ζresid_norm(
+                #     approx, rng, CA.getdata(ϕcd.P), CA.getdata(ϕcd.Ms), CA.getdata(ϕcd.ϕq);
+                #     n_MC = n_MC_pred, cor_ends, int_ϕq))
+                # ζP_resids, ζMs_parfirst_resids, σ = CP.sample_ζresid_norm(
+                #     approx, rng, CA.getdata(ϕcd.P), CA.getdata(ϕcd.Ms), CA.getdata(ϕcd.ϕq);
+                #     n_MC = n_MC_pred, cor_ends, int_ϕq)
                 ζP_resids, ζMs_parfirst_resids, σ = @inferred CP.sample_ζresid_norm(
                     approx, rng, CA.getdata(ϕcd.P), CA.getdata(ϕcd.Ms), CA.getdata(ϕcd.ϕq);
                     n_MC = n_MC_pred, cor_ends, int_ϕq)
@@ -156,6 +158,7 @@ function test_with_scenario(scenario)
                         # Zygote gradient for many sites, use fewer sites here
                 n_site_few = 20
                 ϕcd_few = CA.ComponentVector(; P = ϕcd.P, Ms = ϕcd.Ms[:,1:n_site_few], ϕq = ϕcd.ϕq);
+                #@usingany BenchmarkTools
                 gr = 
                     #@profview Zygote.gradient(ϕc -> begin # type stable, most time spent in mapreduce
                     #@benchmark Zygote.gradient(ϕc -> begin # many small allocs
@@ -165,16 +168,38 @@ function test_with_scenario(scenario)
                         n_MC, cor_ends, int_ϕq)
                     sum(ζP_resids) + sum(ζMs_parfirst_resids)
                 end, ϕcd_few)[1];  # semicolon required
-                # gr = Zygote.gradient(
-                #     ϕc -> sum(CP.sample_ζresid_norm(
-                #         rng, CA.getdata(ϕc.P), CA.getdata(ϕc.Ms), CA.getdata(ϕc.ϕq);
-                #         n_MC, cor_ends, int_ϕq)[1]), ϕcd_few)[1]; # need semicolon
-                # @test CA.getdata(gr) isa GPUArraysCore.AbstractGPUArray
-                # CP.apply_preserve_axes(cdev, gr)
                 #
                 isapprox(std(ζMs_parfirst_resids[1,1,:]), 0.1, rtol = 0.1) # site 1 parameter 1 
                 isapprox(std(ζMs_parfirst_resids[1,:,:]), 0.1, rtol = 0.1) # parameter 1
                 isapprox(std(ζMs_parfirst_resids[2,:,:]), 100.1, rtol = 0.1) # parameter 2
+                () -> begin
+                    CP.sample_ζresid_norm(
+                    #@benchmark CP.sample_ζresid_norm(
+                        approx, rng, ϕc.P, ϕc.Ms, ϕc.ϕq;
+                        n_MC, cor_ends, int_ϕq)
+                    #
+                    CP.sample_ζresid_norm(
+                    #@benchmark CP.sample_ζresid_norm(
+                        approx, rng, ϕcd.P, ϕcd.Ms, ϕcd.ϕq;
+                        n_MC, cor_ends, int_ϕq)
+                    #
+                    ϕc_few = CA.ComponentVector(; P = ϕc.P, Ms = ϕc.Ms[:,1:n_site_few], ϕq = ϕc.ϕq);
+                    Zygote.gradient(ϕc -> begin
+                    #@benchmark Zygote.gradient(ϕc -> begin # many small allocs
+                        ζP_resids, ζMs_parfirst_resids, σ = CP.sample_ζresid_norm(
+                            approx, rng, ϕc.P, ϕc.Ms, ϕc.ϕq;
+                            n_MC, cor_ends, int_ϕq)
+                        sum(ζP_resids) + sum(ζMs_parfirst_resids)
+                    end, ϕc_few)[1]
+                    Zygote.gradient(ϕc -> begin # many small allocs
+                    #@benchmark Zygote.gradient(ϕc -> begin # many small allocs
+                        ζP_resids, ζMs_parfirst_resids, σ = CP.sample_ζresid_norm(
+                            approx, rng, CA.getdata(ϕc.P), CA.getdata(ϕc.Ms), CA.getdata(ϕc.ϕq);
+                            n_MC, cor_ends, int_ϕq)
+                        sum(ζP_resids) + sum(ζMs_parfirst_resids)
+                    end, ϕcd_few)[1]
+                end
+
             end
         end
     end
@@ -192,7 +217,7 @@ function test_with_scenario(scenario)
 end
 
 @testset "default scenario" begin
-    scenario = Val(())
+    scenario = Val((:default,))
     test_with_scenario(scenario)
 end
 

@@ -8,8 +8,13 @@ abstract type AbstractHVIApproximation end
 
 abstract type AbstractMeanHVIApproximation <: AbstractHVIApproximation end
 
-struct MeanHVIApproximation <: AbstractMeanHVIApproximation end
+# First implementation with one big sparse covariance matrix
 struct MeanHVIApproximationMat <: AbstractMeanHVIApproximation end
-struct MeanHVIApproximationDev <: AbstractMeanHVIApproximation end
+
+# Reimplementation with generating random numbers for each block separately
+struct MeanHVIApproximation <: AbstractMeanHVIApproximation end
+
+# for benchmarking changes, bevore implementing them
+struct MeanHVIApproximationDev <: AbstractMeanHVIApproximation end 
 
 

@@ -58,7 +58,7 @@ struct HybridProblem <: AbstractHybridProblem
             n_batch::Int,
             cor_ends::NamedTuple = (P = [length(ϕq[Val(:μP)])], M = [length(θM)]),
             pbm_covars::NTuple{N,Symbol} = (),
-            approx::AbstractHVIApproximation = MeanHVIApproximation()
+            approx::AbstractHVIApproximation = MeanHVIApproximationMat()
     ) where N
         new(
             θM, f_batch, g, ϕg, ϕq, priors, py, transM, transP, cor_ends, 
@@ -119,7 +119,7 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
     ϕq = get_hybridproblem_ϕq(prob; scenario),
     θP = nothing,
     ϕunc = nothing,
-    approx::AbstractHVIApproximation = MeanHVIApproximation(),
+    approx::AbstractHVIApproximation = MeanHVIApproximationMat(),
     )
     cor_ends_new = if !isnothing(cor_ends)
         # if new cor_ends was specified then re-initialize the ρsP and ρsM in ϕq

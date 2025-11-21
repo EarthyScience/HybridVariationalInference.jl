@@ -91,10 +91,10 @@ function construct_problem(; scenario::Val{scen}) where scen
         xPvec=xP[:,1])
     ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(FT)) 
     ϕq = CP.update_μP_by_θP(ϕunc0, θP, transP)
-    approx = if (:MeanHVIApproxMat ∈ scen) 
-        MeanHVIApproximationMat() 
-    else
+    approx = if (:MeanHVIApproxBlocks ∈ scen) 
         MeanHVIApproximation()
+    else
+        MeanHVIApproximationMat() 
     end
     HybridProblem(θM, ϕq, g_chain_scaled, ϕg0, 
         f_batch, priors_dict, py,
@@ -381,7 +381,7 @@ test_with_flux_gpu = (scenario) -> begin
     end # if gdev isa MLDataDevices.AbstractGPUDevice 
 end # test_with flux
 
-#test_with_flux_gpu(Val((:MeanHVIApproxMat,))) # do not test any more
+#test_with_flux_gpu(Val((:MeanHVIApproxBlocks,))) # do not test any more, its slower
 #scenario = Val(())
 test_with_flux_gpu(Val((:default,)))
 test_with_flux_gpu(Val((:covarK2,)))

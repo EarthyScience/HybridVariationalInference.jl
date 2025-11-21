@@ -28,8 +28,8 @@ const prob = DoubleMM.DoubleMMCase()
 scenario = Val((:default,))
 #scenario = Val((:covarK2,))
 
-#const approx = MeanHVIApproximationMat()
-const approx = MeanHVIApproximation()
+const approx = MeanHVIApproximationMat()
+#const approx = MeanHVIApproximation()
 
 test_scenario = (scenario) -> begin
     probc = HybridProblem(prob; scenario, approx);

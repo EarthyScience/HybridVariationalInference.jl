@@ -472,31 +472,29 @@ function generate_ζ(approx::AbstractMeanHVIApproximation, rng::AbstractRNG,
     xMP0 = _append_each_covars(xM, CA.getdata(μ_ζP), pbm_covar_indices)
     μ_ζMs0 = g(xMP0, ϕg; is_testmode)
     ζP_resids, ζMs_parfirst_resids, σ = sample_ζresid_norm(approx, rng, μ_ζP, μ_ζMs0, ϕq; n_MC, cor_ends, int_ϕq)
+    ζsP = isempty(μ_ζP) ? ζP_resids : (μ_ζP .+ ζP_resids)  # n_par x n_MC 
     if pbm_covar_indices isa SA.SVector{0}
         # do not need to predict again but just add the residuals to μ_ζP and μ_ζMs
         #ζsP = μ_ζP .+ ζP_resids  # n_par x n_MC # .+ on empty view does not work
-        ζsP = isempty(μ_ζP) ? ζP_resids : (μ_ζP .+ ζP_resids)  # n_par x n_MC 
         ζsMs = permutedims(μ_ζMs0 .+ ζMs_parfirst_resids, (2, 1, 3)) # n_site x n_par x n_MC
-        if any(ζsMs[:,2,:] .> 80.0)
-            @show ζsMs
-            @show ζMs_parfirst_resids
-            @show ϕc.ϕq.coef_logσ2_ζMs
-            error("encountered scaled residual outside envisoned range. Debug") 
-        end
+        # if any(ζsMs[:,2,:] .> 80.0)
+        #     @show ζsMs
+        #     @show ζMs_parfirst_resids
+        #     @show ϕc.ϕq.coef_logσ2_ζMs
+        #     error("encountered scaled residual outside envisoned range. Debug") 
+        # end
     else
         #rP, rMs = first(zip(eachcol(ζP_resids), eachslice(ζMs_parfirst_resids;dims=3)))
-        ζst = map(eachcol(ζP_resids), eachslice(ζMs_parfirst_resids; dims=3)) do rP, rMs
-            ζP = μ_ζP .+ rP
+        ζsMs_vec = map(eachcol(ζsP), eachslice(ζMs_parfirst_resids; dims=3)) do ζP, rMs
             # second pass: append ζP rather than μ_ζP to covars to xM
             xMP = _append_each_covars(xM, CA.getdata(ζP), pbm_covar_indices)
             μ_ζMst = g(xMP, ϕg)
             ζMs = (μ_ζMst .+ rMs)'  # already transform to par-last form
-            ζP, ζMs
+            ζMs
         end
         # ζsP = stack(map(first, ζst); dims=1)  # n_MC x n_par
         # ζsMs = stack(map(x -> x[2], ζst); dims=1) # n_MC x n_site x n_par
-        ζsP = stack(map(first, ζst))  # n_par x n_MC
-        ζsMs = stack(map(x -> x[2], ζst)) # n_site x n_par x n_MC
+        ζsMs = stack(ζsMs_vec) # n_site x n_par x n_MC
     end
     ζsP, ζsMs, σ
 end
