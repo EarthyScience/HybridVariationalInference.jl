@@ -182,8 +182,8 @@ Provide a `transMs = StackedArray(transM, n_batch)`
 function gtrans(g, transMs, xMP, ϕg; cdev, is_testmode)
     # TODO remove after removing gf
     # predict the log of the parameters
-    ζMst = g(xMP, ϕg; is_testmode)
-    ζMs = ζMst' 
+    ϕg = g(xMP, ϕg; is_testmode)
+    ζMs = ϕg' 
     ζMs_cpu = cdev(ζMs)
     θMs = transMs(ζMs_cpu)
     if !all(isfinite.(θMs))

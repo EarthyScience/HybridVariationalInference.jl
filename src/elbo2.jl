@@ -16,13 +16,15 @@
 #   and forward runs for many sites (760mus cpu vs 439ms gpu unit!)
 
 function sample_ζresid_norm(app::MeanHVIApproximation, 
-    zP::AbstractMatrix, zMs::AbstractMatrix, ζP::TP, ζMs::TM,
-    ϕq::AbstractVector;
+    zP::AbstractMatrix, zMs::AbstractMatrix, 
+    ϕm::TM, ϕq::AbstractVector{T};
     int_ϕq=get_concrete(ComponentArrayInterpreter(ϕq)),
     cor_ends
-) where {T,TP<:AbstractVector{T},TM<:AbstractMatrix{T}}
+) where {T,TM<:AbstractMatrix{T}}
+    ζMs = ϕm
     ϕunc = CA.getdata(ϕq)
-    ϕuncc = int_ϕq(ϕunc)
+    ϕuncc = ϕqc = int_ϕq(ϕunc)
+    ζP = ϕqc[Val(:μP)]
     n_θP, n_θMs, (n_θM, n_batch), n_MC = length(ζP), length(ζMs), size(ζMs), size(zP,1)
     # do not create a UpperTriangular Matrix of an AbstractGÜUArray in transformU_cholesky1
     ρsP = isempty(ϕuncc[Val(:ρsP)]) ? similar(ϕuncc[Val(:ρsP)]) : ϕuncc[Val(:ρsP)] # required by zygote

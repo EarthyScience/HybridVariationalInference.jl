@@ -470,8 +470,9 @@ function generate_ζ(approx::AbstractMeanHVIApproximation, rng::AbstractRNG,
     # first pass: append μ_ζP_to covars, need ML prediction for magnitude of ζMs
     # TODO replace pbm_covar_indices by ComponentArray? dimensions to be type-inferred?
     xMP0 = _append_each_covars(xM, CA.getdata(μ_ζP), pbm_covar_indices)
-    μ_ζMs0 = g(xMP0, ϕg; is_testmode)
-    ζP_resids, ζMs_parfirst_resids, σ = sample_ζresid_norm(approx, rng, μ_ζP, μ_ζMs0, ϕq; n_MC, cor_ends, int_ϕq)
+    ϕm0 = g(xMP0, ϕg; is_testmode)
+    μ_ζMs0 = ϕm0
+    ζP_resids, ζMs_parfirst_resids, σ = sample_ζresid_norm(approx, rng, ϕm0, ϕq; n_MC, cor_ends, int_ϕq)
     ζsP = isempty(μ_ζP) ? ζP_resids : (μ_ζP .+ ζP_resids)  # n_par x n_MC 
     if pbm_covar_indices isa SA.SVector{0}
         # do not need to predict again but just add the residuals to μ_ζP and μ_ζMs
@@ -488,7 +489,7 @@ function generate_ζ(approx::AbstractMeanHVIApproximation, rng::AbstractRNG,
         ζsMs_vec = map(eachcol(ζsP), eachslice(ζMs_parfirst_resids; dims=3)) do ζP, rMs
             # second pass: append ζP rather than μ_ζP to covars to xM
             xMP = _append_each_covars(xM, CA.getdata(ζP), pbm_covar_indices)
-            μ_ζMst = g(xMP, ϕg)
+            μ_ζMst = ϕm = g(xMP, ϕg; is_testmode)
             ζMs = (μ_ζMst .+ rMs)'  # already transform to par-last form
             ζMs
         end
@@ -567,8 +568,11 @@ ML-model predcitions of size `(n_θM, n_site)`.
    ρsP, ρsM, logσ2_ζP, coef_logσ2_ζMs(intercept + slope), 
 """
 function sample_ζresid_norm(approx::AbstractHVIApproximation, rng::Random.AbstractRNG, 
-    ζP::AbstractVector, ζMs::AbstractMatrix, args...; 
+    ϕm::AbstractMatrix, ϕq::AbstractVector,
+    args...; 
     n_MC, cor_ends, int_ϕq)
+    ζP = int_ϕq(CA.getdata(ϕq))[Val(:μP)]
+    ζMs = ϕm
     n_θP, n_θMs = length(ζP), length(ζMs)
     # intm_PMs_parfirst = !isnothing(intm_PMs_parfirst) ? intm_PMs_parfirst : begin
     #     n_θM, n_site_batch = size(ζMs)
@@ -576,21 +580,24 @@ function sample_ζresid_norm(approx::AbstractHVIApproximation, rng::Random.Abstr
     #         P = (n_MC, n_θP), Ms = (n_MC, n_θM, n_site_batch)))
     # end
     #urandn = _create_randn(rng, CA.getdata(ζP), n_MC, n_θP + n_θMs)
-    z = _create_randn(rng, CA.getdata(ζP), n_MC, n_θP + n_θMs)
-    zP = @view z[:, 1:n_θP]
-    zMs = @view z[:, (n_θP+1):end]
-    sample_ζresid_norm(approx, zP, zMs, CA.getdata(ζP), CA.getdata(ζMs), args...;
+    #z = _create_randn(rng, CA.getdata(ζP), n_MC, n_θP)
+    zP = _create_randn(rng, CA.getdata(ζP), n_MC, n_θP)
+    zMs = _create_randn(rng, CA.getdata(ζP), n_MC, n_θMs)
+    sample_ζresid_norm(approx, zP, zMs, CA.getdata(ϕm), ϕq, args...;
         cor_ends, 
         int_ϕq=get_concrete(int_ϕq)
     )
 end
 
-function sample_ζresid_norm(approx::MeanHVIApproximationMat, zP::AbstractMatrix, zMs::AbstractMatrix, 
-    ζP::TP, ζMs::TM, ϕq::AbstractVector;
+function sample_ζresid_norm(approx::MeanHVIApproximationMat, 
+    zP::AbstractMatrix, zMs::AbstractMatrix, 
+    ϕm::TM, ϕq::AbstractVector{T};
     int_ϕq=get_concrete(ComponentArrayInterpreter(ϕq)),
     cor_ends
-) where {T,TP<:AbstractVector{T},TM<:AbstractMatrix{T}}
-    ϕuncc = int_ϕq(CA.getdata(ϕq))
+) where {T,TM<:AbstractMatrix{T}}
+    ζMs = ϕm
+    ϕuncc = ϕqc = int_ϕq(CA.getdata(ϕq))
+    ζP = ϕqc[Val(:μP)]
     n_θP, n_θMs, (n_θM, n_batch) = length(ζP), length(ζMs), size(ζMs)
     # do not create a UpperTriangular Matrix of an AbstractGÜUArray in transformU_cholesky1
     ρsP = isempty(ϕuncc[Val(:ρsP)]) ? similar(ϕuncc[Val(:ρsP)]) : ϕuncc[Val(:ρsP)] # required by zygote
