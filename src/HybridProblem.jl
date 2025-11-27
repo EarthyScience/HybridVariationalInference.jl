@@ -43,7 +43,7 @@ struct HybridProblem <: AbstractHybridProblem
     #inner constructor to constrain the types
     function HybridProblem(
             θM::CA.ComponentVector,
-            ϕq::CA.ComponentVector, # = init_hybrid_ϕunc(cor_ends, zero(eltype(θM))),
+            ϕq::CA.ComponentVector, # = init_hybrid_ϕunc(approx, cor_ends, zero(eltype(θM))),
             g::AbstractModelApplicator, 
             ϕg::AbstractVector,
             f_batch, 
@@ -72,13 +72,14 @@ end
 Initialize the non-ML parameter vector.    
 """
 function init_hybrid_ϕq(
+    approx::AbstractMeanHVIApproximation,
     θP::CA.ComponentVector,
     θM::CA.ComponentVector,
     transP::Stacked,
     cor_ends::NamedTuple = (P = [length(θP)], M = [length(θM)]),
 )
     FT = promote_type(eltype(θP), eltype(θM))
-    ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(FT))
+    ϕunc0 = init_hybrid_ϕunc(approx, cor_ends, zero(FT))
     ϕq = update_μP_by_θP(ϕunc0, θP, transP)
 end
 
@@ -123,7 +124,7 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
     )
     cor_ends_new = if !isnothing(cor_ends)
         # if new cor_ends was specified then re-initialize the ρsP and ρsM in ϕq
-        ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(eltype(ϕq)))
+        ϕunc0 = init_hybrid_ϕunc(approx, cor_ends, zero(eltype(ϕq)))
         ϕq = CA.ComponentVector(;ϕq..., ρsP = ϕunc0.ρsP, ρsM = ϕunc0.ρsM)
         cor_ends
     else

@@ -89,7 +89,7 @@ function construct_problem(; scenario::Val{scen}) where scen
     f_batch = PBMSiteApplicator(
         f_doubleMM; θP, θM, θFix=CA.ComponentVector{FT}(), 
         xPvec=xP[:,1])
-    ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(FT)) 
+    ϕunc0 = init_hybrid_ϕunc(MeanHVIApproximation(), cor_ends, zero(FT)) 
     ϕq = CP.update_μP_by_θP(ϕunc0, θP, transP)
     approx = if (:MeanHVIApproxBlocks ∈ scen) 
         MeanHVIApproximation()

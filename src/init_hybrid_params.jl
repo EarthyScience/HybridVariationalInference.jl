@@ -81,11 +81,14 @@ end
 # end
 
 """
-    init_hybrid_ϕunc(cor_ends, ρ0=0f0; logσ2_ζP, coef_logσ2_ζMs, ρsP, ρsM)
+    init_hybrid_ϕunc(approx::AbstractHVIApproximation, cor_ends, ρ0=0f0; 
+      logσ2_ζP, coef_logσ2_ζMs, ρsP, ρsM)
 
 Initialize vector of additional parameter of the approximate posterior.
 
 Arguments:
+- `approx`: AbstractMeanHVIApproximation, which is used. Parametrization will
+  differ depending on the approximation.
 - `cor_ends`: NamedTuple with entries, `P`, and `M`, respectively with 
    integer vectors of ending columns of parameters blocks
 - `ρ0`: default entry for ρsP and ρsM, defaults = 0f0.
@@ -100,6 +103,7 @@ Returns a `ComponentVector` of
   of the correlation matrices of ζP and ζM, default to all entries `ρ0`, which defaults to zero.
 """
 function init_hybrid_ϕunc(
+        approx::AbstractMeanHVIApproximation,
         cor_ends::NamedTuple,
         ρ0::FT = 0.0f0,
         coef_logσ2_logM::AbstractVector{FT} = FT[-10.0, 0.0];

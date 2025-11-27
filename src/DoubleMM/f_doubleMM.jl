@@ -441,7 +441,7 @@ end
 function HVI.get_hybridproblem_ϕq(prob::DoubleMMCase; scenario)
     FT = get_hybridproblem_float_type(prob; scenario) 
     cor_ends = get_hybridproblem_cor_ends(prob; scenario)
-    ϕunc = init_hybrid_ϕunc(cor_ends, zero(FT))    
+    ϕunc = init_hybrid_ϕunc(MeanHVIApproximationMat(), cor_ends, zero(FT))    
     # for DoubleMMCase templates gives the correct values
     θP = get_hybridproblem_par_templates(prob; scenario).θP
     transP = get_hybridproblem_transforms(prob; scenario).transP
