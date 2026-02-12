@@ -165,7 +165,7 @@ the problem below.
 
 ### Providing data in batches
 
-HVI uses `MLUtils.DataLoader` to provide baches of the data during each
+HVI uses `MLUtils.DataLoader` to provide batches of the data during each
 iteration of the solver. In addition to the data, it provides an
 index to the sites inside a tuple.
 
@@ -303,7 +303,7 @@ Then the solver is applied to the problem using [`solve`](@ref)
 for a given number of iterations or epochs.
 For this tutorial, we additionally specify that the function to transfer structures to 
 the GPU is the identity function, so that all stays on the CPU, and this tutorial 
-hence does not require ad GPU or GPU livraries.
+hence does not require ad GPU or GPU libraries.
 
 Among the return values are 
 - `probo`: A copy of the HybridProblem, with updated optimized parameters
@@ -312,7 +312,7 @@ Among the return values are
 
 ## Using a population-level process-based model
 
-So far, the process-based model ram for each single site.
+So far, the process-based model ran for each single site.
 For this simple model, some performance grains result from matrix-computations
 when running the model for all sites within one batch simultaneously.
 
@@ -324,13 +324,14 @@ one site. For the drivers and predictions, one column corresponds to one site.
 
 
 ```{julia}
+using StaticArrays
 function f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
     # extract several covariates from xP
     S1 = view(xPc, Val(:S1), :)
     S2 = view(xPc, Val(:S2), :)
     #
     # extract the parameters as row-repeated vectors
-    #   θc[:,:r0] is paramter r0 for each site in batch
+    #   θc[:,:r0] is parameter r0 for each site in batch
     #   dot-multiplication  of full matrix times row-vector repeats for each observation row
     #   also introduces zero for missing observations, leading to zero gradient there
     is_valid = isfinite.(S1) .&& isfinite.(S2)
@@ -344,11 +345,7 @@ end
 ```
 
 Again, the function should not rely on the order of parameters but use symbolic indexing 
-to extract the parameter vectors. For type stability of this symbolic indexing,
-it uses a workaround to get the type of a single row.
-Similarly, it uses type hints to index into the drivers, `xPc`, to extract
-sub-matrices by symbols. Alternatively, here it could rely on the structure and
-ordering of the columns in `xPc`.
+to extract the parameter vectors. 
 
 A corresponding [`PBMPopulationApplicator`](@ref) transforms calls with 
 partitioned global and site parameters to calls of this matrix version of the PBM.
@@ -360,11 +357,9 @@ probo_sites = HybridProblem(probo; f_batch)
 ```
 
 For numerical efficiency, the number of sites within one batch is part of the 
-`PBMPopulationApplicator`. Hence, we have two different functions, one applied
-to a batch of site, and another applied to all sites.
-
-As a test of the new applicator, the results are refined by running a few more
-epochs of the optimization.
+`PBMPopulationApplicator`. The problem stores an applicator for `n_batch` sites, 
+however, an applicator for `n_site_pred` sites can be obtained by 
+`create_nsite_applicator(f_batch, n_site_pred)`.
 
 ```{julia}
 (; probo) = solve(probo_sites, solver; rng,
@@ -380,7 +375,7 @@ in the following [Inspect results of fitted problem](@ref) tutorial.
 In order to use the results from this tutorial in other tutorials,
 the updated `probo` `HybridProblem` and the interpreters are saved to a JLD2 file.
 
-Before the problem is updated to use the redefinition [`DoubleMM.f_doubleMM_sites`](@ref)
+Before the problem is updated, so that it uses the redefinition [`DoubleMM.f_doubleMM_sites`](@ref)
 of the PBM in module `DoubleMM` rather than
 module `Main` to allow for easier reloading with JLD2.
 

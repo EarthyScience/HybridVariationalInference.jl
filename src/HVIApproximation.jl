@@ -14,7 +14,7 @@ struct MeanHVIApproximationMat <: AbstractMeanHVIApproximation end
 # Reimplementation with generating random numbers for each block separately
 struct MeanHVIApproximation <: AbstractMeanHVIApproximation end
 
-# for benchmarking changes, bevore implementing them
+# for benchmarking changes, before implementing them
 struct MeanHVIApproximationDev <: AbstractMeanHVIApproximation end 
 
 

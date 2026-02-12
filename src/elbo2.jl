@@ -8,7 +8,7 @@
 # Both on cpu and gpu
 #
 # For a large number of sites in a forward run across all sites
-# this implementaion is faster on gpu, but slower than the Vec
+# this implementation is faster on gpu, but slower than the Vec
 # implementation on CPU (that uses triangular and blocked matrices)
 # 
 # Hence, currently, rather use the MeanHVIApproximationVec CPU implementation.
