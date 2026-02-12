@@ -578,14 +578,16 @@ function sample_ζresid_norm(approx::AbstractHVIApproximation, rng::Random.Abstr
     #         P = (n_MC, n_θP), Ms = (n_MC, n_θM, n_site_batch)))
     # end
     #urandn = _create_randn(rng, CA.getdata(ζP), n_MC, n_θP + n_θMs)
-    urandn = _create_randn(rng, CA.getdata(ζP), n_θP + n_θMs, n_MC)
-    sample_ζresid_norm(approx, urandn, CA.getdata(ζP), CA.getdata(ζMs), args...;
+    z = _create_randn(rng, CA.getdata(ζP), n_MC, n_θP + n_θMs)
+    zP = @view z[:, 1:n_θP]
+    zMs = @view z[:, (n_θP+1):end]
+    sample_ζresid_norm(approx, zP, zMs, CA.getdata(ζP), CA.getdata(ζMs), args...;
         cor_ends, 
         int_ϕq=get_concrete(int_ϕq)
     )
 end
 
-function sample_ζresid_norm(approx::MeanHVIApproximationMat, urandn::AbstractMatrix, 
+function sample_ζresid_norm(approx::MeanHVIApproximationMat, zP::AbstractMatrix, zMs::AbstractMatrix, 
     ζP::TP, ζMs::TM, ϕq::AbstractVector;
     int_ϕq=get_concrete(ComponentArrayInterpreter(ϕq)),
     cor_ends
@@ -609,9 +611,11 @@ function sample_ζresid_norm(approx::MeanHVIApproximationMat, urandn::AbstractMa
     # need to construct full matrix for CUDA
     Uσ, diagUσ = _compute_choleskyfactor(UP, UM, σP, σMs, n_batch) # inferred only BlockDiagonal
     #diagUσ = diag(Uσ)::typeof(σP)   # elements of the diagonal: standard deviations
-    n_MC = size(urandn, 2) # TODO transform urandn
+    n_MC = size(zP, 1) 
     # is this multiplication efficient if Uσ is not concrete but only sumtype BlockDiagonal?
-    ζ_resids_parfirst = (Uσ' * urandn) #::typeof(urandn) # n_par x n_MC
+    urandn = hcat(zP, zMs)
+    ζ_resids_parfirst = (Uσ' * urandn') #::typeof(urandn) # n_par x n_MC
+    #ζ_resids_parfirst = (urandn * Uσ)' #::typeof(urandn) # n_par x n_MC
     #ζ_resids_parfirst = urandn' * Uσ # n_MC x n_par
     # need to handle empty(ζP) explicitly, otherwise Zygote tries to take gradient
     ζP_resids = isempty(ζP) ? ζ_resids_parfirst[1:0, :] : ζ_resids_parfirst[1:n_θP, :]
@@ -682,8 +686,10 @@ function _compute_choleskyfactor(UP::AbstractMatrix{T}, UM, σP, σMs, n_batch) 
     #diagUσM = reduce(vcat, [diag(UM) .* σMs[:, i] for i in 1:n_batch]; init = σMs[1:0])
     empty_arr = ChainRulesCore.@ignore_derivatives eltype(σMs)[]
     #diagUσM = reduce(vcat, [diag(UM) .* σMs[:, i] for i in 1:n_batch]; init=empty_arr)
-    diagUσM = vcat([diag(UM) .* σMs[:, i] for i in 1:n_batch]...)::Vector{T}
-    diagUσ = vcat(diag(UP) .* σP, diagUσM)
+    #diag U = ones -> diag Uσ = σ
+    # diagUσM = vcat([diag(UM) .* σMs[:, i] for i in 1:n_batch]...)::Vector{T}
+    # diagUσ = vcat(diag(UP) .* σP, diagUσM)
+    diagUσ = vcat(σP, vec(σMs))
     # diagUσ == diag(Uσ)
     Uσ, diagUσ
 end

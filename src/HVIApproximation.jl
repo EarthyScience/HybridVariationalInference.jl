@@ -10,5 +10,6 @@ abstract type AbstractMeanHVIApproximation <: AbstractHVIApproximation end
 
 struct MeanHVIApproximation <: AbstractMeanHVIApproximation end
 struct MeanHVIApproximationMat <: AbstractMeanHVIApproximation end
+struct MeanHVIApproximationDev <: AbstractMeanHVIApproximation end
 
 

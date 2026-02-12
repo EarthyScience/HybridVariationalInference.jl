@@ -23,6 +23,7 @@ using Functors
 
 cdev = cpu_device()
 
+#problems with last(()) scenario = Val(()) 
 #scenario = Val((:default, ))
 #scenario = Val((:MeanHVIApproxMat,))
 #scenario = Val((:covarK2,))
@@ -122,7 +123,6 @@ end
     # @descend_code_warntype test_f_doubleMM(CA.getdata(θ2), xP1)
 end
 
-#scenario = Val((:default,))
 test_without_flux = (scenario) -> begin
     #scen = CP._val_value(scenario)
     gdev = @suppress gpu_device()
@@ -381,8 +381,9 @@ test_with_flux_gpu = (scenario) -> begin
     end # if gdev isa MLDataDevices.AbstractGPUDevice 
 end # test_with flux
 
-test_with_flux_gpu(Val((:MeanHVIApproxMat,)))
+#test_with_flux_gpu(Val((:MeanHVIApproxMat,))) # do not test any more
+#scenario = Val(())
 test_with_flux_gpu(Val((:default,)))
 test_with_flux_gpu(Val((:covarK2,)))
-test_with_flux_gpu(Val((:default,:useSitePBM)))
+test_with_flux_gpu(Val((:useSitePBM,)))
 

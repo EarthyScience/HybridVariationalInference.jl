@@ -1,4 +1,4 @@
-function sample_ζresid_norm(app::MeanHVIApproximation, 
+function sample_ζresid_norm(app::MeanHVIApproximationDev, 
     zP::AbstractMatrix, zMs::AbstractMatrix, ζP::TP, ζMs::TM,
     ϕq::AbstractVector;
     int_ϕq=get_concrete(ComponentArrayInterpreter(ϕq)),
