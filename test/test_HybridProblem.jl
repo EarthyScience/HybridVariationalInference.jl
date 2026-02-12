@@ -205,7 +205,7 @@ import CUDA, cuDNN
 using GPUArraysCore
 import Flux
 
-CUDA.device!(2)   # TODO remove after GPU 0 becomes available again
+#CUDA.device!(2)   # TODO remove after GPU 0 becomes available again
 gdev = gpu_device() 
 #methods(CP.vec2uutri)
 
