@@ -167,7 +167,7 @@ fig
 ![](logden_user_files/figure-commonmark/cell-9-output-1.png)
 
 The marginal posterior of the global parameters is also similar, with a small
-trend of lower values.
+trend towards lower values.
 
 ``` julia
 i_site = 1
@@ -209,10 +209,10 @@ plot_sd_vs_mean = (par) -> begin
   fig = Figure(); ax = Axis(fig[1,1], xlabel="mean($par)",ylabel="sd($par)")
   θmean_normal = [mean(θsMs_normal[s,par,:]) for s in axes(θsMs_normal, 1)]
   θsd_normal = [std(θsMs_normal[s,par,:]) for s in axes(θsMs_normal, 1)]
-  scatter!(ax, θmean_normal, θsd_normal, label="correlated") 
+  scatter!(ax, θmean_normal, θsd_normal, label="normal") 
   θmean_lognormal = [mean(θsMs_lognormal[s,par,:]) for s in axes(θsMs_lognormal, 1)]
   θsd_lognormal = [std(θsMs_lognormal[s,par,:]) for s in axes(θsMs_lognormal, 1)]
-  scatter!(ax, θmean_lognormal, θsd_lognormal, label="independent") 
+  scatter!(ax, θmean_lognormal, θsd_lognormal, label="lognormal") 
   axislegend(ax, unique=true)
   fig
 end

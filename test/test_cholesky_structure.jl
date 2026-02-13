@@ -193,19 +193,24 @@ end;
     @test U[1:3, 4:4] ≈ zeros(3, 1)
     gr1 = Zygote.gradient(v -> sum(CP.transformU_block_cholesky1(v, cor_ends)), v)[1]; # works nice
     # degenerate case of no correlations for one parameter
-    vc0 = CA.ComponentVector{Float32}()
-    cor_ends0 = @inferred get_ca_ends(vc0)
+    vc1 = CA.ComponentVector{Float32}(a=1)
+    cor_ends1 = @inferred get_ca_ends(vc1)
+    @test cor_ends1 == [1]
     #@descend_code_warntype get_ca_ends(vc0)
-    ρ0 = collect(1f0:get_cor_count(cor_ends0))
+    ρ0 = collect(1f0:get_cor_count(cor_ends1))
     #ns=(CP.invsumn(length(v[k])) + 1 for k in keys(v))
     #collect(ns)
-    U = @inferred TEmpty CP.transformU_block_cholesky1(CA.getdata(ρ0), cor_ends0)
-    #U = @inferred UT CP.transformU_block_cholesky1(CA.getdata(ρ0), cor_ends0)
+    U = @inferred TEmpty CP.transformU_block_cholesky1(CA.getdata(ρ0), cor_ends1)
+    #U = @inferred UT CP.transformU_block_cholesky1(CA.getdata(ρ0), cor_ends1)
+    @test U isa BlockDiagonal
     @test diag(U) == [1f0]
-    gr1 = Zygote.gradient(v -> sum(CP.transformU_block_cholesky1(ρ0, cor_ends0)), v)[1]; # works nice
+    gr1 = Zygote.gradient(v -> sum(CP.transformU_block_cholesky1(ρ0, cor_ends1)), v)[1]; # works nice
     #
     # degenerate case of no correlations for zero parameters
-    U = @inferred TEmpty CP.transformU_block_cholesky1(CA.getdata(ρ0), [0])
+    vc0 = CA.ComponentVector{Float32}()
+    cor_ends0 = @inferred get_ca_ends(vc0)
+    @test cor_ends0 == [0]
+    U = @inferred TEmpty CP.transformU_block_cholesky1(CA.getdata(ρ0), cor_ends0)
     @test U == [;;]
     gr1 = Zygote.gradient(v -> sum(CP.transformU_block_cholesky1(ρ0, [length(v)])), v[1:0])[1]; 
     @test isnothing(gr1)
@@ -223,14 +228,15 @@ end;
         @test cdev(U[1:3, 4:4]) ≈ zeros(3, 1)
         gr1 = Zygote.gradient(v -> sum(CP.transformU_block_cholesky1(v, cor_ends)), v)[1] # works nice
         #
-        cor_ends0 = Int64[]
-        ρ0 = ggdev(collect(1f0:get_cor_count(cor_ends0)))
-        U = @inferred CP.transformU_block_cholesky1(ρ0, cor_ends0)
-        #U = @inferred UT CP.transformU_block_cholesky1(ρ0, cor_ends0)
+        cor_ends1 = Int[1]
+        ρ0 = ggdev(collect(1f0:get_cor_count(cor_ends1)))
+        U = @inferred CP.transformU_block_cholesky1(ρ0, cor_ends1)
+        #U = @inferred UT CP.transformU_block_cholesky1(ρ0, cor_ends1)
         @test U isa GPUArraysCore.AbstractGPUArray
         @test cdev(diag(U)) == [1f0]
         #
-        U = @inferred CP.transformU_block_cholesky1(CA.getdata(ρ)[1:0], [0])
+        cor_ends0 = Int[0]
+        U = @inferred CP.transformU_block_cholesky1(CA.getdata(ρ)[1:0], cor_ends0)
         @test U isa GPUArraysCore.AbstractGPUArray
         @test cdev(U) == [;;]
     end

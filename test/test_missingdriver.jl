@@ -92,7 +92,7 @@ function test_driverNaN(scenario::Val{scen})  where scen
         #callback = callback_loss(100), # output during fitting
         #callback = callback_loss(10), # output during fitting
         epochs = 2,
-        is_omit_priors = (:f_on_gpu ∈ scen), # prior computation does not work on gpu
+        is_omit_priors = Val(:f_on_gpu ∈ scen), # prior computation does not work on gpu
         scenario,
     );
     @test all(isfinite.(ϕ))

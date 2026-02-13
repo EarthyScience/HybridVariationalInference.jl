@@ -181,9 +181,9 @@ function ComponentArrayInterpreter(
     n_dims::NTuple{N,<:Integer}, axes::NTuple{A,<:CA.AbstractAxis},
     m_dims::NTuple{M,<:Integer}) where {N,A,M}
     axes_ext = (
-        map(n_dim -> CA.Axis(i=1:n_dim), n_dims)..., 
+        map(n_dim -> CA.Shaped1DAxis((n_dim,)), n_dims)..., 
         axes..., 
-        map(n_dim -> CA.Axis(i=1:n_dim), m_dims)...)
+        map(n_dim -> CA.Shaped1DAxis((n_dim,)), m_dims)...)
     ComponentArrayInterpreter(axes_ext)
 end
 
@@ -202,7 +202,7 @@ function stack_ca_int(
 end
 function StaticComponentArrayInterpreter(
     axes::NTuple{A,<:CA.AbstractAxis}, n_dims::NTuple{N,<:Integer}) where {A,N}
-    axes_ext = (axes..., map(n_dim -> CA.Axis(i=1:n_dim), n_dims)...)
+    axes_ext = (axes..., map(n_dim -> CA.Shaped1DAxis((n_dim,)), n_dims)...)
     StaticComponentArrayInterpreter{axes_ext}()
 end
 
@@ -214,7 +214,7 @@ function stack_ca_int(
 end
 function StaticComponentArrayInterpreter(
     n_dims::NTuple{N,<:Integer}, axes::NTuple{M,<:CA.AbstractAxis}) where {N,M}
-    axes_ext = (map(n_dim -> CA.Axis(i=1:n_dim), n_dims)..., axes...)
+    axes_ext = (map(n_dim -> CA.Shaped1DAxis((n_dim,)), n_dims)..., axes...)
     StaticComponentArrayInterpreter{axes_ext}()
 end
 
@@ -248,6 +248,7 @@ _get_ComponentArrayInterpreter_axes(cai::ComponentArrayInterpreter) = cai.axes
 _axis_length(ax::CA.AbstractAxis) = lastindex(ax) - firstindex(ax) + 1
 _axis_length(::CA.FlatAxis) = 0
 _axis_length(::CA.UnitRange) = 0
+_axis_length(ax::CA.Shaped1DAxis) = length(ax)
 
 """
     flatten1(cv::CA.ComponentVector)
@@ -286,24 +287,25 @@ function get_positions(cai::AbstractComponentArrayInterpreter)
     keys_cv isa Tuple ? NamedTuple{keys_cv}(map(k -> CA.getdata(cv[k]), keys_cv)) : CA.getdata(cv)
 end
 
-function tmpf(v;
+# used in test_ComponentArrayInterpreter
+function test_apply_cai(v;
     cv,
     cai::AbstractComponentArrayInterpreter=get_concrete(ComponentArrayInterpreter(cv)))
     cai(v)
 end
 
-function tmpf1(v; cai)
+function test_apply_cai1(v; cai)
     caic = get_concrete(cai)
     #caic(v)
-    Test.@inferred tmpf(v, cv=nothing, cai=caic)
+    Test.@inferred test_apply_cai(v, cv=nothing, cai=caic)
 end
 
-function tmpf2(v; cai::AbstractComponentArrayInterpreter)
+function test_apply_cai2(v; cai::AbstractComponentArrayInterpreter)
     caic = get_concrete(cai)
     #caic = cai
     cv = Test.@inferred caic(v) # inferred inside tmpf2
     #cv = caic(v) # inferred inside tmpf2
-    vv = tmpf(v; cv=nothing, cai=caic)
+    vv = test_apply_cai(v; cv=nothing, cai=caic)
     #vv = tmpf(v; cv)
     #cv.x
     #sum(cv) # not inferred on Union cv (axis not know)

@@ -17,6 +17,7 @@ using SimpleChains
 using StatsFuns
 using MLUtils
 using DistributionFits
+using UnPack
 ```
 
 Next, specify many moving parts of the Hybrid variational inference (HVI)
@@ -33,9 +34,7 @@ $$
 ``` julia
 function f_doubleMM(θc::CA.ComponentVector{ET}, x) where ET
     # extract parameters not depending on order, i.e whether they are in θP or θM
-    (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
-        CA.getdata(θc[par])::ET
-    end
+    @unpack r0, r1, K1, K2 = θc
     r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
 end
 ```
@@ -157,7 +156,7 @@ the problem below.
 
 ### Providing data in batches
 
-HVI uses `MLUtils.DataLoader` to provide baches of the data during each
+HVI uses `MLUtils.DataLoader` to provide batches of the data during each
 iteration of the solver. In addition to the data, it provides an
 index to the sites inside a tuple.
 
@@ -165,7 +164,8 @@ index to the sites inside a tuple.
 n_site = size(y_o,2)
 n_batch = 20
 train_dataloader = MLUtils.DataLoader(
-    (xM, xP, y_o, y_unc, 1:n_site), batchsize=n_batch, partial=false)
+    (CA.getdata(xM), CA.getdata(xP), y_o, y_unc, 1:n_site), 
+    batchsize=n_batch, partial=false)
 ```
 
 ## The Machine-Learning model
@@ -211,7 +211,7 @@ However, for simplicity, a [`NormalScalingModelApplicator`](@ref)
 is fitted to the transformed 5% and 95% quantiles of the original prior.
 
 ``` julia
-priorsM = [priors_dict[k] for k in keys(θM)]
+priorsM = Tuple(priors_dict[k] for k in keys(θM))
 lowers, uppers = get_quantile_transformed(priorsM, transM)
 g_chain_scaled = NormalScalingModelApplicator(g_chain_app, lowers, uppers, FT)
 ```
@@ -231,8 +231,9 @@ invocation of the process based model (PBM), defined at the beginning.
 
 ``` julia
 f_batch = PBMSiteApplicator(f_doubleMM; θP, θM, θFix, xPvec=xP[:,1])
+ϕq0 = init_hybrid_ϕq(MeanHVIApproximation(), θP, θM, transP)
 
-prob = HybridProblem(θP, θM, g_chain_scaled, ϕg0, 
+prob = HybridProblem(θM, ϕq0, g_chain_scaled, ϕg0, 
     f_batch, priors_dict, py,
     transM, transP, train_dataloader, n_covar, n_site, n_batch)
 ```
@@ -267,7 +268,7 @@ Then the solver is applied to the problem using [`solve`](@ref)
 for a given number of iterations or epochs.
 For this tutorial, we additionally specify that the function to transfer structures to
 the GPU is the identity function, so that all stays on the CPU, and this tutorial
-hence does not require ad GPU or GPU livraries.
+hence does not require ad GPU or GPU libraries.
 
 Among the return values are
 - `probo`: A copy of the HybridProblem, with updated optimized parameters
@@ -276,7 +277,7 @@ will help analyzing the results.
 
 ## Using a population-level process-based model
 
-So far, the process-based model ram for each single site.
+So far, the process-based model ran for each single site.
 For this simple model, some performance grains result from matrix-computations
 when running the model for all sites within one batch simultaneously.
 
@@ -289,29 +290,25 @@ one site. For the drivers and predictions, one column corresponds to one site.
 ``` julia
 function f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
     # extract several covariates from xP
-    ST = typeof(CA.getdata(xPc)[1:1,:])  # workaround for non-type-stable Symbol-indexing
-    S1 = (CA.getdata(xPc[:S1,:])::ST)   
-    S2 = (CA.getdata(xPc[:S2,:])::ST)
+    S1 = view(xPc, Val(:S1), :)
+    S2 = view(xPc, Val(:S2), :)
     #
     # extract the parameters as row-repeated vectors
-    n_obs = size(S1, 1)
-    VT = typeof(CA.getdata(θc)[:,1])   # workaround for non-type-stable Symbol-indexing
-    (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
-        p1 = CA.getdata(θc[:, par]) ::VT
-        repeat(p1', n_obs)  # matrix: same for each concentration row in S1
-    end
-    #
+    #   θc[:,:r0] is parameter r0 for each site in batch
+    #   dot-multiplication  of full matrix times row-vector repeats for each observation row
+    #   also introduces zero for missing observations, leading to zero gradient there
+    is_valid = isfinite.(S1) .&& isfinite.(S2)
+    r0 = is_valid .* CA.getdata(θc[:, Val(:r0)])'
+    r1 = is_valid .* CA.getdata(θc[:, Val(:r1)])'
+    K1 = is_valid .* CA.getdata(θc[:, Val(:K1)])'
+    K2 = is_valid .* CA.getdata(θc[:, Val(:K2)])'
     # each variable is a matrix (n_obs x n_site)
     r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
 end
 ```
 
 Again, the function should not rely on the order of parameters but use symbolic indexing
-to extract the parameter vectors. For type stability of this symbolic indexing,
-it uses a workaround to get the type of a single row.
-Similarly, it uses type hints to index into the drivers, `xPc`, to extract
-sub-matrices by symbols. Alternatively, here it could rely on the structure and
-ordering of the columns in `xPc`.
+to extract the parameter vectors.
 
 A corresponding [`PBMPopulationApplicator`](@ref) transforms calls with
 partitioned global and site parameters to calls of this matrix version of the PBM.
@@ -323,11 +320,9 @@ probo_sites = HybridProblem(probo; f_batch)
 ```
 
 For numerical efficiency, the number of sites within one batch is part of the
-`PBMPopulationApplicator`. Hence, we have two different functions, one applied
-to a batch of site, and another applied to all sites.
-
-As a test of the new applicator, the results are refined by running a few more
-epochs of the optimization.
+`PBMPopulationApplicator`. The problem stores an applicator for `n_batch` sites,
+however, an applicator for `n_site_pred` sites can be obtained by
+`create_nsite_applicator(f_batch, n_site_pred)`.
 
 ``` julia
 (; probo) = solve(probo_sites, solver; rng,
@@ -344,7 +339,7 @@ in the following [Inspect results of fitted problem](@ref) tutorial.
 In order to use the results from this tutorial in other tutorials,
 the updated `probo` `HybridProblem` and the interpreters are saved to a JLD2 file.
 
-Before the problem is updated to use the redefinition [`DoubleMM.f_doubleMM_sites`](@ref)
+Before the problem is updated, so that it uses the redefinition [`DoubleMM.f_doubleMM_sites`](@ref)
 of the PBM in module `DoubleMM` rather than
 module `Main` to allow for easier reloading with JLD2.
 

@@ -29,7 +29,6 @@ import NaNMath # ignore missing observations in logDensity
 using DifferentiationInterface: DifferentiationInterface as DI
 import Zygote
 
-
 export DoubleMM
 
 include("util.jl")
@@ -40,6 +39,10 @@ export extend_stacked_nrow, StackedArray
 VERSION >= v"1.11.0-DEV.469" && eval(Meta.parse("public Exp")) 
 VERSION >= v"1.11.0-DEV.469" && eval(Meta.parse("public Logistic")) 
 include("bijectors_utils.jl")
+
+export AbstractHVIApproximation, AbstractMeanHVIApproximation
+export MeanHVIApproximation, MeanHVIApproximationMat
+include("HVIApproximation.jl")
 
 export AbstractComponentArrayInterpreter, ComponentArrayInterpreter,
        StaticComponentArrayInterpreter
@@ -62,7 +65,7 @@ include("PBMApplicator.jl")
 # include("GPUDataHandler.jl")
 
 export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_PBmodel,
-       get_hybridproblem_ϕunc,
+       get_hybridproblem_ϕq, get_hybridproblem_θP,
        get_hybridproblem_float_type, gen_hybridproblem_synthetic,
        get_hybridproblem_par_templates, get_hybridproblem_transforms,
        get_hybridproblem_train_dataloader,
@@ -76,14 +79,9 @@ export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_
        construct_dataloader_from_synthetic,
        gdev_hybridproblem_dataloader, gdev_hybridproblem_data,
        setup_PBMpar_interpreter,
-       get_gdev_MP
+       get_gdev_MP,
+        init_hybrid_ϕq       
 include("AbstractHybridProblem.jl")
-
-export AbstractHybridProblemInterpreters, HybridProblemInterpreters,
-       get_int_P, get_int_M,
-       get_int_Ms_batch, get_int_Ms_site, get_int_Mst_batch, get_int_Mst_site,
-       get_int_PMs_batch, get_int_PMs_site, get_int_PMst_batch, get_int_PMst_site
-include("hybridprobleminterpreters.jl")
 
 export HybridProblem
 export get_quantile_transformed
@@ -112,7 +110,9 @@ export get_ca_starts, get_ca_ends, get_cor_count
 include("cholesky.jl")
 
 export neg_elbo_gtf, sample_posterior, predict_hvi, zero_penalty_loss
+include("elbo_dev.jl")
 include("elbo.jl")
+include("elbo2.jl")
 
 export init_hybrid_params, init_hybrid_ϕunc
 include("init_hybrid_params.jl")
@@ -125,5 +125,7 @@ include("DoubleMM/DoubleMM.jl")
 
 export RRuleMonitor
 include("RRuleMonitor.jl")
+
+include("chainrulescore.jl")
 
 end

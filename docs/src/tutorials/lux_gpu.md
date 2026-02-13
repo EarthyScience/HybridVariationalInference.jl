@@ -62,7 +62,7 @@ g_lux = Lux.Chain(
 rng = StableRNG(111)
 g_chain_app, ϕg0 = construct_ChainsApplicator(rng, g_lux)
 #
-priorsM = [prob.priors[k] for k in keys(prob.θM)]
+priorsM = Tuple(prob.priors[k] for k in keys(prob.θM))
 lowers, uppers = get_quantile_transformed(priorsM, prob.transM)
 FT = eltype(prob.θM)
 g_chain_scaled = NormalScalingModelApplicator(g_chain_app, lowers, uppers, FT)
@@ -87,7 +87,7 @@ for the standard GPU device.
 
 Hence specify
 - `gdevs = (; gdev_M=gpu_device(), gdev_P=gpu_device())`: to move both ML model and PBM to GPU
-- `gdevs = (; gdev_M=gpu_device(), gdev_P=identity)`: to move both ML model to GPU but execute the PBM (and parameter transformation) on CPU
+- `gdevs = (; gdev_M=gpu_device(), gdev_P=identity)`: to move ML model to GPU but execute the PBM (and parameter transformation) on CPU
 
 Currently, putting the PBM on gpu is not efficient during inversion, because
 prior distribution needs to be evaluated for each sample.
@@ -130,7 +130,7 @@ and need to be transferred to CPU.
 typeof(θsMs_dev)
 ```
 
-    ComponentArrays.ComponentArray{Float32, 3, CUDA.CuArray{Float32, 3, CUDA.DeviceMemory}, Tuple{ComponentArrays.Axis{(i = 1:800,)}, ComponentArrays.Axis{(r1 = 1, K1 = 2)}, ComponentArrays.Axis{(i = 1:400,)}}}
+    ComponentArrays.ComponentArray{Float32, 3, CUDA.CuArray{Float32, 3, CUDA.DeviceMemory}, Tuple{ComponentArrays.Shaped1DAxis{(800,)}, ComponentArrays.Axis{(r1 = 1, K1 = 2)}, ComponentArrays.Shaped1DAxis{(400,)}}}
 
 Handling of a `ComponentArrays` backed by GPUArrays can result
 in errors of scalar indexing. Therefore, use a semicolon

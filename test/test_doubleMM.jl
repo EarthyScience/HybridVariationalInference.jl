@@ -204,8 +204,8 @@ end
     f2 = create_nsite_applicator(f, n_site)
     py = get_hybridproblem_neg_logden_obs(prob; scenario)
     priors = get_hybridproblem_priors(prob; scenario)
-    priorsP = [priors[k] for k in keys(par_templates.θP)]
-    priorsM = [priors[k] for k in keys(par_templates.θM)]
+    priorsP = Tuple(priors[k] for k in keys(par_templates.θP))
+    priorsM = Tuple(priors[k] for k in keys(par_templates.θM))
 
     intϕ = ComponentArrayInterpreter(CA.ComponentVector(
         ϕg = 1:length(ϕg0), ϕP = par_templates.θP))
@@ -222,10 +222,12 @@ end
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
 
     #loss_gf = get_loss_gf(g, transM, f,  intϕ; gdev = identity)
+    zero_prior_logdensity = CP.get_zero_prior_logdensity(
+        priorsP, priorsM, par_templates.θP, par_templates.θM)     
     loss_gf = get_loss_gf(g, transM, transP, f,  py, intϕ;
-        pbm_covars, n_site_batch = n_batch, priorsP, priorsM)
+        pbm_covars, n_site_batch = n_batch, priorsP, priorsM, zero_prior_logdensity)
     loss_gf_site = get_loss_gf(g, transM, transP, f2, py, intϕ;
-        pbm_covars, n_site_batch = n_site, priorsP, priorsM)
+        pbm_covars, n_site_batch = n_site, priorsP, priorsM, zero_prior_logdensity)
     nLjoint = @inferred first(loss_gf(p0, first(train_loader)...; is_testmode=true))
     (xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch) = first(train_loader)
     # @usingany Cthulhu

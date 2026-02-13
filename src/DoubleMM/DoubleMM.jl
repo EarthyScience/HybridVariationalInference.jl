@@ -16,6 +16,9 @@ import StableRNGs
 import MLUtils
 import ChainRulesCore
 
+using UnPack # @unpack used inside PBM
+
+
 export f_doubleMM, f_doubleMM_sites, xP_S1, xP_S2
 include("f_doubleMM.jl")
 

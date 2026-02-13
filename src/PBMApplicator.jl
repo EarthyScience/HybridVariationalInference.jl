@@ -258,13 +258,14 @@ function create_nsite_applicator(app::PBMPopulationApplicator, n_site)
 end
 
 function apply_model(app::PBMPopulationApplicator, θP::AbstractVector, θMs::AbstractMatrix, xP) 
-    if (CA.getdata(θP) isa GPUArraysCore.AbstractGPUArray) && 
-        (!(CA.getdata(app.θFixm) isa GPUArraysCore.AbstractGPUArray) || 
-            !(CA.getdata(θMs) isa GPUArraysCore.AbstractGPUArray)) 
-        error("concatenating GPUarrays with non-gpu arrays θFixm or θMs. " *
-        "May transfer PBMPopulationApplicator to gdev, " *
-        "or compute PBM on CPU.")
-    end
+    # error causes trouble in type inference in Zygote
+    # if (CA.getdata(θP) isa GPUArraysCore.AbstractGPUArray) && 
+    #     (!(CA.getdata(app.θFixm) isa GPUArraysCore.AbstractGPUArray) || 
+    #         !(CA.getdata(θMs) isa GPUArraysCore.AbstractGPUArray)) 
+    #     error("concatenating GPUarrays with non-gpu arrays θFixm or θMs. " *
+    #     "May transfer PBMPopulationApplicator to gdev, " *
+    #     "or compute PBM on CPU.")
+    # end
     # repeat θP and concatenate with 
     # repeat is 2x slower for Vector and 100 times slower (with allocation) on GPU
     # app.isP on CPU is slightly faster than app.isP on GPU
@@ -272,18 +273,31 @@ function apply_model(app::PBMPopulationApplicator, θP::AbstractVector, θMs::Ab
     #@benchmark CA.getdata(θP[app.isP])  
     #@benchmark CA.getdata(repeat(θP', size(θMs,1))) 
     #@benchmark rep_fac .* CA.getdata(θP)'  # 
+    # call function with tailored rrule to handle case of empty θP to return CA not NoTanged
+    # but when returning a gradient of size (n_bach, 0) there are errors
+    # need to live with dynamic dispatch of Union type of Matrix and ZeroTangent
+    #local θ = concat_PMFix(θP, θMs, app)
     local θ = if !isempty(θP) 
-        hcat(app.rep_fac .* CA.getdata(θP)', CA.getdata(θMs), CA.getdata(app.θFixm)) 
+        hcat(app.rep_fac .* CA.getdata(θP)' , CA.getdata(θMs), CA.getdata(app.θFixm)) 
     else
         hcat(CA.getdata(θMs), CA.getdata(app.θFixm)) 
     end
-    #local θ = hcat(CA.getdata(θP[app.isP]), CA.getdata(θMs), app.θFixm)
-    #local θ = hcat(CA.getdata(repeat(θP', size(θMs,1))), CA.getdata(θMs), app.θFixm)
-    local θc = app.intθ(CA.getdata(θ))
+    local θc = app.intθ(θ)
     local xPc = app.int_xP(CA.getdata(xP))
     local pred_sites = app.fθpop(θc, xPc)
     return pred_sites
 end
+
+# function concat_PMFix(θP, θMs, app)
+#     local θ = if !isempty(θP) 
+#         hcat(app.rep_fac .* CA.getdata(θP)' , CA.getdata(θMs), CA.getdata(app.θFixm)) 
+#     else
+#         hcat(CA.getdata(θMs), CA.getdata(app.θFixm)) 
+#     end
+# end
+
+
+
 
 struct PBMPopulationGlobalApplicator{MFT, IsT, IgT, IXT, F} <: AbstractPBMApplicator 
     fθpop::F

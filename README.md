@@ -55,9 +55,10 @@ of the posterior. It returns a NamedTuple of
   - the machine learning model parameters (usually weights), $\phi_g$
   - means of the global parameters, $\phi_P = \mu_{\zeta_P}$ at transformed 
     unconstrained scale
-  - additional parameters, $\phi_{unc}$ of the posterior, $q(\zeta)$, such as 
-    coefficients that describe the scaling of variance with magnitude 
-    and coefficients that parameterize the choleski-factor or the correlation matrix.
+  - additional parameters, $\phi_{ϕq}$ of the posterior, $q(\zeta)$, such as 
+    - coefficients that describe the scaling of variance with magnitude 
+    - coefficients that parameterize the choleski-factor or the correlation matrix
+    - mean of global parameters at unconstrained scale
 - `θP`: predicted means of the global parameters, $\theta_P$ 
 - `resopt`: the original result object of the optimizer (useful for debugging)
 

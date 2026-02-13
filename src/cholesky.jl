@@ -158,7 +158,7 @@ function transformU_cholesky1(v::AbstractVector;
     U = _transformU_cholesky1_getU(v; n, create_empty)
     # ? UpperTriangular has problems with AD (which tries to set elements in lower)
     #return U
-    return (UpperTriangular(U))
+    _maybe_UpperTriangular(U)
 end
 
 function _transformU_cholesky1_getU(v::AbstractVector;
@@ -173,13 +173,9 @@ function _transformU_cholesky1_getU(v::AbstractVector;
     U = U_scaled ./ sqrt.(sum(abs2, U_scaled, dims=1))
 end
 
-function transformU_cholesky1(v::GPUArraysCore.AbstractGPUVector; 
-    n=invsumn(length(v)) + 1, create_empty = false)
-    U = _transformU_cholesky1_getU(v; n, create_empty)
-    # do not convert to UpperTrinangular on GPU, but full matrix
-    #return (UpperTriangular(U))
-    return U
-end
+# convert to UpperTriangular, but not on GPU
+_maybe_UpperTriangular(U::AbstractMatrix) = UpperTriangular(U)
+_maybe_UpperTriangular(U::GPUArraysCore.AbstractGPUMatrix) = U
 
 # function transformU_block_cholesky1(v::CA.ComponentVector; 
 #     ns=(invsumn(length(v[k])) + 1 for k in keys(v)) # may pass for efficiency
@@ -219,10 +215,11 @@ front(itr, n=1) = Iterators.take(itr, length(itr) - n)
 
 Return a Vector with ending positions of components in vc. 
 Useful for providing information on correlactions among subranges in a vector.
+For an empty vector Int[0] is returned.
 """
 function get_ca_ends(vc::CA.ComponentVector)
     #(cumsum(length(vc[k]) for k in keys(vc))...,)
-    length(keys(vc)) == 0 ? Int[] : cumsum(length(vc[k])::Int for k in keys(vc))
+    length(keys(vc)) == 0 ? Int[0] : cumsum(length(vc[k])::Int for k in keys(vc))
 end
 
 
@@ -253,8 +250,8 @@ end
 """
     transformU_block_cholesky1(v::AbstractVector, cor_ends)
 
-Transform a parameterization v of a blockdiagonal of upper triangular matrices
-into the this matrix.
+Transform a parameterization, `v`, of a blockdiagonal of upper triangular matrices
+into a vector with a matrix for each block.
 `cor_ends` is an AbstractVector of Integers specifying the last column of each block. 
 E.g. For a matrix with a 3x3, a 2x2, and another single-entry block, 
 the blocks start at columns (3,5,6). It defaults to a single entire block.
@@ -262,27 +259,59 @@ the blocks start at columns (3,5,6). It defaults to a single entire block.
 An correlation parameterization can parameterize a block of a single parameter, 
 or an empty parameter block. To indicate the empty block, provide `cor_ends == [0]`.
 """
+function transformU_blocks_cholesky1(
+    v::AbstractVector{T}, cor_ends::AbstractVector{TI}=1:length(v)) where {T,TI<:Integer}
+    if isempty(cor_ends)  # 1:0
+        # assume a single parameter -> no correclation -> One() matrix and empty range
+        # 1-1-matrix with value 1 with the same type as v
+        v1 = v[1]
+        v1m = ChainRulesCore.@ignore_derivatives reshape(v[1:1] .* zero(v1) .+ one(v1), 1,1) 
+        [_maybe_UpperTriangular(v1m)], (1:1 for i in 1:1)
+    elseif (cor_ends == [0]) 
+        #no parameters at all (and also no correclation) -> empty matrix and empty range
+        [_maybe_UpperTriangular(reshape(v[1:0],0,0))], (1:0 for i in 1:1)
+    else
+        cor_counts = get_cor_counts(cor_ends) # number of correlation parameters
+        ranges = ChainRulesCore.@ignore_derivatives (
+            begin
+                cor_start = (i == 1 ? one(TI) : cor_counts[i-1] + one(TI))
+                cor_start:cor_counts[i]
+            end for i in 1:length(cor_counts)
+        )
+        ranges_z = ChainRulesCore.@ignore_derivatives (
+            begin
+                
+                cor_start = (i == 1 ? one(TI) : cor_ends[i-1] + one(TI))
+                cor_start:cor_ends[i]
+            end for i in 1:length(cor_counts)
+        )
+        [transformU_cholesky1(v[r]) for r in ranges], ranges_z
+    end
+end
+
 function transformU_block_cholesky1(
     v::AbstractVector{T}, cor_ends::AbstractVector{TI}=Int[]) where {T,TI<:Integer}
-    # (cor_ends == [0]) no parameters at all (and also no correclation)
-    if length(cor_ends) <= 1 # if there is only one block, return it 
-        # for type stability create a BlockDiagonal of a single block
-        create_empty = (cor_ends == [0])
-        return _create_blockdiag(v, [transformU_cholesky1(v; create_empty)])
-    end
-    cor_counts = get_cor_counts(cor_ends) # number of correlation parameters
-    #@show cor_counts
-    ranges = ChainRulesCore.@ignore_derivatives (
-        begin
-            cor_start = (i == 1 ? one(TI) : cor_counts[i-1] + one(TI))
-            cor_start:cor_counts[i]
-        end for i in 1:length(cor_counts)
-    )
-    #@show collect(ranges)
-    blocks = [transformU_cholesky1(v[r]) for r in ranges]
+    blocks, _ = transformU_blocks_cholesky1(v, cor_ends)
+    # # (cor_ends == [0]) no parameters at all (and also no correclation)
+    # if length(cor_ends) <= 1 # if there is only one block, return it 
+    #     # for type stability create a BlockDiagonal of a single block
+    #     create_empty = (cor_ends == [0])
+    #     return _create_blockdiag(v, [transformU_cholesky1(v; create_empty)])
+    # end
+    # cor_counts = get_cor_counts(cor_ends) # number of correlation parameters
+    # #@show cor_counts
+    # ranges = ChainRulesCore.@ignore_derivatives (
+    #     begin
+    #         cor_start = (i == 1 ? one(TI) : cor_counts[i-1] + one(TI))
+    #         cor_start:cor_counts[i]
+    #     end for i in 1:length(cor_counts)
+    # )
+    # #@show collect(ranges)
+    # blocks = [transformU_cholesky1(v[r]) for r in ranges]
     U = _create_blockdiag(v, blocks) # v only for dispatch: plain matrix for gpu
     return (U)
 end
+
 
 function _create_blockdiag(::AbstractArray{T}, blocks::AbstractArray) where {T}
     BlockDiagonal(blocks)

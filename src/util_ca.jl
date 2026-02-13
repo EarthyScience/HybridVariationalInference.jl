@@ -17,6 +17,12 @@ as in `ca`.
 function apply_preserve_axes(f, ca::CA.ComponentArray)
     CA.ComponentArray(f(CA.getdata(ca)), CA.getaxes(ca))
 end
+# special case of empty Sub-ComponentVector 
+# apply_preserve_axes(identity, CA.ComponentVector(a=1, b=CA.ComponentVector()).b)
+function apply_preserve_axes(f, ca::AbstractArray)
+    @assert isempty(ca)
+    CA.ComponentVector()
+end
 
 """
     compose_axes(axtuples::NamedTuple)

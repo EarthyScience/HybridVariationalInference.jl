@@ -86,8 +86,9 @@ function predict_point_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()),
         xP = isnothing(xP) ? xP_dl : xP
     end
     y_pred, θMs, θP = gf(prob, xM, xP; scenario, gdevs, is_testmode, kwargs...)    
-    θPc = ComponentArrayInterpreter(prob.θP)(θP)
-    θMsc = ComponentArrayInterpreter((size(θMs,1),), prob.θM)(θMs)
+    pt = get_hybridproblem_par_templates(prob)
+    θPc = ComponentArrayInterpreter(pt.θP)(θP)
+    θMsc = ComponentArrayInterpreter((size(θMs,1),), pt.θM)(θMs)
     (;y_pred, θMs=θMsc, θP=θPc)
 end
 
@@ -120,13 +121,14 @@ function gf(prob::AbstractHybridProblem, xM::AbstractMatrix, xP::AbstractMatrix;
     else
         f_dev = f
     end
-    (; θP, θM) = get_hybridproblem_par_templates(prob; scenario)
+    pt = get_hybridproblem_par_templates(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     transMs = StackedArray(transM, n_site_pred)
-    intP = ComponentArrayInterpreter(θP)
+    intP = ComponentArrayInterpreter(pt.θP)
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
     pbm_covar_indices = CA.getdata(intP(1:length(intP))[pbm_covars])
-    ζP = inverse(transP)(θP)
+    ϕq = get_hybridproblem_ϕq(prob; scenario)
+    ζP = ϕq[Val(:μP)];
     gdev, cdev = gdevs.gdev_M, infer_cdev(gdevs)
     g_dev, ϕg_dev, xM_dev, ζP_dev =  gdev(g), gdev(ϕg), gdev(CA.getdata(xM)), gdev(CA.getdata(ζP))
     # most of the properties of prob are not type-inferred
@@ -180,8 +182,8 @@ Provide a `transMs = StackedArray(transM, n_batch)`
 function gtrans(g, transMs, xMP, ϕg; cdev, is_testmode)
     # TODO remove after removing gf
     # predict the log of the parameters
-    ζMst = g(xMP, ϕg; is_testmode)
-    ζMs = ζMst' 
+    ϕg = g(xMP, ϕg; is_testmode)
+    ζMs = ϕg' 
     ζMs_cpu = cdev(ζMs)
     θMs = transMs(ζMs_cpu)
     if !all(isfinite.(θMs))
@@ -229,17 +231,20 @@ function get_loss_gf(g, transM, transP, f, py,
         intϕ(1:length(intϕ)).ϕP);
     cdev=cpu_device(),
     pbm_covars, n_site_batch, 
-    priorsP, priorsM, floss_penalty = zero_penalty_loss,
-    is_omit_priors = false,
-    kwargs...)
+    floss_penalty = zero_penalty_loss,
+    priorsP, priorsM, 
+    is_omit_priors::Val = Val(false),
+    zero_prior_logdensity,
+    kwargs...) 
 
     let g = g, transM = transM, transP = transP, f = f, 
         intϕ = get_concrete(intϕ),
         transMs = StackedArray(transM, n_site_batch),
-        is_omit_priors = is_omit_priors,
         cdev = cdev,
         pbm_covar_indices = CA.getdata(intP(1:length(intP))[pbm_covars]),
-        priorsP = priorsP, priorsM = priorsM, floss_penalty = floss_penalty,
+        zero_prior_logdensity = zero_prior_logdensity, is_omit_priors = is_omit_priors,
+        priorsP = priorsP, priorsM = priorsM, 
+        floss_penalty = floss_penalty,
         cpu_dev = cpu_device() # real cpu, different form infer_cdev(gdevs) that maybe idenetity
         #, intP = get_concrete(intP)
         #inv_transP = inverse(transP), kwargs = kwargs
@@ -272,36 +277,17 @@ function get_loss_gf(g, transM, transP, f, py,
             logpdf_tv = (prior, θ::AbstractVector) -> begin
                 map(Base.Fix1(logpdf, prior), θ)::Vector{eltype(θP_pred)}
             end
-            #Main.@infiltrate_main
-            #Maybe: move priors to GPU, for now need to move θ to cpu
-            # currently does not work on gpu, moving to dpu has problems with gradient
-            #    need to specify is_omit_priors if PBM is on GPU
-            neg_log_prior = if is_omit_priors
-                    zero(nLy)
-            else
-                nLP = if isempty(θP_pred) 
-                    zero(nLy)
-                else
-                    θP_pred_cpu = CA.getdata(θP_pred)
-                    -sum(logpdf_t.(priorsP, θP_pred_cpu))
-                end
-                θMs_pred_cpu = CA.getdata(θMs_pred)
-                nLM = -sum(map((priorMi, θMi) -> sum(
-                    logpdf_tv(priorMi, θMi)), priorsM, eachcol(θMs_pred_cpu)))
-                nLP + nLM
-            end
-            # neg_log_prior = is_omit_priors ? zero(nLy) :
-            #     (isempty() ? zero(nLy) : ) +
-            #     -sum(map((priorMi, θMi) -> sum(
-            #         logpdf_tv(priorMi, θMi)), priorsM, eachcol(θMs_pred_cpu))) 
-            #neg_log_prior = min(sqrt(floatmax(neg_log_prior0)), neg_log_prior0)                
+            neg_log_prior = 
+                # @descend_code_warntype (
+                compute_priors_logdensity(priorsP, priorsM, θP_pred, θMs_pred,
+                    is_omit_priors, zero_prior_logdensity)
             if !isfinite(neg_log_prior)
                 @info "loss_gf: encountered non-finite prior density"
                 @show θP_pred, θMs_pred, ϕc.ϕP
                 error("debug get_loss_gf")
             end
-            ϕunc = eltype(θP_pred)[]  # no uncertainty parameters optimized
-            loss_penalty = floss_penalty(y_pred, θMs_pred, θP_pred, ϕc.ϕg, ϕunc)
+            ϕq = eltype(θP_pred)[]  # no uncertainty parameters optimized
+            loss_penalty = floss_penalty(y_pred, θMs_pred, θP_pred, ϕc.ϕg, ϕq)
             #@show nLy, neg_log_prior, loss_penalty
             nLjoint_pen = nLy + neg_log_prior + loss_penalty
             return (;nLjoint_pen, y_pred, θMs_pred, θP_pred, nLy, neg_log_prior, loss_penalty)

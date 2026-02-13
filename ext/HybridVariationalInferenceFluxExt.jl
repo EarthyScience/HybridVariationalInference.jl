@@ -52,13 +52,6 @@ end
 #     HVI.set_default_GPUHandler(FluxGPUDataHandler())
 # end
 
-# function HVI.HybridProblem(θP::CA.ComponentVector, θM::CA.ComponentVector, g_chain::Flux.Chain, 
-#     args...; kwargs...)
-#     # constructor with Flux.Chain
-#     g, ϕg = construct_FluxApplicator(g_chain)
-#     HybridProblem(θP, θM, g, ϕg, args...; kwargs...)
-# end
-
 function HVI.construct_3layer_MLApplicator(
         rng::AbstractRNG, prob::HVI.AbstractHybridProblem, ::Val{:Flux};
         scenario::Val{scen}) where scen

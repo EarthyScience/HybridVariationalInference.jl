@@ -73,7 +73,7 @@ g_lux = Lux.Chain(
 rng = StableRNG(111)
 g_chain_app, ϕg0 = construct_ChainsApplicator(rng, g_lux)
 #
-priorsM = [prob.priors[k] for k in keys(prob.θM)]
+priorsM = Tuple(prob.priors[k] for k in keys(prob.θM))
 lowers, uppers = get_quantile_transformed(priorsM, prob.transM)
 FT = eltype(prob.θM)
 g_chain_scaled = NormalScalingModelApplicator(g_chain_app, lowers, uppers, FT)
@@ -97,7 +97,7 @@ for the standard GPU device.
 
 Hence specify
 - `gdevs = (; gdev_M=gpu_device(), gdev_P=gpu_device())`: to move both ML model    and PBM to GPU
-- `gdevs = (; gdev_M=gpu_device(), gdev_P=identity)`: to move both ML model to GPU but execute the PBM (and parameter transformation) on CPU
+- `gdevs = (; gdev_M=gpu_device(), gdev_P=identity)`: to move ML model to GPU but execute the PBM (and parameter transformation) on CPU
 
 Currently, putting the PBM on gpu is not efficient during inversion, because
 prior distribution needs to be evaluated for each sample.

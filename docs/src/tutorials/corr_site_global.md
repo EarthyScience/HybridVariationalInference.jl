@@ -84,7 +84,7 @@ g_chain = SimpleChain(
 # get a template of the parameter vector, ϕg0
 g_chain_app, ϕg0 = construct_ChainsApplicator(rng, g_chain)
 #
-priorsM = [prob.priors[k] for k in keys(prob.θM)]
+priorsM = Tuple(prob.priors[k] for k in keys(prob.θM))
 lowers, uppers = get_quantile_transformed(priorsM, prob.transM)
 FT = eltype(prob.θM)
 g_chain_scaled = NormalScalingModelApplicator(g_chain_app, lowers, uppers, FT)
