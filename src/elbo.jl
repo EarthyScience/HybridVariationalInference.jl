@@ -246,15 +246,13 @@ function compute_priors_logdensity(priorsP, priorsM, θP, θMs, zero_prior_logde
             #TRET = Base.return_types(logpdf_tv_sum, Tuple{typeof(priorsM[i]), typeof(θMs[:,i])})
         end
     end
-    nlMs_sum = sum(f_col, 1:length(priorsM))
+    nlMs_sum = sum(f_col, 1:length(priorsM))::typeof(nlP0) # not type inferred in julia 1.10
     neg_log_prior_i = nlP0 - nlMs_sum
     if !isfinite(neg_log_prior_i)
         @show neg_log_prior_i, nlP0
         @show θMs
         @show priorsM
         error("inspect non-finite priors")
-        i_par = 2
-        priorMi, θMi = priorsM[i_par], eachcol(θMs)[2]
     end
     neg_log_prior_i
 end

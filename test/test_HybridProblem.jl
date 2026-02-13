@@ -171,9 +171,12 @@ test_without_flux = (scenario) -> begin
         (_xM, _xP, _y_o, _y_unc, _i_sites) = first(train_loader)
         #l1 = loss_gf(p0, _xM, _xP, _y_o, _y_unc, _i_sites; is_testmode = false)
 
+        #using ShareAdd
+        #@usingany Cthulhu
         l1 = @inferred (
             # @descend_code_warntype (
-            loss_gf(p0, _xM, _xP, _y_o, _y_unc, _i_sites; is_testmode = true))
+            loss_gf(p0, _xM, _xP, _y_o, _y_unc, _i_sites; is_testmode = true)
+            )
         tld = first(train_loader)
         gr = Zygote.gradient(p -> loss_gf(p, tld...; is_testmode = false)[1], CA.getdata(p0))
         @test gr[1] isa Vector
@@ -198,6 +201,7 @@ test_without_flux = (scenario) -> begin
 end
 
 #test_without_flux(Val((:MeanHVIApproximation,)))  # not used in loss_gf
+#scenario=Val((:default,))
 test_without_flux(Val((:default,)))
 test_without_flux(Val((:covarK2,)))
 

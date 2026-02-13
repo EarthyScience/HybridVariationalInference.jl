@@ -277,8 +277,10 @@ function get_loss_gf(g, transM, transP, f, py,
             logpdf_tv = (prior, θ::AbstractVector) -> begin
                 map(Base.Fix1(logpdf, prior), θ)::Vector{eltype(θP_pred)}
             end
-            neg_log_prior = compute_priors_logdensity(priorsP, priorsM, θP_pred, θMs_pred,
-                is_omit_priors, zero_prior_logdensity)
+            neg_log_prior = 
+                # @descend_code_warntype (
+                compute_priors_logdensity(priorsP, priorsM, θP_pred, θMs_pred,
+                    is_omit_priors, zero_prior_logdensity)
             if !isfinite(neg_log_prior)
                 @info "loss_gf: encountered non-finite prior density"
                 @show θP_pred, θMs_pred, ϕc.ϕP
