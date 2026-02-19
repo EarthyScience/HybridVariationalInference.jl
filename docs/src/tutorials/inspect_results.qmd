@@ -47,10 +47,15 @@ probo = load(fname, "probo");
 # not necessary any more with DoubleMM.f_doubleMM_sites
 # {{< include _pbm_matrix.qmd >}} 
 # outside notebook, need to reset ModelApplicator, due to fθ defined in Notebook module
-#θFix = CA.ComponentVector{eltype(probo.θP)}(r0=0.3)
+#
 θFix = CA.ComponentVector{eltype(probo.θP)}(
   r0=probo.f_allsites.θFixm[1])
-_xP_batch = first(probo.train_dataloader)[2]
+_xP_batch = _xP = first(probo.train_dataloader)[2]
+_xM = first(probo.train_dataloader)[1]
+_xM = probo.train_dataloader.data[1]
+_xP = probo.train_dataloader.data[2]
+tmp = predict_point_hvi(rng, probo, xM = _xM, xP = _xP)
+
 f_batch = PBMPopulationApplicator(
   f_doubleMM_sites, probo.n_batch; probo.θP, probo.θM, θFix, xPvec=_xP_batch[:,1])
 probo = HybridProblem(probo; f_batch)
@@ -128,6 +133,21 @@ We see that $K_1$ across sites ranges from about 0.18 to 0.25, and that
 its estimated uncertainty is about 0.04, slightly decreasing with the 
 values of the parameter.
 
+## Correlations among site parameters at uncronstrained scale
+The features a correlation matrix of site parameters at unconstrained scale.
+It can be extracted using function [`get_hybridproblem_correlation_Ms`](@ref).
+
+In a first implementation, this function operates on an `AbstractHybridProblem` 
+assuming that its returned `ϕq` contains a component `ρsM` 
+that is used to parameterize the
+Cholesky factor of the correlation matrix.
+
+``` julia
+CM = HVI.get_hybridproblem_correlation_Ms(probo)
+fig = Figure(); ax = Axis(fig[1,1], xlabel="mean($par)",ylabel="sd($par)")
+scatter!(ax, θmean, θsd) 
+fig
+```
 ## Predictive Posterior
 
 In addition to the uncertainty in parameters, we are also interested in
@@ -168,6 +188,9 @@ We see that observed values for associated substrate concentrations range about 
 with the observed value.
 
 
+If only a point prediction is required, function [`predict_point_hvi`](@ref) 
+can be used, that returns
+a single set of expected parameters and corresponding predictions.
 
 
 

@@ -115,7 +115,7 @@ function gf(prob::AbstractHybridProblem, xM::AbstractMatrix, xP::AbstractMatrix;
     n_site_pred = size(xP,2)
     @assert size(xM, 2) == n_site_pred
     f_batch = get_hybridproblem_PBmodel(prob; scenario)
-    f = (n_site_pred == n_batch) ? f : create_nsite_applicator(f_batch, n_site_pred)
+    f = (n_site_pred == n_batch) ? f_batch : create_nsite_applicator(f_batch, n_site_pred)
     if gdevs.gdev_P isa MLDataDevices.AbstractGPUDevice
         f_dev = gdevs.gdev_P(f) #fmap(gdevs.gdev_P, f)
     else

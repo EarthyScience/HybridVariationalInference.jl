@@ -72,7 +72,8 @@ function get_hybridproblem_neg_logden_obs end
 """
     get_hybridproblem_par_templates(::AbstractHybridProblem; scenario)
 
-Provide tuple of templates of ComponentVectors `θP` and `θM`.
+Provide a template tuple of ComponentVectors `θP` and `θM` 
+at unconstrained (original) scale.
 """
 function get_hybridproblem_par_templates end
 

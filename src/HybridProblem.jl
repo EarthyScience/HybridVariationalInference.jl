@@ -177,8 +177,43 @@ end
 
 function get_hybridproblem_par_templates(prob::HybridProblem; scenario = ())
     θP = get_hybridproblem_θP(prob; scenario)
-    (; θP, θM = prob.θM)
+    (; θP, θM = prob.θM) 
 end
+
+# deprecated, better use predict_point_hvi
+# """
+#     compute_hybridproblem_par_expected(prob::HybridProblem, xM; scenario = ())
+
+# Compute the expected PBM model parameters for given covariates 
+# (n_covariate x n_site).
+
+# Returns a tuple of
+# - `θP`: ComponentVector of population-level parameters
+# - `θMs`: ComponentArray (n_site x n_par) of individual (site) parameters
+# """
+# function compute_hybridproblem_par_expected(prob::HybridProblem, xM; 
+#     scenario = (), cdev = identity)
+#     n_site = size(xM,2)
+#     θP = get_hybridproblem_θP(prob; scenario)
+#     g, ϕg = get_hybridproblem_MLapplicator(prob; scenario)
+#     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
+#     transMs = StackedArray(transM, n_site)
+#     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
+#     xMP = if isempty(pbm_covars) 
+#         xM 
+#     else
+#         intP = ComponentArrayInterpreter(θP)
+#         pbm_covar_indices = CA.getdata(intP(1:length(intP))[pbm_covars])
+#         ζP = inverse(transP)(θP)
+#         _append_each_covars(xM, CA.getdata(ζP), pbm_covar_indices)
+#     end
+#     θMs_m = gtrans(g, transMs, xMP, ϕg; cdev=identity, is_testmode=true)
+#     # attach parameter names in columns
+#     (;θM) = get_hybridproblem_par_templates(prob; scenario)
+#     intm = ComponentArrayInterpreter((n_site,), θM)
+#     θMs = intm(θMs_m)
+#     (; θP, θMs) 
+# end
 
 function get_hybridproblem_ϕq(prob::HybridProblem; scenario = ())
     prob.ϕq

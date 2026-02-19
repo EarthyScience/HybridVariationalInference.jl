@@ -5,6 +5,12 @@
 CurrentModule = HybridVariationalInference  
 ```
 
+Julias version:
+
+``` julia
+VERSION
+```
+
 First load necessary packages.
 
 ``` julia
@@ -288,6 +294,7 @@ For the parameters, one row corresponds to
 one site. For the drivers and predictions, one column corresponds to one site.
 
 ``` julia
+using StaticArrays
 function f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
     # extract several covariates from xP
     S1 = view(xPc, Val(:S1), :)

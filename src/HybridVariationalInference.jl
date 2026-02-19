@@ -110,6 +110,7 @@ export get_ca_starts, get_ca_ends, get_cor_count
 include("cholesky.jl")
 
 export neg_elbo_gtf, sample_posterior, predict_hvi, zero_penalty_loss
+export get_hybridproblem_correlation_Ms
 include("elbo_dev.jl")
 include("elbo.jl")
 include("elbo2.jl")

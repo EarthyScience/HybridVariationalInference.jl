@@ -1,6 +1,8 @@
 ---
 title: "Basic workflow without GPU"
 engine: julia
+julia:
+  exeflags: ["+1.11"]
 execute:
   echo: true
   output: false
@@ -14,6 +16,11 @@ bibliography: twutz_txt.bib
 
 ``` @meta
 CurrentModule = HybridVariationalInference  
+```
+
+Julias version:
+```{julia}
+VERSION
 ```
 
 First load necessary packages.
