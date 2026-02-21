@@ -28,10 +28,10 @@ const prob = DoubleMM.DoubleMMCase()
 scenario = Val((:default,))
 #scenario = Val((:covarK2,))
 
-const approx = MeanHVIApproximationMat()
-#const approx = MeanHVIApproximation()
+#approx = MeanHVIApproximationMat()
+#approx = MeanVarSepHVIApproximation()
 
-test_scenario = (scenario) -> begin
+test_scenario = (scenario, approx) -> begin
     probc = HybridProblem(prob; scenario, approx);
     FT = get_hybridproblem_float_type(probc; scenario)
     par_templates = get_hybridproblem_par_templates(probc; scenario)
@@ -74,7 +74,7 @@ test_scenario = (scenario) -> begin
     # transP = elementwise(exp)
     # transM = Stacked(elementwise(identity), elementwise(exp))
     #transM = Stacked(elementwise(identity), elementwise(exp), elementwise(exp)) # test mismatch
-    ϕq0 = init_hybrid_ϕq(approx, par_templates.θP, par_templates.θM, transP, cor_ends)
+    ϕq0 = init_hybrid_ϕq(approx, par_templates.θP, par_templates.θM, transP, cor_ends; n_site)
     # ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(FT))
     # ϕq0 = CP.update_μP_by_θP(ϕunc0, θP_true, transP)
     (; ϕ, interpreters) = init_hybrid_params(ϕg0, ϕq0)
@@ -126,7 +126,7 @@ test_scenario = (scenario) -> begin
         @test gr[1] isa Vector
     end
 
-    if !(:covarK2 ∈ CP._val_value(scenario)) 
+    if !(:covarK2 ∈ CP._val_value(scenario)) && (approx isa MeanHVIApproximation)
         # can only test distribution if g is not repeated
         @testset "generate_ζ check sd residuals $(last(CP._val_value(scenario)))" begin
             # prescribe very different uncertainties 
@@ -498,7 +498,8 @@ test_scenario = (scenario) -> begin
 end # test_scenario
 
 
-test_scenario(Val((:default,)))
+test_scenario(Val((:default,)), MeanHVIApproximationMat())
+test_scenario(Val((:default,)), MeanVarSepHVIApproximation())
 
 # with providing process parameter as additional covariate
-test_scenario(Val((:covarK2,)))
+test_scenario(Val((:covarK2,)), MeanHVIApproximationMat())

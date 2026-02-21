@@ -242,12 +242,13 @@ given a vector of global parameters, and a matrix of site parameters to
 invocation of the process based model (PBM), defined at the beginning.
 
 ``` julia
+approx = MeanHVIApproximation()
 f_batch = PBMSiteApplicator(f_doubleMM; θP, θM, θFix, xPvec=xP[:,1])
-ϕq0 = init_hybrid_ϕq(MeanHVIApproximation(), θP, θM, transP)
+ϕq0 = init_hybrid_ϕq(approx, θP, θM, transP; n_site)
 
 prob = HybridProblem(θM, ϕq0, g_chain_scaled, ϕg0, 
     f_batch, priors_dict, py,
-    transM, transP, train_dataloader, test_data,n_covar, n_site, n_batch)
+    transM, transP, train_dataloader, test_data,n_covar, n_site, n_batch; approx)
 ```
 
 ## Perform the inversion

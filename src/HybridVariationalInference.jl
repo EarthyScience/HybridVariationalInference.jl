@@ -82,7 +82,7 @@ export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_
        gdev_hybridproblem_dataloader, gdev_hybridproblem_data,
        setup_PBMpar_interpreter,
        get_gdev_MP,
-        init_hybrid_ϕq       
+       init_hybrid_ϕq       
 include("AbstractHybridProblem.jl")
 
 export HybridProblem
@@ -114,6 +114,7 @@ include("cholesky.jl")
 export neg_elbo_gtf, sample_posterior, predict_hvi, zero_penalty_loss
 export get_hybridproblem_correlation_Ms
 include("elbo_dev.jl")
+include("elbo_sepvec.jl")
 include("elbo.jl")
 include("elbo2.jl")
 

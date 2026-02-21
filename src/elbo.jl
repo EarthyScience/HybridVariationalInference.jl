@@ -469,7 +469,9 @@ model.
 The output shape of size `(n_site x n_par x n_MC)` is tailored to iterating
 each MC sample and then transforming each parameter on block across sites.
 """
-function generate_ζ(approx::AbstractMeanHVIApproximation, rng::AbstractRNG, 
+function generate_ζ(
+    approx::Union{AbstractMeanHVIApproximation, AbstractMeanVarSepHVIApproximation}, 
+    rng::AbstractRNG, 
     g, ϕ::AbstractVector{FT}, xM::MT;
     int_ϕg_ϕq::AbstractComponentArrayInterpreter,
     int_ϕq::AbstractComponentArrayInterpreter,

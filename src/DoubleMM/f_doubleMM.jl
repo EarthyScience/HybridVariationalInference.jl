@@ -452,10 +452,13 @@ function HVI.get_hybridproblem_cor_ends(prob::DoubleMMCase; scenario::Val{scen})
     end
 end
 
-function HVI.get_hybridproblem_ϕq(prob::DoubleMMCase; scenario)
+function HVI.get_hybridproblem_ϕq(prob::DoubleMMCase; scenario::Val{scen}) where {scen}
+    approx = (:sepvar ∈ scen) ? MeanVarSepHVIApproximation() : MeanHVIApproximationMat()
     FT = get_hybridproblem_float_type(prob; scenario) 
     cor_ends = get_hybridproblem_cor_ends(prob; scenario)
-    ϕunc = init_hybrid_ϕunc(MeanHVIApproximationMat(), cor_ends, zero(FT))    
+    θM, θP = get_hybridproblem_par_templates(prob; scenario)
+    n_site, _ = get_hybridproblem_n_site_and_batch(prob; scenario)
+    ϕunc = init_hybrid_ϕunc(approx, cor_ends, zero(FT); θM, n_site)    
     # for DoubleMMCase templates gives the correct values
     θP = get_hybridproblem_par_templates(prob; scenario).θP
     transP = get_hybridproblem_transforms(prob; scenario).transP

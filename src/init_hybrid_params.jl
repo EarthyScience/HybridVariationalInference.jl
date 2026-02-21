@@ -112,10 +112,38 @@ function init_hybrid_ϕunc(
             hcat, (coef_logσ2_logM for _ in 1:cor_ends.M[end])),
         ρsP = fill(ρ0, get_cor_count(cor_ends.P)),
         ρsM = fill(ρ0, get_cor_count(cor_ends.M)),
+        θM::CA.ComponentVector,
+        n_site::Integer = 0,
 ) where {FT}
     nt = (;
         logσ2_ζP,
         coef_logσ2_ζMs,
+        ρsP,
+        ρsM)
+    ca = CA.ComponentVector(;nt...)::CA.ComponentVector
+end
+
+function init_hybrid_ϕunc(
+        approx::AbstractMeanVarSepHVIApproximation,
+        cor_ends::NamedTuple,
+        ρ0::FT = 0.0f0,
+        logσ2_ζMs::AbstractMatrix{FT} = Array{FT}(undef, 0, 0),
+        logσ2_ζP::AbstractVector{FT} = fill(FT(-10.0), cor_ends.P[end]),
+        ρsP = fill(ρ0, get_cor_count(cor_ends.P)),
+        ρsM = fill(ρ0, get_cor_count(cor_ends.M));
+        θM::CA.ComponentVector,
+        n_site::Integer,
+        relerr = 0.01,
+) where {FT}
+    logσ2_ζMs = if isempty(logσ2_ζMs) 
+        # sigma is the relative error of the template of θM
+        repeat(FT(2) * log.(convert(FT,relerr) .* CA.getdata(θM)), 1, n_site)
+    else
+        logσ2_ζMs
+    end
+    nt = (;
+        logσ2_ζP,
+        logσ2_ζMs,
         ρsP,
         ρsM)
     ca = CA.ComponentVector(;nt...)::CA.ComponentVector

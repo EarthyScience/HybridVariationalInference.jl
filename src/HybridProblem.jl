@@ -21,7 +21,10 @@ Fields:
   defaults to  `(P = [length(θP)], M = [length(θM)])`
 - `pbm_covars::NTuple{N,Symbol}`: names of global parameters used as covariates 
   in the ML model, defaults to `()`, i.e. no covariates fed into the ML model
-
+- `approx::AbstractHVIApproximation`: the approximation to use for the variational 
+  distribution, defaults to `MeanHVIApproximationMat()`, i.e. correlation matrix
+  shared across all sites and variance parameters a function of the predicted 
+  parameters.
 """
 struct HybridProblem <: AbstractHybridProblem
     #θP::CA.ComponentVector
@@ -57,7 +60,7 @@ struct HybridProblem <: AbstractHybridProblem
             test_data::NamedTuple,
             n_covar::Int,
             n_site::Int,
-            n_batch::Int,
+            n_batch::Int;
             cor_ends::NamedTuple = (P = [length(ϕq[Val(:μP)])], M = [length(θM)]),
             pbm_covars::NTuple{N,Symbol} = (),
             approx::AbstractHVIApproximation = MeanHVIApproximationMat()
@@ -69,21 +72,25 @@ struct HybridProblem <: AbstractHybridProblem
 end
 
 """
-    init_hybrid_ϕq(θP, θM, transP; cor_ends)
+    init_hybrid_ϕq(θP, θM, transP; cor_ends, n_site)
 
 Initialize the non-ML parameter vector.    
 """
 function init_hybrid_ϕq(
-    approx::AbstractMeanHVIApproximation,
+    approx::Union{AbstractMeanHVIApproximation, AbstractMeanVarSepHVIApproximation},
     θP::CA.ComponentVector,
     θM::CA.ComponentVector,
     transP::Stacked,
-    cor_ends::NamedTuple = (P = [length(θP)], M = [length(θM)]),
+    cor_ends::NamedTuple = (P = [length(θP)], M = [length(θM)]);
+    n_site::Integer,
 )
     FT = promote_type(eltype(θP), eltype(θM))
-    ϕunc0 = init_hybrid_ϕunc(approx, cor_ends, zero(FT))
+    ϕunc0 = init_hybrid_ϕunc(approx, cor_ends, zero(FT); θM, n_site)
     ϕq = update_μP_by_θP(ϕunc0, θP, transP)
 end
+
+
+
 
 """
     create_ϕq(θP, ϕunc, transP::Stacked)
@@ -140,7 +147,7 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
         ϕq = CA.ComponentVector(ϕq; ϕunc...)
     end
     HybridProblem(θM, ϕq, g, ϕg, f_batch, priors, py, transM, transP, train_dataloader,
-        test_data, n_covar, n_site, n_batch, cor_ends_new, pbm_covars, approx)
+        test_data, n_covar, n_site, n_batch; cor_ends = cor_ends_new, pbm_covars, approx)
 end
 
 function HybridProblem(prob::HybridProblem; kwargs... )

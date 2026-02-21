@@ -55,6 +55,10 @@ function test_with_scenario(scenario)
         Ms=θMs_true)
     ϕ_true = CA.ComponentVector(Ms = θMs_true, ϕq=ϕq_true)
     ϕ_cpu = CA.ComponentVector(Ms = θMs_true .+ FT(0.01), ϕq=ϕq)
+    # initial estimate of error in θMs of 2% of true value
+    ϕ_cpu_sepvar = CA.ComponentVector(Ms = θMs_true,
+        ϕq = CA.ComponentVector(ϕ_cpu.ϕq; 
+            logσ2_ζMs = 2 .* log.(0.02 * θMs_true .+ FT(0.01))))
 
     interpreters = (; pmu=ComponentArrayInterpreter(ϕ_true),
         ϕq=ComponentArrayInterpreter(ϕq)
@@ -90,8 +94,9 @@ function test_with_scenario(scenario)
     # approx = MeanHVIApproximation()
     # approx = MeanHVIApproximationMat()
     # approx = CP.MeanHVIApproximationDev()
+    # approx = MeanVarSepHVIApproximation()
     function test_sample_ζresid_norm(approx)    
-        ϕc = copy(ϕ_cpu)
+        ϕc = approx isa MeanVarSepHVIApproximation ? copy(ϕ_cpu_sepvar) : copy(ϕ_cpu)
         ϕc.ϕq.coef_logσ2_ζMs[1,:] .= (log ∘ abs2).((0.1, 100.0))
         ϕc.ϕq.ρsM .= 0.0
         int_ϕq = get_concrete(ComponentArrayInterpreter(ϕc.ϕq))
@@ -133,9 +138,16 @@ function test_with_scenario(scenario)
         # isapprox(std(xc.Ms[:,1,1]), 0.1, rtol = 0.1) # site 1 parameter 1 
         # isapprox(std(xc.Ms[:,:,1]), 0.1, rtol = 0.1) # parameter 1
         # isapprox(std(xc.Ms[:,:,2]), 100.1, rtol = 0.1) # parameter 2
-        isapprox(std(ζMs_parfirst_resids[1,1,:]), 0.1, rtol = 0.1) # site 1 parameter 1 
-        isapprox(std(ζMs_parfirst_resids[1,:,:]), 0.1, rtol = 0.1) # parameter 1
-        isapprox(std(ζMs_parfirst_resids[2,:,:]), 100.1, rtol = 0.1) # parameter 2
+        if approx isa MeanVarSepHVIApproximation
+            isapprox(std(ζMs_parfirst_resids[1,1,:]), exp(ϕc.ϕq.logσ2_ζMs[1,1]/2), rtol = 0.1) # site 1 parameter 1 
+            isapprox(std(ζMs_parfirst_resids[1,end,:]), exp(ϕc.ϕq.logσ2_ζMs[1,end]/2), rtol = 0.1) # site 1 parameter 1 
+            isapprox(std(ζMs_parfirst_resids[end,1,:]), exp(ϕc.ϕq.logσ2_ζMs[end,1]/2), rtol = 0.1) # site 1 parameter 1 
+            isapprox(std(ζMs_parfirst_resids[end,end,:]), exp(ϕc.ϕq.logσ2_ζMs[end,end]/2), rtol = 0.1) # site 1 parameter 1 
+        else
+            isapprox(std(ζMs_parfirst_resids[1,1,:]), 0.1, rtol = 0.1) # site 1 parameter 1 
+            isapprox(std(ζMs_parfirst_resids[1,:,:]), 0.1, rtol = 0.1) # parameter 1
+            isapprox(std(ζMs_parfirst_resids[2,:,:]), 100.1, rtol = 0.1) # parameter 2
+        end
         #
         if ggdev isa MLDataDevices.AbstractGPUDevice
             @testset "sample_ζresid_norm gpu" begin
@@ -223,12 +235,24 @@ function test_with_scenario(scenario)
         approx = MeanHVIApproximation()
         test_sample_ζresid_norm(approx)        
     end
+
+    @testset "sample_ζresid_norm MeanVarSepHVIApproximation $(last(CP._val_value(scenario)))" begin
+        approx = MeanVarSepHVIApproximation()
+        test_sample_ζresid_norm(approx)        
+    end
+
 end
 
 @testset "default scenario" begin
     scenario = Val((:default,))
     test_with_scenario(scenario)
 end
+
+@testset "sepvar" begin
+    scenario = Val((:sepvar,))
+    test_with_scenario(scenario)
+end
+
 
 @testset "noglobals scenario" begin
     scenario = Val((:no_globals,))
