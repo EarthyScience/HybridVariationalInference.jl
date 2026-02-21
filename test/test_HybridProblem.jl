@@ -50,9 +50,13 @@ function construct_problem(; scenario::Val{scen}) where scen
     rng = StableRNG(111)
     # n_batch = 10
     n_site, n_batch = get_hybridproblem_n_site_and_batch(CP.DoubleMM.DoubleMMCase(); scenario)
+    n_site_test = 60
     # dependency on DeoubleMMCase -> take care of changes in covariates
-    (; xM, θP_true, θMs_true, xP,  y_true,  y_o, y_unc
-    ) = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); scenario)
+    (; xM, θP_true, θMs_true, xP, y_true,  y_o, y_unc
+    ) = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); n_site_test,scenario)
+    i_test = n_site .+ (1:n_site_test)
+    test_data = (; xM = xM[:, i_test], xP = xP[:, i_test], y_true = y_true[:, i_test],
+        y_o = y_o[:, i_test], y_unc = y_unc[:, i_test])
     n_covar = size(xM,1)
     n_input = (:covarK2 ∈ scen) ? n_covar +1 : n_covar
     g_chain = SimpleChain(
@@ -72,8 +76,10 @@ function construct_problem(; scenario::Val{scen}) where scen
     #         MLUtils.DataLoader((xM, xP, y_o, y_unc, i_sites), batchsize=n_batch, partial=false)
     #     end
     # end
+    i_train = 1:n_site
     train_dataloader = MLUtils.DataLoader(
-        (CA.getdata(xM), CA.getdata(xP), y_o, y_unc, i_sites), batchsize=n_batch, partial=false)
+        (CA.getdata(xM[:,i_train]), CA.getdata(xP[:,i_train]), y_o[:,i_train], 
+        y_unc[:,i_train], i_sites[i_train]), batchsize=n_batch, partial=false)
     θall = vcat(θP, θM)
     priors_dict = Dict{Symbol, Distribution}(
         keys(θall) .=> fit.(LogNormal, θall, QuantilePoint.(θall .* 3, 0.95)))
@@ -98,7 +104,7 @@ function construct_problem(; scenario::Val{scen}) where scen
     end
     HybridProblem(θM, ϕq, g_chain_scaled, ϕg0, 
         f_batch, priors_dict, py,
-        transM, transP, train_dataloader, n_covar, n_site, n_batch, 
+        transM, transP, train_dataloader, test_data, n_covar, n_site, n_batch, 
         cor_ends, pbm_covars, approx,
         #ϕunc0, 
         )

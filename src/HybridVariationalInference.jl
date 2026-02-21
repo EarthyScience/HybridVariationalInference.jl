@@ -69,6 +69,7 @@ export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_
        get_hybridproblem_float_type, gen_hybridproblem_synthetic,
        get_hybridproblem_par_templates, get_hybridproblem_transforms,
        get_hybridproblem_train_dataloader,
+       get_hybridproblem_test_data,
        get_hybridproblem_neg_logden_obs,
        get_hybridproblem_n_covar,
        get_hybridproblem_n_site_and_batch,

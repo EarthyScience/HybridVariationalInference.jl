@@ -376,37 +376,51 @@ function HVI.get_hybridproblem_train_dataloader(prob::DoubleMMCase; scenario::Va
         rng::AbstractRNG = StableRNG(111), kwargs...
 ) where {scen}
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    dl = construct_dataloader_from_synthetic(rng, prob; scenario, n_batch, kwargs...) 
     if (:driverNAN ∈ scen)
-        (; xM, xP, y_o, y_unc) = gen_hybridproblem_synthetic(rng, prob; scenario)
-        n_site = size(xM,2)
-        i_sites = 1:n_site
+        (xM, xP, y_o, y_unc, i_sites) = dl.data
         # set the last two entries of the S1 drivers and observations of the second site NaN
-        view(@view(xP[:S1,2]), 7:8) .= NaN
-        y_o[7:8,2] .= NaN
+        is_obs = 7:8
+        i_site = 2
+        xP[is_obs,i_site] .= NaN
+        y_o[is_obs,i_site] .= NaN
         train_loader = MLUtils.DataLoader((CA.getdata(xM), CA.getdata(xP), y_o, y_unc, i_sites);
             batchsize = n_batch, partial = false)
     else
-        construct_dataloader_from_synthetic(rng, prob; scenario, n_batch, kwargs...)
+        dl
     end
 end
 
+function HVI.get_hybridproblem_test_data(prob::DoubleMMCase; scenario::Val{scen},
+        rng::AbstractRNG = StableRNG(211), kwargs...
+) where {scen}
+    n_site_test = 60
+    (; xM, xP, y_o, y_unc) = gen_hybridproblem_synthetic(
+        rng, prob; scenario, n_site_test)
+    n_site_all = size(xM,2)
+    i_test = (n_site_all - n_site_test + 1):n_site_all
+    (; xM = xM[:, i_test], xP = xP[:, i_test], y_o = y_o[:, i_test],
+        y_unc = y_unc[:, i_test], i_sites = i_test)
+end
+
 function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
-        scenario::Val{scen}) where {scen}
+        scenario::Val{scen}, n_site_test = 0) where {scen}
     n_covar_pc = 2
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    n_siteall = n_site + n_site_test
     n_covar = get_hybridproblem_n_covar(prob; scenario)
     n_θM = length(θM)
     FloatType = get_hybridproblem_float_type(prob; scenario)
-    xM, θMs_true0 = gen_cov_pred(rng, FloatType, n_covar_pc, n_covar, n_site, n_θM;
+    xM, θMs_true0 = gen_cov_pred(rng, FloatType, n_covar_pc, n_covar, n_siteall, n_θM;
         rhodec = 8, is_using_dropout = false)
-    int_θMs_sites = ComponentArrayInterpreter(θM, (n_site,))
+    int_θMs_sites = ComponentArrayInterpreter(θM, (n_siteall,))
     # normalize to be distributed around the prescribed true values
     θMs_true = int_θMs_sites(scale_centered_at(θMs_true0, θM, FloatType(0.1)))
     f_batch = get_hybridproblem_PBmodel(prob; scenario)
-    f = create_nsite_applicator(f_batch, n_site)
-    #xP = fill((; S1 = xP_S1, S2 = xP_S2), n_site)
-    int_xP_sites = ComponentArrayInterpreter(int_xP1, (n_site,))
-    xP = int_xP_sites(vcat(repeat(xP_S1, 1, n_site), repeat(xP_S2, 1, n_site)))
+    f = create_nsite_applicator(f_batch, n_siteall)
+    #xP = fill((; S1 = xP_S1, S2 = xP_S2), n_siteall)
+    int_xP_sites = ComponentArrayInterpreter(int_xP1, (n_siteall,))
+    xP = int_xP_sites(vcat(repeat(xP_S1, 1, n_siteall), repeat(xP_S2, 1, n_siteall)))
     #xP[:S1,:]
     #θP = get_θP(prob) # for DoubleMMCase par_templates gives correct θP
     θP = get_hybridproblem_θP(prob; scenario)

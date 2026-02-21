@@ -11,9 +11,10 @@ Fields:
 - `py`: Likelihood function
 - `transM::Stacked`, `transP::Stacked`: bijectors transforming from unconstrained to 
   constrained scale for site-specific and global parameters respectively.
-- `train_dataloader::MLUtils.DataLoader`: providingn Tuple of matrices 
+- `train_dataloader::MLUtils.DataLoader`: providing Tuple of matrices 
   `(xM, xP, y_o, y_unc, i_sites)`: covariates, model drivers, observations, 
   observation uncertainties and index of provided sites.
+- `test_data::Tuple of the same form as with `train_dataloader` for testset data.
 - `n_covar::Int`, `n_site::Int`, `n_batch::Int`: number covariates,
   number of sites, and number of sites within one batch
 - `cor_ends::NamedTuple`: block structure in correlations, 
@@ -35,6 +36,7 @@ struct HybridProblem <: AbstractHybridProblem
     transP::Stacked
     cor_ends::@NamedTuple{P::Vector{Int}, M::Vector{Int}} # = (P=(1,),M=(1,))
     train_dataloader::MLUtils.DataLoader
+    test_data::NamedTuple
     n_covar::Int
     n_site::Int
     n_batch::Int
@@ -51,8 +53,8 @@ struct HybridProblem <: AbstractHybridProblem
             py,
             transM::Stacked,
             transP::Stacked,
-            # return a function that constructs the trainloader based on n_batch
             train_dataloader::MLUtils.DataLoader,
+            test_data::NamedTuple,
             n_covar::Int,
             n_site::Int,
             n_batch::Int,
@@ -62,7 +64,7 @@ struct HybridProblem <: AbstractHybridProblem
     ) where N
         new(
             θM, f_batch, g, ϕg, ϕq, priors, py, transM, transP, cor_ends, 
-            train_dataloader, n_covar, n_site, n_batch, pbm_covars, approx)
+            train_dataloader, test_data, n_covar, n_site, n_batch, pbm_covars, approx)
     end
 end
 
@@ -112,6 +114,7 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
     transP = get_hybridproblem_transforms(prob; scenario).transP,
     transM = get_hybridproblem_transforms(prob; scenario).transM,
     train_dataloader = get_hybridproblem_train_dataloader(prob; scenario),
+    test_data = get_hybridproblem_test_data(prob; scenario),
     n_covar = get_hybridproblem_n_covar(prob; scenario),
     n_site = get_hybridproblem_n_site_and_batch(prob; scenario)[1],
     n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)[2],
@@ -137,7 +140,7 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
         ϕq = CA.ComponentVector(ϕq; ϕunc...)
     end
     HybridProblem(θM, ϕq, g, ϕg, f_batch, priors, py, transM, transP, train_dataloader,
-        n_covar, n_site, n_batch, cor_ends_new, pbm_covars, approx)
+        test_data, n_covar, n_site, n_batch, cor_ends_new, pbm_covars, approx)
 end
 
 function HybridProblem(prob::HybridProblem; kwargs... )
@@ -243,6 +246,10 @@ end
 
 function get_hybridproblem_train_dataloader(prob::HybridProblem; scenario = ())
     prob.train_dataloader
+end
+
+function get_hybridproblem_test_data(prob::HybridProblem; scenario = ())
+    prob.test_data
 end
 
 function get_hybridproblem_cor_ends(prob::HybridProblem; scenario = ())

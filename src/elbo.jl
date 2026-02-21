@@ -594,12 +594,14 @@ end
 
 Extract correlation matrix of a problem based on `MeanHVIApproximation`.
 """
-function get_hybridproblem_correlation_Ms(prob::AbstractHybridProblem; scenario = Val(()))
-    UM = get_hybridproblem_cholesky_correlation_Ms(prob; scenario)
+function get_hybridproblem_correlation_Ms(prob::AbstractHybridProblem; 
+    xM = get_hyb, scenario = Val(()))
+    UM = get_hybridproblem_cholesky_correlation_Ms(prob; xM, scenario)
     UM' * UM
 end
 
-function get_hybridproblem_cholesky_correlation_Ms(prob::AbstractHybridProblem; scenario = Val(()))
+function get_hybridproblem_cholesky_correlation_Ms(prob::AbstractHybridProblem; 
+    xM = nothing, scenario = Val(()))
     ϕq = get_hybridproblem_ϕq(prob; scenario)
     cor_ends = get_hybridproblem_cor_ends(prob; scenario)
     ρsM = ϕq[Val(:ρsM)]
