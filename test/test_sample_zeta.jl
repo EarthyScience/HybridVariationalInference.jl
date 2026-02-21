@@ -97,6 +97,7 @@ function test_with_scenario(scenario)
         int_ϕq = get_concrete(ComponentArrayInterpreter(ϕc.ϕq))
         n_MC_pred = 300 # larger n_MC to test σ2
         n_site_batch = size(ϕc.Ms,2)
+        i_sites = 1:n_site_batch
         #rng = StableRNG(111)
         # @inferred gives any, while Cthulhu inferres concrete type
         # ζP_resids, ζMs_parfirst_resids, σ = @inferred CP.sample_ζresid_norm(approx, rng, ϕc.Ms, ϕc.ϕq;
@@ -105,7 +106,9 @@ function test_with_scenario(scenario)
         #     n_MC=n_MC_pred, cor_ends, int_ϕq))
         # ζP_resids, ζMs_parfirst_resids, σ = CP.sample_ζresid_norm(approx, rng, ϕc.P, ϕc.Ms, ϕc.ϕq;
         #     n_MC=n_MC_pred, cor_ends, int_ϕq) 
-        ζP_resids, ζMs_parfirst_resids, σ = @inferred CP.sample_ζresid_norm(approx, rng, ϕc.Ms, ϕc.ϕq;
+        i_sites = 1:n_site_batch
+        ζP_resids, ζMs_parfirst_resids, σ = @inferred CP.sample_ζresid_norm(
+            approx, rng, i_sites, ϕc.Ms, ϕc.ϕq;
             n_MC=n_MC_pred, cor_ends, int_ϕq) 
         #@code_warntype CP.sample_ζresid_norm(approx, rng, ϕc.Ms, ϕc.ϕq; n_MC=n_MC_pred, cor_ends, int_ϕq) 
         #@usingany Cthulhu
@@ -117,7 +120,7 @@ function test_with_scenario(scenario)
         gr = 
             Zygote.gradient(ϕc -> begin
             ζP_resids, ζMs_parfirst_resids, σ = CP.sample_ζresid_norm(
-                approx, rng, ϕc.Ms, ϕc.ϕq;
+                approx, rng, i_sites, ϕc.Ms, ϕc.ϕq;
                 n_MC, cor_ends, int_ϕq)
             sum(ζP_resids) + sum(ζMs_parfirst_resids)
         end, ϕc)[1]
@@ -149,8 +152,9 @@ function test_with_scenario(scenario)
                 # ζP_resids, ζMs_parfirst_resids, σ = CP.sample_ζresid_norm(
                 #     approx, rng, CA.getdata(ϕcd.Ms), CA.getdata(ϕcd.ϕq);
                 #     n_MC = n_MC_pred, cor_ends, int_ϕq)
+                i_sites = 1:n_site_batch
                 ζP_resids, ζMs_parfirst_resids, σ = @inferred CP.sample_ζresid_norm(
-                    approx, rng, CA.getdata(ϕcd.Ms), CA.getdata(ϕcd.ϕq);
+                    approx, rng, i_sites, CA.getdata(ϕcd.Ms), CA.getdata(ϕcd.ϕq);
                     n_MC = n_MC_pred, cor_ends, int_ϕq)
                 #@descend_code_warntype CP.sample_ζresid_norm(rng, CA.getdata(ϕcd.Ms), CA.getdata(ϕcd.ϕq); n_MC = n_MC_pred, cor_ends, int_ϕq)
                 @test ζP_resids isa GPUArraysCore.AbstractGPUArray
@@ -180,26 +184,26 @@ function test_with_scenario(scenario)
                 () -> begin
                     CP.sample_ζresid_norm(
                     #@benchmark CP.sample_ζresid_norm(
-                        approx, rng, ϕc.Ms, ϕc.ϕq;
+                        approx, rng, i_sites, ϕc.Ms, ϕc.ϕq;
                         n_MC, cor_ends, int_ϕq)
                     #
                     CP.sample_ζresid_norm(
                     #@benchmark CP.sample_ζresid_norm(
-                        approx, rng, ϕcd.Ms, ϕcd.ϕq;
+                        approx, rng, i_sites, ϕcd.Ms, ϕcd.ϕq;
                         n_MC, cor_ends, int_ϕq)
                     #
                     ϕc_few = CA.ComponentVector(ϕc; Ms = ϕc.Ms[:,1:n_site_few]);
                     Zygote.gradient(ϕc -> begin
                     #@benchmark Zygote.gradient(ϕc -> begin # many small allocs
                         ζP_resids, ζMs_parfirst_resids, σ = CP.sample_ζresid_norm(
-                            approx, rng, ϕc.Ms, ϕc.ϕq;
+                            approx, rng, i_sites, ϕc.Ms, ϕc.ϕq;
                             n_MC, cor_ends, int_ϕq)
                         sum(ζP_resids) + sum(ζMs_parfirst_resids)
                     end, ϕc_few)[1]
                     Zygote.gradient(ϕc -> begin # many small allocs
                     #@benchmark Zygote.gradient(ϕc -> begin # many small allocs
                         ζP_resids, ζMs_parfirst_resids, σ = CP.sample_ζresid_norm(
-                            approx, rng, CA.getdata(ϕc.Ms), CA.getdata(ϕc.ϕq);
+                            approx, rng, i_sites, CA.getdata(ϕc.Ms), CA.getdata(ϕc.ϕq);
                             n_MC, cor_ends, int_ϕq)
                         sum(ζP_resids) + sum(ζMs_parfirst_resids)
                     end, ϕcd_few)[1]

@@ -94,11 +94,13 @@ test_scenario = (scenario) -> begin
         g_gpu = ggdev(g_flux)
     end
 
+    i_sites = 1:n_batch
     ζsP, ζsMs, σ = @inferred (
     # @descend_code_warntype (
         CP.generate_ζ(
-        approx, rng, g, ϕ_ini, xM[:, 1:n_batch];
+        approx, rng, g, ϕ_ini, xM[:, i_sites];
         n_MC, cor_ends, pbm_covar_indices,
+        i_sites,
         int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq, is_testmode = false)
     )
 
@@ -114,7 +116,8 @@ test_scenario = (scenario) -> begin
         gr = Zygote.gradient(
             ϕ -> begin
                 _ζsP, _ζsMs, _σ = CP.generate_ζ(
-                    approx, rng, g, ϕ, xM[:, 1:n_batch];
+                    approx, rng, g, ϕ, xM[:, i_sites];
+                    i_sites,
                     n_MC=8, cor_ends, pbm_covar_indices,
                     int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq,
                      is_testmode = true)
@@ -155,11 +158,13 @@ test_scenario = (scenario) -> begin
             #hcat(ϕ_ini, ϕ, _ϕ)[1:4,:]
             #hcat(ϕ_ini, ϕ, _ϕ)[(end-20):end,:]
             n_predict = 10_000 #8_000
-            xM_batch = xM[:, 1:n_batch]
+            i_sites = 1:n_batch
+            xM_batch = xM[:, i_sites]
             _ζsP, _ζsMs, _σ = @inferred (
                 # @descend_code_warntype (
                     CP.generate_ζ(
                     approx, rng, g, _ϕ, xM_batch;
+                    i_sites,
                     n_MC = n_predict, cor_ends, pbm_covar_indices,
                     int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq,
                     is_testmode = true)
@@ -241,11 +246,12 @@ test_scenario = (scenario) -> begin
             ϕ = ggdev(CA.getdata(ϕ_ini))
             @test g_gpu.μ isa GPUArraysCore.AbstractGPUArray
             # @test g_gpu.app isa HybridVariationalInferenceFluxExt.FluxApplicator
-            xMg_batch = ggdev(xM[:, 1:n_batch])
+            xMg_batch = ggdev(xM[:, i_sites])
             ζsP_d, ζsMs_d, σ_d = @inferred (
             # @descend_code_warntype (
                 CP.generate_ζ(
                 approx, rng, g_gpu, ϕ, xMg_batch;
+                i_sites,
                 n_MC, cor_ends, pbm_covar_indices,
                 int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq,
                 is_testmode = true))
@@ -260,6 +266,7 @@ test_scenario = (scenario) -> begin
                 ϕ -> begin
                     _ζsP, _ζsMs, _σ = CP.generate_ζ(
                         approx, rng, g_gpu, ϕ, xMg_batch;
+                        i_sites,
                         n_MC, cor_ends, pbm_covar_indices,
                         int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq,
                         is_testmode = false)
@@ -412,6 +419,7 @@ test_scenario = (scenario) -> begin
         #Cthulhu.@descend_code_warntype (
             @inferred (
                 sample_posterior(rng, g, ϕ_ini, xM;
+                i_sites = 1:size(xM, 2),
                 int_ϕg_ϕq, int_ϕq,
                 transP, transM,
                 cdev = identity,

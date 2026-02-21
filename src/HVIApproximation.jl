@@ -18,3 +18,7 @@ struct MeanHVIApproximation <: AbstractMeanHVIApproximation end
 struct MeanHVIApproximationDev <: AbstractMeanHVIApproximation end 
 
 
+abstract type AbstractMeanVarSepHVIApproximation <: AbstractHVIApproximation end
+
+struct MeanVarSepHVIApproximation <: AbstractMeanVarSepHVIApproximation end
+

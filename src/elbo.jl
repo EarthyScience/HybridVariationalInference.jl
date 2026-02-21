@@ -66,7 +66,7 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
 ) where {FT}
     n_MCr = isempty(priors_θP_mean) ? n_MC : max(n_MC, n_MC_mean)
     ζsP, ζsMs, σ = generate_ζ(approx, rng, g, ϕ, xM; n_MC=n_MCr, cor_ends, pbm_covar_indices,
-        int_ϕq, int_ϕg_ϕq, is_testmode)
+        int_ϕq, int_ϕg_ϕq, is_testmode, i_sites)
     ζsP_cpu = cdev(ζsP) # fetch to CPU, because for <1000 sites (n_batch) this is faster
     ζsMs_cpu = cdev(ζsMs) # fetch to CPU, because for <1000 sites (n_batch) this is faster
     #
@@ -310,22 +310,31 @@ Returns an NamedTuple `(; y, θsP, θsMs, entropy_ζ)` with entries
   that vary by site.
 - `entropy_ζ`: The entropy of the log-determinant of the transformation of 
   the set of model parameters, which is involved in uncertainty quantification.
+
+Note that for some approximations, such as `MeanVarSepHVIApproximation`, 
+`prob.ϕq` contains uncertainty parameters that are specific to sites. 
+For a proper prediction for new sites, update `prob.ϕq` before appropriately.
+If xM and xP is unspecified, the problem's sites are used and `prob.ϕq` is consistent.
+If predicting for a subset of sites, specify keyword argument `i_sites` .
 """
 function predict_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()), 
     gdevs = get_gdev_MP(scenario), 
     xM = nothing, xP = nothing,
     is_testmode = true,
+    i_sites = nothing,
     kwargs...
     )
     if isnothing(xM) || isnothing(xP)
         dl = get_hybridproblem_train_dataloader(prob; scenario)
         dl_dev = gdev_hybridproblem_dataloader(dl; gdevs)
         xM_dl, xP_dl = dl_dev.data[1:2]
-        xM = isnothing(xM) ? xM_dl : xM
-        xP = isnothing(xP) ? xP_dl : xP
+        i_sites = isnothing(i_sites) ? (1:size(xM_dl, 2)) : i_sites
+        xP = isnothing(xP) ? xP_dl[:,i_sites] : xP
+        xM = isnothing(xM) ? xM_dl[:,i_sites] : xM
     end
+    # sample_posterior required consistent prob.ϕq and xM
     (; θsP, θsMs, entropy_ζ) = sample_posterior(
-        rng, prob, xM; scenario, gdevs, is_testmode, kwargs...)
+        rng, prob, xM; scenario, gdevs, is_testmode, i_sites, kwargs...)
     #
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     n_site_pred = size(θsMs,1) # determined by size(xM)
@@ -369,13 +378,19 @@ Returns an NamedTuple `(; θsP, θsMs, entropy_ζ)` with entries
 - `entropy_ζ`: The entropy of the log-determinant of the transformation of 
   the set of model parameters, which is involved in uncertainty quantification.
 """
-function sample_posterior(rng, prob::AbstractHybridProblem; scenario=Val(()), 
+function sample_posterior(rng, prob::AbstractHybridProblem; i_sites=nothing, scenario=Val(()), 
     gdevs = get_gdev_MP(scenario),
     kwargs...)
     dl = get_hybridproblem_train_dataloader(prob; scenario)
     dl_dev = gdev_hybridproblem_dataloader(dl; gdevs)
-    xM = dl_dev.data[1]
-    sample_posterior(rng, prob, xM; scenario, gdevs, kwargs...)
+    xM_all = dl_dev.data[1]
+    if !isnothing(i_sites)
+        xM = xM_all[:,i_sites]
+    else
+        xM = xM_all
+        i_sites = 1:size(xM, 2)
+    end
+    sample_posterior(rng, prob, xM; scenario, gdevs, i_sites,kwargs...)
 end
 
 
@@ -425,10 +440,11 @@ function sample_posterior(rng, g, ϕ::AbstractVector, xM::AbstractMatrix;
     is_inferred::Val{is_infer} = Val(false),
     is_testmode,
     approx::AbstractHVIApproximation,
+    i_sites,
 ) where is_infer
     ζsP_gpu, ζsMs_gpu, σ = generate_ζ(approx, rng, g, CA.getdata(ϕ), CA.getdata(xM);
         int_ϕg_ϕq, int_ϕq,
-        n_MC=n_sample_pred, cor_ends, pbm_covar_indices, is_testmode)
+        n_MC=n_sample_pred, cor_ends, pbm_covar_indices, is_testmode, i_sites)
     ζsP = cdev(ζsP_gpu)
     ζsMs = cdev(ζsMs_gpu)
     logdetΣ = 2 * sum(log.(σ))
@@ -459,6 +475,7 @@ function generate_ζ(approx::AbstractMeanHVIApproximation, rng::AbstractRNG,
     int_ϕq::AbstractComponentArrayInterpreter,
     n_MC=3, cor_ends, pbm_covar_indices,
     is_testmode,
+    i_sites, # = 1:size(xM,2),
     ) where {FT,MT}
     # see documentation of neg_elbo_gtf
     ϕc = int_ϕg_ϕq(CA.getdata(ϕ))
@@ -472,7 +489,8 @@ function generate_ζ(approx::AbstractMeanHVIApproximation, rng::AbstractRNG,
     xMP0 = _append_each_covars(xM, CA.getdata(μ_ζP), pbm_covar_indices)
     ϕm0 = g(xMP0, ϕg; is_testmode)
     μ_ζMs0 = ϕm0
-    ζP_resids, ζMs_parfirst_resids, σ = sample_ζresid_norm(approx, rng, ϕm0, ϕq; n_MC, cor_ends, int_ϕq)
+    ζP_resids, ζMs_parfirst_resids, σ = sample_ζresid_norm(approx, rng, 
+        i_sites, ϕm0, ϕq; n_MC, cor_ends, int_ϕq)
     ζsP = isempty(μ_ζP) ? ζP_resids : (μ_ζP .+ ζP_resids)  # n_par x n_MC 
     if pbm_covar_indices isa SA.SVector{0}
         # do not need to predict again but just add the residuals to μ_ζP and μ_ζMs
@@ -568,6 +586,7 @@ ML-model predcitions of size `(n_θM, n_site)`.
    ρsP, ρsM, logσ2_ζP, coef_logσ2_ζMs(intercept + slope), 
 """
 function sample_ζresid_norm(approx::AbstractHVIApproximation, rng::Random.AbstractRNG, 
+    i_sites,
     ϕm::AbstractMatrix, ϕq::AbstractVector,
     args...; 
     n_MC, cor_ends, int_ϕq)
@@ -583,7 +602,7 @@ function sample_ζresid_norm(approx::AbstractHVIApproximation, rng::Random.Abstr
     #z = _create_randn(rng, CA.getdata(ζP), n_MC, n_θP)
     zP = _create_randn(rng, CA.getdata(ζP), n_MC, n_θP)
     zMs = _create_randn(rng, CA.getdata(ζP), n_MC, n_θMs)
-    sample_ζresid_norm(approx, zP, zMs, CA.getdata(ϕm), ϕq, args...;
+    sample_ζresid_norm(approx, i_sites, zP, zMs, CA.getdata(ϕm), ϕq, args...;
         cor_ends, 
         int_ϕq=get_concrete(int_ϕq)
     )
@@ -609,10 +628,12 @@ function get_hybridproblem_cholesky_correlation_Ms(prob::AbstractHybridProblem;
 end
 
 function sample_ζresid_norm(approx::MeanHVIApproximationMat, 
+    i_sites,
     zP::AbstractMatrix, zMs::AbstractMatrix, 
     ϕm::TM, ϕq::AbstractVector{T};
     int_ϕq=get_concrete(ComponentArrayInterpreter(ϕq)),
-    cor_ends
+    cor_ends,
+    # assume to index into ϕq at the beginning, or provide those indices here
 ) where {T,TM<:AbstractMatrix{T}}
     ζMs = ϕm
     ϕuncc = ϕqc = int_ϕq(CA.getdata(ϕq))

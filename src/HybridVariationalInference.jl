@@ -42,6 +42,7 @@ include("bijectors_utils.jl")
 
 export AbstractHVIApproximation, AbstractMeanHVIApproximation
 export MeanHVIApproximation, MeanHVIApproximationMat
+export AbstractMeanVarSepHVIApproximation, MeanVarSepHVIApproximation
 include("HVIApproximation.jl")
 
 export AbstractComponentArrayInterpreter, ComponentArrayInterpreter,

@@ -16,6 +16,7 @@
 #   and forward runs for many sites (760mus cpu vs 439ms gpu unit!)
 
 function sample_ζresid_norm(app::MeanHVIApproximation, 
+    i_sites,
     zP::AbstractMatrix, zMs::AbstractMatrix, 
     ϕm::TM, ϕq::AbstractVector{T};
     int_ϕq=get_concrete(ComponentArrayInterpreter(ϕq)),
