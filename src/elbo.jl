@@ -614,9 +614,10 @@ end
     get_hybridproblem_correlation_Ms(prob; scenario = Val(()))
 
 Extract correlation matrix of a problem based on `MeanHVIApproximation`.
+At unconstrained parameter scale.
 """
 function get_hybridproblem_correlation_Ms(prob::AbstractHybridProblem; 
-    xM = get_hyb, scenario = Val(()))
+    xM = nothing, scenario = Val(()))
     UM = get_hybridproblem_cholesky_correlation_Ms(prob; xM, scenario)
     UM' * UM
 end

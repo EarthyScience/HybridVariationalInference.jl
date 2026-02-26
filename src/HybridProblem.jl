@@ -83,9 +83,10 @@ function init_hybrid_ϕq(
     transP::Stacked,
     cor_ends::NamedTuple = (P = [length(θP)], M = [length(θM)]);
     n_site::Integer,
+    kwargs...,
 )
     FT = promote_type(eltype(θP), eltype(θM))
-    ϕunc0 = init_hybrid_ϕunc(approx, cor_ends, zero(FT); θM, n_site)
+    ϕunc0 = init_hybrid_ϕunc(approx, cor_ends, zero(FT); θM, n_site, kwargs...)
     ϕq = update_μP_by_θP(ϕunc0, θP, transP)
 end
 
@@ -151,7 +152,7 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
 end
 
 function HybridProblem(prob::HybridProblem; kwargs... )
-    update_hybridProblem(prob; scenario = Val(()), kwargs..., approx = prob.approx)
+    update_hybridProblem(prob; scenario = Val(()), approx = prob.approx, kwargs...)
 end
 
 
