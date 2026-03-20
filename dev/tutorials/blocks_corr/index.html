@@ -19,11 +19,11 @@ solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)
     callback = callback_loss(100), # output during fitting
     epochs = 20,
 ); probo_ind = probo;</code></pre><h2 id="Compare-the-correated-vs.-uncorrelated-posterior"><a class="docs-heading-anchor" href="#Compare-the-correated-vs.-uncorrelated-posterior">Compare the correated vs. uncorrelated posterior</a><a id="Compare-the-correated-vs.-uncorrelated-posterior-1"></a><a class="docs-heading-anchor-permalink" href="#Compare-the-correated-vs.-uncorrelated-posterior" title="Permalink"></a></h2><p>First, draw a sample.</p><pre><code class="language-julia hljs">n_sample_pred = 400
-(y_cor, θsP_cor, θsMs_cor) = (; y, θsP, θsMs) = predict_hvi(
+(y_cor, θsP_cor, θsMs_tr_cor) = (; y, θsP, θsMs_tr) = predict_hvi(
   Random.default_rng(), probo_cor; n_sample_pred)
-(y_ind, θsP_ind, θsMs_ind) = (; y, θsP, θsMs) = predict_hvi(
+(y_ind, θsP_ind, θsMs_tr_ind) = (; y, θsP, θsMs_tr) = predict_hvi(
   Random.default_rng(), probo_ind; n_sample_pred)</code></pre><pre><code class="language-julia hljs">i_site = 1
-θ1 = vcat(θsP_ind, θsMs_ind[i_site,:,:])
+θ1 = vcat(θsP_ind, θsMs_tr_ind[i_site,:,:])
 θ1_nt = NamedTuple(k =&gt; CA.getdata(θ1[k,:]) for k in keys(θ1[:,1])) # 
 plt = pairplot(θ1_nt)</code></pre><p><img src="../blocks_corr_files/figure-commonmark/cell-10-output-1.png" alt/></p><p>The corner plot of the independent-parameters estimate shows no correlations between site parameters, <em>r</em>₁ and <em>K</em>₁.</p><pre><code class="language-julia hljs">i_out = 4
 fig = Figure(); ax = Axis(fig[1,1], xlabel=&quot;mean(y)&quot;,ylabel=&quot;sd(y)&quot;)
@@ -36,13 +36,13 @@ scatter!(ax, ymean_ind, ysd_ind, label=&quot;independent&quot;)
 axislegend(ax, unique=true)
 fig</code></pre><p><img src="../blocks_corr_files/figure-commonmark/cell-11-output-1.png" alt/></p><pre><code class="language-julia hljs">plot_sd_vs_mean = (par) -&gt; begin
   fig = Figure(); ax = Axis(fig[1,1], xlabel=&quot;mean($par)&quot;,ylabel=&quot;sd($par)&quot;)
-  θmean_cor = [mean(θsMs_cor[s,par,:]) for s in axes(θsMs_cor, 1)]
-  θsd_cor = [std(θsMs_cor[s,par,:]) for s in axes(θsMs_cor, 1)]
+  θmean_cor = [mean(θsMs_tr_cor[s,par,:]) for s in axes(θsMs_tr_cor, 1)]
+  θsd_cor = [std(θsMs_tr_cor[s,par,:]) for s in axes(θsMs_tr_cor, 1)]
   scatter!(ax, θmean_cor, θsd_cor, label=&quot;correlated&quot;) 
-  θmean_ind = [mean(θsMs_ind[s,par,:]) for s in axes(θsMs_ind, 1)]
-  θsd_ind = [std(θsMs_ind[s,par,:]) for s in axes(θsMs_ind, 1)]
+  θmean_ind = [mean(θsMs_tr_ind[s,par,:]) for s in axes(θsMs_tr_ind, 1)]
+  θsd_ind = [std(θsMs_tr_ind[s,par,:]) for s in axes(θsMs_tr_ind, 1)]
   scatter!(ax, θmean_ind, θsd_ind, label=&quot;independent&quot;) 
   axislegend(ax, unique=true)
   fig
 end
-plot_sd_vs_mean(:K1)</code></pre><p><img src="../blocks_corr_files/figure-commonmark/cell-12-output-1.png" alt/></p><p>The inversion that neglects correlations among site parameters results in the same magnitude of estimated uncertainty of predictions. However, the uncertainty of the model parameters is severely underestimated in this example.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../logden_user/">« .. specify log-Likelihood</a><a class="docs-footer-nextpage" href="../corr_site_global/">.. model site-global corr »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.16.1 on <span class="colophon-date" title="Friday 13 February 2026 15:56">Friday 13 February 2026</span>. Using Julia version 1.12.5.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+plot_sd_vs_mean(:K1)</code></pre><p><img src="../blocks_corr_files/figure-commonmark/cell-12-output-1.png" alt/></p><p>The inversion that neglects correlations among site parameters results in the same magnitude of estimated uncertainty of predictions. However, the uncertainty of the model parameters is severely underestimated in this example.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../logden_user/">« .. specify log-Likelihood</a><a class="docs-footer-nextpage" href="../corr_site_global/">.. model site-global corr »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Friday 20 March 2026 14:55">Friday 20 March 2026</span>. Using Julia version 1.12.5.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>

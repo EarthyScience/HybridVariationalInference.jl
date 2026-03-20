@@ -135,7 +135,7 @@ The sampling and prediction methods, also take this `gdevs` keyword argument.
 
 ```{julia}
 n_sample_pred = 400
-(y_dev, θsP_dev, θsMs_dev) = (; y, θsP, θsMs) = predict_hvi(
+(y_dev, θsP_dev, θsMs_dev) = (; y, θsP, θsMs_tr) = predict_hvi(
   rng, probo_lux; n_sample_pred, 
   gdevs = (; gdev_M=gpu_device(), gdev_P=gpu_device())); 
 ```
@@ -159,6 +159,6 @@ Also for moving the `ComponentArrays` to CPU, use function
 cdev = cpu_device()
 y = cdev(y_dev)
 θsP = apply_preserve_axes(cdev, θsP_dev)
-θsMs = apply_preserve_axes(cdev, θsMs_dev)
+θsMs_tr = apply_preserve_axes(cdev, θsMs_dev)
 ```
 
