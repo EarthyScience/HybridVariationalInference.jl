@@ -9,7 +9,7 @@ where
 - `θsP` and `θsMs_tr` are shaped according to the output of `generate_ζ`, i.e.
   `(n_site_pred x n_par x n_MC)`. Note that this transposed shape is different from most
   other parts of the interface, where sites are in the last dimension. 
-  The reason is that a column of a parameter is more efficient to transfrom between
+  The reason is that a column of a parameter is more efficient to transform between
   constrain and unconstrained scale.
 - Results are of shape `(n_obs x n_site_pred x n_MC)`.
 
