@@ -109,16 +109,16 @@ solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)
 First, draw a sample.
 ```{julia}
 n_sample_pred = 400
-(y_cor, θsP_cor, θsMs_cor) = (; y, θsP, θsMs) = predict_hvi(
+(y_cor, θsP_cor, θsMs_tr_cor) = (; y, θsP, θsMs_tr) = predict_hvi(
   Random.default_rng(), probo_cor; n_sample_pred)
-(y_ind, θsP_ind, θsMs_ind) = (; y, θsP, θsMs) = predict_hvi(
+(y_ind, θsP_ind, θsMs_tr_ind) = (; y, θsP, θsMs_tr) = predict_hvi(
   Random.default_rng(), probo_ind; n_sample_pred)
 ```
 
 ```{julia}
 #|  output: true
 i_site = 1
-θ1 = vcat(θsP_ind, θsMs_ind[i_site,:,:])
+θ1 = vcat(θsP_ind, θsMs_tr_ind[i_site,:,:])
 θ1_nt = NamedTuple(k => CA.getdata(θ1[k,:]) for k in keys(θ1[:,1])) # 
 plt = pairplot(θ1_nt)
 ```
@@ -143,11 +143,11 @@ fig
 #|  output: true
 plot_sd_vs_mean = (par) -> begin
   fig = Figure(); ax = Axis(fig[1,1], xlabel="mean($par)",ylabel="sd($par)")
-  θmean_cor = [mean(θsMs_cor[s,par,:]) for s in axes(θsMs_cor, 1)]
-  θsd_cor = [std(θsMs_cor[s,par,:]) for s in axes(θsMs_cor, 1)]
+  θmean_cor = [mean(θsMs_tr_cor[s,par,:]) for s in axes(θsMs_tr_cor, 1)]
+  θsd_cor = [std(θsMs_tr_cor[s,par,:]) for s in axes(θsMs_tr_cor, 1)]
   scatter!(ax, θmean_cor, θsd_cor, label="correlated") 
-  θmean_ind = [mean(θsMs_ind[s,par,:]) for s in axes(θsMs_ind, 1)]
-  θsd_ind = [std(θsMs_ind[s,par,:]) for s in axes(θsMs_ind, 1)]
+  θmean_ind = [mean(θsMs_tr_ind[s,par,:]) for s in axes(θsMs_tr_ind, 1)]
+  θsd_ind = [std(θsMs_tr_ind[s,par,:]) for s in axes(θsMs_tr_ind, 1)]
   scatter!(ax, θmean_ind, θsd_ind, label="independent") 
   axislegend(ax, unique=true)
   fig

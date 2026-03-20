@@ -38,9 +38,9 @@
 #     y = stack(yv)
 #     return(y)
 # end
-# function map_f_each_site(f, θMs::AbstractMatrix, θPs::AbstractMatrix, θFix::AbstractVector, xP, args...; kwargs...)
+# function map_f_each_site(f, θMs_tr::AbstractMatrix, θPs::AbstractMatrix, θFix::AbstractVector, xP, args...; kwargs...)
 #     # do not call f with matrix θ, because .* with vectors S1 would go wrong
-#     yv = map(eachcol(θMs), eachcol(θPs), xP) do θM, θP, xP_site
+#     yv = map(eachcol(θMs_tr), eachcol(θPs), xP) do θM, θP, xP_site
 #         f(vcat(θP, θM, θFix), xP_site, args...; kwargs...)
 #     end
 #     y = stack(yv)
@@ -65,11 +65,11 @@ the sampling step but returns the prediction at the mean in unconstrained space.
 - `xP`: model drivers for process based model (PBM): Matrix with (n_site_pred) rows.
   Possibility to override the default from `get_hybridproblem_train_dataloader`.
 
-Returns an NamedTuple `(; y, θMs, θP)` with entries
+Returns an NamedTuple `(; y, θMs_tr, θP)` with entries
 - `y`: Matrix `(n_obs, n_site)` of model predictions.
 - `θP`: ComponentVector of PBM model parameters
   that are kept constant across sites.
-- `θMs`: ComponentMatrix `(n_site, n_θM)` of PBM model parameters
+- `θMs_tr`: ComponentMatrix `(n_site, n_θM)` of PBM model parameters
   that vary by site.
 """
 function predict_point_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()), 
@@ -85,11 +85,11 @@ function predict_point_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()),
         xM = isnothing(xM) ? xM_dl : xM
         xP = isnothing(xP) ? xP_dl : xP
     end
-    y_pred, θMs, θP = gf(prob, xM, xP; scenario, gdevs, is_testmode, kwargs...)    
+    y_pred, θMs_tr, θP = gf(prob, xM, xP; scenario, gdevs, is_testmode, kwargs...)    
     pt = get_hybridproblem_par_templates(prob)
     θPc = ComponentArrayInterpreter(pt.θP)(θP)
-    θMsc = ComponentArrayInterpreter((size(θMs,1),), pt.θM)(θMs)
-    (;y_pred, θMs=θMsc, θP=θPc)
+    θMsc = ComponentArrayInterpreter((size(θMs_tr,1),), pt.θM)(θMs_tr)
+    (;y_pred, θMs_tr=θMsc, θP=θPc)
 end
 
 
@@ -162,17 +162,17 @@ function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, ζP,
     # end
     #xMP = _append_PBM_covars(xM, intP(ζP), pbm_covars) 
     xMP = _append_each_covars(xM, CA.getdata(ζP), pbm_covar_indices)
-    θMs = gtrans(g, transMs, xMP, ϕg; cdev, is_testmode)
+    θMs_tr = gtrans(g, transMs, xMP, ϕg; cdev, is_testmode)
     # transPM = RRuleMonitor("transP", ζP -> transP(ζP))
     # θP = transPM(CA.getdata(ζP))
     θP = transP(CA.getdata(ζP))
     θP_cpu = cdev(θP) 
-    y_pred = f(θP_cpu, θMs, xP)
-    # fM = RRuleMonitor("f in gf", (θP_cpu) -> f(θP_cpu, θMs, xP), DI.AutoForwardDiff())
+    y_pred = f(θP_cpu, θMs_tr, xP)
+    # fM = RRuleMonitor("f in gf", (θP_cpu) -> f(θP_cpu, θMs_tr, xP), DI.AutoForwardDiff())
     # y_pred = fM(θP_cpu) 
-    # fM = RRuleMonitor("f in gf", (θP_cpu, θMs) -> f(θP_cpu, θMs, xP))
-    # y_pred = fM(θP_cpu, θMs) # very slow large JvP with θMs
-    return y_pred, θMs, θP_cpu
+    # fM = RRuleMonitor("f in gf", (θP_cpu, θMs_tr) -> f(θP_cpu, θMs_tr, xP))
+    # y_pred = fM(θP_cpu, θMs_tr) # very slow large JvP with θMs_tr
+    return y_pred, θMs_tr, θP_cpu
 end
 
 """
@@ -183,24 +183,23 @@ function gtrans(g, transMs, xMP, ϕg; cdev, is_testmode)
     # TODO remove after removing gf
     # predict the log of the parameters
     ϕg = g(xMP, ϕg; is_testmode)
-    ζMs = ϕg' 
-    ζMs_cpu = cdev(ζMs)
-    θMs = transMs(ζMs_cpu)
-    if !all(isfinite.(θMs))
+    ζMs_tr = ϕg' 
+    ζMs_tr_cpu = cdev(ζMs_tr)
+    θMs_tr = transMs(ζMs_tr_cpu)
+    if !all(isfinite.(θMs_tr))
         @info "gtrans: encountered non-finite parameters"
-        #@show θMs, ζMs_cpu, transMs
+        #@show θMs_tr, ζMs_cpu, transMs
         #@show xMP, ϕg, is_testmode
         #TODO save xMP, ϕg, is_testmode using JLD2
     end
-    θMs
-    #θMs = reduce(hcat, map(transM, eachcol(ζMs_cpu))) # transform each row
+    θMs_tr
 end
 
 """
 Create a loss function for given
 - g(x, ϕ): machine learning model 
 - transM: transformation of parameters at unconstrained space
-- f(θMs, θP): mechanistic model 
+- f(θMs_tr, θP): mechanistic model 
 - py: `function(y_pred, y_obs, y_unc)` to compute negative log-likelihood, i.e. cost
 - intϕ: interpreter attaching axis with components ϕg and ϕP
 - intP: interpreter attaching axis to ζP = ϕP with components used by f,
@@ -220,10 +219,10 @@ The loss function `loss_gf(ϕ, xM, xP, y_o, y_unc, i_sites)` takes
 and returns a NamedTuple of 
 - `nLjoint`: the negative-log of the joint parameter probability (Likelihood * prior)
 - `y_pred`: predicted values
-- `θMs`, `θP`: PBM-parameters 
+- `θMs_tr`, `θP`: PBM-parameters 
 - `nLy`: negative log-Likelihood of y_pred
-- `neg_log_prior`: negative log-prior of `θMs` and `θP`
-- `neg_log_prior`: negative log-prior of `θMs` and `θP`
+- `neg_log_prior`: negative log-prior of `θMs_tr` and `θP`
+- `neg_log_prior`: negative log-prior of `θMs_tr` and `θP`
 """
 function get_loss_gf(g, transM, transP, f, py,  
     intϕ::AbstractComponentArrayInterpreter,
@@ -266,12 +265,12 @@ function get_loss_gf(g, transM, transP, f, py,
                 @show ϕc.ϕP
                 #Main.@infiltrate_main
             end
-            y_pred, θMs_pred, θP_pred = gf(
+            y_pred, θMs_tr_pred, θP_pred = gf(
                 g, transMs, transP, f, xM, xP, CA.getdata(ϕc.ϕg), CA.getdata(ϕc.ϕP), 
                 pbm_covar_indices; cdev, is_testmode, kwargs...)
             #σ = exp.(y_unc ./ 2)
             #nLy = sum(abs2, (y_pred .- y_o) ./ σ) 
-            nLy = py( y_pred, y_o, y_unc)
+            nLy = py(y_o, y_pred, y_unc)
             # logpdf is not typestable for Distribution{Univariate, Continuous}
             logpdf_t = (prior, θ) -> logpdf(prior, θ)::eltype(θP_pred)
             logpdf_tv = (prior, θ::AbstractVector) -> begin
@@ -279,18 +278,18 @@ function get_loss_gf(g, transM, transP, f, py,
             end
             neg_log_prior = 
                 # @descend_code_warntype (
-                compute_priors_logdensity(priorsP, priorsM, θP_pred, θMs_pred,
+                compute_priors_logdensity(priorsP, priorsM, θP_pred, θMs_tr_pred,
                     is_omit_priors, zero_prior_logdensity)
             if !isfinite(neg_log_prior)
                 @info "loss_gf: encountered non-finite prior density"
-                @show θP_pred, θMs_pred, ϕc.ϕP
+                @show θP_pred, θMs_tr_pred, ϕc.ϕP
                 error("debug get_loss_gf")
             end
             ϕq = eltype(θP_pred)[]  # no uncertainty parameters optimized
-            loss_penalty = floss_penalty(y_pred, θMs_pred, θP_pred, ϕc.ϕg, ϕq)
+            loss_penalty = floss_penalty(y_pred, θMs_tr_pred, θP_pred, ϕc.ϕg, ϕq)
             #@show nLy, neg_log_prior, loss_penalty
             nLjoint_pen = nLy + neg_log_prior + loss_penalty
-            return (;nLjoint_pen, y_pred, θMs_pred, θP_pred, nLy, neg_log_prior, loss_penalty)
+            return (;nLjoint_pen, y_pred, θMs_tr_pred, θP_pred, nLy, neg_log_prior, loss_penalty)
         end
     end
 end

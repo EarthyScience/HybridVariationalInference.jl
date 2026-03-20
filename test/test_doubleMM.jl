@@ -185,11 +185,11 @@ end
         #histogram(ϕg_opt1) # all similar magnitude around zero
         #first(ϕg_opt1,5)
         pred = loss_g(ϕg_opt1, xM_batch, g, transMs)
-        θMs_pred = θMs_pred_1 = pred[2]
-        #scatterplot(vec(θMs_true_tb), vec(θMs_pred))
-        #@test cor(vec(θMs_true), vec(θMs_pred)) > 0.9
-        @test cor(θMs_true_tb[:, 1], θMs_pred[:, 1]) > 0.9
-        @test cor(θMs_true_tb[:, 2], θMs_pred[:, 2]) > 0.9
+        θMs_tr_pred = θMs_pred_1 = pred[2]
+        #scatterplot(vec(θMs_true_tb), vec(θMs_tr_pred))
+        #@test cor(vec(θMs_true), vec(θMs_tr_pred)) > 0.9
+        @test cor(θMs_true_tb[:, 1], θMs_tr_pred[:, 1]) > 0.9
+        @test cor(θMs_true_tb[:, 2], θMs_tr_pred[:, 2]) > 0.9
     end
 end
 
@@ -243,14 +243,14 @@ end
         #optprob, Adam(0.02), callback = callback_loss(100), maxiters = 5000);
         optprob, Adam(0.02), maxiters = 2000)
 
-    (;nLjoint_pen, y_pred, θMs_pred, θP_pred, nLy, neg_log_prior, loss_penalty) = loss_gf_site(
+    (;nLjoint_pen, y_pred, θMs_tr_pred, θP_pred, nLy, neg_log_prior, loss_penalty) = loss_gf_site(
         res.u, train_loader.data...; is_testmode=true)
-    #(nLjoint,  y_pred, θMs_pred, θP, nLy, neg_log_prior, loss_penalty) = loss_gf(p0, xM, xP, y_o, y_unc);
-    θMs_pred = CA.ComponentArray(θMs_pred, CA.getaxes(θMs_true'))
+    #(nLjoint,  y_pred, θMs_tr_pred, θP, nLy, neg_log_prior, loss_penalty) = loss_gf(p0, xM, xP, y_o, y_unc);
+    θMs_tr_pred = CA.ComponentArray(θMs_tr_pred, CA.getaxes(θMs_true'))
     #TODO @test isapprox(par_templates.θP, intϕ(res.u).ϕP, rtol = 0.15)
-    #@test cor(vec(θMs_true), vec(θMs_pred)) > 0.8
-    @test cor(θMs_true'[:, 1], θMs_pred[:, 1]) > 0.8
-    @test cor(θMs_true'[:, 2], θMs_pred[:, 2]) > 0.8
+    #@test cor(vec(θMs_true), vec(θMs_tr_pred)) > 0.8
+    @test cor(θMs_true'[:, 1], θMs_tr_pred[:, 1]) > 0.8
+    @test cor(θMs_true'[:, 2], θMs_tr_pred[:, 2]) > 0.8
     # started from low values -> increased but not too much above true values
     # logpdf.(priorsP, θP_pred)
     # logpdf.(priorsP, par_templates.θP)
@@ -258,9 +258,9 @@ end
 
     () -> begin
         #@usingany UnicodePlots
-        scatterplot(θMs_true'[:,1], θMs_pred[:,1])
-        scatterplot(θMs_true'[:,2], θMs_pred[:,2])
-        scatterplot(log.(vec(θMs_true')), log.(vec(θMs_pred)))
+        scatterplot(θMs_true'[:,1], θMs_tr_pred[:,1])
+        scatterplot(θMs_true'[:,2], θMs_tr_pred[:,2])
+        scatterplot(log.(vec(θMs_true')), log.(vec(θMs_tr_pred)))
         scatterplot(vec(y_pred), vec(y_o))
         hcat(par_templates.θP, intϕ(p0).ϕP, intϕ(res.u).ϕP, transP(intϕ(p0).ϕP), θP_pred)
     end

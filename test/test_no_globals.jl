@@ -31,7 +31,7 @@ function test_no_globals(scenario::Val{scen})  where scen
         scenario,
     );
     @test all(isfinite.(ϕ))
-    (;y_pred, θMs, θP) = predict_point_hvi(rng, probo; scenario);
+    (;y_pred, θMs_tr, θP) = predict_point_hvi(rng, probo; scenario);
     _,_,y_obs,_ = get_hybridproblem_train_dataloader(prob; scenario).data
     @test size(y_pred) == size(y_obs)
     y_predc = cdev(y_pred)
@@ -48,7 +48,7 @@ function test_no_globals(scenario::Val{scen})  where scen
         );    
         @test all(isfinite.(CP.get_hybridproblem_θP(probo)))
         n_sample_pred = 12
-        (; y, θsP, θsMs, entropy_ζ) = predict_hvi(rng, probo; scenario, n_sample_pred);
+        (; y, θsP, θsMs_tr, entropy_ζ) = predict_hvi(rng, probo; scenario, n_sample_pred);
         @test size(y) == (size(y_pred)..., n_sample_pred)
         yc = cdev(y)
         _ = map(eachslice(yc; dims = 3)) do ycs

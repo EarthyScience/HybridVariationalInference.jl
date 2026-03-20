@@ -59,12 +59,12 @@ n_epoch = 80
     maxiters = n_batches_in_epoch * n_epoch);
 # update the problem with optimized parameters
 prob0o = prob1o =probo;
- y_pred, θMs = gf(prob0o; scenario, is_inferred=Val(true));
+ y_pred, θMs_tr = gf(prob0o; scenario, is_inferred=Val(true));
 # @descend_code_warntype gf(prob0o; scenario)
 #@usingany UnicodePlots
-plt = scatterplot(θMs_true'[:, 1], θMs[:, 1]);
+plt = scatterplot(θMs_true'[:, 1], θMs_tr[:, 1]);
 lineplot!(plt, 0, 1)
-scatterplot(θMs_true'[:,2], θMs[:,2])
+scatterplot(θMs_true'[:,2], θMs_tr[:,2])
 prob0o.θP
 #scatterplot(vec(y_true), vec(y_o))
 #scatterplot(vec(y_true), vec(y_pred))
@@ -77,13 +77,13 @@ histogram(vec(y_pred) - vec(y_true)) # predictions centered around y_o (or y_tru
     (; ϕ, resopt) = solve(prob0o, solver1; scenario, rng,
         callback = callback_loss(20), maxiters = 400)
     prob1o = HybridProblem(prob0o; ϕg = cpu_ca(ϕ).ϕg, θP = cpu_ca(ϕ).θP)
-     y_pred, θMs = gf(prob1o, xM, xP; scenario)
-    scatterplot(θMs_true[1, :], θMs[1, :])
-    scatterplot(θMs_true[2, :], θMs[2, :])
+     y_pred, θMs_tr = gf(prob1o, xM, xP; scenario)
+    scatterplot(θMs_true[1, :], θMs_tr[1, :])
+    scatterplot(θMs_true[2, :], θMs_tr[2, :])
     prob1o.θP
     scatterplot(vec(y_true), vec(y_pred))
 
-    # still overestimating θMs and θP
+    # still overestimating θMs_tr and θP
 end
 
 () -> begin # with more iterations?
@@ -91,11 +91,11 @@ end
     (; ϕ, resopt) = solve(prob2, solver1; scenario, rng,
         callback = callback_loss(20), maxiters = 600)
     prob2o = HybridProblem(prob2; ϕg = collect(ϕ.ϕg), θP = ϕ.θP)
-     y_pred, θMs = gf(prob2o, xM, xP)
+     y_pred, θMs_tr = gf(prob2o, xM, xP)
     prob2o.θP
 end
 
-() -> begin #----------- fit g to true θMs 
+() -> begin #----------- fit g to true θMs_tr 
     # and fit gf starting from true parameters
     prob = prob0
     g, ϕg0_cpu = get_hybridproblem_MLapplicator(prob; scenario)
@@ -105,9 +105,9 @@ end
     function loss_g(ϕg, x, g, transM; gpu_handler = HVI.default_GPU_DataHandler)
         ζMs = g(x, ϕg) # predict the log of the parameters
         ζMs_cpu = gpu_handler(ζMs)
-        θMs = reduce(hcat, map(transM, eachcol(ζMs_cpu))) # transform each column
-        loss = sum(abs2, θMs .- θMs_true)
-        return loss, θMs
+        θMs_tr = reduce(hcat, map(transM, eachcol(ζMs_cpu))) # transform each column
+        loss = sum(abs2, θMs_tr .- θMs_true)
+        return loss, θMs_tr
     end
     loss_g(ϕg0, xM, g, transM)
 
@@ -118,17 +118,17 @@ end
         optprob, Adam(0.015), callback = callback_loss(100), maxiters = 2000)
 
     ϕg_opt1 = res.u
-    l1, θMs = loss_g(ϕg_opt1, xM, g, transM)
-    #scatterplot(θMs_true[1,:], θMs[1,:])
-    scatterplot(θMs_true[2, :], θMs[2, :]) # able to fit θMs[2,:]
+    l1, θMs_tr = loss_g(ϕg_opt1, xM, g, transM)
+    #scatterplot(θMs_true[1,:], θMs_tr[1,:])
+    scatterplot(θMs_true[2, :], θMs_tr[2, :]) # able to fit θMs_tr[2,:]
 
     prob3 = HybridProblem(prob0, ϕg = Array(ϕg_opt1), θP = θP_true)
     solver1 = HybridPointSolver(; alg = Adam(0.01), n_batch = n_site)
     (; ϕ, resopt) = solve(prob3, solver1; scenario, rng,
         callback = callback_loss(50), maxiters = 600)
     prob3o = HybridProblem(prob3; ϕg = cpu_ca(ϕ).ϕg, θP = cpu_ca(ϕ).θP)
-     y_pred, θMs = gf(prob3o, xM, xP; scenario)
-    scatterplot(θMs_true[2, :], θMs[2, :])
+     y_pred, θMs_tr = gf(prob3o, xM, xP; scenario)
+    scatterplot(θMs_true[2, :], θMs_tr[2, :])
     prob3o.θP
     scatterplot(vec(y_true), vec(y_pred))
     scatterplot(vec(y_true), vec(y_o))
@@ -169,13 +169,13 @@ solver_post = HybridPosteriorSolver(; alg = OptimizationOptimisers.Adam(0.01), n
     prob1o = probo;
     n_sample_pred = 400
     #(; θ, y) = predict_hvi(rng, prob1o, xM, xP; scenario, n_sample_pred);
-    (; y, θsP, θsMs)  = predict_hvi(rng, prob1o; scenario, n_sample_pred, is_inferred=Val(true));
-    (y1, θsP1, θsMs1) = (y, θsP, θsMs);
+    (; y, θsP, θsMs_tr)  = predict_hvi(rng, prob1o; scenario, n_sample_pred, is_inferred=Val(true));
+    (y1, θsP1, θsMs1_tr) = (y, θsP, θsMs_tr);
 
     () -> begin # prediction with fitted parameters  (should be smaller than mean)
-         y_pred2, θMs = gf(prob1o, xM, xP; scenario)
-        scatterplot(θMs_true[1, :], θMs[1, :])
-        scatterplot(θMs_true[2, :], θMs[2, :])
+         y_pred2, θMs_tr = gf(prob1o, xM, xP; scenario)
+        scatterplot(θMs_true[1, :], θMs_tr[1, :])
+        scatterplot(θMs_true[2, :], θMs_tr[2, :])
         hcat(θP_true, θP) # all parameters overestimated
         histogram(vec(y_pred2) - vec(y_true)) # predicts an unsymmytric distribution
     end
@@ -222,9 +222,9 @@ end
     prob2o_indep = tmp["prob2o"]
     # test predicting correct obs-uncertainty of predictive posterior
     n_sample_pred = 400
-    (; y, θsP, θsMs) = predict_hvi(rng, prob2o_indep; scenario = scenario_indep, n_sample_pred);
-    (y2_indep, θsP2_indep, θsMs2_indep) = (y, θsP, θsMs);
-    #θsMs2_indep .- θsMs2
+    (; y, θsP, θsMs_tr) = predict_hvi(rng, prob2o_indep; scenario = scenario_indep, n_sample_pred);
+    (y2_indep, θsP2_indep, θsMs2_tr_indep) = (y, θsP, θsMs_tr);
+    #θsMs2_tr_indep .- θsMs2_tr
     #(θ2_indep, y2_indep) = (θ2, y2)  # workaround to use covarK2 when loading failed
     #
     scenario_neglect_cor = Val((HVI._val_value(scenario)..., :neglect_cor))
@@ -234,8 +234,8 @@ end
     prob2o_neglect_cor = tmp["prob2o"]
     # test predicting correct obs-uncertainty of predictive posterior
     n_sample_pred = 400
-    (; y, θsP, θsMs) = predict_hvi(rng, prob2o_neglect_cor; scenario = scenario_neglect_cor, n_sample_pred);
-    (y2_neglect_cor, θsP2_neglect_cor, θsMs2_neglect_cor) = (y, θsP, θsMs);
+    (; y, θsP, θsMs_tr) = predict_hvi(rng, prob2o_neglect_cor; scenario = scenario_neglect_cor, n_sample_pred);
+    (y2_neglect_cor, θsP2_neglect_cor, θsMs2_tr_neglect_cor) = (y, θsP, θsMs_tr);
     #
     scenario_K1global = Val((HVI._val_value(scenario)..., :K1global))
     fname_probos_K1global = "intermediate/probos800_$(last(HVI._val_value(scenario_K1global))).jld2"
@@ -244,8 +244,8 @@ end
     prob2o_K1global = tmp["prob2o"]
     # test predicting correct obs-uncertainty of predictive posterior
     n_sample_pred = 400
-    (; y, θsP, θsMs) = predict_hvi(rng, prob2o_K1global; scenario = scenario_K1global, n_sample_pred);
-    (y2_K1global, θsP2_K1global, θsMs2_K1global) = (y, θsP, θsMs);
+    (; y, θsP, θsMs_tr) = predict_hvi(rng, prob2o_K1global; scenario = scenario_K1global, n_sample_pred);
+    (y2_K1global, θsP2_K1global, θsMs2_tr_K1global) = (y, θsP, θsMs_tr);
 end
 
 () -> begin # optimize using LUX
@@ -279,11 +279,11 @@ exp.(ϕunc_VI.coef_logσ2_ζMs[1, :])
 
 # test predicting correct obs-uncertainty of predictive posterior
 n_sample_pred = 400
-(; y, θsP, θsMs) = predict_hvi(rng, prob2o; scenario, n_sample_pred);
-(y2, θsP2, θsMs2) = (y, θsP, θsMs);
+(; y, θsP, θsMs_tr) = predict_hvi(rng, prob2o; scenario, n_sample_pred);
+(y2, θsP2, θsMs2_tr) = (y, θsP, θsMs_tr);
 
 size(y) # n_obs x n_site, n_sample_pred
-size(θsMs)  # n_site x n_θM x n_sample
+size(θsMs_tr)  # n_site x n_θM x n_sample
 σ_o_post = dropdims(std(y; dims = 3), dims = 3);
 σ_o = exp.(y_unc[:, 1] / 2)
 
@@ -298,7 +298,7 @@ plt = scatterplot(vec(y_true), vec(mean_y_pred));
 lineplot!(plt, 0, 2)
 mean(mean_y_pred - y_true) # still ok
 
-mean_θMs = CA.ComponentArray(mean(θsMs; dims = 3)[:,:,1], CA.getaxes(θMs_true'))
+mean_θMs = CA.ComponentArray(mean(θsMs_tr; dims = 3)[:,:,1], CA.getaxes(θMs_true'))
 plt = scatterplot(θMs_true'[:,1], mean_θMs[:,1]);
 lineplot!(plt, 0, 1)
 plt = scatterplot(θMs_true'[:,2], mean_θMs[:,2])
@@ -355,9 +355,9 @@ end
 () -> begin # look at distribution of parameters, predictions, and likelihood and elob at one site
     # compare prob1o (with constraining theta to be near original mean) to unconstrained HVI
     function predict_site(probo, i_site)
-        (; y, θsP, θsMs, entropy_ζ) = predict_hvi(rng, probo; scenario, n_sample_pred)
+        (; y, θsP, θsMs_tr, entropy_ζ) = predict_hvi(rng, probo; scenario, n_sample_pred)
         y_site = y[:, i_site, :]
-        θMs_i = CA.ComponentArray(θsMs[i_site,:,:], (CA.getaxes(θMs_true)[1], CA.FlatAxis()))
+        θMs_i = CA.ComponentArray(θsMs_tr[i_site,:,:], (CA.getaxes(θMs_true)[1], CA.FlatAxis()))
         r1s = θMs_i[:r1,:]
         # K1s = map(x -> x[2], θMs_i)
         # invt = map(Bijectors.inverse, get_hybridproblem_transforms(probo; scenario))
@@ -472,11 +472,11 @@ f = get_hybridproblem_PBmodel(prob; scenario)
     #   need to construct different MvNormal prior if std differs by variable
     # or need to take care when extracting samples and when constructing chains
     ζMs = Matrix{T}(undef, n_θM, n_site)
-    # the first loop vectorizes θMs by columns but is much slower
+    # the first loop vectorizes θMs_tr by columns but is much slower
     # for i_site in 1:n_site
     #     ζMs[:, i_site] ~ prior_ζn(n_θM) #MvNormal(n_site, 10.0)
     # end
-    # this loop is faster, but vectorizes θMs by rows in parameter vector
+    # this loop is faster, but vectorizes θMs_tr by rows in parameter vector
     for i_par in 1:n_θM
         ζMs[i_par, :] ~ prior_ζM_sites[i_par]
     end
@@ -490,7 +490,7 @@ f = get_hybridproblem_PBmodel(prob; scenario)
         y[i_obs, :] ~ MvNormal(y_pred[i_obs, :], σ_o[i_obs]) # single value σ instead of variance
     end
     #Main.@infiltrate_main # step to second time 
-    # θMs_MCc[:,:,1] # checking row- or column-order of θMs
+    # θMs_MCc[:,:,1] # checking row- or column-order of θMs_tr
     # exp.(ζMs)
     y_pred
 end
@@ -564,18 +564,18 @@ f = get_hybridproblem_PBmodel(probc; scenario)
 f_allsites = create_nsite_applicator(f, n_site)
 #ζs = mapreduce(ζi -> transposeMs(ζi, intm_PMs_gen, true), hcat, eachrow(Array(chain)));
 ζsP = Array(chain)[:,1:n_θP]'
-ζsMst = reshape(Array(chain)[:,(n_θP+1) : end], n_sample_NUTS, n_site, n_θM)
-ζsMs = permutedims(ζsMst, (2,3,1))
-# need to reshape according to generate_ζ
-ζsMs[:,:,1]  # first sample: n_site x n_par
-ζsMs[:,1,:]  # first parameter n_site x n_sample 
+ζsMs = reshape(Array(chain)[:,(n_θP+1) : end], n_sample_NUTS, n_site, n_θM)
+# need to reshape according to generate_ζ, with columns of parameters
+ζsMs_tr = permutedims(ζsMs, (2,3,1))
+ζsMs_tr[:,:,1]  # first sample: n_site x n_par
+ζsMs_tr[:,1,:]  # first parameter n_site x n_sample 
 
 trans_mP=StackedArray(transP, size(ζsP, 2))
-trans_mMs=StackedArray(transM, size(ζsMs, 1) * size(ζsMs, 3))
-θsP, θsMs = transform_ζs(ζsP, ζsMs; trans_mP, trans_mMs)
-y = f(θsP, θsMs, f, xP) 
-#(; y, θsP, θsMs) = HVI.apply_f_trans(ζsP, ζsMs, f_allsites, xP; transP, transM);
-(y_hmc, θsP_hmc, θsMs_hmc) = (; y, θsP, θsMs);
+trans_mMs=StackedArray(transM, size(ζsMs_tr, 1) * size(ζsMs_tr, 3))
+θsP, θsMs_tr = transform_ζs(ζsP, ζsMs_tr; trans_mP, trans_mMs)
+y = f(θsP, θsMs_tr, f, xP) 
+#(; y, θsP, θsMs_tr) = HVI.apply_f_trans(ζsP, ζsMs, f_allsites, xP; transP, transM);
+(y_hmc, θsP_hmc, θsMs_hmc) = (; y, θsP, θsMs_tr);
 
     
 () -> begin # check that the model predicts the same as HVI-code
@@ -591,7 +591,7 @@ end
 
 () -> begin # plot chain
     #@usingany FigureHelpers, CairoMakie
-    # θP and first θMs 
+    # θP and first θMs_tr 
     ch = chain[:,vcat(1:n_θP, n_θP+1, n_θP+n_site+1),:];
     fig = plot_chn(ch)
     save("tmp.svg", fig)
@@ -614,7 +614,7 @@ describe(pdf.(Ref(prior_ζ), ζsP[1, :]))  # only small differences
 pdf(prior_ζ, log(θP_true[1]))
 
 mean_θP = CA.ComponentArray(mean(θsP; dims = 2)[:, 1], CA.getaxes(θP_true))
-mean_θMs = CA.ComponentArray(mean(θsMs; dims = 3)[:,:, 1], CA.getaxes(θMs_true'))
+mean_θMs = CA.ComponentArray(mean(θsMs_tr; dims = 3)[:,:, 1], CA.getaxes(θMs_true'))
 histogram(θsP .- θP_true)  # all overestimated ? 
 plt = scatterplot(θMs_true'[:,1], mean_θMs[:,1]);
 lineplot!(plt, 0, 1)
@@ -655,10 +655,10 @@ lineplot!(plt, 0, 1)
     ζsP_hvi_neglect_cor = log.(θsP2_neglect_cor) 
     ζsP_hvi_K1global = log.(θsP2_K1global) 
     ζsP_hmc = log.(θsP_hmc)
-    ζsMs_hvi = log.(θsMs2)
-    ζsMs_hvi_indep = log.(θsMs2_indep) 
-    ζsMs_hvi_neglect_cor = log.(θsMs2_neglect_cor) 
-    ζsMs_hvi_K1global = log.(θsMs2_K1global) 
+    ζsMs_hvi = log.(θsMs2_tr)
+    ζsMs_hvi_indep = log.(θsMs2_tr_indep) 
+    ζsMs_hvi_neglect_cor = log.(θsMs2_tr_neglect_cor) 
+    ζsMs_hvi_K1global = log.(θsMs2_tr_K1global) 
     ζsMs_hmc = log.(θsMs_hmc)
     # int_pms = interpreters.PMs
     # par_pos = int_pms(1:length(int_pms))
@@ -976,7 +976,7 @@ end
         #ζMs[:] ~ prior_ζn(n_θM * n_site) 
         # assume σ_o known, see f_MM
         #σ_o ~ truncated(Normal(0, 1); lower=0)
-        y_pred = f(θP, θMs, xP)[2] # first is global return
+        y_pred = f(θP, θMs', xP)[2] # first is global return
         #i_obs = 1
         for i_obs in 1:n_obs
             #pdf(MvNormal(y_pred[i_obs,:], σ_o[i_obs]),y[i_obs,:])

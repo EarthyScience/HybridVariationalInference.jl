@@ -22,22 +22,22 @@ int_xP1 = ComponentArrayInterpreter(CA.ComponentVector(S1 = xP_S1, S2 = xP_S2))
 const int_θdoubleMM = ComponentArrayInterpreter(flatten1(CA.ComponentVector(; θP, θM)))
 
 """
-    f_doubleMM(θc::CA.ComponentVector{ET}, x) where ET
+    f_doubleMM(θc_tr::CA.ComponentVector{ET}, x) where ET
 
 Example process based model (PBM) predicts a double-monod constrained rate
 for different substrate concentration vectors, `x.S1`, and `x.S2` for a single site.
-θc is a ComponentVector with scalar parameters as components: `r0`, `r1`, `K1`, and `K2`
+θc_tr is a ComponentVector with scalar parameters as components: `r0`, `r1`, `K1`, and `K2`
 
 It predicts a rate for each entry in concentrations:
 `y = r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)`.
 
 It is defined as 
 ```julia
-function f_doubleMM(θc::ComponentVector{ET}, x) where ET
+function f_doubleMM(θc_tr::ComponentVector{ET}, x) where ET
     # extract parameters not depending on order, i.e whether they are in θP or θM
-    # r0 = θc[:r0]
+    # r0 = θc_tr[:r0]
     (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
-        getdata(θc[par])::ET
+        getdata(θc_tr[par])::ET
     end
     y = r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
     return (y)
@@ -65,29 +65,29 @@ function f_doubleMM(θc::CA.ComponentVector{ET}, x) where ET
 end
 
 """
-    f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
+    f_doubleMM_sites(θc_tr::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
 
 Example process based model (PBM) that predicts for a batch of sites.
 
 Arguments
-- `θc`: parameters with one row per site and symbolic column index 
+- `θc_tr`: parameters with one row per site and symbolic column index 
 - `xPc`: model drivers with one column per site, and symbolic row index
 
 Returns a matrix `(n_obs x n_site)` of predictions.
 
 ```julia
-function f_doubleMM_sites(θc::ComponentMatrix, xPc::ComponentMatrix)
+function f_doubleMM_sites(θc_tr::ComponentMatrix, xPc::ComponentMatrix)
     # extract several covariates from xP
     ST = typeof(CA.getdata(xPc)[1:1,:])  # workaround for non-type-stable Symbol-indexing
     S1 = (CA.getdata(xPc[:S1,:])::ST)   
     S2 = (CA.getdata(xPc[:S2,:])::ST)
     #
     # extract the parameters as vectors that are row-repeated into a matrix
-    VT = typeof(CA.getdata(θc)[:,1])   # workaround for non-type-stable Symbol-indexing
+    VT = typeof(CA.getdata(θc_tr)[:,1])   # workaround for non-type-stable Symbol-indexing
     n_obs = size(S1, 1)
     rep_fac = ones_similar_x(xPc, n_obs)      # to reshape into matrix, avoiding repeat
     (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
-        p1 = CA.getdata(θc[:, par]) ::VT
+        p1 = CA.getdata(θc_tr[:, par]) ::VT
         #(r0 .* rep_fac)'    # move to computation below to save allocation
         #repeat(p1', n_obs)  # matrix: same for each concentration row in S1
     end
@@ -98,7 +98,7 @@ function f_doubleMM_sites(θc::ComponentMatrix, xPc::ComponentMatrix)
 end
 ```
 """
-function f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
+function f_doubleMM_sites(θc_tr::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
     # extract several covariates from xP
     # ST = typeof(CA.getdata(xPc)[1:1,:])  # workaround for non-type-stable Symbol-indexing
     # S1 = (CA.getdata(xPc[:S1,:])::ST)   
@@ -111,13 +111,13 @@ function f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
     is_valid = isfinite.(S1) .&& isfinite.(S2)
     #
     # extract the parameters as vectors that are row-repeated into a matrix
-    # VT = typeof(CA.getdata(θc)[:,1])   # workaround for non-type-stable Symbol-indexing
+    # VT = typeof(CA.getdata(θc_tr)[:,1])   # workaround for non-type-stable Symbol-indexing
     # #n_obs = size(S1, 1)
     # #rep_fac = HVI.ones_similar_x(xPc, n_obs) # to reshape into matrix, avoiding repeat
     # #is_dummy = isnan.(S1) .|| isnan.(S2)
     
     # (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
-    #     p1 = CA.getdata(θc[:, par]) ::VT
+    #     p1 = CA.getdata(θc_tr[:, par]) ::VT
     #     #Main.@infiltrate_main
     #     # tmp = Zygote.gradient(p1 -> sum(repeat_rowvector_dummy(p1', is_dummy)), p1)[1]
     #     #p1_mat = repeat_rowvector_dummy(p1', is_dummy)
@@ -126,10 +126,10 @@ function f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
     #     #(rep_fac .* p1')    # move to computation below to save allocation
     # end
     #
-    r0 = is_valid .* CA.getdata(θc[:, Val(:r0)])'
-    r1 = is_valid .* CA.getdata(θc[:, Val(:r1)])'
-    K1 = is_valid .* CA.getdata(θc[:, Val(:K1)])'
-    K2 = is_valid .* CA.getdata(θc[:, Val(:K2)])'
+    r0 = is_valid .* CA.getdata(θc_tr[:, Val(:r0)])'
+    r1 = is_valid .* CA.getdata(θc_tr[:, Val(:r1)])'
+    K1 = is_valid .* CA.getdata(θc_tr[:, Val(:K1)])'
+    K2 = is_valid .* CA.getdata(θc_tr[:, Val(:K2)])'
     #
     #, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
 
@@ -138,11 +138,11 @@ function f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
     #(rep_fac .* r0') .+ (rep_fac .* r1') .* S1 ./ ((rep_fac .* K1') .+ S1) .* S2 ./ ((rep_fac .* K2') .+ S2)
 end
 
-# function f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
+# function f_doubleMM_sites(θc_tr::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
 #     # extract the parameters as vectors
-#     VT = typeof(CA.getdata(θc)[:,1])   # workaround for non-type-stable Symbol-indexing
+#     VT = typeof(CA.getdata(θc_tr)[:,1])   # workaround for non-type-stable Symbol-indexing
 #     (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
-#         CA.getdata(θc[:, par]) ::VT
+#         CA.getdata(θc_tr[:, par]) ::VT
 #     end
 #     #
 #     # extract several covariates from xP
@@ -156,54 +156,6 @@ end
 #     #
 #     y = r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
 #     return (CA.getdata(y)') # transform site-first -> site-last dimension
-# end
-
-
-
-# function f_doubleMM(
-#         θ::AbstractMatrix{T}, x; intθ::HVI.AbstractComponentArrayInterpreter) where T
-#     # provide θ for n_row sites
-#     # provide x.S1 as Matrix n_site x n_obs
-#     # extract parameters not depending on order, i.e whether they are in θP or θM
-#     θc = intθ(θ)
-#     @assert size(x.S1, 1) == size(θ, 1)  # same number of sites
-#     @assert size(x.S1) == size(x.S2)   # same number of observations
-#     #@assert length(x.s2 == n_obs)
-#     # problems on AD on GPU with indexing CA may be related to printing result, use ";"
-#     VT = typeof(θ[:,1])   # workaround for non-stable Symbol-indexing CAMatrix 
-#     #VT = first(Base.return_types(getindex, Tuple{typeof(θ),typeof(Colon()),typeof(1)}))
-#     (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
-#         # vector will be repeated when broadcasted by a matrix
-#         CA.getdata(θc[:, par]) ::VT
-#     end
-#     # r0 = CA.getdata(θc[:,:r0])  # vector will be repeated when broadcasted by a matrix
-#     # r1 = CA.getdata(θc[:,:r1])
-#     # K1 = CA.getdata(θc[:,:K1])
-#     # K2 = CA.getdata(θc[:,:K2])
-#     y = r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
-#     return (y)
-# end
-
-# function f_doubleMM(θ::AbstractMatrix, x::NamedTuple, θpos::NamedTuple) 
-#     # provide θ for n_row sites
-#     # provide x.S1 as Matrix n_site x n_obs
-#     # extract parameters not depending on order, i.e whether they are in θP or θM
-#         @assert size(x.S1,1) == size(θ,1)  # same number of sites
-#         @assert size(x.S1) == size(x.S2)   # same number of observations
-#         (r0, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
-#               # vector will be repeated when broadcasted by a matrix
-#               CA.getdata(θ[:,θpos[par]])
-#         end        
-#         # r0 = CA.getdata(θ[:,θpos.r0])  # vector will be repeated when broadcasted by a matrix
-#         # r1 = CA.getdata(θ[:,θpos.r1])
-#         # K1 = CA.getdata(θ[:,θpos.K1])
-#         # K2 = CA.getdata(θ[:,θpos.K2])
-#         #y = r0 .+ r1
-#         #y = x.S1 + x.S2
-#         #y = (K1 .+ x.S1)
-#         #y = r1 .* x.S1 ./ (K1 .+ x.S1) 
-#         y = r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
-#         return (y)
 # end
 
 function HVI.get_hybridproblem_par_templates(
@@ -456,12 +408,11 @@ function HVI.get_hybridproblem_ϕq(prob::DoubleMMCase; scenario::Val{scen}) wher
     approx = (:sepvar ∈ scen) ? MeanVarSepHVIApproximation() : MeanHVIApproximationMat()
     FT = get_hybridproblem_float_type(prob; scenario) 
     cor_ends = get_hybridproblem_cor_ends(prob; scenario)
-    θM, θP = get_hybridproblem_par_templates(prob; scenario)
+    (;θP, θM)  = get_hybridproblem_par_templates(prob; scenario)
     n_site, _ = get_hybridproblem_n_site_and_batch(prob; scenario)
-    ϕunc = init_hybrid_ϕunc(approx, cor_ends, zero(FT); θM, n_site)    
+    (;transP, transM)  = get_hybridproblem_transforms(prob; scenario)
+    ϕunc = init_hybrid_ϕunc(approx, cor_ends, zero(FT); θM, transM, n_site)    
     # for DoubleMMCase templates gives the correct values
-    θP = get_hybridproblem_par_templates(prob; scenario).θP
-    transP = get_hybridproblem_transforms(prob; scenario).transP
     ϕq = HVI.update_μP_by_θP(ϕunc, θP, transP)
 end
 

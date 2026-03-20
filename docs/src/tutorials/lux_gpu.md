@@ -117,7 +117,7 @@ The sampling and prediction methods, also take this `gdevs` keyword argument.
 
 ``` julia
 n_sample_pred = 400
-(y_dev, θsP_dev, θsMs_dev) = (; y, θsP, θsMs) = predict_hvi(
+(y_dev, θsP_dev, θsMs_dev) = (; y, θsP, θsMs_tr) = predict_hvi(
   rng, probo_lux; n_sample_pred, 
   gdevs = (; gdev_M=gpu_device(), gdev_P=gpu_device()));
 ```
@@ -130,7 +130,7 @@ and need to be transferred to CPU.
 typeof(θsMs_dev)
 ```
 
-    ComponentArrays.ComponentArray{Float32, 3, CUDA.CuArray{Float32, 3, CUDA.DeviceMemory}, Tuple{ComponentArrays.Shaped1DAxis{(800,)}, ComponentArrays.Axis{(r1 = 1, K1 = 2)}, ComponentArrays.Shaped1DAxis{(400,)}}}
+    ComponentArrays.ComponentArray{Float32, 3, Array{Float32, 3}, Tuple{ComponentArrays.Shaped1DAxis{(800,)}, ComponentArrays.Axis{(r1 = 1, K1 = 2)}, ComponentArrays.Shaped1DAxis{(400,)}}}
 
 Handling of a `ComponentArrays` backed by GPUArrays can result
 in errors of scalar indexing. Therefore, use a semicolon
@@ -142,5 +142,5 @@ Also for moving the `ComponentArrays` to CPU, use function
 cdev = cpu_device()
 y = cdev(y_dev)
 θsP = apply_preserve_axes(cdev, θsP_dev)
-θsMs = apply_preserve_axes(cdev, θsMs_dev)
+θsMs_tr = apply_preserve_axes(cdev, θsMs_dev)
 ```

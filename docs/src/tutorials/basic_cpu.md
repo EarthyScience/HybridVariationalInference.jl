@@ -5,12 +5,6 @@
 CurrentModule = HybridVariationalInference  
 ```
 
-Julias version:
-
-``` julia
-VERSION
-```
-
 First load necessary packages.
 
 ``` julia
@@ -177,7 +171,7 @@ index to the sites inside a tuple.
 ``` julia
 n_batch = 20
 train_dataloader = MLUtils.DataLoader(
-    values(train_data), batchsize=n_batch, partial=false)
+    CA.getdata.(values(train_data)), batchsize=n_batch, partial=false)
 ```
 
 ## The Machine-Learning model
@@ -244,7 +238,7 @@ invocation of the process based model (PBM), defined at the beginning.
 ``` julia
 approx = MeanHVIApproximation()
 f_batch = PBMSiteApplicator(f_doubleMM; θP, θM, θFix, xPvec=xP[:,1])
-ϕq0 = init_hybrid_ϕq(approx, θP, θM, transP; n_site)
+ϕq0 = init_hybrid_ϕq(approx, θP, θM, transP; n_site, transM)
 
 prob = HybridProblem(θM, ϕq0, g_chain_scaled, ϕg0, 
     f_batch, priors_dict, py,
@@ -297,25 +291,25 @@ when running the model for all sites within one batch simultaneously.
 In the following, the PBM specification accepts matrices as arguments
 for parameters and drivers
 and returns a matrix of precitions.
-For the parameters, one row corresponds to
-one site. For the drivers and predictions, one column corresponds to one site.
+Generally, the sites are the last dimension. So for the drivers and predictions, one column corresponds to one site.
+However, for the parameters one row corresponds to one site.
 
 ``` julia
 using StaticArrays
-function f_doubleMM_sites(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
+function f_doubleMM_sites(θc_tr::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
     # extract several covariates from xP
     S1 = view(xPc, Val(:S1), :)
     S2 = view(xPc, Val(:S2), :)
     #
     # extract the parameters as row-repeated vectors
-    #   θc[:,:r0] is parameter r0 for each site in batch
+    #   θc_tr[:,:r0] is parameter r0 for each site in batch
     #   dot-multiplication  of full matrix times row-vector repeats for each observation row
     #   also introduces zero for missing observations, leading to zero gradient there
     is_valid = isfinite.(S1) .&& isfinite.(S2)
-    r0 = is_valid .* CA.getdata(θc[:, Val(:r0)])'
-    r1 = is_valid .* CA.getdata(θc[:, Val(:r1)])'
-    K1 = is_valid .* CA.getdata(θc[:, Val(:K1)])'
-    K2 = is_valid .* CA.getdata(θc[:, Val(:K2)])'
+    r0 = is_valid .* CA.getdata(θc_tr[:, Val(:r0)])'
+    r1 = is_valid .* CA.getdata(θc_tr[:, Val(:r1)])'
+    K1 = is_valid .* CA.getdata(θc_tr[:, Val(:K1)])'
+    K2 = is_valid .* CA.getdata(θc_tr[:, Val(:K2)])'
     # each variable is a matrix (n_obs x n_site)
     r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
 end

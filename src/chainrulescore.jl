@@ -24,8 +24,8 @@ end
 #     end
 # end
 
-# function ChainRulesCore.rrule(::typeof(transform_and_logjac_ζ), ζP, ζMs; transP, transMs)
-#     transform_and_logjac_ζ(ζP, ζMs; transP, transMs),
+# function ChainRulesCore.rrule(::typeof(transform_and_logjac_ζ), ζP, ζMs_tr; transP, transMs)
+#     transform_and_logjac_ζ(ζP, ζMs_tr; transP, transMs),
 #     function rrule_test(Δ)
 #         Main.@infiltrate_main
 #         (ChainRulesCore.NoTangent(), ΔζP, ΔζMs)

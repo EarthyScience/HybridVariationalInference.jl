@@ -4,13 +4,16 @@ global parameters, `θP`, site-specific parameters, `θMs` (sites in columns),
 and site-specific model drivers, `xP` (sites in columns),
 It returns a matrix of predictions sites in columns.    
 
-Specific implementations need to provide function `apply_model(app, θP, θMs, xP)`.
+Specific implementations need to provide function `apply_model(app, θP, θMs_tr, xP)`.
 where
-- `θsP` and `θsMs` are shaped according to the output of `generate_ζ`, i.e.
-  `(n_site_pred x n_par x n_MC)`.
+- `θsP` and `θsMs_tr` are shaped according to the output of `generate_ζ`, i.e.
+  `(n_site_pred x n_par x n_MC)`. Note that this transposed shape is different from most
+  other parts of the interface, where sites are in the last dimension. 
+  The reason is that a column of a parameter is more efficient to transfrom between
+  constrain and unconstrained scale.
 - Results are of shape `(n_obs x n_site_pred x n_MC)`.
 
-They may also provide function `apply_model(app, θP, θMs, xP)` for a sample
+They may also provide function `apply_model(app, θP, θMs_tr, xP)` for a sample
 of parameters, i.e. where an additional dimension is added to both `θP` and `θMs`.
 However, there is a default implementation that mapreduces across these dimensions.
 
@@ -24,8 +27,8 @@ abstract type AbstractPBMApplicator end
 
 # function apply_model end  # already defined in ModelApplicator.jl for ML model
 
-function (app::AbstractPBMApplicator)(θP::AbstractArray, θMs::AbstractArray, xP::AbstractMatrix) 
-    apply_model(app, θP, θMs, xP)
+function (app::AbstractPBMApplicator)(θP::AbstractArray, θMs_tr::AbstractArray, xP::AbstractMatrix) 
+    apply_model(app, θP, θMs_tr, xP)
 end
 
 """
@@ -35,8 +38,8 @@ function create_nsite_applicator end
 
 
 """
-    apply_model(app::AbstractPBMApplicator, θsP::AbstractVector, θsMs::AbstractMatrix, xP::AbstractMatrix) 
-    apply_model(app::AbstractPBMApplicator, θsP::AbstractMatrix, θsMs::AbstractArray{ET,3}, xP) 
+    apply_model(app::AbstractPBMApplicator, θsP::AbstractVector, θsMs_tr::AbstractMatrix, xP::AbstractMatrix) 
+    apply_model(app::AbstractPBMApplicator, θsP::AbstractMatrix, θsMs_tr::AbstractArray{ET,3}, xP) 
 
 The first variant calls the PBM for one batch of sites.
 
@@ -45,36 +48,36 @@ The default implementation mapreduces the last dimension of `θsP` and θ`sMs` c
 first variant of `apply_model` for each sample.
 """
 # docu in struct
-function apply_model(app::AbstractPBMApplicator, θsP::AbstractMatrix, θsMs::AbstractArray{ET,3}, xP) where ET
+function apply_model(app::AbstractPBMApplicator, θsP::AbstractMatrix, θsMs_tr::AbstractArray{ET,3}, xP) where ET
     # stack does not work on GPU, see specialized method for GPUArrays below
     y_pred = stack(
-     map(eachcol(CA.getdata(θsP)), eachslice(CA.getdata(θsMs), dims=3)) do θP, θMs
+     map(eachcol(CA.getdata(θsP)), eachslice(CA.getdata(θsMs_tr), dims=3)) do θP, θMs
         app(θP, θMs, xP)
     end)
 end
-# function apply_model(app::AbstractPBMApplicator, θsP::GPUArraysCore.AbstractGPUMatrix, θsMs::GPUArraysCore.AbstractGPUArray{ET,3}, xP) where ET
+# function apply_model(app::AbstractPBMApplicator, θsP::GPUArraysCore.AbstractGPUMatrix, θsMs_tr::GPUArraysCore.AbstractGPUArray{ET,3}, xP) where ET
 #     # stack does not work on GPU, need to resort to slower mapreduce
 #     # for type stability, apply f at first iterate to supply init to mapreduce
 #     P1, Pit = Iterators.peel(eachcol(CA.getdata(θsP)));
-#     Ms1, Msit = Iterators.peel(eachslice(CA.getdata(θsMs), dims=3));
+#     Ms1, Msit = Iterators.peel(eachslice(CA.getdata(θsMs_tr), dims=3));
 #     y1 = apply_model(app, P1, Ms1, xP)[2]
 #     y1a = reshape(y1, size(y1)..., 1) # add one dimension
 #     y_pred = mapreduce((a,b) -> cat(a,b; dims=3), Pit, Msit; init=y1a) do θP, θMs
 #         y_pred_i = app(θP, θMs, xP)
 #     end
 # end
-function apply_model(app::AbstractPBMApplicator, θsP::GPUArraysCore.AbstractGPUMatrix, θsMs::GPUArraysCore.AbstractGPUArray{ET,3}, xP) where ET
+function apply_model(app::AbstractPBMApplicator, θsP::GPUArraysCore.AbstractGPUMatrix, θsMs_tr::GPUArraysCore.AbstractGPUArray{ET,3}, xP) where ET
     # stack does not work on GPU, need to resort to slower mapreduce
     # for type stability, apply f at first iterate to supply init to mapreduce
     # avoid Iterators.peel for CUDA
-    y1 = apply_model(app, CA.getdata(θsP)[:,1], CA.getdata(θsMs)[:,:,1], xP)[2]
+    y1 = apply_model(app, CA.getdata(θsP)[:,1], CA.getdata(θsMs_tr)[:,:,1], xP)[2]
     y1a = reshape(y1, :, 1) # add one dimension
     n_sample = size(θsP,2)
     y_pred = if (n_sample == 1)
         y1a
     else
       mapreduce((a,b) -> cat(a,b; dims=3), 
-        eachcol(CA.getdata(θsP)[:,2:end]), eachslice(CA.getdata(θsMs)[:,:,2:end], dims=3); 
+        eachcol(CA.getdata(θsP)[:,2:end]), eachslice(CA.getdata(θsMs_tr)[:,:,2:end], dims=3); 
         init=y1a) do θP, θMs
             app(θP, θMs, xP)
         end
@@ -92,8 +95,8 @@ Process-Base-Model applicator that returns its θMs inputs. Used for testing.
 """
 struct NullPBMApplicator <: AbstractPBMApplicator end
 
-function apply_model(app::NullPBMApplicator, θP::AbstractVector, θMs::AbstractMatrix, xP)
-    return CA.getdata(θMs)
+function apply_model(app::NullPBMApplicator, θP::AbstractVector, θMs_tr::AbstractMatrix, xP)
+    return CA.getdata(θMs_tr)
 end
 
 create_nsite_applicator(app::NullPBMApplicator, n_site) = app
@@ -108,8 +111,8 @@ struct DirectPBMApplicator{F} <: AbstractPBMApplicator
     f::F
 end
 
-function apply_model(app::DirectPBMApplicator, θP::AbstractVector, θMs::AbstractMatrix, xP)
-    return app.f(θP, θMs, xP)
+function apply_model(app::DirectPBMApplicator, θP::AbstractVector, θMs_tr::AbstractMatrix, xP)
+    return app.f(θP, θMs_tr, xP)
 end
 create_nsite_applicator(app::DirectPBMApplicator, n_site) = app
 
@@ -155,16 +158,16 @@ function create_nsite_applicator(app::PBMSiteApplicator, n_site)
 end
 
 
-function apply_model(app::PBMSiteApplicator, θP::AbstractVector, θMs::AbstractMatrix, xP) 
-    function apply_PBMsite(θM, xP1)
-        if (CA.getdata(θP) isa GPUArraysCore.AbstractGPUArray) && 
-            (!(CA.getdata(app.θFix) isa GPUArraysCore.AbstractGPUArray) || 
-             !(CA.getdata(θMs) isa GPUArraysCore.AbstractGPUArray)) 
-            error("concatenating GPUarrays with non-gpu arrays θFix or θMs. " *
-            "May fmap PBMModelapplicators to gdev, " *
-            "or compute PBMmodel on CPU")
-        end
-        θ = vcat(CA.getdata(θP), CA.getdata(θM), CA.getdata(app.θFix))
+function apply_model(app::PBMSiteApplicator, θP::AbstractVector, θMs_tr::AbstractMatrix, xP) 
+    if (CA.getdata(θP) isa GPUArraysCore.AbstractGPUArray) && 
+        (!(CA.getdata(app.θFix) isa GPUArraysCore.AbstractGPUArray) || 
+            !(CA.getdata(θMs_tr) isa GPUArraysCore.AbstractGPUArray)) 
+        error("concatenating GPUarrays with non-gpu arrays θFix or θMs. " *
+        "May fmap PBMModelapplicators to gdev, " *
+        "or compute PBMmodel on CPU")
+    end
+    function apply_PBMsite(θM_tr, xP1)
+        θ = vcat(CA.getdata(θP), CA.getdata(θM_tr), CA.getdata(app.θFix))
         θc = app.intθ1(θ);  # show errors without ";"
         xPc = app.int_xPsite(xP1);
         ans = CA.getdata(app.fθ(θc, xPc))
@@ -174,20 +177,20 @@ function apply_model(app::PBMSiteApplicator, θP::AbstractVector, θMs::Abstract
     # https://discourse.julialang.org/t/type-instability-of-mapreduce-vs-map-reduce/121136
     # local pred_sites = mapreduce(
     #     apply_PBMsite, hcat, eachrow(θMs), eachcol(xP); init=Matrix{Float64}(undef,n_obs,0))
-    θMs1, it_θMs = if (CA.getdata(θP) isa GPUArraysCore.AbstractGPUArray)
+    θMs1_tr, it_θMs_tr = if (CA.getdata(θP) isa GPUArraysCore.AbstractGPUArray)
         # if working on CuArray, better materialize transpose and use eachcol for contiguous
         #   avoid eachrow, because it does produce non-strided views which are bad on GPU, 
         #   https://discourse.julialang.org/t/using-view-with-cuarrays/104057/5
         # better compute on CPU or use matrix-version of PBMModel
-        θMst = copy(CA.getdata(θMs)')
-        Iterators.peel(eachcol(θMst));
+        θMst_tr = copy(CA.getdata(θMs_tr)')
+        Iterators.peel(eachcol(θMst_tr));
     else
-        Iterators.peel(eachrow(CA.getdata(θMs)))
+        Iterators.peel(eachrow(CA.getdata(θMs_tr)))
     end
     xP1, it_xP = Iterators.peel(eachcol(CA.getdata(xP)))
-    obs1 = apply_PBMsite(θMs1, xP1)
+    obs1 = apply_PBMsite(θMs1_tr, xP1)
     local pred_sites = mapreduce(
-         apply_PBMsite, hcat, it_θMs, it_xP; init=reshape(obs1, :, 1))
+         apply_PBMsite, hcat, it_θMs_tr, it_xP; init=reshape(obs1, :, 1))
     return pred_sites
 end
 
@@ -257,7 +260,7 @@ function create_nsite_applicator(app::PBMPopulationApplicator, n_site)
     PBMPopulationApplicator(app.fθpop, θFixm, rep_fac, intθ, int_xP)        
 end
 
-function apply_model(app::PBMPopulationApplicator, θP::AbstractVector, θMs::AbstractMatrix, xP) 
+function apply_model(app::PBMPopulationApplicator, θP::AbstractVector, θMs_tr::AbstractMatrix, xP) 
     # error causes trouble in type inference in Zygote
     # if (CA.getdata(θP) isa GPUArraysCore.AbstractGPUArray) && 
     #     (!(CA.getdata(app.θFixm) isa GPUArraysCore.AbstractGPUArray) || 
@@ -277,14 +280,14 @@ function apply_model(app::PBMPopulationApplicator, θP::AbstractVector, θMs::Ab
     # but when returning a gradient of size (n_bach, 0) there are errors
     # need to live with dynamic dispatch of Union type of Matrix and ZeroTangent
     #local θ = concat_PMFix(θP, θMs, app)
-    local θ = if !isempty(θP) 
-        hcat(app.rep_fac .* CA.getdata(θP)' , CA.getdata(θMs), CA.getdata(app.θFixm)) 
+    local θ_tr = if !isempty(θP) 
+        hcat(app.rep_fac .* CA.getdata(θP)' , CA.getdata(θMs_tr), CA.getdata(app.θFixm)) 
     else
-        hcat(CA.getdata(θMs), CA.getdata(app.θFixm)) 
+        hcat(CA.getdata(θMs_tr), CA.getdata(app.θFixm)) 
     end
-    local θc = app.intθ(θ)
+    local θc_tr = app.intθ(θ_tr)
     local xPc = app.int_xP(CA.getdata(xP))
-    local pred_sites = app.fθpop(θc, xPc)
+    local pred_sites = app.fθpop(θc_tr, xPc)
     return pred_sites
 end
 
@@ -320,10 +323,10 @@ to a `ComponentMatrix` with parameters with one row for each site, that
 can be column-indexed by Symbols.
 
 ## Arguments 
-- `fθpop`: process model, process model `f(θsc, θgc, xPc)`, which is not
+- `fθpop`: process model, process model `f(θsc_tr, θgc, xPc)`, which is not
   agnostic of the partitioning of parameters into fixed, global, and individual
   to increase performance
-    - `θc`: parameters: `ComponentMatrix` (n_site x n_par_site) with each row a parameter vector
+    - `θsc_tr`: parameters: `ComponentMatrix` (n_site x n_par_site) with each row a parameter vector
     - `θgc`: parameters: `ComponentVector` (n_par_global) 
     - `xPc`: observations: `ComponentMatrix` (n_obs x n_site) with each column 
     observationsfor one site
@@ -354,20 +357,20 @@ function create_nsite_applicator(app::PBMPopulationGlobalApplicator, n_site)
 end
 
 
-function apply_model(app::PBMPopulationGlobalApplicator, θP::AbstractVector, θMs::AbstractMatrix, xP) 
+function apply_model(app::PBMPopulationGlobalApplicator, θP::AbstractVector, θMs_tr::AbstractMatrix, xP) 
     if (CA.getdata(θP) isa GPUArraysCore.AbstractGPUArray) && 
         (!(CA.getdata(app.θFix) isa GPUArraysCore.AbstractGPUArray) || 
-            !(CA.getdata(θMs) isa GPUArraysCore.AbstractGPUArray)) 
+            !(CA.getdata(θMs_tr) isa GPUArraysCore.AbstractGPUArray)) 
         error("concatenating GPUarrays with non-gpu arrays θFixm or θMs. " *
         "May transfer PBMPopulationGlobalApplicator to gdev, " *
         "or compute PBM on CPU.")
     end
-    local θs = CA.getdata(θMs)
+    local θs_tr = CA.getdata(θMs_tr)
     local θg = vcat(CA.getdata(θP), CA.getdata(app.θFix)) 
-    local θsc = app.intθs(CA.getdata(θs))
+    local θsc_tr = app.intθs(CA.getdata(θs_tr))
     local θgc = app.intθg(CA.getdata(θg))
     local xPc = app.int_xP(CA.getdata(xP))
-    local pred_sites = app.fθpop(θsc, θgc, xPc)
+    local pred_sites = app.fθpop(θsc_tr, θgc, xPc)
     return pred_sites
 end
 

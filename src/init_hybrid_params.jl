@@ -112,6 +112,7 @@ function init_hybrid_ϕunc(
             hcat, (coef_logσ2_logM for _ in 1:cor_ends.M[end])),
         ρsP = fill(ρ0, get_cor_count(cor_ends.P)),
         ρsM = fill(ρ0, get_cor_count(cor_ends.M)),
+        transM,
         θM::CA.ComponentVector,
         n_site::Integer = 0,
 ) where {FT}

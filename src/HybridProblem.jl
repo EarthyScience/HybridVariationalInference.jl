@@ -135,7 +135,7 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
     )
     cor_ends_new = if !isnothing(cor_ends)
         # if new cor_ends was specified then re-initialize the ρsP and ρsM in ϕq
-        ϕunc0 = init_hybrid_ϕunc(approx, cor_ends, zero(eltype(ϕq)))
+        ϕunc0 = init_hybrid_ϕunc(approx, cor_ends, zero(eltype(ϕq)); θM, transM)
         ϕq = CA.ComponentVector(;ϕq..., ρsP = ϕunc0.ρsP, ρsM = ϕunc0.ρsM)
         cor_ends
     else
@@ -200,7 +200,7 @@ end
 
 # Returns a tuple of
 # - `θP`: ComponentVector of population-level parameters
-# - `θMs`: ComponentArray (n_site x n_par) of individual (site) parameters
+# - `θMs_tr`: ComponentArray (n_site x n_par) of individual (site) parameters
 # """
 # function compute_hybridproblem_par_expected(prob::HybridProblem, xM; 
 #     scenario = (), cdev = identity)
@@ -218,12 +218,12 @@ end
 #         ζP = inverse(transP)(θP)
 #         _append_each_covars(xM, CA.getdata(ζP), pbm_covar_indices)
 #     end
-#     θMs_m = gtrans(g, transMs, xMP, ϕg; cdev=identity, is_testmode=true)
+#     θMs_tr_m = gtrans(g, transMs, xMP, ϕg; cdev=identity, is_testmode=true)
 #     # attach parameter names in columns
 #     (;θM) = get_hybridproblem_par_templates(prob; scenario)
 #     intm = ComponentArrayInterpreter((n_site,), θM)
-#     θMs = intm(θMs_m)
-#     (; θP, θMs) 
+#     θMs_tr = intm(θMs_tr_m)
+#     (; θP, θMs_tr) 
 # end
 
 function get_hybridproblem_ϕq(prob::HybridProblem; scenario = ())

@@ -65,10 +65,10 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
     approx::AbstractHVIApproximation,
 ) where {FT}
     n_MCr = isempty(priors_θP_mean) ? n_MC : max(n_MC, n_MC_mean)
-    ζsP, ζsMs, σ = generate_ζ(approx, rng, g, ϕ, xM; n_MC=n_MCr, cor_ends, pbm_covar_indices,
+    ζsP, ζsMs_tr, σ = generate_ζ(approx, rng, g, ϕ, xM; n_MC=n_MCr, cor_ends, pbm_covar_indices,
         int_ϕq, int_ϕg_ϕq, is_testmode, i_sites)
     ζsP_cpu = cdev(ζsP) # fetch to CPU, because for <1000 sites (n_batch) this is faster
-    ζsMs_cpu = cdev(ζsMs) # fetch to CPU, because for <1000 sites (n_batch) this is faster
+    ζsMs_tr_cpu = cdev(ζsMs_tr) # fetch to CPU, because for <1000 sites (n_batch) this is faster
     #
     # maybe: translate ζ once and supply to both neg_elbo and negloglik_meanθ
     ϕc = int_ϕg_ϕq(ϕ)
@@ -76,7 +76,7 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
     ϕg = CA.getdata(ϕc.ϕg)::VT
     ϕq = CA.getdata(ϕc.ϕq)::VT
     loss_comps = neg_elbo_ζtf(
-        ζsP_cpu[:,1:n_MC], ζsMs_cpu[:,:,1:n_MC], σ, f, py, xP, y_ob, y_unc;
+        ζsP_cpu[:,1:n_MC], ζsMs_tr_cpu[:,:,1:n_MC], σ, f, py, xP, y_ob, y_unc;
         n_MC_cap, transP, transMs, priorsP, priorsM, 
         floss_penalty, ϕg, ϕq, is_omit_priors, zero_prior_logdensity,)
     #
@@ -87,16 +87,16 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
     # (;loss_comps..., nLmean_θ)
 end
 
-function _compute_negloglik_meanθ(ζsP::AbstractMatrix{FT}, ζsMs; 
+function _compute_negloglik_meanθ(ζsP::AbstractMatrix{FT}, ζsMs_tr; 
     priors_θP_mean, priors_θMs_mean, i_sites, trans_mP, trans_mMs, 
 ) where FT
     if isempty(priors_θP_mean) 
         return zero(FT)
     end
-    θsP, θsMs = transform_ζs(ζsP, ζsMs; trans_mP, trans_mMs)
+    θsP, θsMs_tr = transform_ζs(ζsP, ζsMs_tr; trans_mP, trans_mMs)
     mean_θP = mean(CA.getdata(θsP); dims=(2))[:, 1]
     nLmean_θP = map((d, θi) -> -logpdf(d, θi), priors_θP_mean, mean_θP)
-    mean_θMs = mean(θsMs; dims=(3))[:, :, 1]
+    mean_θMs = mean(θsMs_tr; dims=(3))[:, :, 1]
     nLmean_θMs = map((d, θi) -> -logpdf(d, θi), priors_θMs_mean[i_sites], mean_θMs)
     nLmean_θ = sum(nLmean_θP) + sum(nLmean_θMs)
     convert(FT,nLmean_θ)::FT
@@ -129,20 +129,20 @@ Compute the neg_elbo for each sampled parameter vector (last dimension of ζs).
 - `loss_penalty`: additional loss terms from floss_penalty
 - compute entropy of transformation
 """
-function neg_elbo_ζtf(ζsP, ζsMs, σ, f, py, xP, y_ob, y_unc;
+function neg_elbo_ζtf(ζsP, ζsMs_tr, σ, f, py, xP, y_ob, y_unc;
     n_MC_cap=size(ζsP,2),
     transP,
-    transMs=StackedArray(transM, size(ζsMs, 2)),
+    transMs=StackedArray(transM, size(ζsMs_tr, 2)),
     priorsP, priorsM,
     floss_penalty, ϕg, ϕq,
     is_omit_priors::Val,
     zero_prior_logdensity,
 ) 
     n_MC = size(ζsP,2)
-    f_sample = (ζP, ζMs) -> begin    
-            θP, θMs, logjac_i = transform_and_logjac_ζ(ζP, ζMs; transP, transMs)
+    f_sample = (ζP, ζMs_tr) -> begin    
+            θP, θMs_tr, logjac_i = transform_and_logjac_ζ(ζP, ζMs_tr; transP, transMs)
             #  currently logpdf only works on CPU
-            y_pred_i = f(θP, θMs, xP)
+            y_pred_i = f(θP, θMs_tr, xP)
             #nLy1 = neg_logden_indep_normal(y_ob, y_pred_i, y_unc)
             # Main.@infiltrate_main
             # Test.@inferred( f(θP, θMs, xP) )
@@ -150,8 +150,8 @@ function neg_elbo_ζtf(ζsP, ζsMs, σ, f, py, xP, y_ob, y_unc;
             # @usingany Cthulhu
             # @descend_code_warntype f(θP, θMs, xP)
             nLy_i = py(y_ob, y_pred_i, y_unc)
-            loss_penalty_i = convert(eltype(nLy_i),floss_penalty(y_pred_i, θMs, θP, ϕg, ϕq))
-            neg_log_prior_i = compute_priors_logdensity(priorsP, priorsM, θP, θMs,
+            loss_penalty_i = convert(eltype(nLy_i),floss_penalty(y_pred_i, θMs_tr, θP, ϕg, ϕq))
+            neg_log_prior_i = compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr,
                 is_omit_priors, zero_prior_logdensity)
             # make sure names to not match outer, otherwise Box type instability
             (nLy_i, neg_log_prior_i, -logjac_i, loss_penalty_i)
@@ -165,7 +165,7 @@ function neg_elbo_ζtf(ζsP, ζsMs, σ, f, py, xP, y_ob, y_unc;
     #@usingany Cthulhu
     #@descend_code_warntype f_sample(first(eachcol(ζsP)), first(eachslice(ζsMs; dims=3)))
     #map_res = Test.@inferred map(f_sample, eachcol(ζsP), eachslice(ζsMs; dims=3))
-    map_res = map(f_sample, eachcol(ζsP), eachslice(ζsMs; dims=3))
+    map_res = map(f_sample, eachcol(ζsP), eachslice(ζsMs_tr; dims=3))
     nLys, neg_log_priors, neglogjacs, loss_penalties = vectuptotupvec(map_res)
     # For robustness may compute the expectation only on the n_smallest values
     # because its very sensitive to few large outliers
@@ -183,7 +183,7 @@ function neg_elbo_ζtf(ζsP, ζsMs, σ, f, py, xP, y_ob, y_unc;
     #  sum_log_σ = sum(log.(σ))
     # logdet_jacT2 = -sum_log_σ # log Prod(1/σ_i) = -sum log σ_i 
     logdetΣ = 2 * sum(log.(σ))
-    n_θ = size(ζsP, 1) + prod(size(ζsMs)[1:2])
+    n_θ = size(ζsP, 1) + prod(size(ζsMs_tr)[1:2])
     if length(σ) != n_θ
         error("TODO infiltrate")
         #Main.@infiltrate_main
@@ -200,20 +200,20 @@ function neg_elbo_ζtf(ζsP, ζsMs, σ, f, py, xP, y_ob, y_unc;
     (;nLjoint, entropy_ζ, loss_penalty, nLy, neg_log_prior, neg_log_jac)
 end
 
-function compute_priors_logdensity(priorsP, priorsM, θP, θMs,
+function compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr,
         ::Val{omit_priors}, zero_prior_logdensity) where {omit_priors}
     if omit_priors
         zero_prior_logdensity
-    elseif (θP isa AbstractGPUArray) || (θMs isa AbstractGPUArray)
+    elseif (θP isa AbstractGPUArray) || (θMs_tr isa AbstractGPUArray)
         @warn("neg_elbo_ζtf: Cannot apply priors to gpu array. Piors are omitted. "*
         "either compute PBM on CPU or omit priors.")
         zero_prior_logdensity
     else
-        compute_priors_logdensity(priorsP, priorsM, θP, θMs, zero_prior_logdensity)
+        compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr, zero_prior_logdensity)
     end
 end
 
-function compute_priors_logdensity(priorsP, priorsM, θP, θMs, zero_prior_logdensity)
+function compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr, zero_prior_logdensity)
     logpdf_t = (prior, θ) -> logpdf(prior, θ)::eltype(θP)
     function logpdf_tv_sum(prior, θ::AbstractVector{T}) where T 
         # logpdf_tv_sum_inner = let prior = prior
@@ -235,13 +235,13 @@ function compute_priors_logdensity(priorsP, priorsM, θP, θMs, zero_prior_logde
     #     logpdf_tv_sum(priorMi, θMi)
     #     sum(logpdf_tv_sum(priorMi, θMi))::eltype(θMi)
     # end
-    f_col = let priorsM=priorsM, θMs=θMs
+    f_col = let priorsM=priorsM, θMs_tr=θMs_tr
         function f_col_inner(i)
             # TP = ChainRulesCore.@ignore_derivatives Base.return_types(getindex, Tuple{typeof(priorsM), typeof(i)})
             # if TP != [typeof(priorsM[i])] 
             #     error("encountered unstable priorsM: $TP")
             # end
-            logpdf_tv_sum(priorsM[i], θMs[:,i])
+            logpdf_tv_sum(priorsM[i], θMs_tr[:,i])
             #Tθ = Base.return_types(getindex, Tuple{typeof(θMs), Colon, typeof(i)})
             #TRET = Base.return_types(logpdf_tv_sum, Tuple{typeof(priorsM[i]), typeof(θMs[:,i])})
         end
@@ -252,7 +252,7 @@ function compute_priors_logdensity(priorsP, priorsM, θP, θMs, zero_prior_logde
     neg_log_prior_i = nlP0 - nlMs_sum
     if !isfinite(neg_log_prior_i)
         @show neg_log_prior_i, nlP0
-        @show θMs
+        @show θMs_tr
         @show priorsM
         error("inspect non-finite priors")
     end
@@ -302,11 +302,11 @@ Prediction function for hybrid variational inference parameter model.
 - `xP`: model drivers for process based model (PBM): Matrix with (n_site_pred) rows.
   Possibility to override the default from `get_hybridproblem_train_dataloader`.
 
-Returns an NamedTuple `(; y, θsP, θsMs, entropy_ζ)` with entries
+Returns an NamedTuple `(; y, θsP, θsMs_tr, entropy_ζ)` with entries
 - `y`: Array `(n_obs, n_site, n_sample_pred)` of model predictions.
 - `θsP`: ComponentArray `(n_θP, n_sample_pred)` of PBM model parameters
   that are kept constant across sites.
-- `θsMs`: ComponentArray `(n_site, n_θM, n_sample_pred)` of PBM model parameters
+- `θsMs_tr`: ComponentArray `(n_site, n_θM, n_sample_pred)` of PBM model parameters
   that vary by site.
 - `entropy_ζ`: The entropy of the log-determinant of the transformation of 
   the set of model parameters, which is involved in uncertainty quantification.
@@ -333,11 +333,11 @@ function predict_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()),
         xM = isnothing(xM) ? xM_dl[:,i_sites] : xM
     end
     # sample_posterior required consistent prob.ϕq and xM
-    (; θsP, θsMs, entropy_ζ) = sample_posterior(
+    (; θsP, θsMs_tr, entropy_ζ) = sample_posterior(
         rng, prob, xM; scenario, gdevs, is_testmode, i_sites, kwargs...)
     #
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-    n_site_pred = size(θsMs,1) # determined by size(xM)
+    n_site_pred = size(θsMs_tr,1) # determined by size(xM)
     @assert size(xP, 2) == n_site_pred
     f_batch = get_hybridproblem_PBmodel(prob; scenario)
     f = n_site_pred == n_batch ? f_batch : create_nsite_applicator(f_batch, n_site_pred)
@@ -346,9 +346,9 @@ function predict_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()),
     else
         f_dev = f
     end
-    #y = apply_process_model(θsP, θsMs, f_dev, xP)
-    y = f_dev(θsP, θsMs, xP)
-    (; y, θsP, θsMs, entropy_ζ)
+    #y = apply_process_model(θsP, θsMs_tr, f_dev, xP)
+    y = f_dev(θsP, θsMs_tr, xP)
+    (; y, θsP, θsMs_tr, entropy_ζ)
 end
 
 """
@@ -370,10 +370,10 @@ Optional keyword arguments
   and parameter transformtation, default to [`get_gdev_MP`](@ref)`(scenario)`.
 - `is_inferred`: set to `Val(true)` to activate type stabilicy check for transformation
 
-Returns an NamedTuple `(; θsP, θsMs, entropy_ζ)` with entries
+Returns an NamedTuple `(; θsP, θsMs_tr, entropy_ζ)` with entries
 - `θsP`: ComponentArray `(n_θP, n_sample_pred)` of PBM model parameters
   that are kept constant across sites.
-- `θsMs`: ComponentArray `(n_site, n_θM, n_sample_pred)` of PBM model parameters
+- `θsMs_tr`: ComponentArray `(n_site, n_θM, n_sample_pred)` of PBM model parameters
   that vary by site.
 - `entropy_ζ`: The entropy of the log-determinant of the transformation of 
   the set of model parameters, which is involved in uncertainty quantification.
@@ -420,13 +420,13 @@ function sample_posterior(rng, prob::AbstractHybridProblem, xM::AbstractMatrix;
     if isnothing(approx) 
         approx = prob.approx  # assuming has field approx, e.g. if its a HybridProblem
     end
-    (; θsP, θsMs, entropy_ζ) = sample_posterior(rng, g_dev, ϕ_dev, xM;
+    (; θsP, θsMs_tr, entropy_ζ) = sample_posterior(rng, g_dev, ϕ_dev, xM;
         int_ϕg_ϕq, int_ϕq, transP, transM, 
         n_sample_pred, cdev=infer_cdev(gdevs), cor_ends, pbm_covar_indices, approx,
         kwargs...)
     θsPc = ComponentArrayInterpreter(par_templates.θP, (n_sample_pred,))(θsP)
-    θsMsc = ComponentArrayInterpreter((n_site,), par_templates.θM, (n_sample_pred,))(θsMs)
-    (; θsP=θsPc, θsMs=θsMsc, entropy_ζ)
+    θsMsc_tr = ComponentArrayInterpreter((n_site,), par_templates.θM, (n_sample_pred,))(θsMs_tr)
+    (; θsP=θsPc, θsMs_tr=θsMsc_tr, entropy_ζ)
 end
 
 function sample_posterior(rng, g, ϕ::AbstractVector, xM::AbstractMatrix;
@@ -442,19 +442,19 @@ function sample_posterior(rng, g, ϕ::AbstractVector, xM::AbstractMatrix;
     approx::AbstractHVIApproximation,
     i_sites,
 ) where is_infer
-    ζsP_gpu, ζsMs_gpu, σ = generate_ζ(approx, rng, g, CA.getdata(ϕ), CA.getdata(xM);
+    ζsP_gpu, ζsMs_tr_gpu, σ = generate_ζ(approx, rng, g, CA.getdata(ϕ), CA.getdata(xM);
         int_ϕg_ϕq, int_ϕq,
         n_MC=n_sample_pred, cor_ends, pbm_covar_indices, is_testmode, i_sites)
     ζsP = cdev(ζsP_gpu)
-    ζsMs = cdev(ζsMs_gpu)
+    ζsMs_tr = cdev(ζsMs_tr_gpu)
     logdetΣ = 2 * sum(log.(σ))
     entropy_ζ = entropy_MvNormal(length(σ), logdetΣ)
     trans_mP = StackedArray(transP, size(ζsP, 2))
-    trans_mMs = StackedArray(transM, size(ζsMs, 1) * size(ζsMs, 3))
-    θsP, θsMs = is_infer ? 
-        Test.@inferred(transform_ζs(ζsP, ζsMs; trans_mP, trans_mMs)) :
-        transform_ζs(ζsP, ζsMs; trans_mP, trans_mMs)
-    (; θsP, θsMs, entropy_ζ)
+    trans_mMs = StackedArray(transM, size(ζsMs_tr, 1) * size(ζsMs_tr, 3))
+    θsP, θsMs_tr = is_infer ? 
+        Test.@inferred(transform_ζs(ζsP, ζsMs_tr; trans_mP, trans_mMs)) :
+        transform_ζs(ζsP, ζsMs_tr; trans_mP, trans_mMs)
+    (; θsP, θsMs_tr, entropy_ζ)
 end
 
 
@@ -497,7 +497,7 @@ function generate_ζ(
     if pbm_covar_indices isa SA.SVector{0}
         # do not need to predict again but just add the residuals to μ_ζP and μ_ζMs
         #ζsP = μ_ζP .+ ζP_resids  # n_par x n_MC # .+ on empty view does not work
-        ζsMs = permutedims(μ_ζMs0 .+ ζMs_parfirst_resids, (2, 1, 3)) # n_site x n_par x n_MC
+        ζsMs_tr = permutedims(μ_ζMs0 .+ ζMs_parfirst_resids, (2, 1, 3)) # n_site x n_par x n_MC
         # if any(ζsMs[:,2,:] .> 80.0)
         #     @show ζsMs
         #     @show ζMs_parfirst_resids
@@ -515,9 +515,9 @@ function generate_ζ(
         end
         # ζsP = stack(map(first, ζst); dims=1)  # n_MC x n_par
         # ζsMs = stack(map(x -> x[2], ζst); dims=1) # n_MC x n_site x n_par
-        ζsMs = stack(ζsMs_vec) # n_site x n_par x n_MC
+        ζsMs_tr = stack(ζsMs_vec) # n_site x n_par x n_MC
     end
-    ζsP, ζsMs, σ
+    ζsP, ζsMs_tr, σ
 end
 
 # function _append_PBM_covars(xM, ζP, pbm_covars::NTuple{N,Symbol}) where N
@@ -780,10 +780,10 @@ Transform parameters and compute absolute of determinant of Jacobian of the tran
 - to constrained θ scale of format (n_site x n_par)
 """
 
-function transform_and_logjac_ζ(ζP::AbstractVector, ζMs::AbstractMatrix;
+function transform_and_logjac_ζ(ζP::AbstractVector, ζMs_tr::AbstractMatrix;
     transP::Bijectors.Transform,
-    transMs::StackedArray=StackedArray(transM, size(ζMs, 1)))
-    θMs, logjac_M = Bijectors.with_logabsdet_jacobian(transMs, ζMs)
+    transMs::StackedArray=StackedArray(transM, size(ζMs_tr, 1)))
+    θMs_tr, logjac_M = Bijectors.with_logabsdet_jacobian(transMs, ζMs_tr)
     # if !all(isfinite.(θMs)) 
     #     @show θMs
     #     @show ζMs
@@ -794,8 +794,8 @@ function transform_and_logjac_ζ(ζP::AbstractVector, ζMs::AbstractMatrix;
     # end   
     # constrain parameters to sqrt of range of numeric type
     # due to sampling they might exceed the range
-    θMs = min.(sqrt(floatmax(eltype(θMs))), θMs) 
-    θMs = max.(sqrt(floatmin(eltype(θMs))), θMs) 
+    θMs_tr = min.(sqrt(floatmax(eltype(θMs_tr))), θMs_tr) 
+    θMs_tr = max.(sqrt(floatmin(eltype(θMs_tr))), θMs_tr) 
     θP, logjac_P = if isempty(ζP)
         ζP, zero(logjac_M)  
     else
@@ -804,7 +804,7 @@ function transform_and_logjac_ζ(ζP::AbstractVector, ζMs::AbstractMatrix;
         θP = max.(sqrt(floatmin(eltype(θP))), θP) 
         θP, logjac_P
     end
-    θP, θMs, logjac_P + logjac_M
+    θP, θMs_tr, logjac_P + logjac_M
 end
 
 """
@@ -812,26 +812,26 @@ Transform parameters
 - from unconstrained (e.g. log) ζ scale of format ((n_site x n_par) x n_mc)
 - to constrained θ scale of the same format
 """
-function transform_ζs(ζsP::AbstractMatrix, ζsMs::AbstractArray;
+function transform_ζs(ζsP::AbstractMatrix, ζsMs_tr::AbstractArray;
     trans_mP::StackedArray=StackedArray(transP, n_MC),
     trans_mMs::StackedArray=StackedArray(transM, n_MC * n_site_batch)
 )
     # transform to parameter-last that can apply transformations effectively
-    θsMst = trans_mMs(permutedims(ζsMs, (3, 1, 2)))
+    θsMs_tr = trans_mMs(permutedims(ζsMs_tr, (3, 1, 2)))
     # backtransform to n_mc last for efficient mapping
-    θsMs = permutedims(θsMst, (2, 3, 1))
+    θsMs_tr = permutedims(θsMs_tr, (2, 3, 1))
     θsPt = trans_mP(ζsP') # Bijectors use copy and copy(ζsP') errors if ζsP is an empty CuArray
     θsP = θsPt'
     # θsP = if isempty(ζsP) 
     #     # trans_mP(ζsP') of empty array has problems with AD
     #     # copy(ζsP')'  # copy of empty array does no harm but ensures type is Adjoint
     #     ζsP  # leads to type instability
-    #     #θsMs[1, 1:0, :] # workaround: extract empty matrix from first mc_batch of θsMs not the same type
+    #     #θsMs_tr[1, 1:0, :] # workaround: extract empty matrix from first mc_batch of θsMs_tr not the same type
     # else
     #     θsPt = trans_mP(ζsP')
     #     θsP = θsPt'
     # end
-    θsP, θsMs
+    θsP, θsMs_tr
 end
 
 function flatten_hybrid_pars(xsP::AbstractMatrix{FT}, xsMs::AbstractArray{FT,3}) where FT

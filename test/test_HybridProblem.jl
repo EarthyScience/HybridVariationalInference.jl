@@ -95,7 +95,7 @@ function construct_problem(; scenario::Val{scen}) where scen
     f_batch = PBMSiteApplicator(
         f_doubleMM; θP, θM, θFix=CA.ComponentVector{FT}(), 
         xPvec=xP[:,1])
-    ϕunc0 = init_hybrid_ϕunc(MeanHVIApproximation(), cor_ends, zero(FT); θM, n_site) 
+    ϕunc0 = init_hybrid_ϕunc(MeanHVIApproximation(), cor_ends, zero(FT); θM, transM, n_site) 
     ϕq = CP.update_μP_by_θP(ϕunc0, θP, transP)
     approx = if (:MeanHVIApproxBlocks ∈ scen) 
         MeanHVIApproximation()
@@ -242,7 +242,7 @@ test_with_flux = (scenario) -> begin
         end)()
         @test θPo.r0 < 1.5 * θP.r0
         @test ϕ.ϕP.K2 < 1.5 * log(θP.K2)
-        (;y_pred, θMs, θP) = predict_point_hvi(rng, probo; scenario)
+        (;y_pred, θMs_tr, θP) = tmp = predict_point_hvi(rng, probo; scenario)
         _,_,y_obs,_ = get_hybridproblem_train_dataloader(prob; scenario).data
         @test size(y_pred) == size(y_obs)
     end;
@@ -263,7 +263,7 @@ test_with_flux = (scenario) -> begin
         @test θP.r0 < 1.5 * θPt.r0
         @test exp(ϕ.ϕq.μP.K2) == θP.K2 < 1.5 * θP.K2
         n_sample_pred = 12
-        (; y, θsP, θsMs, entropy_ζ) = predict_hvi(rng, probo; scenario, n_sample_pred);
+        (; y, θsP, θsMs_tr, entropy_ζ) = predict_hvi(rng, probo; scenario, n_sample_pred);
         _,_,y_obs,_ = get_hybridproblem_train_dataloader(prob; scenario).data
         @test size(y) == (size(y_obs)..., n_sample_pred)
         yc = cdev(y)
@@ -310,7 +310,7 @@ test_with_flux_gpu = (scenario) -> begin
             @test cdev(ϕ.ϕq.ρsM)[1] > 0 
             @test probo.ϕq == cdev(ϕ.ϕq)
             n_sample_pred = 22
-            (; y, θsP, θsMs) = predict_hvi(
+            (; y, θsP, θsMs_tr) = predict_hvi(
                 rng, probo; scenario = scenf, n_sample_pred, is_inferred=Val(true));            
             (_xM, _xP, _y_o, _y_unc, _i_sites) = get_hybridproblem_train_dataloader(
                 prob; scenario).data
@@ -329,8 +329,8 @@ test_with_flux_gpu = (scenario) -> begin
                 @test probo.ϕq == cdev(ϕ.ϕq)
                 # predict using problem and its associated dataloader
                 n_sample_pred = 201
-                (; y, θsP, θsMs) = predict_hvi(rng, probo; scenario = scenf, n_sample_pred);            
-                # to inspect correlations among θP and θMs construct ComponentVector
+                (; y, θsP, θsMs_tr) = predict_hvi(rng, probo; scenario = scenf, n_sample_pred);            
+                # to inspect correlations among θP and θMs_tr construct ComponentVector
                 # TODO redo get_int_PMst_site
                 # get_ca_int_PMs = let
                 #     function get_ca_int_PMs_inner(n_site)
@@ -340,7 +340,7 @@ test_with_flux_gpu = (scenario) -> begin
                 #     end
                 # end
                 int_mPMs = stack_ca_int(Val((n_sample_pred,)), get_int_PMst_site(hpints))
-                θs =  int_mPMs(CP.flatten_hybrid_pars(θsP, θsMs))
+                θs =  int_mPMs(CP.flatten_hybrid_pars(θsP, θsMs_tr))
                 mean_θ = CA.ComponentVector(vec(mean(CA.getdata(θs), dims=1)), last(CA.getaxes(θs)))
                 mean_θ.Ms
                 sd_θ = CA.ComponentVector(vec(std(CA.getdata(θs), dims=1)), last(CA.getaxes(θs)))
@@ -383,7 +383,7 @@ test_with_flux_gpu = (scenario) -> begin
                 );
                 @test resopt.u isa GPUArraysCore.AbstractGPUVector
                 n_sample_pred = 11
-                (; y, θsP, θsMs) = predict_hvi(
+                (; y, θsP, θsMs_tr) = predict_hvi(
                     rng, probo; scenario = scenf, n_sample_pred,is_inferred = Val(true));
                 # @test cdev(ϕ.ϕq.ρsM)[1] > 0 # too few iterations
             end;    
