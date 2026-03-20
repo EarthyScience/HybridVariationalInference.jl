@@ -28,10 +28,10 @@ const prob = DoubleMM.DoubleMMCase()
 scenario = Val((:default,))
 #scenario = Val((:covarK2,))
 
-const approx = MeanHVIApproximationMat()
-#const approx = MeanHVIApproximation()
+#approx = MeanHVIApproximationMat()
+#approx = MeanVarSepHVIApproximation()
 
-test_scenario = (scenario) -> begin
+test_scenario = (scenario, approx) -> begin
     probc = HybridProblem(prob; scenario, approx);
     FT = get_hybridproblem_float_type(probc; scenario)
     par_templates = get_hybridproblem_par_templates(probc; scenario)
@@ -74,7 +74,7 @@ test_scenario = (scenario) -> begin
     # transP = elementwise(exp)
     # transM = Stacked(elementwise(identity), elementwise(exp))
     #transM = Stacked(elementwise(identity), elementwise(exp), elementwise(exp)) # test mismatch
-    ϕq0 = init_hybrid_ϕq(approx, par_templates.θP, par_templates.θM, transP, cor_ends)
+    ϕq0 = init_hybrid_ϕq(approx, par_templates.θP, par_templates.θM, transP, cor_ends; transM, n_site)
     # ϕunc0 = init_hybrid_ϕunc(cor_ends, zero(FT))
     # ϕq0 = CP.update_μP_by_θP(ϕunc0, θP_true, transP)
     (; ϕ, interpreters) = init_hybrid_params(ϕg0, ϕq0)
@@ -94,11 +94,13 @@ test_scenario = (scenario) -> begin
         g_gpu = ggdev(g_flux)
     end
 
-    ζsP, ζsMs, σ = @inferred (
+    i_sites = 1:n_batch
+    ζsP, ζsMs_tr, σ = @inferred (
     # @descend_code_warntype (
         CP.generate_ζ(
-        approx, rng, g, ϕ_ini, xM[:, 1:n_batch];
+        approx, rng, g, ϕ_ini, xM[:, i_sites];
         n_MC, cor_ends, pbm_covar_indices,
+        i_sites,
         int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq, is_testmode = false)
     )
 
@@ -108,22 +110,23 @@ test_scenario = (scenario) -> begin
         #     approx, rng, g, ϕ_ini, xMtest[:, 1:n_batch], map(get_concrete, interpreters);
         #     n_MC = 8, cor_ends, pbm_covar_indices)
         @test ζsP isa AbstractMatrix
-        @test ζsMs isa AbstractArray
+        @test ζsMs_tr isa AbstractArray
         @test size(ζsP) == (n_θP, n_MC)
-        @test size(ζsMs) == (n_batch, n_θM, n_MC)
+        @test size(ζsMs_tr) == (n_batch, n_θM, n_MC)
         gr = Zygote.gradient(
             ϕ -> begin
-                _ζsP, _ζsMs, _σ = CP.generate_ζ(
-                    approx, rng, g, ϕ, xM[:, 1:n_batch];
+                _ζsP, _ζsMs_tr, _σ = CP.generate_ζ(
+                    approx, rng, g, ϕ, xM[:, i_sites];
+                    i_sites,
                     n_MC=8, cor_ends, pbm_covar_indices,
                     int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq,
                      is_testmode = true)
-                sum(_ζsP) + sum(_ζsMs) + sum(_σ)
+                sum(_ζsP) + sum(_ζsMs_tr) + sum(_σ)
             end, CA.getdata(ϕ_ini))
         @test gr[1] isa Vector
     end
 
-    if !(:covarK2 ∈ CP._val_value(scenario)) 
+    if !(:covarK2 ∈ CP._val_value(scenario)) && (approx isa MeanHVIApproximation)
         # can only test distribution if g is not repeated
         @testset "generate_ζ check sd residuals $(last(CP._val_value(scenario)))" begin
             # prescribe very different uncertainties 
@@ -155,23 +158,25 @@ test_scenario = (scenario) -> begin
             #hcat(ϕ_ini, ϕ, _ϕ)[1:4,:]
             #hcat(ϕ_ini, ϕ, _ϕ)[(end-20):end,:]
             n_predict = 10_000 #8_000
-            xM_batch = xM[:, 1:n_batch]
-            _ζsP, _ζsMs, _σ = @inferred (
+            i_sites = 1:n_batch
+            xM_batch = xM[:, i_sites]
+            _ζsP, _ζsMs_tr, _σ = @inferred (
                 # @descend_code_warntype (
                     CP.generate_ζ(
                     approx, rng, g, _ϕ, xM_batch;
+                    i_sites,
                     n_MC = n_predict, cor_ends, pbm_covar_indices,
                     int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq,
                     is_testmode = true)
                 )
             ζMs_g = g(xM_batch, probc.ϕg)' # have been generated with no scaling
-            function test_distζ(_ζsP, _ζsMs, ϕunc_true, ζMs_g)
+            function test_distζ(_ζsP, _ζsMs_tr, ϕunc_true, ζMs_g)
                 mP = mean(_ζsP; dims=2)
                 residP = _ζsP .- mP
                 sdP = vec(std(residP; dims=2))
                 _sd_ζP_true = sqrt.(exp.(ϕunc_true.logσ2_ζP))
                 @test isapprox(sdP, _sd_ζP_true; rtol=0.05)
-                mMs = mean(_ζsMs; dims=3)[:,:,1]
+                mMs = mean(_ζsMs_tr; dims=3)[:,:,1]
                 hcat(mMs, ζMs_g)
                 # @usingany UnicodePlots
                 #scatterplot(ζMs_g[:,1], mMs[:,1])
@@ -183,7 +188,7 @@ test_scenario = (scenario) -> begin
                     @test isapprox(mMs[:,ipar], ζMs_g[:,ipar]; rtol=0.1)
                 end
                 #ζMs_true = stack(map(inverse(transM), eachcol(CA.getdata(θMs_true[:,1:n_batch]))))'
-                residMs = _ζsMs .- mMs
+                residMs = _ζsMs_tr .- mMs
                 sdMs = std(residMs; dims=3)[:,:,1]
                 # (_a,_b), mMi = first(zip(
                 #     eachcol(ϕunc_true.coef_logσ2_ζMs), eachcol(mMs)))
@@ -214,20 +219,20 @@ test_scenario = (scenario) -> begin
                 @test cor_PMs[5,6] ≈ ρsM_true[1] atol=0.02
                 @test all(.≈(cor_PMs[5:6,7:end], 0.0, atol=0.1)) # no correlations M1, M2
             end
-            test_distζ(_ζsP, _ζsMs, ϕunc_true, ζMs_g)
+            test_distζ(_ζsP, _ζsMs_tr, ϕunc_true, ζMs_g)
             @testset "predict_hvi check sd" begin
                 # test if uncertainty and reshaping is propagated
                 # here inverse the predicted θs and then test distribution 
                 probcu = HybridProblem(probc, ϕq=ϕq_true);
                 n_sample_pred = 10_000 #2_400
                 #n_sample_pred = 400
-                (; y, θsP, θsMs, entropy_ζ) = predict_hvi(rng, probcu; scenario, n_sample_pred);
+                (; y, θsP, θsMs_tr, entropy_ζ) = predict_hvi(rng, probcu; scenario, n_sample_pred);
                 #size(_ζsMs), size(θsMs)
                 #size(_ζsP), size(θsP)
                 trans_minvP = StackedArray(inverse(transP), n_sample_pred)
                 _ζsP2 = trans_minvP(θsP)
                 int_minvM = StackedArray(inverse(transM), n_site)
-                _ζsMs2 = stack(map(eachslice(θsMs; dims=3)) do _θMs
+                _ζsMs2 = stack(map(eachslice(θsMs_tr; dims=3)) do _θMs
                     int_minvM(_θMs)
                 end)
                 ζMs_g2 = g(xM, probcu.ϕg)' # have been generated with no scaling
@@ -241,29 +246,31 @@ test_scenario = (scenario) -> begin
             ϕ = ggdev(CA.getdata(ϕ_ini))
             @test g_gpu.μ isa GPUArraysCore.AbstractGPUArray
             # @test g_gpu.app isa HybridVariationalInferenceFluxExt.FluxApplicator
-            xMg_batch = ggdev(xM[:, 1:n_batch])
-            ζsP_d, ζsMs_d, σ_d = @inferred (
+            xMg_batch = ggdev(xM[:, i_sites])
+            ζsP_d, ζsMs_tr_d, σ_d = @inferred (
             # @descend_code_warntype (
                 CP.generate_ζ(
                 approx, rng, g_gpu, ϕ, xMg_batch;
+                i_sites,
                 n_MC, cor_ends, pbm_covar_indices,
                 int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq,
                 is_testmode = true))
             @test ζsP_d isa Union{GPUArraysCore.AbstractGPUMatrix,
                 LinearAlgebra.Adjoint{FT,<:GPUArraysCore.AbstractGPUMatrix}}
-            @test ζsMs_d isa Union{GPUArraysCore.AbstractGPUArray,
+            @test ζsMs_tr_d isa Union{GPUArraysCore.AbstractGPUArray,
                 LinearAlgebra.Adjoint{FT,<:GPUArraysCore.AbstractGPUArray}}
-            @test eltype(ζsP_d) == eltype(ζsMs_d) == FT
+            @test eltype(ζsP_d) == eltype(ζsMs_tr_d) == FT
             @test size(ζsP_d) == (n_θP, n_MC)
-            @test size(ζsMs_d) == (n_batch, n_θM, n_MC)
+            @test size(ζsMs_tr_d) == (n_batch, n_θM, n_MC)
             gr = Zygote.gradient(
                 ϕ -> begin
-                    _ζsP, _ζsMs, _σ = CP.generate_ζ(
+                    _ζsP, _ζsMs_tr, _σ = CP.generate_ζ(
                         approx, rng, g_gpu, ϕ, xMg_batch;
+                        i_sites,
                         n_MC, cor_ends, pbm_covar_indices,
                         int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq,
                         is_testmode = false)
-                    sum(_ζsP) + sum(_ζsMs) + sum(_σ)
+                    sum(_ζsP) + sum(_ζsMs_tr) + sum(_σ)
                 end, CA.getdata(ϕ))
             @test gr[1] isa GPUArraysCore.AbstractGPUVector
         end
@@ -288,24 +295,24 @@ test_scenario = (scenario) -> begin
         # @test size(θsP) == (n_MC, n_θP)
         # @test size(θsMs) == (n_MC, n_batch, n_θM)
         # map by rows
-        ζP, ζMs = ζsP[:, 1], ζsMs[:, :, 1]
+        ζP, ζMs = ζsP[:, 1], ζsMs_tr[:, :, 1]
         n_site_batch = size(ζMs, 1)
         transMs = StackedArray(transM, n_site_batch)
-        θP, θMs, logjac = @inferred CP.transform_and_logjac_ζ(ζP, ζMs; transP, transMs)
+        θP, θMs_tr, logjac = @inferred CP.transform_and_logjac_ζ(ζP, ζMs; transP, transMs)
         @test size(θP) == (n_θP,)
-        @test size(θMs) == (n_site_batch, n_θM)
+        @test size(θMs_tr) == (n_site_batch, n_θM)
         @test θP == transP(ζP)
-        @test θMs[1, :] == transM(ζMs[1, :])
-        @test θMs[end, :] == transM(ζMs[end, :])
+        @test θMs_tr[1, :] == transM(ζMs[1, :])
+        @test θMs_tr[end, :] == transM(ζMs[end, :])
         if ggdev isa MLDataDevices.AbstractGPUDevice
             ζPdev, ζMsdev = ggdev.((ζP, ζMs))
-            θP, θMs, logjac = @inferred CP.transform_and_logjac_ζ(
+            θP, θMs_tr, logjac = @inferred CP.transform_and_logjac_ζ(
                 ζPdev, ζMsdev; transP, transMs)
             @test size(θP) == (n_θP,)
-            @test size(θMs) == (n_site_batch, n_θM)
+            @test size(θMs_tr) == (n_site_batch, n_θM)
             gr = Zygote.gradient(ζPdev, ζMsdev) do ζPdev, ζMsdev
-                θP, θMs, logjac = CP.transform_and_logjac_ζ(ζPdev, ζMsdev; transP, transMs)
-                sum(θP) + sum(θMs) + logjac
+                θP, θMs_tr, logjac = CP.transform_and_logjac_ζ(ζPdev, ζMsdev; transP, transMs)
+                sum(θP) + sum(θMs_tr) + logjac
             end
             @test eltype(gr[1]) == eltype(ζPdev)
             @test eltype(gr[2]) == eltype(ζMsdev)
@@ -313,27 +320,27 @@ test_scenario = (scenario) -> begin
     end
 
     @testset "transform_ζs $(last(CP._val_value(scenario)))" begin
-        n_site_batch, _, n_MC = size(ζsMs)
+        n_site_batch, _, n_MC = size(ζsMs_tr)
         trans_mP = StackedArray(transP, n_MC)
         #trans_mP = StackedArray(Stacked((identity,),(1:n_θP,)), n_MC)
         trans_mMs = StackedArray(transM, n_MC * n_site_batch)
-        θsP, θsMs = @inferred CP.transform_ζs(ζsP, ζsMs; trans_mP, trans_mMs)
+        θsP, θsMs_tr = @inferred CP.transform_ζs(ζsP, ζsMs_tr; trans_mP, trans_mMs)
         #@descend_code_warntype CP.transform_ζs(ζsP, ζsMs; trans_mP, trans_mMs)
         @test size(θsP) == (n_θP, n_MC)
-        @test size(θsMs) == (n_site_batch, n_θM, n_MC)
+        @test size(θsMs_tr) == (n_site_batch, n_θM, n_MC)
         @test θsP[:, 1] == transP(ζsP[:, 1])
         @test θsP[:, end] == transP(ζsP[:, end])
-        @test θsMs[1, :, 1] == transM(ζsMs[1, :, 1]) # first parameter
-        @test θsMs[end, :, 1] == transM(ζsMs[end, :, 1])
-        @test θsMs[1, :, end] == transM(ζsMs[1, :, end]) # last parameter
-        @test θsMs[end, :, end] == transM(ζsMs[end, :, end])
+        @test θsMs_tr[1, :, 1] == transM(ζsMs_tr[1, :, 1]) # first parameter
+        @test θsMs_tr[end, :, 1] == transM(ζsMs_tr[end, :, 1])
+        @test θsMs_tr[1, :, end] == transM(ζsMs_tr[1, :, end]) # last parameter
+        @test θsMs_tr[end, :, end] == transM(ζsMs_tr[end, :, end])
         if ggdev isa MLDataDevices.AbstractGPUDevice
-            ζsPdev, ζsMsdev = ggdev.((ζsP, ζsMs))
+            ζsPdev, ζsMsdev = ggdev.((ζsP, ζsMs_tr))
             #trans_mP(ζsPdev)
-            θsP, θsMs = @inferred CP.transform_ζs(ζsPdev, ζsMsdev; trans_mP, trans_mMs)
+            θsP, θsMs_tr = @inferred CP.transform_ζs(ζsPdev, ζsMsdev; trans_mP, trans_mMs)
             gr = Zygote.gradient(ζsPdev, ζsMsdev) do ζsPdev, ζsMsdev
-                θsP, θsMs = CP.transform_ζs(ζsPdev, ζsMsdev; trans_mP, trans_mMs)
-                sum(θsP) + sum(θsMs)
+                θsP, θsMs_tr = CP.transform_ζs(ζsPdev, ζsMsdev; trans_mP, trans_mMs)
+                sum(θsP) + sum(θsMs_tr)
             end
             @test eltype(gr[1]) == eltype(ζsPdev)
             @test eltype(gr[2]) == eltype(ζsMsdev)
@@ -342,7 +349,7 @@ test_scenario = (scenario) -> begin
 
     @testset "neg_elbo_gtf cpu $(last(CP._val_value(scenario)))" begin
         i_sites = 1:n_batch
-        transMs = StackedArray(transM, size(ζsMs, 1))
+        transMs = StackedArray(transM, size(ζsMs_tr, 1))
         cost = @inferred (
         #@descend_code_warntype (
             neg_elbo_gtf(rng, ϕ_ini, g, f, py,
@@ -371,7 +378,7 @@ test_scenario = (scenario) -> begin
     if ggdev isa MLDataDevices.AbstractGPUDevice
         @testset "neg_elbo_gtf gpu $(last(CP._val_value(scenario)))" begin
             i_sites = 1:n_batch
-            transMs = StackedArray(transM, size(ζsMs, 1))
+            transMs = StackedArray(transM, size(ζsMs_tr, 1))
             ϕ = ggdev(CA.getdata(ϕ_ini))
             xMg_batch = ggdev(xM[:, i_sites])
             xP_batch = xP[:, i_sites] # used in f which runs on CPU
@@ -408,10 +415,11 @@ test_scenario = (scenario) -> begin
         # @test length(intm_PMs_gen) == 402
         # @test trans_PMs_gen.length_in == 402
         n_sample_pred = 30
-        (; θsP, θsMs, entropy_ζ) =
+        (; θsP, θsMs_tr, entropy_ζ) =
         #Cthulhu.@descend_code_warntype (
             @inferred (
                 sample_posterior(rng, g, ϕ_ini, xM;
+                i_sites = 1:size(xM, 2),
                 int_ϕg_ϕq, int_ϕq,
                 transP, transM,
                 cdev = identity,
@@ -421,12 +429,12 @@ test_scenario = (scenario) -> begin
                 )
             )
         @test θsP isa AbstractMatrix
-        @test θsMs isa AbstractArray{T,3} where {T}
+        @test θsMs_tr isa AbstractArray{T,3} where {T}
         int_mP = ComponentArrayInterpreter(int_P, (size(θsP, 2),))
         θsPc = int_mP(θsP)
         @test all(θsPc[:r0, :] .> 0)
         #
-        y = @inferred f_pred(θsP, θsMs, xP)
+        y = @inferred f_pred(θsP, θsMs_tr, xP)
         @test y isa Array
         @test size(y) == (size(y_o)..., n_sample_pred)
     end
@@ -436,7 +444,7 @@ test_scenario = (scenario) -> begin
             ϕ_ini_g = ggdev(CA.getdata(ϕ_ini))
             xMg = ggdev(xM)
             n_sample_pred = 30
-            (; θsP, θsMs, entropy_ζ) =
+            (; θsP, θsMs_tr, entropy_ζ) =
             #Cthulhu.@descend_code_warntype (
                 @inferred (
                     sample_posterior(rng, g_gpu, ϕ_ini_g, xMg;
@@ -451,13 +459,13 @@ test_scenario = (scenario) -> begin
                 )
             # this variant without the problem, does not attach axes
             @test θsP isa AbstractMatrix
-            @test θsMs isa AbstractArray{T,3} where {T}
+            @test θsMs_tr isa AbstractArray{T,3} where {T}
             int_mP = ComponentArrayInterpreter(int_P, (size(θsP, 2),))
             @test all(int_mP(θsP)[:r0, :] .> 0)
             #
             xP_dev = ggdev(xP);
             f_pred_dev = ggdev(f_pred) #fmap(ggdev, f_pred)
-            y = @inferred f_pred_dev(θsP, θsMs, xP_dev)
+            y = @inferred f_pred_dev(θsP, θsMs_tr, xP_dev)
             #@benchmark f_pred_dev(θsP, θsMs, xP_dev)
             @test y isa GPUArraysCore.AbstractGPUArray
             @test size(y) == (size(y_o)..., n_sample_pred)
@@ -490,7 +498,8 @@ test_scenario = (scenario) -> begin
 end # test_scenario
 
 
-test_scenario(Val((:default,)))
+test_scenario(Val((:default,)), MeanHVIApproximationMat())
+test_scenario(Val((:default,)), MeanVarSepHVIApproximation())
 
 # with providing process parameter as additional covariate
-test_scenario(Val((:covarK2,)))
+test_scenario(Val((:covarK2,)), MeanHVIApproximationMat())

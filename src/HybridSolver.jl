@@ -278,7 +278,7 @@ end
 Create a loss function for parameter vector ϕ, given 
 - `g(x, ϕ)`: machine learning model 
 - `transPMS`: transformation from unconstrained space to parameter space
-- `f(θMs, θP)`: mechanistic model 
+- `f(θMs_tr, θP)`: mechanistic model 
 - `interpreters`: assigning structure to pure vectors, see `neg_elbo_gtf`
 - `n_MC`: number of Monte-Carlo sample to approximate the expected value across distribution
 - `pbm_covars`: tuple of symbols of process-based parameters provided to the ML model
@@ -403,8 +403,8 @@ function construct_priors_θ_mean(prob, ϕg, keysθM, θP, θmean_quant, g_dev, 
         transMs = StackedArray(transM, n_site)
         # ζMs = g_dev(xMP_all, CA.getdata(ϕg))'  # transpose to par-last for StackedArray
         # ζMs_cpu = cdev(ζMs)
-        # θMs = transMs(ζMs_cpu)
-        θMs = gtrans(
+        # θMs_tr = transMs(ζMs_cpu)
+        θMs_tr = gtrans(
             g_dev, transMs, xMP_all, CA.getdata(ϕg); cdev=cpu_device(), is_testmode = true)
         priors_dict = get_hybridproblem_priors(prob; scenario)
         priorsP = [priors_dict[k] for k in keys(θP)]
@@ -414,9 +414,9 @@ function construct_priors_θ_mean(prob, ϕg, keysθM, θP, θmean_quant, g_dev, 
         priorsM = Tuple(priors_dict[k] for k in keysθM) 
         i_par = 1
         i_site = 1
-        priors_θMs_mean = map(Iterators.product(axes(θMs)...)) do (i_site, i_par)
+        priors_θMs_mean = map(Iterators.product(axes(θMs_tr)...)) do (i_site, i_par)
             #@show i_par, i_site
-            fit_narrow_normal(θMs[i_site, i_par], priorsM[i_par], θmean_quant)
+            fit_narrow_normal(θMs_tr[i_site, i_par], priorsM[i_par], θmean_quant)
         end
         # # concatenate to a flat vector
         # int_n_site = get_ca_int_PMs(n_site)

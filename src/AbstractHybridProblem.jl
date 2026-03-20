@@ -10,6 +10,7 @@ For a specific prob, provide functions that specify details
 - `get_hybridproblem_par_templates`
 - `get_hybridproblem_ϕq`
 - `get_hybridproblem_train_dataloader` (may use `construct_dataloader_from_synthetic`)
+- `get_hybridproblem_test_data`
 - `get_hybridproblem_priors` 
 - `get_hybridproblem_n_covar` 
 - `get_hybridproblem_n_site_and_batch` 
@@ -72,7 +73,8 @@ function get_hybridproblem_neg_logden_obs end
 """
     get_hybridproblem_par_templates(::AbstractHybridProblem; scenario)
 
-Provide tuple of templates of ComponentVectors `θP` and `θM`.
+Provide a template tuple of ComponentVectors `θP` and `θM` 
+at unconstrained (original) scale.
 """
 function get_hybridproblem_par_templates end
 
@@ -149,7 +151,7 @@ function get_hybridproblem_n_site_and_batch end
 
 
 """
-    gen_hybridproblem_synthetic([rng,] ::AbstractHybridProblem; scenario)
+    gen_hybridproblem_synthetic([rng,] ::AbstractHybridProblem; n_site_test = 0, scenario)
 
 Setup synthetic data, a NamedTuple of
 - xM: matrix of covariates, with one column per site
@@ -172,6 +174,7 @@ end
 
 """
     get_hybridproblem_train_dataloader(::AbstractHybridProblem; scenario, n_batch)
+    get_hybridproblem_test_data end::AbstractHybridProblem; scenario)
 
 Return a DataLoader that provides a tuple of
 - `xM`: matrix of covariates, with one column per site
@@ -181,6 +184,8 @@ Return a DataLoader that provides a tuple of
 - `i_sites`: Vector of indices of sites in the minibatch
 """
 function get_hybridproblem_train_dataloader end
+function get_hybridproblem_test_data end
+
 
 """
     construct_dataloader_from_synthetic(rng::AbstractRNG, prob::AbstractHybridProblem;
@@ -189,11 +194,11 @@ function get_hybridproblem_train_dataloader end
 Construct a dataloader based on `gen_hybridproblem_synthetic`. 
 """
 function construct_dataloader_from_synthetic(rng::AbstractRNG, prob::AbstractHybridProblem;
-        scenario = (), n_batch, 
+        scenario = (), n_batch, n_site_test = 0,
         #gdev = :use_gpu ∈ scenario ? gpu_device() : identity,
         )
-    (; xM, xP, y_o, y_unc) = gen_hybridproblem_synthetic(rng, prob; scenario)
-    n_site = size(xM,2)
+    (; xM, xP, y_o, y_unc) = gen_hybridproblem_synthetic(rng, prob; n_site_test, scenario)
+    n_site = size(xM,2) - n_site_test
     @assert size(xP,2) == n_site
     @assert size(y_o,2) == n_site
     @assert size(y_unc,2) == n_site

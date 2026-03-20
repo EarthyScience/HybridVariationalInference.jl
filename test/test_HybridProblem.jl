@@ -50,9 +50,13 @@ function construct_problem(; scenario::Val{scen}) where scen
     rng = StableRNG(111)
     # n_batch = 10
     n_site, n_batch = get_hybridproblem_n_site_and_batch(CP.DoubleMM.DoubleMMCase(); scenario)
+    n_site_test = 60
     # dependency on DeoubleMMCase -> take care of changes in covariates
-    (; xM, θP_true, θMs_true, xP,  y_true,  y_o, y_unc
-    ) = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); scenario)
+    (; xM, θP_true, θMs_true, xP, y_true,  y_o, y_unc
+    ) = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); n_site_test,scenario)
+    i_test = n_site .+ (1:n_site_test)
+    test_data = (; xM = xM[:, i_test], xP = xP[:, i_test], y_true = y_true[:, i_test],
+        y_o = y_o[:, i_test], y_unc = y_unc[:, i_test])
     n_covar = size(xM,1)
     n_input = (:covarK2 ∈ scen) ? n_covar +1 : n_covar
     g_chain = SimpleChain(
@@ -72,8 +76,10 @@ function construct_problem(; scenario::Val{scen}) where scen
     #         MLUtils.DataLoader((xM, xP, y_o, y_unc, i_sites), batchsize=n_batch, partial=false)
     #     end
     # end
+    i_train = 1:n_site
     train_dataloader = MLUtils.DataLoader(
-        (CA.getdata(xM), CA.getdata(xP), y_o, y_unc, i_sites), batchsize=n_batch, partial=false)
+        (CA.getdata(xM[:,i_train]), CA.getdata(xP[:,i_train]), y_o[:,i_train], 
+        y_unc[:,i_train], i_sites[i_train]), batchsize=n_batch, partial=false)
     θall = vcat(θP, θM)
     priors_dict = Dict{Symbol, Distribution}(
         keys(θall) .=> fit.(LogNormal, θall, QuantilePoint.(θall .* 3, 0.95)))
@@ -89,7 +95,7 @@ function construct_problem(; scenario::Val{scen}) where scen
     f_batch = PBMSiteApplicator(
         f_doubleMM; θP, θM, θFix=CA.ComponentVector{FT}(), 
         xPvec=xP[:,1])
-    ϕunc0 = init_hybrid_ϕunc(MeanHVIApproximation(), cor_ends, zero(FT)) 
+    ϕunc0 = init_hybrid_ϕunc(MeanHVIApproximation(), cor_ends, zero(FT); θM, transM, n_site) 
     ϕq = CP.update_μP_by_θP(ϕunc0, θP, transP)
     approx = if (:MeanHVIApproxBlocks ∈ scen) 
         MeanHVIApproximation()
@@ -98,7 +104,7 @@ function construct_problem(; scenario::Val{scen}) where scen
     end
     HybridProblem(θM, ϕq, g_chain_scaled, ϕg0, 
         f_batch, priors_dict, py,
-        transM, transP, train_dataloader, n_covar, n_site, n_batch, 
+        transM, transP, train_dataloader, test_data, n_covar, n_site, n_batch; 
         cor_ends, pbm_covars, approx,
         #ϕunc0, 
         )
@@ -236,7 +242,7 @@ test_with_flux = (scenario) -> begin
         end)()
         @test θPo.r0 < 1.5 * θP.r0
         @test ϕ.ϕP.K2 < 1.5 * log(θP.K2)
-        (;y_pred, θMs, θP) = predict_point_hvi(rng, probo; scenario)
+        (;y_pred, θMs_tr, θP) = tmp = predict_point_hvi(rng, probo; scenario)
         _,_,y_obs,_ = get_hybridproblem_train_dataloader(prob; scenario).data
         @test size(y_pred) == size(y_obs)
     end;
@@ -257,7 +263,7 @@ test_with_flux = (scenario) -> begin
         @test θP.r0 < 1.5 * θPt.r0
         @test exp(ϕ.ϕq.μP.K2) == θP.K2 < 1.5 * θP.K2
         n_sample_pred = 12
-        (; y, θsP, θsMs, entropy_ζ) = predict_hvi(rng, probo; scenario, n_sample_pred);
+        (; y, θsP, θsMs_tr, entropy_ζ) = predict_hvi(rng, probo; scenario, n_sample_pred);
         _,_,y_obs,_ = get_hybridproblem_train_dataloader(prob; scenario).data
         @test size(y) == (size(y_obs)..., n_sample_pred)
         yc = cdev(y)
@@ -304,7 +310,7 @@ test_with_flux_gpu = (scenario) -> begin
             @test cdev(ϕ.ϕq.ρsM)[1] > 0 
             @test probo.ϕq == cdev(ϕ.ϕq)
             n_sample_pred = 22
-            (; y, θsP, θsMs) = predict_hvi(
+            (; y, θsP, θsMs_tr) = predict_hvi(
                 rng, probo; scenario = scenf, n_sample_pred, is_inferred=Val(true));            
             (_xM, _xP, _y_o, _y_unc, _i_sites) = get_hybridproblem_train_dataloader(
                 prob; scenario).data
@@ -323,8 +329,8 @@ test_with_flux_gpu = (scenario) -> begin
                 @test probo.ϕq == cdev(ϕ.ϕq)
                 # predict using problem and its associated dataloader
                 n_sample_pred = 201
-                (; y, θsP, θsMs) = predict_hvi(rng, probo; scenario = scenf, n_sample_pred);            
-                # to inspect correlations among θP and θMs construct ComponentVector
+                (; y, θsP, θsMs_tr) = predict_hvi(rng, probo; scenario = scenf, n_sample_pred);            
+                # to inspect correlations among θP and θMs_tr construct ComponentVector
                 # TODO redo get_int_PMst_site
                 # get_ca_int_PMs = let
                 #     function get_ca_int_PMs_inner(n_site)
@@ -334,7 +340,7 @@ test_with_flux_gpu = (scenario) -> begin
                 #     end
                 # end
                 int_mPMs = stack_ca_int(Val((n_sample_pred,)), get_int_PMst_site(hpints))
-                θs =  int_mPMs(CP.flatten_hybrid_pars(θsP, θsMs))
+                θs =  int_mPMs(CP.flatten_hybrid_pars(θsP, θsMs_tr))
                 mean_θ = CA.ComponentVector(vec(mean(CA.getdata(θs), dims=1)), last(CA.getaxes(θs)))
                 mean_θ.Ms
                 sd_θ = CA.ComponentVector(vec(std(CA.getdata(θs), dims=1)), last(CA.getaxes(θs)))
@@ -377,7 +383,7 @@ test_with_flux_gpu = (scenario) -> begin
                 );
                 @test resopt.u isa GPUArraysCore.AbstractGPUVector
                 n_sample_pred = 11
-                (; y, θsP, θsMs) = predict_hvi(
+                (; y, θsP, θsMs_tr) = predict_hvi(
                     rng, probo; scenario = scenf, n_sample_pred,is_inferred = Val(true));
                 # @test cdev(ϕ.ϕq.ρsM)[1] > 0 # too few iterations
             end;    

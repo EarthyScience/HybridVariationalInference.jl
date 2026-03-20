@@ -39,25 +39,25 @@ using function [`sample_posterior`](@ref).
 using StableRNGs
 rng = StableRNG(112)
 n_sample_pred = 400
-(; θsP, θsMs) = sample_posterior(rng, probo; n_sample_pred, is_testmode = true)
+(; θsP, θsMs_tr) = sample_posterior(rng, probo; n_sample_pred, is_testmode = true)
 ```
 
 Lets look at the results.
 
 ``` julia
-size(θsP), size(θsMs)
+size(θsP), size(θsMs_tr)
 ```
 
     ((1, 400), (800, 2, 400))
 
 The last dimension is the number of samples, the second-last dimension is
-the respective parameter. `θsMs` has an additional dimension denoting
+the respective parameter. `θsMs_tr` has an additional dimension denoting
 the site for which parameters are sampled.
 
 They are ComponentArrays with the parameter dimension names that can be used:
 
 ``` julia
-θsMs[1,:r1,:] # samples of the first site of parameter r1
+θsMs_tr[1,:r1,:] # samples of the first site of parameter r1
 ```
 
 ## Corner plots
@@ -70,7 +70,7 @@ Here, we plot the global parameters and the site-parameters for the first site.
 
 ``` julia
 i_site = 1
-θ1 = vcat(θsP, θsMs[i_site,:,:])
+θ1 = vcat(θsP, θsMs_tr[i_site,:,:])
 θ1_nt = NamedTuple(k => CA.getdata(θ1[k,:]) for k in keys(θ1[:,1])) # 
 plt = pairplot(θ1_nt)
 ```
@@ -91,8 +91,8 @@ its expected value.
 
 ``` julia
 par = :K1
-θmean = [mean(θsMs[s,par,:]) for s in axes(θsMs, 1)]
-θsd = [std(θsMs[s,par,:]) for s in axes(θsMs, 1)]
+θmean = [mean(θsMs_tr[s,par,:]) for s in axes(θsMs_tr, 1)]
+θsd = [std(θsMs_tr[s,par,:]) for s in axes(θsMs_tr, 1)]
 fig = Figure(); ax = Axis(fig[1,1], xlabel="mean($par)",ylabel="sd($par)")
 scatter!(ax, θmean, θsd) 
 fig
@@ -103,6 +103,23 @@ fig
 We see that $K_1$ across sites ranges from about 0.18 to 0.25, and that
 its estimated uncertainty is about 0.04, slightly decreasing with the
 values of the parameter.
+
+## Correlations among site parameters at uncronstrained scale
+
+The features a correlation matrix of site parameters at unconstrained scale.
+It can be extracted using function [`get_hybridproblem_correlation_Ms`](@ref).
+
+In a first implementation, this function operates on an `AbstractHybridProblem`
+assuming that its returned `ϕq` contains a component `ρsM`
+that is used to parameterize the
+Cholesky factor of the correlation matrix.
+
+``` julia
+CM = HVI.get_hybridproblem_correlation_Ms(probo)
+fig = Figure(); ax = Axis(fig[1,1], xlabel="mean($par)",ylabel="sd($par)")
+scatter!(ax, θmean, θsd) 
+fig
+```
 
 ## Predictive Posterior
 
@@ -115,7 +132,7 @@ sampling the posterior and predictive posterior and returns the additional
 `NamedTuple` entry `y`.
 
 ``` julia
-(; y, θsP, θsMs) = predict_hvi(rng, probo; n_sample_pred)
+(; y, θsP, θsMs_tr) = predict_hvi(rng, probo; n_sample_pred)
 ```
 
 ``` julia
@@ -133,8 +150,8 @@ predicted magnitude across sites.
 
 ``` julia
 i_obs = 4
-ymean = [mean(y[i_obs,s,:]) for s in axes(θsMs, 1)]
-ysd = [std(y[i_obs,s,:]) for s in axes(θsMs, 1)]
+ymean = [mean(y[i_obs,s,:]) for s in axes(θsMs_tr, 1)]
+ysd = [std(y[i_obs,s,:]) for s in axes(θsMs_tr, 1)]
 fig = Figure(); ax = Axis(fig[1,1], xlabel="mean(y$i_obs)",ylabel="sd(y$i_obs)")
 scatter!(ax, ymean, ysd) 
 fig
@@ -145,3 +162,7 @@ fig
 We see that observed values for associated substrate concentrations range about from
 0.51 to 0.59 with an estimated standard deviation around 0.005 that decreases
 with the observed value.
+
+If only a point prediction is required, function [`predict_point_hvi`](@ref)
+can be used, that returns
+a single set of expected parameters and corresponding predictions.

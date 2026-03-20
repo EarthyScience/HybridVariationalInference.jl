@@ -42,6 +42,7 @@ include("bijectors_utils.jl")
 
 export AbstractHVIApproximation, AbstractMeanHVIApproximation
 export MeanHVIApproximation, MeanHVIApproximationMat
+export AbstractMeanVarSepHVIApproximation, MeanVarSepHVIApproximation
 include("HVIApproximation.jl")
 
 export AbstractComponentArrayInterpreter, ComponentArrayInterpreter,
@@ -69,6 +70,7 @@ export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_
        get_hybridproblem_float_type, gen_hybridproblem_synthetic,
        get_hybridproblem_par_templates, get_hybridproblem_transforms,
        get_hybridproblem_train_dataloader,
+       get_hybridproblem_test_data,
        get_hybridproblem_neg_logden_obs,
        get_hybridproblem_n_covar,
        get_hybridproblem_n_site_and_batch,
@@ -80,7 +82,7 @@ export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_
        gdev_hybridproblem_dataloader, gdev_hybridproblem_data,
        setup_PBMpar_interpreter,
        get_gdev_MP,
-        init_hybrid_ϕq       
+       init_hybrid_ϕq       
 include("AbstractHybridProblem.jl")
 
 export HybridProblem
@@ -110,7 +112,9 @@ export get_ca_starts, get_ca_ends, get_cor_count
 include("cholesky.jl")
 
 export neg_elbo_gtf, sample_posterior, predict_hvi, zero_penalty_loss
+export get_hybridproblem_correlation_Ms
 include("elbo_dev.jl")
+include("elbo_sepvec.jl")
 include("elbo.jl")
 include("elbo2.jl")
 

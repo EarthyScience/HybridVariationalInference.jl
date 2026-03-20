@@ -114,9 +114,9 @@ First, draw a sample.
 
 ``` julia
 n_sample_pred = 400
-(y_cond, θsP_cond, θsMs_cond) = (; y, θsP, θsMs) = predict_hvi(
+(y_cond, θsP_cond, θsMs_cond) = (; y, θsP, θsMs_tr) = predict_hvi(
   Random.default_rng(), probo_cond; n_sample_pred)
-(y_uncond, θsP_uncond, θsMs_uncond) = (; y, θsP, θsMs) = predict_hvi(
+(y_uncond, θsP_uncond, θsMs_uncond) = (; y, θsP, θsMs_tr) = predict_hvi(
   Random.default_rng(), probo_uncond; n_sample_pred)
 ```
 

@@ -1,4 +1,4 @@
-# Re-Implementation of MeanHVIApproximationVec where random numbers are
+# Re-Implementation of MeanHVIApproximationMat where random numbers are
 # generated for each block in the correlation matrix separately.
 #
 # Unfortunately, having many smaller matrix multiplications, the derivative
@@ -11,11 +11,12 @@
 # this implementation is faster on gpu, but slower than the Vec
 # implementation on CPU (that uses triangular and blocked matrices)
 # 
-# Hence, currently, rather use the MeanHVIApproximationVec CPU implementation.
+# Hence, currently, rather use the MeanHVIApproximationMat CPU implementation.
 #   for gradient on few sites (1.6ms cpu vs 5.4ms gpu) 
 #   and forward runs for many sites (760mus cpu vs 439ms gpu unit!)
 
 function sample_ζresid_norm(app::MeanHVIApproximation, 
+    i_sites,
     zP::AbstractMatrix, zMs::AbstractMatrix, 
     ϕm::TM, ϕq::AbstractVector{T};
     int_ϕq=get_concrete(ComponentArrayInterpreter(ϕq)),

@@ -112,6 +112,9 @@ function init_hybrid_ϕunc(
             hcat, (coef_logσ2_logM for _ in 1:cor_ends.M[end])),
         ρsP = fill(ρ0, get_cor_count(cor_ends.P)),
         ρsM = fill(ρ0, get_cor_count(cor_ends.M)),
+        transM,
+        θM::CA.ComponentVector,
+        n_site::Integer = 0,
 ) where {FT}
     nt = (;
         logσ2_ζP,
@@ -119,6 +122,49 @@ function init_hybrid_ϕunc(
         ρsP,
         ρsM)
     ca = CA.ComponentVector(;nt...)::CA.ComponentVector
+end
+
+function init_hybrid_ϕunc(
+        approx::AbstractMeanVarSepHVIApproximation,
+        cor_ends::NamedTuple,
+        ρ0::FT = 0.0f0,
+        logσ2_ζMs::AbstractMatrix{FT} = Array{FT}(undef, 0, 0),
+        logσ2_ζP::AbstractVector{FT} = fill(FT(-10.0), cor_ends.P[end]),
+        ρsP = fill(ρ0, get_cor_count(cor_ends.P)),
+        ρsM = fill(ρ0, get_cor_count(cor_ends.M));
+        transM,
+        θM::CA.ComponentVector,
+        n_site::Integer,
+        relerr = 0.01,
+) where {FT}
+    logσ2_ζMs = if isempty(logσ2_ζMs) 
+        # sigma is the relative error of the template of θM
+        σ = compute_σ_unconstrained(transM, CA.getdata(θM), relerr)        
+        repeat(FT(2) * log.(convert.(FT,σ)), 1, n_site)
+    else
+        logσ2_ζMs
+    end
+    nt = (;
+        logσ2_ζP,
+        logσ2_ζMs,
+        ρsP,
+        ρsM)
+    ca = CA.ComponentVector(;nt...)::CA.ComponentVector
+end
+
+function compute_σ_unconstrained(transM::Stacked, θM, rel_err)
+    σ = mapreduce(vcat, transM.bs, transM.ranges_in) do b, range_in
+        θM_sub = θM[range_in]
+        #b, θM_sub
+        compute_σ_unconstrained(b, θM_sub, rel_err)
+    end
+end
+function compute_σ_unconstrained(::HybridVariationalInference.Exp, θM::AbstractArray{T}, rel_err) where T
+    σ_single = sqrt.(log.(abs2(convert(T,rel_err)) .+ one(T))) # Wutzler 2020
+    fill(σ_single, size(θM))
+end
+function compute_σ_unconstrained(::typeof(identity), θM::AbstractArray{T}, rel_err) where T
+    convert(T,rel_err) .* θM
 end
 
 # macro gen_unc(nt)

@@ -37,6 +37,8 @@ function neg_logden_indep_normal(obs::AbstractArray, μ::AbstractArray, logσ2::
     logσ2_fin = logσ2[i_finobs]
     nlogL = sum(  # observations might by NaN for missing
         σfac .* logσ2_fin .+ abs2.(obs_data .- μ_data) .* exp.(.-logσ2_fin)) / convert(eltype(μ),2)
+    #Main.@infiltrate_main
+
     return (nlogL)
 end
 

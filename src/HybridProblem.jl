@@ -11,16 +11,20 @@ Fields:
 - `py`: Likelihood function
 - `transM::Stacked`, `transP::Stacked`: bijectors transforming from unconstrained to 
   constrained scale for site-specific and global parameters respectively.
-- `train_dataloader::MLUtils.DataLoader`: providingn Tuple of matrices 
+- `train_dataloader::MLUtils.DataLoader`: providing Tuple of matrices 
   `(xM, xP, y_o, y_unc, i_sites)`: covariates, model drivers, observations, 
   observation uncertainties and index of provided sites.
+- `test_data::Tuple of the same form as with `train_dataloader` for testset data.
 - `n_covar::Int`, `n_site::Int`, `n_batch::Int`: number covariates,
   number of sites, and number of sites within one batch
 - `cor_ends::NamedTuple`: block structure in correlations, 
   defaults to  `(P = [length(θP)], M = [length(θM)])`
 - `pbm_covars::NTuple{N,Symbol}`: names of global parameters used as covariates 
   in the ML model, defaults to `()`, i.e. no covariates fed into the ML model
-
+- `approx::AbstractHVIApproximation`: the approximation to use for the variational 
+  distribution, defaults to `MeanHVIApproximationMat()`, i.e. correlation matrix
+  shared across all sites and variance parameters a function of the predicted 
+  parameters.
 """
 struct HybridProblem <: AbstractHybridProblem
     #θP::CA.ComponentVector
@@ -35,6 +39,7 @@ struct HybridProblem <: AbstractHybridProblem
     transP::Stacked
     cor_ends::@NamedTuple{P::Vector{Int}, M::Vector{Int}} # = (P=(1,),M=(1,))
     train_dataloader::MLUtils.DataLoader
+    test_data::NamedTuple
     n_covar::Int
     n_site::Int
     n_batch::Int
@@ -51,37 +56,42 @@ struct HybridProblem <: AbstractHybridProblem
             py,
             transM::Stacked,
             transP::Stacked,
-            # return a function that constructs the trainloader based on n_batch
             train_dataloader::MLUtils.DataLoader,
+            test_data::NamedTuple,
             n_covar::Int,
             n_site::Int,
-            n_batch::Int,
+            n_batch::Int;
             cor_ends::NamedTuple = (P = [length(ϕq[Val(:μP)])], M = [length(θM)]),
             pbm_covars::NTuple{N,Symbol} = (),
             approx::AbstractHVIApproximation = MeanHVIApproximationMat()
     ) where N
         new(
             θM, f_batch, g, ϕg, ϕq, priors, py, transM, transP, cor_ends, 
-            train_dataloader, n_covar, n_site, n_batch, pbm_covars, approx)
+            train_dataloader, test_data, n_covar, n_site, n_batch, pbm_covars, approx)
     end
 end
 
 """
-    init_hybrid_ϕq(θP, θM, transP; cor_ends)
+    init_hybrid_ϕq(θP, θM, transP; cor_ends, n_site)
 
 Initialize the non-ML parameter vector.    
 """
 function init_hybrid_ϕq(
-    approx::AbstractMeanHVIApproximation,
+    approx::Union{AbstractMeanHVIApproximation, AbstractMeanVarSepHVIApproximation},
     θP::CA.ComponentVector,
     θM::CA.ComponentVector,
     transP::Stacked,
-    cor_ends::NamedTuple = (P = [length(θP)], M = [length(θM)]),
+    cor_ends::NamedTuple = (P = [length(θP)], M = [length(θM)]);
+    n_site::Integer,
+    kwargs...,
 )
     FT = promote_type(eltype(θP), eltype(θM))
-    ϕunc0 = init_hybrid_ϕunc(approx, cor_ends, zero(FT))
+    ϕunc0 = init_hybrid_ϕunc(approx, cor_ends, zero(FT); θM, n_site, kwargs...)
     ϕq = update_μP_by_θP(ϕunc0, θP, transP)
 end
+
+
+
 
 """
     create_ϕq(θP, ϕunc, transP::Stacked)
@@ -112,6 +122,7 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
     transP = get_hybridproblem_transforms(prob; scenario).transP,
     transM = get_hybridproblem_transforms(prob; scenario).transM,
     train_dataloader = get_hybridproblem_train_dataloader(prob; scenario),
+    test_data = get_hybridproblem_test_data(prob; scenario),
     n_covar = get_hybridproblem_n_covar(prob; scenario),
     n_site = get_hybridproblem_n_site_and_batch(prob; scenario)[1],
     n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)[2],
@@ -124,7 +135,7 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
     )
     cor_ends_new = if !isnothing(cor_ends)
         # if new cor_ends was specified then re-initialize the ρsP and ρsM in ϕq
-        ϕunc0 = init_hybrid_ϕunc(approx, cor_ends, zero(eltype(ϕq)))
+        ϕunc0 = init_hybrid_ϕunc(approx, cor_ends, zero(eltype(ϕq)); θM, transM)
         ϕq = CA.ComponentVector(;ϕq..., ρsP = ϕunc0.ρsP, ρsM = ϕunc0.ρsM)
         cor_ends
     else
@@ -137,11 +148,11 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
         ϕq = CA.ComponentVector(ϕq; ϕunc...)
     end
     HybridProblem(θM, ϕq, g, ϕg, f_batch, priors, py, transM, transP, train_dataloader,
-        n_covar, n_site, n_batch, cor_ends_new, pbm_covars, approx)
+        test_data, n_covar, n_site, n_batch; cor_ends = cor_ends_new, pbm_covars, approx)
 end
 
 function HybridProblem(prob::HybridProblem; kwargs... )
-    update_hybridProblem(prob; scenario = Val(()), kwargs..., approx = prob.approx)
+    update_hybridProblem(prob; scenario = Val(()), approx = prob.approx, kwargs...)
 end
 
 
@@ -177,8 +188,43 @@ end
 
 function get_hybridproblem_par_templates(prob::HybridProblem; scenario = ())
     θP = get_hybridproblem_θP(prob; scenario)
-    (; θP, θM = prob.θM)
+    (; θP, θM = prob.θM) 
 end
+
+# deprecated, better use predict_point_hvi
+# """
+#     compute_hybridproblem_par_expected(prob::HybridProblem, xM; scenario = ())
+
+# Compute the expected PBM model parameters for given covariates 
+# (n_covariate x n_site).
+
+# Returns a tuple of
+# - `θP`: ComponentVector of population-level parameters
+# - `θMs_tr`: ComponentArray (n_site x n_par) of individual (site) parameters
+# """
+# function compute_hybridproblem_par_expected(prob::HybridProblem, xM; 
+#     scenario = (), cdev = identity)
+#     n_site = size(xM,2)
+#     θP = get_hybridproblem_θP(prob; scenario)
+#     g, ϕg = get_hybridproblem_MLapplicator(prob; scenario)
+#     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
+#     transMs = StackedArray(transM, n_site)
+#     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
+#     xMP = if isempty(pbm_covars) 
+#         xM 
+#     else
+#         intP = ComponentArrayInterpreter(θP)
+#         pbm_covar_indices = CA.getdata(intP(1:length(intP))[pbm_covars])
+#         ζP = inverse(transP)(θP)
+#         _append_each_covars(xM, CA.getdata(ζP), pbm_covar_indices)
+#     end
+#     θMs_tr_m = gtrans(g, transMs, xMP, ϕg; cdev=identity, is_testmode=true)
+#     # attach parameter names in columns
+#     (;θM) = get_hybridproblem_par_templates(prob; scenario)
+#     intm = ComponentArrayInterpreter((n_site,), θM)
+#     θMs_tr = intm(θMs_tr_m)
+#     (; θP, θMs_tr) 
+# end
 
 function get_hybridproblem_ϕq(prob::HybridProblem; scenario = ())
     prob.ϕq
@@ -208,6 +254,10 @@ end
 
 function get_hybridproblem_train_dataloader(prob::HybridProblem; scenario = ())
     prob.train_dataloader
+end
+
+function get_hybridproblem_test_data(prob::HybridProblem; scenario = ())
+    prob.test_data
 end
 
 function get_hybridproblem_cor_ends(prob::HybridProblem; scenario = ())
