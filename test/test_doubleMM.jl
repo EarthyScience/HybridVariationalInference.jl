@@ -78,25 +78,25 @@ end
             #y = CP.DoubleMM.f_doubleMM(θ, xPM, θpos)
         end
     end
-    y = @inferred fy(θvec, xPM)
+    (y, _addq) = @inferred fy(θvec, xPM)
 
     f_batch = PBMSiteApplicator(CP.DoubleMM.f_doubleMM; 
         θP = θP_true, θM = θMs_true[:,1], θFix=CA.ComponentVector(), xPvec=xP[:,1])
-    y_exp = f_batch(θP_true, θMs_true', xP)
+    (y_exp, _addq_exp) = f_batch(θP_true, θMs_true', xP)
     @test y == y_exp
-    ygrad = Zygote.gradient(θv -> sum(fy(θv, xPM)), θvec)[1]
+    ygrad = Zygote.gradient(θv -> sum(fy(θv, xPM)[1]), θvec)[1]
     if gdev isa MLDataDevices.AbstractGPUDevice
         # θg = gdev(θ)
         # xPMg = gdev(xPM)
         # yg = CP.DoubleMM.f_doubleMM(θg, xPMg, intθ);
         θvecg = gdev(θvec); # errors without ";"
         xPMg = CP.apply_preserve_axes(gdev, xPM); 
-        yg = fy(θvecg, xPMg)
-        yg = @inferred fy(θvecg, xPMg);
+        #yg, _addg = fy(θvecg, xPMg)
+        yg, -addg = @inferred fy(θvecg, xPMg);
         #@usingany Cthulhu
         #@descend_code_warntype fy(θvecg, xPMg)
         @test cdev(yg) == y_exp
-        ygradg = Zygote.gradient(θv -> sum(fy(θv, xPMg)), θvecg)[1];
+        ygradg = Zygote.gradient(θv -> sum(fy(θv, xPMg)[1]), θvecg)[1];
         @test ygradg isa CA.ComponentArray
         @test CA.getdata(ygradg) isa GPUArraysCore.AbstractGPUArray
         ygradgc = CP.apply_preserve_axes(cdev, ygradg) # can print the cpu version
@@ -117,7 +117,7 @@ end
         (θvec, xPM, y_o, y_unc) -> begin
             θ = hcat(CA.getdata(θvec.P[is]), CA.getdata(θvec.Ms'))
             θc = intθ(θ)
-            y = CP.DoubleMM.f_doubleMM_sites(θc, xPM)
+            y = CP.DoubleMM.f_doubleMM_sites(θc, xPM)[1]
             #y = CP.DoubleMM.f_doubleMM(θ, xPM, θpos)
             res = fneglogden(y_o, y, y_unc)
             res

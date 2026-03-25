@@ -117,9 +117,9 @@ The sampling and prediction methods, also take this `gdevs` keyword argument.
 
 ``` julia
 n_sample_pred = 400
-(y_dev, θsP_dev, θsMs_dev) = (; y, θsP, θsMs_tr) = predict_hvi(
-  rng, probo_lux; n_sample_pred, 
-  gdevs = (; gdev_M=gpu_device(), gdev_P=gpu_device()));
+(; y, θsP, θsMs_tr) = predict_hvi(rng, probo_lux; n_sample_pred, 
+  gdevs = (; gdev_M=gpu_device(), gdev_P=gpu_device())); 
+(y_dev, θsP_dev, θsMs_dev) = (y, θsP, θsMs_tr)
 ```
 
 If `gdev_P` is not an `AbstractGPUDevice` then all the results are on CPU.

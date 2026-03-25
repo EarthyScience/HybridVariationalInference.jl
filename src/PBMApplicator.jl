@@ -11,9 +11,12 @@ where
   other parts of the interface, where sites are in the last dimension. 
   The reason is that a column of a parameter is more efficient to transform between
   constrain and unconstrained scale.
-- Results are of shape `(n_obs x n_site_pred x n_MC)`.
+- Result is a tuple with two entries, .
+  The first entry are observations of shape `(n_obs x n_site_pred x n_MC)`
+  The second entry are additional results of shape `(n_add x n_site_pred x n_MC)`
+  that are passed to the penalty function.
 
-They may also provide function `apply_model(app, θP, θMs_tr, xP)` for a sample
+They may also provide function `apply_model(app, θP::Matrix, θMs_tr::Array, xP)` for a sample
 of parameters, i.e. where an additional dimension is added to both `θP` and `θMs`.
 However, there is a default implementation that mapreduces across these dimensions.
 
@@ -50,10 +53,12 @@ first variant of `apply_model` for each sample.
 # docu in struct
 function apply_model(app::AbstractPBMApplicator, θsP::AbstractMatrix, θsMs_tr::AbstractArray{ET,3}, xP) where ET
     # stack does not work on GPU, see specialized method for GPUArrays below
-    y_pred = stack(
-     map(eachcol(CA.getdata(θsP)), eachslice(CA.getdata(θsMs_tr), dims=3)) do θP, θMs
+    res = map(eachcol(CA.getdata(θsP)), eachslice(CA.getdata(θsMs_tr), dims=3)) do θP, θMs
         app(θP, θMs, xP)
-    end)
+    end
+    y_pred = stack(getindex.(res, Ref(1)))
+    add = stack(getindex.(res, Ref(2)))
+    y_pred, add
 end
 # function apply_model(app::AbstractPBMApplicator, θsP::GPUArraysCore.AbstractGPUMatrix, θsMs_tr::GPUArraysCore.AbstractGPUArray{ET,3}, xP) where ET
 #     # stack does not work on GPU, need to resort to slower mapreduce
@@ -70,19 +75,20 @@ function apply_model(app::AbstractPBMApplicator, θsP::GPUArraysCore.AbstractGPU
     # stack does not work on GPU, need to resort to slower mapreduce
     # for type stability, apply f at first iterate to supply init to mapreduce
     # avoid Iterators.peel for CUDA
-    y1 = apply_model(app, CA.getdata(θsP)[:,1], CA.getdata(θsMs_tr)[:,:,1], xP)[2]
+    y1, add1 = apply_model(app, CA.getdata(θsP)[:,1], CA.getdata(θsMs_tr)[:,:,1], xP)[2]
     y1a = reshape(y1, :, 1) # add one dimension
+    add1a = reshape(add1, :, 1) # add one dimension
     n_sample = size(θsP,2)
-    y_pred = if (n_sample == 1)
-        y1a
+    y_pred_and_add = if (n_sample == 1)
+        y1a, add1a
     else
-      mapreduce((a,b) -> cat(a,b; dims=3), 
+      mapreduce((a,b) -> (cat(a[1],b[1]; dims=3), cat(a[2],b[2]; dims=3)),
         eachcol(CA.getdata(θsP)[:,2:end]), eachslice(CA.getdata(θsMs_tr)[:,:,2:end], dims=3); 
-        init=y1a) do θP, θMs
+        init=(y1a, add1a)) do θP, θMs
             app(θP, θMs, xP)
         end
     end
-    return(y_pred)
+    return(y_pred_and_add)
 end
 
 
@@ -96,7 +102,7 @@ Process-Base-Model applicator that returns its θMs inputs. Used for testing.
 struct NullPBMApplicator <: AbstractPBMApplicator end
 
 function apply_model(app::NullPBMApplicator, θP::AbstractVector, θMs_tr::AbstractMatrix, xP)
-    return CA.getdata(θMs_tr)
+    return CA.getdata(θMs_tr), CA.getdata(θMs_tr)
 end
 
 create_nsite_applicator(app::NullPBMApplicator, n_site) = app
@@ -130,7 +136,7 @@ end
     PBMSiteApplicator(fθ; θP, θM, θFix, xPvec)
 
 Construct AbstractPBMApplicator from process-based model `fθ` that computes predictions
-for a single site.
+and addtional quantities for a single site.
 The Applicator combines enclosed `θFix`, with provided `θMs` and `θP` and
 constructs a `ComponentVector` that can be indexed by 
 symbolic parameter names, corresponding to the templates provided during
@@ -170,8 +176,8 @@ function apply_model(app::PBMSiteApplicator, θP::AbstractVector, θMs_tr::Abstr
         θ = vcat(CA.getdata(θP), CA.getdata(θM_tr), CA.getdata(app.θFix))
         θc = app.intθ1(θ);  # show errors without ";"
         xPc = app.int_xPsite(xP1);
-        ans = CA.getdata(app.fθ(θc, xPc))
-        ans
+        ans = app.fθ(θc, xPc)
+        CA.getdata(ans[1]), CA.getdata(ans[2])
     end
     # mapreduce-hcat is only typestable with init, which needs number of rows
     # https://discourse.julialang.org/t/type-instability-of-mapreduce-vs-map-reduce/121136
@@ -189,8 +195,11 @@ function apply_model(app::PBMSiteApplicator, θP::AbstractVector, θMs_tr::Abstr
     end
     xP1, it_xP = Iterators.peel(eachcol(CA.getdata(xP)))
     obs1 = apply_PBMsite(θMs1_tr, xP1)
+    init = (reshape(obs1[1], :,1),reshape(obs1[2], :, 1))
+    hcat_2tuple = (a,b) -> (hcat(a[1], b[1]), hcat(a[2],b[2]))
+    #hcat_2tuple(init, init)
     local pred_sites = mapreduce(
-         apply_PBMsite, hcat, it_θMs_tr, it_xP; init=reshape(obs1, :, 1))
+         apply_PBMsite, hcat_2tuple, it_θMs_tr, it_xP; init)
     return pred_sites
 end
 
@@ -370,8 +379,8 @@ function apply_model(app::PBMPopulationGlobalApplicator, θP::AbstractVector, θ
     local θsc_tr = app.intθs(CA.getdata(θs_tr))
     local θgc = app.intθg(CA.getdata(θg))
     local xPc = app.int_xP(CA.getdata(xP))
-    local pred_sites = app.fθpop(θsc_tr, θgc, xPc)
-    return pred_sites
+    local y_pred_and_add = app.fθpop(θsc_tr, θgc, xPc)
+    return y_pred_and_add
 end
 
 

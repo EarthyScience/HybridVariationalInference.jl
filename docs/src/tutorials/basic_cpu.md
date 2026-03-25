@@ -35,7 +35,8 @@ $$
 function f_doubleMM(θc::CA.ComponentVector{ET}, x) where ET
     # extract parameters not depending on order, i.e whether they are in θP or θM
     @unpack r0, r1, K1, K2 = θc
-    r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
+    y = r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
+    (y, y[1:0])
 end
 ```
 
@@ -43,6 +44,10 @@ Its formulation is independent of which parameters are global, site-specific,
 or fixed during the model inversion.
 However, it cannot assume an ordering in the parameters, but needs to
 access the components by its symbolic names in the provided `ComponentArray`.
+
+In addtion to the predictions, the PBM returns additional quantities that may
+be used in penalizing unrealistic conditions independent of observations.
+In this simple example, just an empty vector is returned.
 
 ## Likelihood function
 
@@ -311,7 +316,8 @@ function f_doubleMM_sites(θc_tr::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
     K1 = is_valid .* CA.getdata(θc_tr[:, Val(:K1)])'
     K2 = is_valid .* CA.getdata(θc_tr[:, Val(:K2)])'
     # each variable is a matrix (n_obs x n_site)
-    r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
+    y = r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
+    (y, y[1:0,:])
 end
 ```
 
@@ -347,8 +353,8 @@ in the following [Inspect results of fitted problem](@ref) tutorial.
 In order to use the results from this tutorial in other tutorials,
 the updated `probo` `HybridProblem` and the interpreters are saved to a JLD2 file.
 
-Before the problem is updated, so that it uses the redefinition [`DoubleMM.f_doubleMM_sites`](@ref)
-of the PBM in module `DoubleMM` rather than
+Before the problem is updated, it uses the redefinition [`DoubleMM.f_doubleMM_sites`](@ref)
+of the PBM in module `DoubleMM` rather than what we defined in
 module `Main` to allow for easier reloading with JLD2.
 
 ``` julia

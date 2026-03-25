@@ -142,7 +142,7 @@ function neg_elbo_ζtf(ζsP, ζsMs_tr, σ, f, py, xP, y_ob, y_unc;
     f_sample = (ζP, ζMs_tr) -> begin    
             θP, θMs_tr, logjac_i = transform_and_logjac_ζ(ζP, ζMs_tr; transP, transMs)
             #  currently logpdf only works on CPU
-            y_pred_i = f(θP, θMs_tr, xP)
+            (y_pred_i, addq_pred_i) = f(θP, θMs_tr, xP)
             #nLy1 = neg_logden_indep_normal(y_ob, y_pred_i, y_unc)
             # Main.@infiltrate_main
             # Test.@inferred( f(θP, θMs, xP) )
@@ -304,6 +304,8 @@ Prediction function for hybrid variational inference parameter model.
 
 Returns an NamedTuple `(; y, θsP, θsMs_tr, entropy_ζ)` with entries
 - `y`: Array `(n_obs, n_site, n_sample_pred)` of model predictions.
+- `addq`: Array `(n_addq, n_site, n_sample_pred)` of additional quantities computed 
+  by the PBM.
 - `θsP`: ComponentArray `(n_θP, n_sample_pred)` of PBM model parameters
   that are kept constant across sites.
 - `θsMs_tr`: ComponentArray `(n_site, n_θM, n_sample_pred)` of PBM model parameters
@@ -347,8 +349,8 @@ function predict_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()),
         f_dev = f
     end
     #y = apply_process_model(θsP, θsMs_tr, f_dev, xP)
-    y = f_dev(θsP, θsMs_tr, xP)
-    (; y, θsP, θsMs_tr, entropy_ζ)
+    (y, addq) = f_dev(θsP, θsMs_tr, xP)
+    (; y, addq, θsP, θsMs_tr, entropy_ζ)
 end
 
 """

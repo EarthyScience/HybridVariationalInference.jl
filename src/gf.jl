@@ -85,11 +85,11 @@ function predict_point_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()),
         xM = isnothing(xM) ? xM_dl : xM
         xP = isnothing(xP) ? xP_dl : xP
     end
-    y_pred, θMs_tr, θP = gf(prob, xM, xP; scenario, gdevs, is_testmode, kwargs...)    
+    y_pred, addq_pred, θMs_tr, θP = gf(prob, xM, xP; scenario, gdevs, is_testmode, kwargs...)    
     pt = get_hybridproblem_par_templates(prob)
     θPc = ComponentArrayInterpreter(pt.θP)(θP)
     θMsc = ComponentArrayInterpreter((size(θMs_tr,1),), pt.θM)(θMs_tr)
-    (;y_pred, θMs_tr=θMsc, θP=θPc)
+    (;y_pred, addq_pred, θMs_tr=θMsc, θP=θPc)
 end
 
 
@@ -167,12 +167,12 @@ function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, ζP,
     # θP = transPM(CA.getdata(ζP))
     θP = transP(CA.getdata(ζP))
     θP_cpu = cdev(θP) 
-    y_pred = f(θP_cpu, θMs_tr, xP)
+    y_pred, addq_pred = f(θP_cpu, θMs_tr, xP)
     # fM = RRuleMonitor("f in gf", (θP_cpu) -> f(θP_cpu, θMs_tr, xP), DI.AutoForwardDiff())
     # y_pred = fM(θP_cpu) 
     # fM = RRuleMonitor("f in gf", (θP_cpu, θMs_tr) -> f(θP_cpu, θMs_tr, xP))
     # y_pred = fM(θP_cpu, θMs_tr) # very slow large JvP with θMs_tr
-    return y_pred, θMs_tr, θP_cpu
+    return y_pred, addq_pred, θMs_tr, θP_cpu
 end
 
 """
@@ -265,7 +265,7 @@ function get_loss_gf(g, transM, transP, f, py,
                 @show ϕc.ϕP
                 #Main.@infiltrate_main
             end
-            y_pred, θMs_tr_pred, θP_pred = gf(
+            y_pred, addq_pred, θMs_tr_pred, θP_pred = gf(
                 g, transMs, transP, f, xM, xP, CA.getdata(ϕc.ϕg), CA.getdata(ϕc.ϕP), 
                 pbm_covar_indices; cdev, is_testmode, kwargs...)
             #σ = exp.(y_unc ./ 2)

@@ -434,7 +434,7 @@ test_scenario = (scenario, approx) -> begin
         θsPc = int_mP(θsP)
         @test all(θsPc[:r0, :] .> 0)
         #
-        y = @inferred f_pred(θsP, θsMs_tr, xP)
+        (y, addq) = @inferred f_pred(θsP, θsMs_tr, xP)
         @test y isa Array
         @test size(y) == (size(y_o)..., n_sample_pred)
     end

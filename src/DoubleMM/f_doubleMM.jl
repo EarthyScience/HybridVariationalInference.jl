@@ -59,8 +59,10 @@ function f_doubleMM(θc::CA.ComponentVector{ET}, x) where ET
         # r1 = θc[:r1]
         # K1 = θc[:K1]
         # K2 = θc[:K2]
-        y = r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
-        return (y)
+        lim1 = x.S1 ./ (K1 .+ x.S1)
+        lim2 = x.S2 ./ (K2 .+ x.S2)
+        y = r0 .+ r1 .* lim1 .* lim2
+        return (y, vcat(lim1, lim2)) # in addtion to y returm the limitations as a vector
     end
 end
 
@@ -134,7 +136,11 @@ function f_doubleMM_sites(θc_tr::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
     #, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
 
     # each variable is a matrix (n_obs x n_site)
-    r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
+    #r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
+    lim1 = S1 ./ (K1 .+ S1)
+    lim2 = S2 ./ (K2 .+ S2)
+    y = r0 .+ r1 .* lim1 .* lim2
+    return (y, vcat(lim1, lim2)) # in addtion to y returm the limitations as a vector
     #(rep_fac .* r0') .+ (rep_fac .* r1') .* S1 ./ ((rep_fac .* K1') .+ S1) .* S2 ./ ((rep_fac .* K2') .+ S2)
 end
 
@@ -376,7 +382,7 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     #xP[:S1,:]
     #θP = get_θP(prob) # for DoubleMMCase par_templates gives correct θP
     θP = get_hybridproblem_θP(prob; scenario)
-    y_true = f(θP, θMs_true', xP)
+    (y_true, _) = f(θP, θMs_true', xP)
     σ_o = FloatType(0.01)
     #σ_o = FloatType(0.002)
     logσ2_o = FloatType(2) .* log.(σ_o)

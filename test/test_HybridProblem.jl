@@ -44,7 +44,7 @@ function construct_problem(; scenario::Val{scen}) where scen
             CA.getdata(θc[par])::ET
         end
         local y = r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
-        return (y)
+        return (y, y[1:0])
     end    
     n_out = length(θM)
     rng = StableRNG(111)
@@ -263,7 +263,7 @@ test_with_flux = (scenario) -> begin
         @test θP.r0 < 1.5 * θPt.r0
         @test exp(ϕ.ϕq.μP.K2) == θP.K2 < 1.5 * θP.K2
         n_sample_pred = 12
-        (; y, θsP, θsMs_tr, entropy_ζ) = predict_hvi(rng, probo; scenario, n_sample_pred);
+        (; y, addq, θsP, θsMs_tr, entropy_ζ) = predict_hvi(rng, probo; scenario, n_sample_pred);
         _,_,y_obs,_ = get_hybridproblem_train_dataloader(prob; scenario).data
         @test size(y) == (size(y_obs)..., n_sample_pred)
         yc = cdev(y)
@@ -329,7 +329,7 @@ test_with_flux_gpu = (scenario) -> begin
                 @test probo.ϕq == cdev(ϕ.ϕq)
                 # predict using problem and its associated dataloader
                 n_sample_pred = 201
-                (; y, θsP, θsMs_tr) = predict_hvi(rng, probo; scenario = scenf, n_sample_pred);            
+                (; y, addq, θsP, θsMs_tr) = predict_hvi(rng, probo; scenario = scenf, n_sample_pred);            
                 # to inspect correlations among θP and θMs_tr construct ComponentVector
                 # TODO redo get_int_PMst_site
                 # get_ca_int_PMs = let
@@ -383,7 +383,7 @@ test_with_flux_gpu = (scenario) -> begin
                 );
                 @test resopt.u isa GPUArraysCore.AbstractGPUVector
                 n_sample_pred = 11
-                (; y, θsP, θsMs_tr) = predict_hvi(
+                (; y, addq, θsP, θsMs_tr) = predict_hvi(
                     rng, probo; scenario = scenf, n_sample_pred,is_inferred = Val(true));
                 # @test cdev(ϕ.ϕq.ρsM)[1] > 0 # too few iterations
             end;    
