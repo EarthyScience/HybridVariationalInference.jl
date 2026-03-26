@@ -58,11 +58,12 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
     trans_mP =StackedArray(transP, n_MC), # provide with creating cost function
     trans_mMs =StackedArray(transMs.stacked, n_MC),
     priorsP, priorsM,
-    floss_penalty = zero_penalty_loss,
+    penalty_computer = ZeroPenaltyComputer(),
     is_testmode,
     is_omit_priors,
     zero_prior_logdensity,
     approx::AbstractHVIApproximation,
+    intθP, intθMs,
 ) where {FT}
     n_MCr = isempty(priors_θP_mean) ? n_MC : max(n_MC, n_MC_mean)
     ζsP, ζsMs_tr, σ = generate_ζ(approx, rng, g, ϕ, xM; n_MC=n_MCr, cor_ends, pbm_covar_indices,
@@ -78,7 +79,8 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
     loss_comps = neg_elbo_ζtf(
         ζsP_cpu[:,1:n_MC], ζsMs_tr_cpu[:,:,1:n_MC], σ, f, py, xP, y_ob, y_unc;
         n_MC_cap, transP, transMs, priorsP, priorsM, 
-        floss_penalty, ϕg, ϕq, is_omit_priors, zero_prior_logdensity,)
+        penalty_computer, ϕg, ϕq, is_omit_priors, zero_prior_logdensity, 
+        i_sites, intθMs, intθP)
     #
     # maybe: provide trans_mP and trans_mMs with creating cost function
     # not used any more and merging named tuples takes long
@@ -126,7 +128,7 @@ Compute the neg_elbo for each sampled parameter vector (last dimension of ζs).
   - `neg_log_prior`: the prior of parameters at constrained scale
   - `logjac`, negative logarithm of the absolute value of the determinant of the Jacobian of 
     the transformation `θ=T(ζ)`.
-- `loss_penalty`: additional loss terms from floss_penalty
+- `loss_penalty`: additional loss terms from penalty_computer
 - compute entropy of transformation
 """
 function neg_elbo_ζtf(ζsP, ζsMs_tr, σ, f, py, xP, y_ob, y_unc;
@@ -134,9 +136,10 @@ function neg_elbo_ζtf(ζsP, ζsMs_tr, σ, f, py, xP, y_ob, y_unc;
     transP,
     transMs=StackedArray(transM, size(ζsMs_tr, 2)),
     priorsP, priorsM,
-    floss_penalty, ϕg, ϕq,
+    penalty_computer, ϕg, ϕq,
     is_omit_priors::Val,
     zero_prior_logdensity,
+    i_sites, intθP, intθMs,
 ) 
     n_MC = size(ζsP,2)
     f_sample = (ζP, ζMs_tr) -> begin    
@@ -150,7 +153,8 @@ function neg_elbo_ζtf(ζsP, ζsMs_tr, σ, f, py, xP, y_ob, y_unc;
             # @usingany Cthulhu
             # @descend_code_warntype f(θP, θMs, xP)
             nLy_i = py(y_ob, y_pred_i, y_unc)
-            loss_penalty_i = convert(eltype(nLy_i),floss_penalty(y_pred_i, θMs_tr, θP, ϕg, ϕq))
+            loss_penalty_i = convert(eltype(nLy_i),penalty_computer(
+                y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), y_ob, i_sites, ϕg, ϕq))
             neg_log_prior_i = compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr,
                 is_omit_priors, zero_prior_logdensity)
             # make sure names to not match outer, otherwise Box type instability
@@ -259,30 +263,13 @@ function compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr, zero_prior_lo
     neg_log_prior_i
 end
 
-"""
-    zero_penalty_loss(y_pred, θMs, θP, ϕg, ϕq)
-
-Add zero i.e. no additional loss terms during the HVI fit.
-
-The basic cost in HVI is the negative log of the joint probability, i.e.
-the likelihood of the observations given the parameters * prior probability
-of the parameters.
-
-Sometimes there is additional knowledge not encoded in the prior, such as
-one parameter must be larger than another, or entropy-weights of the
-ML-parameters, and the solver accept a function to add additional loss terms.
-
-Arguments
-- y_pred::AbstractMatrix: Observations
-- θMs::AbstractMatrix: site parameters
-- θP::AbstractVector: global parameters
-- ϕg: ML-model parameters, 
-- ϕq::AbstractVector, additional parameters of the posterior
-"""
-function zero_penalty_loss(
-    y_pred::AbstractMatrix, θMs::AbstractMatrix, θP::AbstractVector, 
+struct ZeroPenaltyComputer <: AbstractPenaltyComputer end
+function apply_penalty_computer(
+    ::ZeroPenaltyComputer,
+    y_pred::AbstractMatrix, addq_pred::AbstractMatrix, θMs_tr::AbstractMatrix, θP::AbstractVector, 
+    y_obs::AbstractMatrix, i_sites::AbstractVector,
     ϕg, ϕq::AbstractVector)
-    return zero(eltype(θMs))
+    return zero(eltype(θMs_tr))
 end
 
 

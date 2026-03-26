@@ -136,7 +136,7 @@ end
     PBMSiteApplicator(fθ; θP, θM, θFix, xPvec)
 
 Construct AbstractPBMApplicator from process-based model `fθ` that computes predictions
-and addtional quantities for a single site.
+and additional quantities for a single site.
 The Applicator combines enclosed `θFix`, with provided `θMs` and `θP` and
 constructs a `ComponentVector` that can be indexed by 
 symbolic parameter names, corresponding to the templates provided during

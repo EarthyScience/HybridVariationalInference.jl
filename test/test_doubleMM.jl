@@ -198,6 +198,7 @@ end
 @testset "loss_gf" begin
     #----------- fit g and θP to y_o  (without uncertainty, without transforming θP)
     g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
+    pt = get_hybridproblem_par_templates(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     n_site, n_site_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     f = get_hybridproblem_PBmodel(prob; scenario)
@@ -220,14 +221,19 @@ end
     train_loader = get_hybridproblem_train_dataloader(prob; scenario)
     @assert train_loader.data == (xM, xP, y_o, y_unc, i_sites)
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
+    intθP = ComponentArrayInterpreter(pt.θP)
+    intθMs_batch = ComponentArrayInterpreter((n_batch,), pt.θM)
+    intθMs_site = ComponentArrayInterpreter((n_site,), pt.θM)
 
     #loss_gf = get_loss_gf(g, transM, f,  intϕ; gdev = identity)
     zero_prior_logdensity = CP.get_zero_prior_logdensity(
         priorsP, priorsM, par_templates.θP, par_templates.θM)     
     loss_gf = get_loss_gf(g, transM, transP, f,  py, intϕ;
-        pbm_covars, n_site_batch = n_batch, priorsP, priorsM, zero_prior_logdensity)
+        pbm_covars, n_site_batch = n_batch, priorsP, priorsM, zero_prior_logdensity,
+        intθMs = intθMs_batch, intθP,)
     loss_gf_site = get_loss_gf(g, transM, transP, f2, py, intϕ;
-        pbm_covars, n_site_batch = n_site, priorsP, priorsM, zero_prior_logdensity)
+        pbm_covars, n_site_batch = n_site, priorsP, priorsM, zero_prior_logdensity,
+        intθMs = intθMs_site, intθP,)
     nLjoint = @inferred first(loss_gf(p0, first(train_loader)...; is_testmode=true))
     (xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch) = first(train_loader)
     # @usingany Cthulhu

@@ -65,7 +65,10 @@ include("PBMApplicator.jl")
 # export AbstractGPUDataHandler, NullGPUDataHandler, get_default_GPUHandler
 # include("GPUDataHandler.jl")
 
-export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_PBmodel,
+export AbstractHybridProblem, AbstractPenaltyComputer, CustomPenaltyComputer,
+        apply_penalty_computer,
+       get_hybridproblem_MLapplicator, get_hybridproblem_PBmodel,
+       get_hybridproblem_penalty_computer,
        get_hybridproblem_ϕq, get_hybridproblem_θP,
        get_hybridproblem_float_type, gen_hybridproblem_synthetic,
        get_hybridproblem_par_templates, get_hybridproblem_transforms,
@@ -111,7 +114,7 @@ include("logden_normal.jl")
 export get_ca_starts, get_ca_ends, get_cor_count
 include("cholesky.jl")
 
-export neg_elbo_gtf, sample_posterior, predict_hvi, zero_penalty_loss
+export neg_elbo_gtf, sample_posterior, predict_hvi, ZeroPenaltyComputer
 export get_hybridproblem_correlation_Ms
 include("elbo_dev.jl")
 include("elbo_sepvec.jl")

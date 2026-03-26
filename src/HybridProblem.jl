@@ -45,6 +45,8 @@ struct HybridProblem <: AbstractHybridProblem
     n_batch::Int
     pbm_covars::NTuple{_N, Symbol} where _N
     approx::AbstractHVIApproximation
+    penalty_computer::AbstractPenaltyComputer
+    #penalty_computer::
     #inner constructor to constrain the types
     function HybridProblem(
             θM::CA.ComponentVector,
@@ -63,11 +65,13 @@ struct HybridProblem <: AbstractHybridProblem
             n_batch::Int;
             cor_ends::NamedTuple = (P = [length(ϕq[Val(:μP)])], M = [length(θM)]),
             pbm_covars::NTuple{N,Symbol} = (),
-            approx::AbstractHVIApproximation = MeanHVIApproximationMat()
+            approx::AbstractHVIApproximation = MeanHVIApproximationMat(),
+            penalty_computer::AbstractPenaltyComputer = ZeroPenaltyComputer(),
     ) where N
         new(
             θM, f_batch, g, ϕg, ϕq, priors, py, transM, transP, cor_ends, 
-            train_dataloader, test_data, n_covar, n_site, n_batch, pbm_covars, approx)
+            train_dataloader, test_data, n_covar, n_site, n_batch, pbm_covars, 
+            approx, penalty_computer)
     end
 end
 
@@ -132,6 +136,7 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
     θP = nothing,
     ϕunc = nothing,
     approx::AbstractHVIApproximation = MeanHVIApproximationMat(),
+    penalty_computer::AbstractPenaltyComputer = get_hybridproblem_penalty_computer(prob; scenario),  
     )
     cor_ends_new = if !isnothing(cor_ends)
         # if new cor_ends was specified then re-initialize the ρsP and ρsM in ϕq
@@ -148,7 +153,8 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
         ϕq = CA.ComponentVector(ϕq; ϕunc...)
     end
     HybridProblem(θM, ϕq, g, ϕg, f_batch, priors, py, transM, transP, train_dataloader,
-        test_data, n_covar, n_site, n_batch; cor_ends = cor_ends_new, pbm_covars, approx)
+        test_data, n_covar, n_site, n_batch; cor_ends = cor_ends_new, pbm_covars, 
+        approx, penalty_computer)
 end
 
 function HybridProblem(prob::HybridProblem; kwargs... )
@@ -250,6 +256,10 @@ end
 
 function get_hybridproblem_MLapplicator(prob::HybridProblem; scenario = ())
     prob.g, prob.ϕg
+end
+
+function get_hybridproblem_penalty_computer(prob::HybridProblem; scenario = ())
+    prob.penalty_computer
 end
 
 function get_hybridproblem_train_dataloader(prob::HybridProblem; scenario = ())

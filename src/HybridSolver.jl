@@ -66,14 +66,21 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     zero_prior_logdensity = omit_priors ? 0f0 : get_zero_prior_logdensity(
         priorsP, priorsM, pt.θP, pt.θM)     
     #intP = ComponentArrayInterpreter(pt.θP)
+    intθP = ComponentArrayInterpreter(pt.θP)
+    intθMs = ComponentArrayInterpreter((n_batch,), pt.θM)
+    penalty_computer = get_hybridproblem_penalty_computer(prob; scenario)
     loss_gf = get_loss_gf(g_dev, transM, transP, f_dev,  py, intϕ;
         n_site_batch=n_batch, 
         cdev=infer_cdev(gdevs), pbm_covars, 
-        priorsP, priorsM, is_omit_priors, zero_prior_logdensity,)
+        priorsP, priorsM, is_omit_priors, zero_prior_logdensity, penalty_computer,
+        intθMs, intθP,
+        )
     loss_gf_test = get_loss_gf(g_dev, transM, transP, ftest_dev,  py, intϕ;
         n_site_batch=n_site_test,
         cdev=infer_cdev(gdevs), pbm_covars, 
-        priorsP, priorsM, is_omit_priors, zero_prior_logdensity,)
+        priorsP, priorsM, is_omit_priors, zero_prior_logdensity, penalty_computer,
+        intθMs, intθP,
+        )
     # call loss function once
     l1 = is_infer ? 
         Test.@inferred(loss_gf(ϕ0_dev, first(train_loader_dev)...; is_testmode=true))[1] : 
@@ -233,6 +240,12 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
 
     py = get_hybridproblem_neg_logden_obs(prob; scenario)
 
+    penalty_computer = get_hybridproblem_penalty_computer(prob; scenario)
+    # intθP = ComponentArrayInterpreter(pt.θP, (solver.n_MC,))
+    # intθMs = ComponentArrayInterpreter((n_batch,), pt.θM, (solver.n_MC,))
+    intθP = ComponentArrayInterpreter(pt.θP)
+    intθMs = ComponentArrayInterpreter((n_batch,), pt.θM)
+
     priors_θP_mean, priors_θMs_mean = construct_priors_θ_mean(
         prob, ϕ0_dev.ϕg, keys(pt.θM), pt.θP, θmean_quant, g_dev, transM, transP;
         scenario, gdevs, pbm_covars)
@@ -241,7 +254,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
         g_dev, transP, transMs, f_dev, py;
         solver.n_MC, solver.n_MC_cap, cor_ends, priors_θP_mean, priors_θMs_mean, 
         cdev=infer_cdev(gdevs), pbm_covars, pt.θP, int_ϕq, int_ϕg_ϕq, priorsP, priorsM,
-        is_omit_priors, zero_prior_logdensity, approx,
+        is_omit_priors, zero_prior_logdensity, approx, penalty_computer, intθMs, intθP,
         )
     # test loss function once
     # tmp = first(train_loader_dev)
@@ -294,8 +307,9 @@ function get_loss_elbo(g, transP, transMs, f, py;
     n_MC, n_MC_mean = max(n_MC,20), n_MC_cap=n_MC, 
     cor_ends, priors_θP_mean, priors_θMs_mean, cdev, pbm_covars, θP,
     int_ϕq, int_ϕg_ϕq,
-    priorsP, priorsM, floss_penalty = zero_penalty_loss,
+    priorsP, priorsM, penalty_computer = ZeroPenaltyComputer(),
     is_omit_priors, zero_prior_logdensity, approx,
+    intθMs, intθP
 )
     let g = g, transP = transP, transMs = transMs, f = f, py = py, 
         n_MC = n_MC, n_MC_cap = n_MC_cap, n_MC_mean = n_MC_mean,
@@ -305,9 +319,10 @@ function get_loss_elbo(g, transP, transMs, f, py;
         pbm_covar_indices = get_pbm_covar_indices(θP, pbm_covars),
         trans_mP=StackedArray(transP, n_MC_mean), 
         trans_mMs=StackedArray(transMs.stacked, n_MC_mean),
-        priorsP=priorsP, priorsM=priorsM, floss_penalty=floss_penalty,
+        priorsP=priorsP, priorsM=priorsM, penalty_computer=penalty_computer,
         is_omit_priors = is_omit_priors, zero_prior_logdensity = zero_prior_logdensity,
-        approx = approx
+        approx = approx,
+        intθMs = get_concrete(intθMs), intθP = get_concrete(intθP)
 
         function loss_elbo(ϕ, rng, xM, xP, y_o, y_unc, i_sites; is_testmode)
             #ϕc = int_ϕg_ϕq(ϕ)
@@ -316,8 +331,9 @@ function get_loss_elbo(g, transP, transMs, f, py;
                 int_ϕq, int_ϕg_ϕq,
                 n_MC, n_MC_cap, n_MC_mean, cor_ends, priors_θP_mean, priors_θMs_mean,
                 cdev, pbm_covar_indices, transP, transMs, trans_mP, trans_mMs,
-                priorsP, priorsM, floss_penalty, #ϕg = ϕc.ϕg, ϕq = ϕc.ϕq,
+                priorsP, priorsM, penalty_computer, #ϕg = ϕc.ϕg, ϕq = ϕc.ϕq,
                 is_testmode, is_omit_priors, zero_prior_logdensity, approx,
+                intθMs, intθP,
             )
         end
     end

@@ -29,6 +29,62 @@ The initial value of parameters to estimate is spread
 """
 abstract type AbstractHybridProblem end;
 
+abstract type AbstractPenaltyComputer end;
+
+"""
+    CustomPenaltyComputer(f::Function)
+
+A wrapper to use a custom function to compute additional loss penalty terms 
+during the HVI fit.
+"""    
+struct CustomPenaltyComputer <: AbstractPenaltyComputer
+    f::Function
+end
+
+"""
+        apply_penalty_computer(::AbstractPenaltyComputer, 
+            y_pred::AbstractMatrix, addq_pred::AbstractMatrix, 
+            θMs::AbstractMatrix, θP::AbstractVector, 
+            y_obs::AbstractMatrix,
+            ϕg, ϕq::AbstractVector)
+Add zero i.e. no additional loss terms during the HVI fit.
+
+The basic cost in HVI is the negative log of the joint probability, i.e.
+the likelihood of the observations given the parameters * prior probability
+of the parameters.
+
+Sometimes there is additional knowledge not encoded in the prior, such as
+one parameter must be larger than another, or entropy-weights of the
+ML-parameters, and the solver accept a function to add additional loss terms.
+
+Arguments
+- y_pred::AbstractMatrix: Observations
+- addq_pred::AbstractMatrix: Additional quantities computed by the PBM
+- θMs_tr::AbstractMatrix: site parameters (with sites in rows and parameters in columns)
+- θP::AbstractVector: global parameters
+- y_obs::AbstractMatrix, observations
+- i_sites: indices of sites in the minibatch, useful for using precoputed quantities
+- ϕg: ML-model parameters, 
+- ϕq::AbstractVector, additional parameters of the posterior
+"""
+function apply_penalty_computer end;
+function apply_penalty_computer(pc::CustomPenaltyComputer, args...; kwargs...)
+    pc.f(args...; kwargs...)
+end
+
+function (pc::AbstractPenaltyComputer)(args...; kwargs...) 
+    apply_penalty_computer(pc, args...; kwargs...)   
+end
+
+
+"""
+    get_hybridproblem_penalty_computer(::AbstractHybridProblem; scenario)
+
+Return a func
+"""
+function get_hybridproblem_penalty_computer end;
+
+
 """
     get_hybridproblem_MLapplicator([rng::AbstractRNG,] ::AbstractHybridProblem; scenario=())
 

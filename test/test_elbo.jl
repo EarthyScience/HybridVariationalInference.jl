@@ -350,6 +350,7 @@ test_scenario = (scenario, approx) -> begin
     @testset "neg_elbo_gtf cpu $(last(CP._val_value(scenario)))" begin
         i_sites = 1:n_batch
         transMs = StackedArray(transM, size(ζsMs_tr, 1))
+        intθMs = ComponentArrayInterpreter((n_batch,), int_M)
         cost = @inferred (
         #@descend_code_warntype (
             neg_elbo_gtf(rng, ϕ_ini, g, f, py,
@@ -358,7 +359,7 @@ test_scenario = (scenario, approx) -> begin
             cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
             is_testmode = true, 
             is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini)),
-            approx,
+            approx, intθMs, intθP = int_P
             )
         )
         @test cost isa Float64
@@ -369,7 +370,7 @@ test_scenario = (scenario, approx) -> begin
                 cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
                 is_testmode = false, 
                 is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini)),
-                approx,
+                approx, intθMs, intθP = int_P
                 ),
             CA.getdata(ϕ_ini))
         @test gr[1] isa Vector

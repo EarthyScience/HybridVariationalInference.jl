@@ -151,6 +151,7 @@ test_without_flux = (scenario) -> begin
         #----------- fit g and θP to y_o
         rng = StableRNG(111)
         g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
+        pt = get_hybridproblem_par_templates(prob; scenario)
         n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
         train_loader = get_hybridproblem_train_dataloader(prob; scenario)
         (xM, xP, y_o, y_unc, i_sites) = first(train_loader)
@@ -167,12 +168,15 @@ test_without_flux = (scenario) -> begin
         priorsM = Tuple(priors[k] for k in keys(par_templates.θM))
         # slightly disturb θP_true
         p = p0 = vcat(ϕg0, par_templates.θP .* convert(eltype(ϕg0), 0.8))  
+        intθP = ComponentArrayInterpreter(pt.θP)
+        intθMs = ComponentArrayInterpreter((n_batch,), pt.θM)
 
         # Pass the site-data for the batches as separate vectors wrapped in a tuple
         zero_prior_logdensity = CP.get_zero_prior_logdensity(
             priorsP, priorsM, par_templates.θP, par_templates.θM)     
         loss_gf = get_loss_gf(g, transM, transP, f, py, intϕ; 
             pbm_covars, n_site_batch = n_batch, priorsP, priorsM, zero_prior_logdensity,
+            intθMs, intθP,
             )
         (_xM, _xP, _y_o, _y_unc, _i_sites) = first(train_loader)
         #l1 = loss_gf(p0, _xM, _xP, _y_o, _y_unc, _i_sites; is_testmode = false)

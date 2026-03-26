@@ -230,10 +230,11 @@ function get_loss_gf(g, transM, transP, f, py,
         intϕ(1:length(intϕ)).ϕP);
     cdev=cpu_device(),
     pbm_covars, n_site_batch, 
-    floss_penalty = zero_penalty_loss,
+    penalty_computer = ZeroPenaltyComputer(),
     priorsP, priorsM, 
     is_omit_priors::Val = Val(false),
     zero_prior_logdensity,
+    intθP, intθMs,
     kwargs...) 
 
     let g = g, transM = transM, transP = transP, f = f, 
@@ -243,7 +244,8 @@ function get_loss_gf(g, transM, transP, f, py,
         pbm_covar_indices = CA.getdata(intP(1:length(intP))[pbm_covars]),
         zero_prior_logdensity = zero_prior_logdensity, is_omit_priors = is_omit_priors,
         priorsP = priorsP, priorsM = priorsM, 
-        floss_penalty = floss_penalty,
+        penalty_computer = penalty_computer,
+        intθMs = get_concrete(intθMs), intθP = get_concrete(intθP),
         cpu_dev = cpu_device() # real cpu, different form infer_cdev(gdevs) that maybe idenetity
         #, intP = get_concrete(intP)
         #inv_transP = inverse(transP), kwargs = kwargs
@@ -286,7 +288,9 @@ function get_loss_gf(g, transM, transP, f, py,
                 error("debug get_loss_gf")
             end
             ϕq = eltype(θP_pred)[]  # no uncertainty parameters optimized
-            loss_penalty = floss_penalty(y_pred, θMs_tr_pred, θP_pred, ϕc.ϕg, ϕq)
+            loss_penalty = penalty_computer(
+                y_pred, addq_pred, intθMs(θMs_tr_pred), intθP(θP_pred), 
+                y_o, i_sites, ϕc.ϕg, ϕq)
             #@show nLy, neg_log_prior, loss_penalty
             nLjoint_pen = nLy + neg_log_prior + loss_penalty
             return (;nLjoint_pen, y_pred, θMs_tr_pred, θP_pred, nLy, neg_log_prior, loss_penalty)

@@ -62,7 +62,7 @@ function f_doubleMM(θc::CA.ComponentVector{ET}, x) where ET
         lim1 = x.S1 ./ (K1 .+ x.S1)
         lim2 = x.S2 ./ (K2 .+ x.S2)
         y = r0 .+ r1 .* lim1 .* lim2
-        return (y, vcat(lim1, lim2)) # in addtion to y returm the limitations as a vector
+        return (y, vcat(lim1, lim2)) # in addition to y return the limitations as a vector
     end
 end
 
@@ -140,7 +140,7 @@ function f_doubleMM_sites(θc_tr::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
     lim1 = S1 ./ (K1 .+ S1)
     lim2 = S2 ./ (K2 .+ S2)
     y = r0 .+ r1 .* lim1 .* lim2
-    return (y, vcat(lim1, lim2)) # in addtion to y returm the limitations as a vector
+    return (y, vcat(lim1, lim2)) # in addition to y return the limitations as a vector
     #(rep_fac .* r0') .+ (rep_fac .* r1') .* S1 ./ ((rep_fac .* K1') .+ S1) .* S2 ./ ((rep_fac .* K2') .+ S2)
 end
 
@@ -423,4 +423,7 @@ function HVI.get_hybridproblem_ϕq(prob::DoubleMMCase; scenario::Val{scen}) wher
 end
 
 
+function HVI.get_hybridproblem_penalty_computer(prob::DoubleMMCase; scenario = ())
+    ZeroPenaltyComputer()
+end
 

@@ -56,7 +56,7 @@ or fixed during the model inversion.
 However, it cannot assume an ordering in the parameters, but needs to
 access the components by its symbolic names in the provided `ComponentArray`.
 
-In addtion to the predictions, the PBM returns additional quantities that may
+In addition to the predictions, the PBM returns additional quantities that may
 be used in penalizing unrealistic conditions independent of observations.
 In this simple example, just an empty vector is returned.
 
