@@ -45,7 +45,7 @@ struct HybridProblem <: AbstractHybridProblem
     n_batch::Int
     pbm_covars::NTuple{_N, Symbol} where _N
     approx::AbstractHVIApproximation
-    penalty_computer::AbstractPenaltyComputer
+    penalty_computer::PenaltyComputerOrFunction
     #penalty_computer::
     #inner constructor to constrain the types
     function HybridProblem(
@@ -66,7 +66,7 @@ struct HybridProblem <: AbstractHybridProblem
             cor_ends::NamedTuple = (P = [length(ϕq[Val(:μP)])], M = [length(θM)]),
             pbm_covars::NTuple{N,Symbol} = (),
             approx::AbstractHVIApproximation = MeanHVIApproximationMat(),
-            penalty_computer::AbstractPenaltyComputer = ZeroPenaltyComputer(),
+            penalty_computer::PenaltyComputerOrFunction = ZeroPenaltyComputer(),
     ) where N
         new(
             θM, f_batch, g, ϕg, ϕq, priors, py, transM, transP, cor_ends, 
@@ -136,7 +136,7 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
     θP = nothing,
     ϕunc = nothing,
     approx::AbstractHVIApproximation = MeanHVIApproximationMat(),
-    penalty_computer::AbstractPenaltyComputer = get_hybridproblem_penalty_computer(prob; scenario),  
+    penalty_computer::PenaltyComputerOrFunction = get_hybridproblem_penalty_computer(prob; scenario),  
     )
     cor_ends_new = if !isnothing(cor_ends)
         # if new cor_ends was specified then re-initialize the ρsP and ρsM in ϕq

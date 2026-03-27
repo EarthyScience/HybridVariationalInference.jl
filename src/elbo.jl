@@ -65,6 +65,15 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
     approx::AbstractHVIApproximation,
     intθP, intθMs,
 ) where {FT}
+    ϕc = int_ϕg_ϕq(ϕ)
+    VT= typeof(@view(ϕ[1:1]))
+    ϕg = CA.getdata(ϕc.ϕg)::VT
+    ϕq = CA.getdata(ϕc.ϕq)::VT
+    if(!all(isfinite.(ϕ)))
+        @show ϕq
+        @show ϕg
+        error("encountered non-finite optimized parameters")
+    end
     n_MCr = isempty(priors_θP_mean) ? n_MC : max(n_MC, n_MC_mean)
     ζsP, ζsMs_tr, σ = generate_ζ(approx, rng, g, ϕ, xM; n_MC=n_MCr, cor_ends, pbm_covar_indices,
         int_ϕq, int_ϕg_ϕq, is_testmode, i_sites)
@@ -72,10 +81,6 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
     ζsMs_tr_cpu = cdev(ζsMs_tr) # fetch to CPU, because for <1000 sites (n_batch) this is faster
     #
     # maybe: translate ζ once and supply to both neg_elbo and negloglik_meanθ
-    ϕc = int_ϕg_ϕq(ϕ)
-    VT= typeof(@view(ϕ[1:1]))
-    ϕg = CA.getdata(ϕc.ϕg)::VT
-    ϕq = CA.getdata(ϕc.ϕq)::VT
     loss_comps = neg_elbo_ζtf(
         ζsP_cpu[:,1:n_MC], ζsMs_tr_cpu[:,:,1:n_MC], σ, f, py, xP, y_ob, y_unc;
         n_MC_cap, transP, transMs, priorsP, priorsM, 
@@ -131,7 +136,7 @@ Compute the neg_elbo for each sampled parameter vector (last dimension of ζs).
 - `loss_penalty`: additional loss terms from penalty_computer
 - compute entropy of transformation
 """
-function neg_elbo_ζtf(ζsP, ζsMs_tr, σ, f, py, xP, y_ob, y_unc;
+function neg_elbo_ζtf(ζsP::AbstractArray{T}, ζsMs_tr, σ, f, py, xP, y_ob, y_unc;
     n_MC_cap=size(ζsP,2),
     transP,
     transMs=StackedArray(transM, size(ζsMs_tr, 2)),
@@ -140,10 +145,22 @@ function neg_elbo_ζtf(ζsP, ζsMs_tr, σ, f, py, xP, y_ob, y_unc;
     is_omit_priors::Val,
     zero_prior_logdensity,
     i_sites, intθP, intθMs,
-) 
+) where T
     n_MC = size(ζsP,2)
-    f_sample = (ζP, ζMs_tr) -> begin    
+    #@show ζsMs_tr[1,4,:] # fourth component goes to NaN at some time
+    if !all(isfinite.(ζsMs_tr))
+        return (;
+            nLjoint=T(1e9), entropy_ζ=zero(T), loss_penalty=zero(T), nLy=zero(T),
+            neg_log_prior=T(1e9), neg_log_jac=zero(T))
+    end
+    f_sample = (ζP, ζMs_tr) -> begin
             θP, θMs_tr, logjac_i = transform_and_logjac_ζ(ζP, ζMs_tr; transP, transMs)
+            if !all(isfinite.(θMs_tr))
+                i_row = findfirst(θM -> !all(isfinite.(θM)), eachrow(θMs_tr))
+                @show i_row #info "encountered non-finite θMs_tr at $(i_row)th site"
+                @show θMs_tr[i_row,:]
+                @show ζMs_tr[i_row,:]
+            end
             #  currently logpdf only works on CPU
             (y_pred_i, addq_pred_i) = f(θP, θMs_tr, xP)
             #nLy1 = neg_logden_indep_normal(y_ob, y_pred_i, y_unc)
@@ -153,8 +170,8 @@ function neg_elbo_ζtf(ζsP, ζsMs_tr, σ, f, py, xP, y_ob, y_unc;
             # @usingany Cthulhu
             # @descend_code_warntype f(θP, θMs, xP)
             nLy_i = py(y_ob, y_pred_i, y_unc)
-            loss_penalty_i = convert(eltype(nLy_i),penalty_computer(
-                y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), y_ob, i_sites, ϕg, ϕq))
+            loss_penalty_i = convert(eltype(nLy_i),first(penalty_computer(
+                y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), y_ob, i_sites, ϕg, ϕq)))
             neg_log_prior_i = compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr,
                 is_omit_priors, zero_prior_logdensity)
             # make sure names to not match outer, otherwise Box type instability
@@ -264,12 +281,12 @@ function compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr, zero_prior_lo
 end
 
 struct ZeroPenaltyComputer <: AbstractPenaltyComputer end
-function apply_penalty_computer(
+function compute_penalty(
     ::ZeroPenaltyComputer,
     y_pred::AbstractMatrix, addq_pred::AbstractMatrix, θMs_tr::AbstractMatrix, θP::AbstractVector, 
     y_obs::AbstractMatrix, i_sites::AbstractVector,
     ϕg, ϕq::AbstractVector)
-    return zero(eltype(θMs_tr))
+    return (; penalty = zero(eltype(θMs_tr)))
 end
 
 
@@ -480,6 +497,12 @@ function generate_ζ(
     xMP0 = _append_each_covars(xM, CA.getdata(μ_ζP), pbm_covar_indices)
     ϕm0 = g(xMP0, ϕg; is_testmode)
     μ_ζMs0 = ϕm0
+    # if !all(isfinite.(μ_ζMs0))
+    #     @show μ_ζMs0
+    #     is_infinte_ϕg = !all(isfinite.(ϕg))
+    #     @show is_infinte_ϕg
+    #     error("encountered non-finite μ_ζMs0")
+    # end
     ζP_resids, ζMs_parfirst_resids, σ = sample_ζresid_norm(approx, rng, 
         i_sites, ϕm0, ϕq; n_MC, cor_ends, int_ϕq)
     ζsP = isempty(μ_ζP) ? ζP_resids : (μ_ζP .+ ζP_resids)  # n_par x n_MC 
@@ -652,6 +675,10 @@ function sample_ζresid_norm(approx::MeanHVIApproximationMat,
     # is this multiplication efficient if Uσ is not concrete but only sumtype BlockDiagonal?
     urandn = hcat(zP, zMs)
     ζ_resids_parfirst = (Uσ' * urandn') #::typeof(urandn) # n_par x n_MC
+    # if !all(isfinite.(ζ_resids_parfirst))
+    #     @show ζ_resids_parfirst
+    #     @show Uσ
+    # end
     #ζ_resids_parfirst = (urandn * Uσ)' #::typeof(urandn) # n_par x n_MC
     #ζ_resids_parfirst = urandn' * Uσ # n_MC x n_par
     # need to handle empty(ζP) explicitly, otherwise Zygote tries to take gradient

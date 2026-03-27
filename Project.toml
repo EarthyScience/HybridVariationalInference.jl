@@ -46,6 +46,7 @@ HybridVariationalInferenceFluxExt = "Flux"
 HybridVariationalInferenceLuxExt = "Lux"
 HybridVariationalInferenceSimpleChainsExt = "SimpleChains"
 
+# require Optimization 5.3 do deal with NaN gradients
 [compat]
 Bijectors = "0.14, 0.15"
 BlockDiagonals = "0.1.42, 0.2"
@@ -70,7 +71,7 @@ MLUtils = "0.4.5"
 Missings = "1.2.0"
 NaNMath = "1.1.3"
 Optimisers = "0.4.6"
-Optimization = "3.11, 4"
+Optimization = "5.3"
 Random = "1.10.0"
 SimpleChains = "0.4.8"
 StableRNGs = "1.0.2"

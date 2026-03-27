@@ -66,7 +66,7 @@ include("PBMApplicator.jl")
 # include("GPUDataHandler.jl")
 
 export AbstractHybridProblem, AbstractPenaltyComputer, CustomPenaltyComputer,
-        apply_penalty_computer,
+        compute_penalty,
        get_hybridproblem_MLapplicator, get_hybridproblem_PBmodel,
        get_hybridproblem_penalty_computer,
        get_hybridproblem_ϕq, get_hybridproblem_θP,

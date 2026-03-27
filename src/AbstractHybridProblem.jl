@@ -30,6 +30,7 @@ The initial value of parameters to estimate is spread
 abstract type AbstractHybridProblem end;
 
 abstract type AbstractPenaltyComputer end;
+const PenaltyComputerOrFunction = Union{AbstractPenaltyComputer, Function}
 
 """
     CustomPenaltyComputer(f::Function)
@@ -42,10 +43,10 @@ struct CustomPenaltyComputer <: AbstractPenaltyComputer
 end
 
 """
-        apply_penalty_computer(::AbstractPenaltyComputer, 
+        compute_penalty(::PenaltyComputerOrFunction, 
             y_pred::AbstractMatrix, addq_pred::AbstractMatrix, 
             θMs::AbstractMatrix, θP::AbstractVector, 
-            y_obs::AbstractMatrix,
+            y_obs::AbstractMatrix, i_sites::AbstractVector{<:Int}, 
             ϕg, ϕq::AbstractVector)
 Add zero i.e. no additional loss terms during the HVI fit.
 
@@ -66,14 +67,18 @@ Arguments
 - i_sites: indices of sites in the minibatch, useful for using precoputed quantities
 - ϕg: ML-model parameters, 
 - ϕq::AbstractVector, additional parameters of the posterior
+
+Returns a NamedTuple
+- with first element (Real): the total penalty
+- other component (Real): optional information on parts of the penalty
 """
-function apply_penalty_computer end;
-function apply_penalty_computer(pc::CustomPenaltyComputer, args...; kwargs...)
+function compute_penalty end;
+function compute_penalty(pc::CustomPenaltyComputer, args...; kwargs...)
     pc.f(args...; kwargs...)
 end
 
 function (pc::AbstractPenaltyComputer)(args...; kwargs...) 
-    apply_penalty_computer(pc, args...; kwargs...)   
+    compute_penalty(pc, args...; kwargs...)   
 end
 
 

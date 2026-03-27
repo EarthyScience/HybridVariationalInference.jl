@@ -387,9 +387,10 @@ function compute_elbo_components(
     f_batch = get_hybridproblem_PBmodel(prob; scenario)
     f = (n_site_pred == n_batch) ? f : create_nsite_applicator(f_batch, n_site_pred)
     py = get_hybridproblem_neg_logden_obs(prob; scenario)
-    priors_θ_mean = construct_priors_θ_mean(
-        prob, ϕ0_dev.ϕg, keys(θM), θP, θmean_quant, g_dev, transM;
-        scenario, gdev, cdev, pbm_covars)
+    priors_θ_mean = nothing
+    # priors_θ_mean = construct_priors_θ_mean(
+    #     prob, ϕ0_dev.ϕg, keys(θM), θP, θmean_quant, g_dev, transM;
+    #     scenario, gdev, cdev, pbm_covars)
     neg_elbo_gtf_components(
         rng, ϕ0_dev, g_dev, transPMs_batch, f, py, xM, xP, y_o, y_unc, i_sites, interpreters;
         solver.n_MC, solver.n_MC_cap, cor_ends, priors_θ_mean)

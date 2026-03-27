@@ -43,7 +43,7 @@ prob = probo_normal = load(fname, "probo");
 
 ## Write function to compute the penalty loss
 
-The function signature corresponds to the one described in [`apply_penalty_computer`](@ref).
+The function signature corresponds to the one described in [`compute_penalty`](@ref).
 
 In this example we want to avoid local minima when parameter, `r1`, is larger than
 70% of the maximum observation.
@@ -57,7 +57,8 @@ function compute_penalty_r1(y_pred::AbstractMatrix, addq_pred::AbstractMatrix,
     y_obs_max = map(col -> maximum(x -> isfinite(x) ? x : zero(x), col), 
         eachcol(y_obs))
     # add a penalty if r1 is larger than 0.95 times the maximum
-    sum(max.(zero(eltype(θMs_tr)), θMs_tr[:,:r1] .- 0.95 .* y_obs_max))
+    penalty = sum(max.(zero(eltype(θMs_tr)), θMs_tr[:,:r1] .- 0.95 .* y_obs_max))
+    (; penalty)
 end
 ```
 
@@ -67,12 +68,12 @@ HybridProblem has keyword argument `penalty_computer` to specify the Callable
 that computes the penalty. It defaults to `ZeroPenaltyComputer`, which
 returns zero penalty cost.
 
-Here we construct a [`CustomPenaltyComputer`](@ref) with the function specified
-above and update the problem.
+We can pass the function directly or alternatively construct a [`CustomPenaltyComputer`](@ref) and update the problem.
 
 ``` julia
-penalty_computer = CustomPenaltyComputer(compute_penalty_r1)
-prob_pen = HybridProblem(prob; penalty_computer)
+#penalty_computer = CustomPenaltyComputer(compute_penalty_r1)
+#prob_pen = HybridProblem(prob; penalty_computer)
+prob_pen = HybridProblem(prob; penalty_computer = compute_penalty_r1)
 
 using OptimizationOptimisers
 import Zygote
@@ -102,26 +103,26 @@ are recomputed each time, the PenaltyComputer is called.
 This can be avoided, because the function receives argument, `i_sites`,
 which can be used to index precomputed observation maxima, stored
 in a struct implementing type `AbstractPenaltyComputer`
-and function `apply_penalty_computer`.
+and function `compute_penalty`.
 
 ``` julia
 struct R1PenaltyComputer{T} <: AbstractPenaltyComputer where T
-    ys_max::Vector{T}
+    r_max::Vector{T}
 end
 function R1PenaltyComputer(ys::AbstractMatrix)
-  ys_max = vec(maximum(ys; dims = 1))
-  R1PenaltyComputer(ys_max)
+  r_max = 0.95 .* vec(maximum(ys; dims = 1))
+  R1PenaltyComputer(r_max)
 end
-function HybridVariationalInference.apply_penalty_computer(
+function HybridVariationalInference.compute_penalty(
     pc::R1PenaltyComputer,
     y_pred::AbstractMatrix, addq_pred::AbstractMatrix, θMs_tr::AbstractMatrix, θP::AbstractVector, 
     y_obs::AbstractMatrix, i_sites, 
     ϕg, ϕq::AbstractVector
     )
-    y_obs_max = pc.ys_max[i_sites]
-    #@assert y_obs_max == map(col -> maximum(x -> isfinite(x) ? x : zero(x), col), eachcol(y_obs))
-    # add a penalty if r1 is larger than 0.95 times the maximum
-    sum(max.(zero(eltype(θMs_tr)), θMs_tr[:,:r1] .- 0.95 .* y_obs_max))
+    @assert pc.r_max[i_sites] == 0.95 .* map(col -> maximum(x -> isfinite(x) ? x : zero(x), col), eachcol(y_obs))
+    # add a penalty if r1 is larger r_max
+    penalty = sum(max.(zero(eltype(θMs_tr)), θMs_tr[:,:r1] .- pc.r_max[i_sites]))
+    (;penalty)
 end
 
 ys = get_hybridproblem_train_dataloader(probo).data[3]
