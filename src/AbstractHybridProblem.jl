@@ -12,7 +12,6 @@ For a specific prob, provide functions that specify details
 - `get_hybridproblem_train_dataloader` (may use `construct_dataloader_from_synthetic`)
 - `get_hybridproblem_test_data`
 - `get_hybridproblem_priors` 
-- `get_hybridproblem_n_covar` 
 - `get_hybridproblem_n_site_and_batch` 
 optionally
 - `gen_hybridproblem_synthetic`
@@ -188,16 +187,15 @@ function get_hybridproblem_transforms end
 """
     get_hybridproblem_n_covar(::AbstractHybridProblem; scenario)
 
-Provide the number of covariates. 
+Provide the number of covariates. Default implementation falls back to train_dataloader
 """
-function get_hybridproblem_n_covar(::AbstractHybridProblem; scenario) end
-# function get_hybridproblem_n_covar(prob::AbstractHybridProblem; scenario)
-#     train_loader = get_hybridproblem_train_dataloader(Random.default_rng(), prob; scenario)
-#     (xM, xP, y_o, y_unc) = first(train_loader)
-#     n_covar = size(xM, 1)
-#     return (n_covar)
-# end
-
+function get_hybridproblem_n_covar(prob::AbstractHybridProblem; scenario)
+    train_dataloader = get_hybridproblem_train_dataloader(
+        Random.default_rng(), prob; scenario)
+    (xM, xP, y_o, y_unc) = first(train_dataloader)
+    n_covar = size(xM, 1)
+    return (n_covar)
+end
 
 function get_hybridproblem_pbmpar_covars(::AbstractHybridProblem; scenario) 
     ()
@@ -378,6 +376,15 @@ function setup_PBMpar_interpreter(θP, θM, θall = vcat(θP, θM))
     intθ = ComponentArrayInterpreter(flatten1(CA.ComponentVector(; θP, θM, θFix)))
     intθ, θFix
 end
+
+"""
+    get_hybridproblem_HVIApproximation(::AbstractHybridProblem; scenario)
+
+Return a AbstractHVIApproximation that should be used with this problem
+"""
+function get_hybridproblem_HVIApproximation end
+    
+
 
 
 

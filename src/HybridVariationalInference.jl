@@ -41,6 +41,7 @@ VERSION >= v"1.11.0-DEV.469" && eval(Meta.parse("public Logistic"))
 include("bijectors_utils.jl")
 
 export AbstractHVIApproximation, AbstractMeanHVIApproximation
+export get_numberof_MLinputs
 export MeanHVIApproximation, MeanHVIApproximationMat
 export AbstractMeanVarSepHVIApproximation, MeanVarSepHVIApproximation
 export AbstractMeanScalingHVIApproximation, MeanScalingHVIApproximation
@@ -49,7 +50,7 @@ include("HVIApproximation.jl")
 export AbstractComponentArrayInterpreter, ComponentArrayInterpreter,
        StaticComponentArrayInterpreter
 export flatten1, get_concrete, get_positions, stack_ca_int, compose_interpreters
-export construct_partric
+export construct_partric, get_numberof_inputs_outputs
 include("ComponentArrayInterpreter.jl")
 
 export AbstractModelApplicator, construct_ChainsApplicator
@@ -76,7 +77,7 @@ export AbstractHybridProblem, AbstractPenaltyComputer, CustomPenaltyComputer,
        get_hybridproblem_train_dataloader,
        get_hybridproblem_test_data,
        get_hybridproblem_neg_logden_obs,
-       get_hybridproblem_n_covar,
+       get_hybridproblem_n_covar, # default
        get_hybridproblem_n_site_and_batch,
        get_hybridproblem_cor_ends,
        get_hybridproblem_priors,
@@ -84,6 +85,7 @@ export AbstractHybridProblem, AbstractPenaltyComputer, CustomPenaltyComputer,
        gen_cov_pred,
        construct_dataloader_from_synthetic,
        gdev_hybridproblem_dataloader, gdev_hybridproblem_data,
+       get_hybridproblem_HVIApproximation,
        setup_PBMpar_interpreter,
        get_gdev_MP,
        init_hybrid_ϕq       
@@ -119,6 +121,7 @@ export neg_elbo_gtf, sample_posterior, predict_hvi, ZeroPenaltyComputer
 export get_hybridproblem_correlation_Ms
 include("elbo_dev.jl")
 include("elbo_sepvec.jl")
+include("elbo_scaling.jl")
 include("elbo.jl")
 include("elbo2.jl")
 

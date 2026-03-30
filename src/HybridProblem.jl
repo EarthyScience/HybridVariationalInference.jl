@@ -40,7 +40,6 @@ struct HybridProblem <: AbstractHybridProblem
     cor_ends::@NamedTuple{P::Vector{Int}, M::Vector{Int}} # = (P=(1,),M=(1,))
     train_dataloader::MLUtils.DataLoader
     test_data::NamedTuple
-    n_covar::Int
     n_site::Int
     n_batch::Int
     pbm_covars::NTuple{_N, Symbol} where _N
@@ -60,7 +59,6 @@ struct HybridProblem <: AbstractHybridProblem
             transP::Stacked,
             train_dataloader::MLUtils.DataLoader,
             test_data::NamedTuple,
-            n_covar::Int,
             n_site::Int,
             n_batch::Int;
             cor_ends::NamedTuple = (P = [length(ϕq[Val(:μP)])], M = [length(θM)]),
@@ -70,7 +68,7 @@ struct HybridProblem <: AbstractHybridProblem
     ) where N
         new(
             θM, f_batch, g, ϕg, ϕq, priors, py, transM, transP, cor_ends, 
-            train_dataloader, test_data, n_covar, n_site, n_batch, pbm_covars, 
+            train_dataloader, test_data, n_site, n_batch, pbm_covars, 
             approx, penalty_computer)
     end
 end
@@ -127,7 +125,6 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
     transM = get_hybridproblem_transforms(prob; scenario).transM,
     train_dataloader = get_hybridproblem_train_dataloader(prob; scenario),
     test_data = get_hybridproblem_test_data(prob; scenario),
-    n_covar = get_hybridproblem_n_covar(prob; scenario),
     n_site = get_hybridproblem_n_site_and_batch(prob; scenario)[1],
     n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)[2],
     cor_ends = nothing,
@@ -135,7 +132,7 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
     ϕq = get_hybridproblem_ϕq(prob; scenario),
     θP = nothing,
     ϕunc = nothing,
-    approx::AbstractHVIApproximation = MeanHVIApproximationMat(),
+    approx::AbstractHVIApproximation = get_hybridproblem_HVIApproximation(prob; scenario),
     penalty_computer::PenaltyComputerOrFunction = get_hybridproblem_penalty_computer(prob; scenario),  
     )
     cor_ends_new = if !isnothing(cor_ends)
@@ -153,12 +150,12 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
         ϕq = CA.ComponentVector(ϕq; ϕunc...)
     end
     HybridProblem(θM, ϕq, g, ϕg, f_batch, priors, py, transM, transP, train_dataloader,
-        test_data, n_covar, n_site, n_batch; cor_ends = cor_ends_new, pbm_covars, 
+        test_data, n_site, n_batch; cor_ends = cor_ends_new, pbm_covars, 
         approx, penalty_computer)
 end
 
 function HybridProblem(prob::HybridProblem; kwargs... )
-    update_hybridProblem(prob; scenario = Val(()), approx = prob.approx, kwargs...)
+    update_hybridProblem(prob; scenario = Val(()), kwargs...)
 end
 
 
@@ -276,9 +273,6 @@ end
 function get_hybridproblem_pbmpar_covars(prob::HybridProblem; scenario = ()) 
     prob.pbm_covars
 end
-function get_hybridproblem_n_covar(prob::HybridProblem; scenario = ())
-    prob.n_covar
-end
 function get_hybridproblem_n_site_and_batch(prob::HybridProblem; scenario = ())
     prob.n_site, prob.n_batch
 end
@@ -305,3 +299,6 @@ function get_quantile_transformed(priors::Tuple, trans;
 end
 
 
+function get_hybridproblem_HVIApproximation(prob::HybridProblem; scenario = ())
+    prob.approx
+end

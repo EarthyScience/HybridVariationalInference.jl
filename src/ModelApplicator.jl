@@ -69,8 +69,24 @@ Implemented for machine learning extensions, such as Flux or SimpleChains.
 `ml_engine` usually is of type `Val{Symbol}`, e.g. Val(:Flux). See `select_ml_engine`.       
 
 Scenario is a value-type of `NTuple{_,Symbol}`.
+
+Implementations may call 
+`get_numberof_inputs_outputs(prob; scenario) -> (n_input, n_output)`.
 """
 function construct_3layer_MLApplicator end
+
+function get_numberof_inputs_outputs(prob; scenario)
+    n_covar = get_hybridproblem_n_covar(prob; scenario)
+    n_pbm_covars = length(get_hybridproblem_pbmpar_covars(prob; scenario))
+    n_input = n_covar + n_pbm_covars
+    (;θM) = get_hybridproblem_par_templates(prob; scenario)
+    #n_out = length(θM)
+    approx = get_hybridproblem_HVIApproximation(prob; scenario)
+    n_output = get_numberof_MLinputs(approx, θM)
+    (;n_input, n_output)
+end
+
+
 
 """
     select_ml_engine(;scenario)

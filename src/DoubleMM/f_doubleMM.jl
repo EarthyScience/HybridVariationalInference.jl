@@ -334,6 +334,8 @@ function HVI.get_hybridproblem_train_dataloader(prob::DoubleMMCase; scenario::Va
         rng::AbstractRNG = StableRNG(111), kwargs...
 ) where {scen}
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    # In order to avoid cirular dependcies, need to implement specific version of
+    #    HVI.get_hybridproblem_n_covar, which be default relies on the train_dataloader
     dl = construct_dataloader_from_synthetic(rng, prob; scenario, n_batch, kwargs...) 
     if (:driverNAN ∈ scen)
         (xM, xP, y_o, y_unc, i_sites) = dl.data
@@ -411,7 +413,7 @@ function HVI.get_hybridproblem_cor_ends(prob::DoubleMMCase; scenario::Val{scen})
 end
 
 function HVI.get_hybridproblem_ϕq(prob::DoubleMMCase; scenario::Val{scen}) where {scen}
-    approx = (:sepvar ∈ scen) ? MeanVarSepHVIApproximation() : MeanHVIApproximationMat()
+    approx = get_hybridproblem_HVIApproximation(prob; scenario)
     FT = get_hybridproblem_float_type(prob; scenario) 
     cor_ends = get_hybridproblem_cor_ends(prob; scenario)
     (;θP, θM)  = get_hybridproblem_par_templates(prob; scenario)
@@ -427,3 +429,13 @@ function HVI.get_hybridproblem_penalty_computer(prob::DoubleMMCase; scenario = (
     ZeroPenaltyComputer()
 end
 
+function HVI.get_hybridproblem_HVIApproximation(prob::DoubleMMCase; scenario::Val{scen}) where {scen}
+    approx = if (:scalingall ∈ scen)
+        (;θP, θM)  = get_hybridproblem_par_templates(prob; scenario)
+        MeanHVIApproximationMat([length(θM)])
+    elseif (:sepvar ∈ scen) 
+        MeanVarSepHVIApproximation() 
+    else
+        MeanHVIApproximationMat()
+    end
+end

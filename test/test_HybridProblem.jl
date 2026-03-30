@@ -46,7 +46,6 @@ function construct_problem(; scenario::Val{scen}) where scen
         local y = r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
         return (y, y[1:0])
     end    
-    n_out = length(θM)
     rng = StableRNG(111)
     # n_batch = 10
     n_site, n_batch = get_hybridproblem_n_site_and_batch(CP.DoubleMM.DoubleMMCase(); scenario)
@@ -57,8 +56,16 @@ function construct_problem(; scenario::Val{scen}) where scen
     i_test = n_site .+ (1:n_site_test)
     test_data = (; xM = xM[:, i_test], xP = xP[:, i_test], y_true = y_true[:, i_test],
         y_o = y_o[:, i_test], y_unc = y_unc[:, i_test])
-    n_covar = size(xM,1)
+    approx = if (:scalingall ∈ scen) 
+        MeanHVIApproximationMat([length(θM)])
+    elseif (:MeanHVIApproxBlocks ∈ scen) 
+        MeanHVIApproximationMat() 
+    else
+        MeanHVIApproximationMat() 
+    end
+    n_covar = size(xM,1) 
     n_input = (:covarK2 ∈ scen) ? n_covar +1 : n_covar
+    n_out =  get_numberof_MLinputs(approx, θM)
     g_chain = SimpleChain(
         static(n_input), # input dimension (optional)
         # dense layer with bias that maps to 8 outputs and applies `tanh` activation
@@ -97,14 +104,9 @@ function construct_problem(; scenario::Val{scen}) where scen
         xPvec=xP[:,1])
     ϕunc0 = init_hybrid_ϕunc(MeanHVIApproximation(), cor_ends, zero(FT); θM, transM, n_site) 
     ϕq = CP.update_μP_by_θP(ϕunc0, θP, transP)
-    approx = if (:MeanHVIApproxBlocks ∈ scen) 
-        MeanHVIApproximation()
-    else
-        MeanHVIApproximationMat() 
-    end
     HybridProblem(θM, ϕq, g_chain_scaled, ϕg0, 
         f_batch, priors_dict, py,
-        transM, transP, train_dataloader, test_data, n_covar, n_site, n_batch; 
+        transM, transP, train_dataloader, test_data, n_site, n_batch; 
         cor_ends, pbm_covars, approx,
         #ϕunc0, 
         )
