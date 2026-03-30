@@ -22,3 +22,7 @@ abstract type AbstractMeanVarSepHVIApproximation <: AbstractHVIApproximation end
 
 struct MeanVarSepHVIApproximation <: AbstractMeanVarSepHVIApproximation end
 
+
+abstract type AbstractMeanScalingHVIApproximation <: AbstractHVIApproximation end
+
+struct MeanScalingHVIApproximation <: AbstractMeanScalingHVIApproximation end

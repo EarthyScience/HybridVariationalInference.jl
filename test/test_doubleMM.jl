@@ -11,6 +11,7 @@ using SimpleChains
 using MLUtils
 import Zygote
 
+import Optimization
 using OptimizationOptimisers
 using MLDataDevices
 

@@ -210,6 +210,7 @@ function neg_elbo_ζtf(ζsP::AbstractArray{T}, ζsMs_tr, σ, f, py, xP, y_ob, y_
         #Main.@infiltrate_main
     end
     #@assert length(σ) == n_θ
+    #entropy_ζ = convert(T, entropy_MvNormal(n_θ, logdetΣ))  # defined in logden_normal
     entropy_ζ = entropy_MvNormal(n_θ, logdetΣ)  # defined in logden_normal
     # if i_sites[1] == 1
     #     #Main.@infiltrate_main
@@ -599,7 +600,9 @@ ML-model predcitions of size `(n_θM, n_site)`.
 * `int_ϕq`: Interpret vector as ComponentVector with components
    ρsP, ρsM, logσ2_ζP, coef_logσ2_ζMs(intercept + slope), 
 """
-function sample_ζresid_norm(approx::AbstractHVIApproximation, rng::Random.AbstractRNG, 
+function sample_ζresid_norm(
+    approx::Union{AbstractMeanHVIApproximation,AbstractMeanVarSepHVIApproximation}, 
+    rng::Random.AbstractRNG, 
     i_sites,
     ϕm::AbstractMatrix, ϕq::AbstractVector,
     args...; 

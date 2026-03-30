@@ -2,6 +2,7 @@ using LinearAlgebra, Test
 using HybridVariationalInference
 using HybridVariationalInference: HybridVariationalInference as CP
 using Zygote
+import Optimization
 using OptimizationOptimisers
 using ComponentArrays: ComponentArrays as CA
 #using SymmetricFormats

@@ -362,7 +362,8 @@ test_scenario = (scenario, approx) -> begin
             approx, intθMs, intθP = int_P
             )
         )
-        @test cost isa Float64
+        #@test cost isa Float64
+        @test cost isa promote_type(eltype(xM), eltype(y_o), eltype(ϕ_ini))
         gr = Zygote.gradient(
             ϕ -> neg_elbo_gtf(rng, ϕ, g, f, py,
                 xM[:, i_sites], xP[:, i_sites], y_o[:, i_sites], y_unc[:, i_sites], i_sites;
