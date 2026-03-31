@@ -2,7 +2,7 @@
 # but ML model predicts a scaling factor for a group of variance parameters
 # ϕq element logσ2_ζM_offsets contains a vector of log-offsets, i.e. multipliers, 
 #   for each block of ML scaled parameters
-#   the log-offset for the first entry in each block is 0
+#   the log-offset for the last entry in each block is stored in approx.logσ2_ζM_base
 
 function sample_ζresid_norm(approx::AbstractMeanScalingHVIApproximation,
     i_sites,
@@ -12,6 +12,7 @@ function sample_ζresid_norm(approx::AbstractMeanScalingHVIApproximation,
     cor_ends
 ) where {T,TM<:AbstractMatrix{T}}
     ϕuncc = ϕqc = int_ϕq(CA.getdata(ϕq))
+    logσ2_ζM_base = approx.logσ2_ζM_base
     logσ2_par_offsets2 = ϕqc[Val(:logσ2_ζM_offsets)]
     n_scale_blocks = length(logσ2_par_offsets2)
     length_scale_blocks = length.(logσ2_par_offsets2) .+ 1

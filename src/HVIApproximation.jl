@@ -32,8 +32,15 @@ struct MeanVarSepHVIApproximation <: AbstractMeanVarSepHVIApproximation end
 
 abstract type AbstractMeanScalingHVIApproximation <: AbstractHVIApproximation end
 
-struct MeanScalingHVIApproximation <: AbstractMeanScalingHVIApproximation 
+struct MeanScalingHVIApproximation{T} <: AbstractMeanScalingHVIApproximation 
     scalingblocks_ends::Vector{Int}
+    logσ2_ζM_base::Vector{T}
+end
+function MeanScalingHVIApproximation{T}(approx::AbstractMeanScalingHVIApproximation; 
+    scalingblocks_ends = approx.scalingblocks_ends,
+    logσ2_ζM_base = approx.logσ2_ζM_base,
+) where T
+    MeanScalingHVIApproximation{T}(scalingblocks_ends, logσ2_ζM_base)
 end
 function get_numberof_MLinputs(approx::MeanScalingHVIApproximation, θM) 
     length(θM) + length(approx.scalingblocks_ends)

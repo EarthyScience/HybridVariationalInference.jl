@@ -102,8 +102,8 @@ function construct_problem(; scenario::Val{scen}) where scen
     f_batch = PBMSiteApplicator(
         f_doubleMM; θP, θM, θFix=CA.ComponentVector{FT}(), 
         xPvec=xP[:,1])
-    ϕunc0 = init_hybrid_ϕunc(MeanHVIApproximation(), cor_ends, zero(FT); θM, transM, n_site) 
-    ϕq = CP.update_μP_by_θP(ϕunc0, θP, transP)
+    (; ϕqc, approx) = init_hybrid_ϕunc(approx, cor_ends, zero(FT); θM, transM, n_site) 
+    ϕq = CP.update_μP_by_θP(ϕqc, θP, transP)
     HybridProblem(θM, ϕq, g_chain_scaled, ϕg0, 
         f_batch, priors_dict, py,
         transM, transP, train_dataloader, test_data, n_site, n_batch; 

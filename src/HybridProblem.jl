@@ -88,8 +88,9 @@ function init_hybrid_ϕq(
     kwargs...,
 )
     FT = promote_type(eltype(θP), eltype(θM))
-    ϕunc0 = init_hybrid_ϕunc(approx, cor_ends, zero(FT); θM, n_site, kwargs...)
-    ϕq = update_μP_by_θP(ϕunc0, θP, transP)
+    (;ϕqc, approx) = init_hybrid_ϕunc(approx, cor_ends, zero(FT); θM, n_site, kwargs...)
+    ϕqP = update_μP_by_θP(ϕqc, θP, transP)
+    (;ϕqc = ϕqP, approx)
 end
 
 
@@ -137,8 +138,8 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
     )
     cor_ends_new = if !isnothing(cor_ends)
         # if new cor_ends was specified then re-initialize the ρsP and ρsM in ϕq
-        ϕunc0 = init_hybrid_ϕunc(approx, cor_ends, zero(eltype(ϕq)); θM, transM)
-        ϕq = CA.ComponentVector(;ϕq..., ρsP = ϕunc0.ρsP, ρsM = ϕunc0.ρsM)
+        (;ϕqc) = init_hybrid_ϕunc(approx, cor_ends, zero(eltype(ϕq)); θM, transM)
+        ϕq = CA.ComponentVector(;ϕq..., ρsP = ϕqc.ρsP, ρsM = ϕqc.ρsM)
         cor_ends
     else
         get_hybridproblem_cor_ends(prob; scenario)

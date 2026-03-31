@@ -215,7 +215,7 @@ function HVI.get_hybridproblem_MLapplicator(
     g = if (:use_rangescaling ∈ scen)
         RangeScalingModelApplicator(g_nomag, lowers, uppers, eltype(ϕ_g0))
     else
-        NormalScalingModelApplicator(g_nomag, lowers, uppers, eltype(ϕ_g0))
+            NormalScalingModelApplicator(g_nomag, lowers, uppers, eltype(ϕ_g0))
     end
     return g, ϕ_g0
 end
@@ -419,9 +419,9 @@ function HVI.get_hybridproblem_ϕq(prob::DoubleMMCase; scenario::Val{scen}) wher
     (;θP, θM)  = get_hybridproblem_par_templates(prob; scenario)
     n_site, _ = get_hybridproblem_n_site_and_batch(prob; scenario)
     (;transP, transM)  = get_hybridproblem_transforms(prob; scenario)
-    ϕunc = init_hybrid_ϕunc(approx, cor_ends, zero(FT); θM, transM, n_site)    
+    (;ϕqc, approx) = tmp = init_hybrid_ϕunc(approx, cor_ends, zero(FT); θM, transM, n_site)    
     # for DoubleMMCase templates gives the correct values
-    ϕq = HVI.update_μP_by_θP(ϕunc, θP, transP)
+    ϕqP = HVI.update_μP_by_θP(ϕqc, θP, transP)
 end
 
 
@@ -432,7 +432,8 @@ end
 function HVI.get_hybridproblem_HVIApproximation(prob::DoubleMMCase; scenario::Val{scen}) where {scen}
     approx = if (:scalingall ∈ scen)
         (;θP, θM)  = get_hybridproblem_par_templates(prob; scenario)
-        MeanHVIApproximationMat([length(θM)])
+        FT = eltype(θM)
+        MeanScalingHVIApproximation([length(θM)],FT(2) .* log.([FT(0.1) * θM[end]]))
     elseif (:sepvar ∈ scen) 
         MeanVarSepHVIApproximation() 
     else
