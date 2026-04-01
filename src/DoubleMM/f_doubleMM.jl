@@ -212,10 +212,15 @@ function HVI.get_hybridproblem_MLapplicator(
     (; transM) = get_hybridproblem_transforms(prob; scenario)
     lowers, uppers = HVI.get_quantile_transformed(priors, transM)
     #n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-    g = if (:use_rangescaling ∈ scen)
-        RangeScalingModelApplicator(g_nomag, lowers, uppers, eltype(ϕ_g0))
+    range_scaled = if (:scalingall ∈ scen)
+        1:length(θM)
     else
-            NormalScalingModelApplicator(g_nomag, lowers, uppers, eltype(ϕ_g0))
+        1:0
+    end
+    g = if (:use_rangescaling ∈ scen)
+        RangeScalingModelApplicator(g_nomag, lowers, uppers, eltype(ϕ_g0); range_scaled)
+    else
+        NormalScalingModelApplicator(g_nomag, lowers, uppers, eltype(ϕ_g0); range_scaled)
     end
     return g, ϕ_g0
 end

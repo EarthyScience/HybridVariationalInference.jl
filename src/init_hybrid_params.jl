@@ -205,9 +205,13 @@ function init_hybrid_ϕunc(
     # update logσ2_ζM_base of last parameter in approx - its not calibrated
     approx = SApp(approx; logσ2_ζM_base = logσ2[is_end])
     is_offset = range.(vcat(1,is_end[1:(end-1)]),(is_end .- 1)) # excluding last parameter
-    logσ2_ζM_offsets = map(is_end, is_offset) do i_end, is_offset
-        logσ2[is_offset] .- logσ2[i_end]
-    end
+    # need to provide plain vector and sort out positions in apply to satisfy Zygote
+    # logσ2_ζM_offsets = map(is_end, is_offset) do i_end, is_offset
+    #     logσ2[is_offset] .- logσ2[i_end]
+    # end
+    logσ2_ζM_offsets_gen = (logσ2[is_offset] .- logσ2[i_end] for (i_end, is_offset) in zip(is_end, is_offset))
+    logσ2_ζM_offsets = vcat(logσ2_ζM_offsets_gen...) 
+    #tmp = CA.ComponentVector(;zip(Symbol.(axes(is_offset,1)), logσ2_ζM_offsets_gen)...)
     nt = (;
         logσ2_ζP,
         logσ2_ζM_offsets,

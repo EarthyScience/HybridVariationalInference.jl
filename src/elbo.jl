@@ -477,7 +477,8 @@ The output shape of size `(n_site x n_par x n_MC)` is tailored to iterating
 each MC sample and then transforming each parameter on block across sites.
 """
 function generate_ζ(
-    approx::Union{AbstractMeanHVIApproximation, AbstractMeanVarSepHVIApproximation}, 
+    #approx::Union{AbstractMeanHVIApproximation, AbstractMeanVarSepHVIApproximation}, 
+    approx::AbstractHVIApproximation, 
     rng::AbstractRNG, 
     g, ϕ::AbstractVector{FT}, xM::MT;
     int_ϕg_ϕq::AbstractComponentArrayInterpreter,
@@ -497,15 +498,16 @@ function generate_ζ(
     # TODO replace pbm_covar_indices by ComponentArray? dimensions to be type-inferred?
     xMP0 = _append_each_covars(xM, CA.getdata(μ_ζP), pbm_covar_indices)
     ϕm0 = g(xMP0, ϕg; is_testmode)
-    μ_ζMs0 = ϕm0
+    ζP_resids, ζMs_parfirst_resids, σ = sample_ζresid_norm(approx, rng, 
+        i_sites, ϕm0, ϕq; n_MC, cor_ends, int_ϕq)
+    n_θm = size(ζMs_parfirst_resids, 1)
+    μ_ζMs0 = ϕm0[1:n_θm, :]
     # if !all(isfinite.(μ_ζMs0))
     #     @show μ_ζMs0
     #     is_infinte_ϕg = !all(isfinite.(ϕg))
     #     @show is_infinte_ϕg
     #     error("encountered non-finite μ_ζMs0")
     # end
-    ζP_resids, ζMs_parfirst_resids, σ = sample_ζresid_norm(approx, rng, 
-        i_sites, ϕm0, ϕq; n_MC, cor_ends, int_ϕq)
     ζsP = isempty(μ_ζP) ? ζP_resids : (μ_ζP .+ ζP_resids)  # n_par x n_MC 
     if pbm_covar_indices isa SA.SVector{0}
         # do not need to predict again but just add the residuals to μ_ζP and μ_ζMs
@@ -601,7 +603,8 @@ ML-model predcitions of size `(n_θM, n_site)`.
    ρsP, ρsM, logσ2_ζP, coef_logσ2_ζMs(intercept + slope), 
 """
 function sample_ζresid_norm(
-    approx::Union{AbstractMeanHVIApproximation,AbstractMeanVarSepHVIApproximation}, 
+    #approx::Union{AbstractMeanHVIApproximation,AbstractMeanVarSepHVIApproximation}, 
+    approx::AbstractHVIApproximation,
     rng::Random.AbstractRNG, 
     i_sites,
     ϕm::AbstractMatrix, ϕq::AbstractVector,
@@ -609,7 +612,8 @@ function sample_ζresid_norm(
     n_MC, cor_ends, int_ϕq)
     ζP = int_ϕq(CA.getdata(ϕq))[Val(:μP)]
     ζMs = ϕm
-    n_θP, n_θMs = length(ζP), length(ζMs)
+    n_θP, n_θM = length(ζP), get_numberof_θM(approx,ζMs)
+    n_θMs = n_θM * size(ζMs,2)
     # intm_PMs_parfirst = !isnothing(intm_PMs_parfirst) ? intm_PMs_parfirst : begin
     #     n_θM, n_site_batch = size(ζMs)
     #     get_concrete(ComponentArrayInterpreter(
@@ -618,7 +622,7 @@ function sample_ζresid_norm(
     #urandn = _create_randn(rng, CA.getdata(ζP), n_MC, n_θP + n_θMs)
     #z = _create_randn(rng, CA.getdata(ζP), n_MC, n_θP)
     zP = _create_randn(rng, CA.getdata(ζP), n_MC, n_θP)
-    zMs = _create_randn(rng, CA.getdata(ζP), n_MC, n_θMs)
+    zMs = _create_randn(rng, CA.getdata(ζP), n_MC, n_θMs) # ζP only for type inference
     sample_ζresid_norm(approx, i_sites, zP, zMs, CA.getdata(ϕm), ϕq, args...;
         cor_ends, 
         int_ϕq=get_concrete(int_ϕq)

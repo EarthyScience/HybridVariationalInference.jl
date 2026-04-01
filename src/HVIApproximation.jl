@@ -5,11 +5,20 @@ Provides a type hierarchy to distinguish different forms and
 parameterizations of posterior approximations.   
 
 Subtypes must implement method `get_numberof_MLinputs(approx, θM)` that 
-returns the numberof required outputs of the machine learning model
+returns the number of required outputs of the machine learning model
 per site for a parameter vector `θM`.
+
+Subtypes must implement method 
+`get_numberof_θM(::AbstractHVIApproximation, ml_pred::AbstractArray)` that 
+returns the number compponents mean parameters `θM` given the machine learning
+model predictions, if it differs from the default implementation of
+returning their number of rows.
+For example, [`MeanScalingHVIApproximation`](@ref) there are more outputs than
+the mean parameters with the ML model.
 """
 abstract type AbstractHVIApproximation end,
 function get_numberof_MLinputs end
+get_numberof_θM(::AbstractHVIApproximation, ml_pred::AbstractArray) = size(ml_pred,1)
 
 abstract type AbstractMeanHVIApproximation <: AbstractHVIApproximation end
 get_numberof_MLinputs(::AbstractMeanHVIApproximation, θM) = length(θM)
@@ -32,6 +41,17 @@ struct MeanVarSepHVIApproximation <: AbstractMeanVarSepHVIApproximation end
 
 abstract type AbstractMeanScalingHVIApproximation <: AbstractHVIApproximation end
 
+"""
+    MeanScalingHVIApproximation(scalingblocks_ends, logσ2_ζM_base)
+
+An approximation that requires the ML model to predict a scaling factor, 
+(i.e. an additive of the log) for
+the mean diagonal of the covariance matrix per site in addition to 
+the mean values of parameters in unconstrained space.
+
+TODO: describe multiplication of site-factor, parameter-factor and base_variance
+for each parameter.
+"""
 struct MeanScalingHVIApproximation{T} <: AbstractMeanScalingHVIApproximation 
     scalingblocks_ends::Vector{Int}
     logσ2_ζM_base::Vector{T}
@@ -44,4 +64,9 @@ function MeanScalingHVIApproximation{T}(approx::AbstractMeanScalingHVIApproximat
 end
 function get_numberof_MLinputs(approx::MeanScalingHVIApproximation, θM) 
     length(θM) + length(approx.scalingblocks_ends)
+end
+function get_numberof_θM(approx::MeanScalingHVIApproximation, ml_pred::AbstractArray) 
+    # scalingblocks_ends reports the end position of the parameters, hence, the last
+    # corresponds to the number of overall parameters.
+    approx.scalingblocks_ends[end]
 end

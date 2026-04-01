@@ -79,7 +79,7 @@ end
 Initialize the non-ML parameter vector.    
 """
 function init_hybrid_ϕq(
-    approx::Union{AbstractMeanHVIApproximation, AbstractMeanVarSepHVIApproximation},
+    approx::AbstractHVIApproximation,
     θP::CA.ComponentVector,
     θM::CA.ComponentVector,
     transP::Stacked,
@@ -92,8 +92,6 @@ function init_hybrid_ϕq(
     ϕqP = update_μP_by_θP(ϕqc, θP, transP)
     (;ϕqc = ϕqP, approx)
 end
-
-
 
 
 """

@@ -1,6 +1,19 @@
 using Test
-using HybridVariationalInference: vectuptotupvec_allowmissing, vectuptotupvec
+using HybridVariationalInference: vectuptotupvec_allowmissing, vectuptotupvec, insert_zeros
+using HybridVariationalInference: HybridVariationalInference as HVI
 using Zygote
+
+@testset "insert_zeros" begin
+    @test HVI.insert_zeros([1,2,3], [2,4]) == [1,0,2,0,3]
+    @test HVI.insert_zeros([1,2,3], [1,1]) == [0,0,1,2,3]
+    @test_throws ArgumentError HVI.insert_zeros([1,2], [4])
+    @test HVI.insert_zeros([1,2,3], 2) == [1,0,2,3]
+    @test @inferred HVI.insert_zeros([1,2,3,4], [1,3,4,7,9]) == [0,1,0,0,2,3,0,4,0]
+    # position 9 is not available at the beginning, but after inserting 4 zeros, the vector has length 9, so it is valid
+    @test_throws ArgumentError  HVI.insert_zeros([1,2,3,4], reverse([1,3,4,7,9])) 
+    @test Zygote.gradient(x -> sum(HVI.insert_zeros(x, [1,3,4,7,9])), [1,2,3,4]) == ([1.0, 1.0, 1.0, 1.0],)
+
+end;
 
 @testset "vectuptotupvec" begin
     vectup = [(1,1.01, "string 1"), (2,2.02, "string 2")] 

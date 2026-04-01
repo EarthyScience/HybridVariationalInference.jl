@@ -12,13 +12,16 @@ function sample_ζresid_norm(approx::AbstractMeanScalingHVIApproximation,
     cor_ends
 ) where {T,TM<:AbstractMatrix{T}}
     ϕuncc = ϕqc = int_ϕq(CA.getdata(ϕq))
-    logσ2_ζM_base = approx.logσ2_ζM_base
-    logσ2_par_offsets2 = ϕqc[Val(:logσ2_ζM_offsets)]
-    n_scale_blocks = length(logσ2_par_offsets2)
-    length_scale_blocks = length.(logσ2_par_offsets2) .+ 1
+    # add 0 as last logσ2_par_offset-par in block
+    logσ2_par_offsets_before_end = ϕqc[Val(:logσ2_ζM_offsets)]
+    # insert zeros at the end of each block of parameters
+    logσ2_par_offsets = insert_zeros(logσ2_par_offsets_before_end, approx.scalingblocks_ends)::typeof(logσ2_par_offsets_before_end) 
+    b_ends = ChainRulesCore.ignore_derivatives(approx.scalingblocks_ends)
+    length_scale_blocks = vcat(first(b_ends), diff(b_ends))
+    n_scale_blocks = length(b_ends)
     n_par = size(ϕm,1) - n_scale_blocks
     ζMs = ϕm[1:n_par,:]
-    logσ2_sites = ϕm[n_par+1,:]
+    logσ2_sites = ϕm[(n_par+1):end,:]
     ζP = ϕqc[Val(:μP)]
     n_θP, n_θMs, (n_θM, n_batch) = length(ζP), length(ζMs), size(ζMs)
     # do not create a UpperTriangular Matrix of an AbgeneraGÜUArray in transformU_cholesky1
@@ -29,17 +32,14 @@ function sample_ζresid_norm(approx::AbstractMeanScalingHVIApproximation,
     # coefficients ρsM can be larger than 1, still yielding correlations <1 in UM' * UM
     UM = transformU_block_cholesky1(ρsM, cor_ends.M)
     #
-    # Expand site-level offsets to each M-parameter (row) in repeated block structure
     logσ2_site_offsets = repeat_rows_by_counts(logσ2_sites, length_scale_blocks)
-    # Expand parameter offsets to the same block structure, first scale-row is 0
-    logσ2_par_offsets = vcat([repeat(vcat(zero(T), o), 1, n_batch) for o in logσ2_par_offsets2]...)
-
-    logσ2_logMs = logσ2_par_offsets .+ logσ2_site_offsets
+    logσ2_ζM_bases = reduce(vcat, fill.(approx.logσ2_ζM_base, length_scale_blocks))
+    logσ2_ζMs = logσ2_ζM_bases .+ logσ2_par_offsets .+ logσ2_site_offsets
     #
     logσ2_ζP = vec(CA.getdata(ϕuncc[Val(:logσ2_ζP)]))
     # CUDA cannot multiply BlockDiagonal * Diagonal, construct already those blocks
-    σMs = reshape(exp.(logσ2_logMs ./ 2), n_θM, :)
-    σP = exp.(logσ2_ζP ./ 2)
+    σMs = exp.(logσ2_ζMs ./ T(2))
+    σP = exp.(logσ2_ζP ./ T(2))
     # BlockDiagonal does work with CUDA, but not with combination of Zygote and CUDA
     # need to construct full matrix for CUDA
     Uσ, diagUσ = _compute_choleskyfactor(UP, UM, σP, σMs, n_batch) # inferred only BlockDiagonal
@@ -64,7 +64,7 @@ end
 
 # repeat rows of a matrix by per-row counts, non-mutating (Zygote-friendly)
 function repeat_rows_by_counts(A::AbstractMatrix, counts::AbstractVector{<:Integer})
-    @assert length(counts) == size(A,1) "Need to provide a count for each row."
+    @assert length(counts) == size(A,1) "Need to provide a count for each row ($counts, $(size(A,1)))."
     if isempty(A)
         return similar(A, 0, size(A,2))
     end

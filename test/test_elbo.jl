@@ -39,6 +39,8 @@ FT = eltype(pt.θM)
 test_scenario = (scenario) -> begin
     #probc = HybridProblem(prob; scenario, approx);
     probc = HybridProblem(prob; scenario);
+    # tmp = first(get_hybridproblem_train_dataloader(prob; scenario))[1]
+    # probc.g(tmp, probc.ϕg)
     #@assert typeof(probc.approx) == typeof(approx)
     FT = get_hybridproblem_float_type(probc; scenario)
     par_templates = get_hybridproblem_par_templates(probc; scenario)
@@ -81,7 +83,8 @@ test_scenario = (scenario) -> begin
     # transP = elementwise(exp)
     # transM = Stacked(elementwise(identity), elementwise(exp))
     #transM = Stacked(elementwise(identity), elementwise(exp), elementwise(exp)) # test mismatch
-    (;ϕqc, approx) = tmp = init_hybrid_ϕq(probc.approx, par_templates.θP, par_templates.θM, transP, cor_ends; transM, n_site)
+    (;ϕqc, approx) = tmp = init_hybrid_ϕq(
+        probc.approx, par_templates.θP, par_templates.θM, transP, cor_ends; transM, n_site)
     probc = HybridProblem(probc; approx) # update approx in probc
     # (ϕunc0, approx) = init_hybrid_ϕunc(cor_ends, zero(FT))
     # ϕq0 = CP.update_μP_by_θP(ϕunc0, θP_true, transP)
@@ -104,6 +107,7 @@ test_scenario = (scenario) -> begin
 
     i_sites = 1:n_batch
     ζsP, ζsMs_tr, σ = @inferred (
+        # @usingany Cthulhu
     # @descend_code_warntype (
         CP.generate_ζ(
         probc.approx, rng, g, ϕ_ini, xM[:, i_sites];
