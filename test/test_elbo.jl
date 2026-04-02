@@ -138,7 +138,7 @@ test_scenario = (scenario) -> begin
         @test gr[1] isa Vector
     end
 
-    if !(:covarK2 ∈ CP._val_value(scenario)) && (approx isa MeanHVIApproximation)
+    if !(:covarK2 ∈ CP._val_value(scenario)) && (probc.approx isa MeanHVIApproximation)
         # can only test distribution if g is not repeated
         @testset "generate_ζ check sd residuals $(last(CP._val_value(scenario)))" begin
             # prescribe very different uncertainties 
@@ -512,9 +512,9 @@ test_scenario = (scenario) -> begin
 end # test_scenario
 
 
+test_scenario(Val((:scalingall,)))
 test_scenario(Val((:default,)))
-test_scenario(Val((:default, :sepvar,)))
-#test_scenario(Val((:default, :scalingall,)), MeanScalingHVIApproximation([length(pt.θM)]))
+test_scenario(Val((:sepvar,)))
 
 # with providing process parameter as additional covariate
 test_scenario(Val((:covarK2,)))
