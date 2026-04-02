@@ -13,10 +13,12 @@ function sample_ζresid_norm(approx::AbstractMeanScalingHVIApproximation,
 ) where {T,TM<:AbstractMatrix{T}}
     ϕuncc = ϕqc = int_ϕq(CA.getdata(ϕq))
     # add 0 as last logσ2_par_offset-par in block
-    logσ2_par_offsets_before_end = ϕqc[Val(:logσ2_ζM_offsets)]
-    # insert zeros at the end of each block of parameters
-    logσ2_par_offsets = insert_zeros(logσ2_par_offsets_before_end, approx.scalingblocks_ends)::typeof(logσ2_par_offsets_before_end) 
     b_ends = ChainRulesCore.ignore_derivatives(approx.scalingblocks_ends)
+    logσ2_par_offsets_before_end = OneBasedVectorWithZero(ϕqc[Val(:logσ2_ζM_offsets)])
+    # TODO move idxs_par0 and idxs_repblocks to approx and create during initialization
+    idxs_par0 = insert_zeros(1:length(logσ2_par_offsets_before_end), b_ends)
+    # insert zeros at the end of each block of parameters
+    logσ2_par_offsets = logσ2_par_offsets_before_end[idxs_par0]
     length_scale_blocks = vcat(first(b_ends), diff(b_ends))
     n_scale_blocks = length(b_ends)
     n_par = size(ϕm,1) - n_scale_blocks
@@ -32,7 +34,9 @@ function sample_ζresid_norm(approx::AbstractMeanScalingHVIApproximation,
     # coefficients ρsM can be larger than 1, still yielding correlations <1 in UM' * UM
     UM = transformU_block_cholesky1(ρsM, cor_ends.M)
     #
-    logσ2_site_offsets = repeat_rows_by_counts(logσ2_sites, length_scale_blocks)
+    idxs_repblocks = vcat((fill(i, length_scale_blocks[i]) for i in axes(length_scale_blocks,1))...)
+    logσ2_site_offsets = logσ2_sites[idxs_repblocks,:]
+    # TODO fill.(approx.logσ2_ζM_base already during initialization of approx
     logσ2_ζM_bases = reduce(vcat, fill.(approx.logσ2_ζM_base, length_scale_blocks))
     logσ2_ζMs = logσ2_ζM_bases .+ logσ2_par_offsets .+ logσ2_site_offsets
     #
@@ -60,16 +64,6 @@ function sample_ζresid_norm(approx::AbstractMeanScalingHVIApproximation,
     # #map(std, eachcol(ζ_resid[:, 2 + n_batch .+ (-1:5)])) # all ~ 100, except first two
     # # returns AbstractGPUuArrays to either continue on GPU or need to transfer to CPU
     # ζ_resid, diagUσ
-end
-
-# repeat rows of a matrix by per-row counts, non-mutating (Zygote-friendly)
-function repeat_rows_by_counts(A::AbstractMatrix, counts::AbstractVector{<:Integer})
-    @assert length(counts) == size(A,1) "Need to provide a count for each row ($counts, $(size(A,1)))."
-    if isempty(A)
-        return similar(A, 0, size(A,2))
-    end
-    idx = vcat((fill(i, counts[i]) for i in axes(counts,1))...)
-    return A[idx, :]
 end
 
 

@@ -32,6 +32,7 @@ using IterTools: IterTools
 
 export DoubleMM
 
+include("OneBasedVectorWithZero.jl")
 include("util.jl")
 
 export extend_stacked_nrow, StackedArray

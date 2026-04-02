@@ -3,12 +3,12 @@ const GROUP = get(ENV, "GROUP", "All") # defined in in CI.yml
 
 @time begin
     if GROUP == "All" || GROUP == "Basic"
+        #@safetestset "test" include("test/test_util.jl")
+        @time @safetestset "test_util" include("test_util.jl")
         #@safetestset "test" include("test/test_RRuleMonitor.jl")
         @time @safetestset "test_RRuleMonitor" include("test_RRuleMonitor.jl")
         #@safetestset "test" include("test/test_bijectors_utils.jl")
         @time @safetestset "test_bijectors_utils" include("test_bijectors_utils.jl")
-        #@safetestset "test" include("test/test_util.jl")
-        @time @safetestset "test_util" include("test_util.jl")
         #@safetestset "test" include("test/test_util_ca.jl")
         @time @safetestset "test_util_ca" include("test_util_ca.jl")
         #@safetestset "test" include("test/test_util_gpu.jl")
