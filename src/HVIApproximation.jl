@@ -53,14 +53,30 @@ TODO: describe multiplication of site-factor, parameter-factor and base_variance
 for each parameter.
 """
 struct MeanScalingHVIApproximation{T} <: AbstractMeanScalingHVIApproximation 
-    scalingblocks_ends::Vector{Int}
-    logσ2_ζM_base::Vector{T}
+    scalingblocks_ends::Vector{Int} # indices of end of blocks with the same scaling factor
+    # log_var of last parameters in block (to be mulitplied by par_factor and site_factor)
+    logσ2_ζM_bases::Vector{T} # already repeated for blocks in parameters
+    # indexing into logσ2_par_offsets_before_end, including repeats and zeros
+    idxs_par0::Vector{Int}
+    # indexing into logσ2_sites including repeats
+    idxs_repblocks::Vector{Int}
 end
+function MeanScalingHVIApproximation(scalingblocks_ends, logσ2_ζM_base::AbstractVector{T}
+    ) where T
+    idxs_par0 = insert_zeros(
+        1:(scalingblocks_ends[end] - length(scalingblocks_ends)), scalingblocks_ends)
+    length_scale_blocks = vcat(first(scalingblocks_ends), diff(scalingblocks_ends))
+    idxs_repblocks = vcat((fill(i, length_scale_blocks[i]) for i in axes(length_scale_blocks,1))...)
+    logσ2_ζM_bases = reduce(vcat, fill.(logσ2_ζM_base, length_scale_blocks))
+    MeanScalingHVIApproximation{T}(
+        scalingblocks_ends, logσ2_ζM_bases, idxs_par0, idxs_repblocks)
+end
+
 function MeanScalingHVIApproximation{T}(approx::AbstractMeanScalingHVIApproximation; 
     scalingblocks_ends = approx.scalingblocks_ends,
-    logσ2_ζM_base = approx.logσ2_ζM_base,
+    logσ2_ζM_base::AbstractVector{T} = approx.logσ2_ζM_bases[scalingblocks_ends],
 ) where T
-    MeanScalingHVIApproximation{T}(scalingblocks_ends, logσ2_ζM_base)
+    MeanScalingHVIApproximation(scalingblocks_ends, logσ2_ζM_base)
 end
 function get_numberof_MLinputs(approx::MeanScalingHVIApproximation, θM) 
     length(θM) + length(approx.scalingblocks_ends)
@@ -70,3 +86,4 @@ function get_numberof_θM(approx::MeanScalingHVIApproximation, ml_pred::Abstract
     # corresponds to the number of overall parameters.
     approx.scalingblocks_ends[end]
 end
+

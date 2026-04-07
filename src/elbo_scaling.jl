@@ -13,14 +13,9 @@ function sample_ζresid_norm(approx::AbstractMeanScalingHVIApproximation,
 ) where {T,TM<:AbstractMatrix{T}}
     ϕuncc = ϕqc = int_ϕq(CA.getdata(ϕq))
     # add 0 as last logσ2_par_offset-par in block
-    b_ends = ChainRulesCore.ignore_derivatives(approx.scalingblocks_ends)
     logσ2_par_offsets_before_end = OneBasedVectorWithZero(ϕqc[Val(:logσ2_ζM_offsets)])
-    # TODO move idxs_par0 and idxs_repblocks to approx and create during initialization
-    idxs_par0 = insert_zeros(1:length(logσ2_par_offsets_before_end), b_ends)
-    # insert zeros at the end of each block of parameters
-    logσ2_par_offsets = logσ2_par_offsets_before_end[idxs_par0]
-    length_scale_blocks = vcat(first(b_ends), diff(b_ends))
-    n_scale_blocks = length(b_ends)
+    logσ2_par_offsets = logσ2_par_offsets_before_end[approx.idxs_par0]
+    n_scale_blocks = length(approx.scalingblocks_ends)
     n_par = size(ϕm,1) - n_scale_blocks
     ζMs = ϕm[1:n_par,:]
     logσ2_sites = ϕm[(n_par+1):end,:]
@@ -34,11 +29,8 @@ function sample_ζresid_norm(approx::AbstractMeanScalingHVIApproximation,
     # coefficients ρsM can be larger than 1, still yielding correlations <1 in UM' * UM
     UM = transformU_block_cholesky1(ρsM, cor_ends.M)
     #
-    idxs_repblocks = vcat((fill(i, length_scale_blocks[i]) for i in axes(length_scale_blocks,1))...)
-    logσ2_site_offsets = logσ2_sites[idxs_repblocks,:]
-    # TODO fill.(approx.logσ2_ζM_base already during initialization of approx
-    logσ2_ζM_bases = reduce(vcat, fill.(approx.logσ2_ζM_base, length_scale_blocks))
-    logσ2_ζMs = logσ2_ζM_bases .+ logσ2_par_offsets .+ logσ2_site_offsets
+    logσ2_site_offsets = logσ2_sites[approx.idxs_repblocks,:]
+    logσ2_ζMs = approx.logσ2_ζM_bases .+ logσ2_par_offsets .+ logσ2_site_offsets
     #
     logσ2_ζP = vec(CA.getdata(ϕuncc[Val(:logσ2_ζP)]))
     # CUDA cannot multiply BlockDiagonal * Diagonal, construct already those blocks

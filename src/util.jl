@@ -73,7 +73,7 @@ Only one output vector is allocated.
 function insert_zeros(v::AbstractVector, positions::AbstractVector{<:Integer})
     # does not work with Zygote, but its only used to create the indexing vector
     # v = [10,20,30];positions = [2, 5] # means insert zeros before original v[2] and v[4], so final output has zeros at those positions.
-    @assert length(v)+ length(positions) == positions[end] "The last position in `positions` must be equal to the final length of the output vector after all insertions."
+    @assert length(v) + length(positions) == positions[end] "The last position in `positions` must be equal to the final length of the output vector after all insertions."
     dpos1 = diff(positions) .- 1
     @assert all(dpos1 .>= 0) "Positions must be in strictly ascending order."
     # length of blocks before insert is diff(postions) -1 
