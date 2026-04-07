@@ -27,6 +27,7 @@ rng = StableRNG(111)
 const prob = DoubleMM.DoubleMMCase()
 scenario = Val((:covarK2,))
 scenario = Val((:scalingall,))
+scenario = Val((:M3,))
 scenario = Val((:sepvar,))
 scenario = Val((:default,))
 
@@ -69,7 +70,7 @@ test_scenario = (scenario) -> begin
     f = get_hybridproblem_PBmodel(probc; scenario)
     f_pred = create_nsite_applicator(f, n_site)
 
-    n_θM, n_θP = values(map(length, par_templates))
+    n_θP, n_θM = values(map(length, par_templates))
 
     py = neg_logden_indep_normal
 
@@ -512,7 +513,8 @@ test_scenario = (scenario) -> begin
 end # test_scenario
 
 
-test_scenario(Val((:scalingall,)))
+#test_scenario(Val((:scalingall,)))
+test_scenario(Val((:M3,)))
 test_scenario(Val((:default,)))
 test_scenario(Val((:sepvar,)))
 

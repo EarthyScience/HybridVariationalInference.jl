@@ -18,18 +18,19 @@ function sample_ζresid_norm(approx::AbstractMeanScalingHVIApproximation,
     n_scale_blocks = length(approx.scalingblocks_ends)
     n_par = size(ϕm,1) - n_scale_blocks
     ζMs = ϕm[1:n_par,:]
-    logσ2_sites = ϕm[(n_par+1):end,:]
+    logσ2_sites_offset_blocks = logit.(ϕm[(n_par+1):end,:]) # (0..1)->(-Inf, +Inf), 0.5->0
     ζP = ϕqc[Val(:μP)]
     n_θP, n_θMs, (n_θM, n_batch) = length(ζP), length(ζMs), size(ζMs)
     # do not create a UpperTriangular Matrix of an AbgeneraGÜUArray in transformU_cholesky1
-    ρsP = isempty(ϕuncc[Val(:ρsP)]) ? similar(ϕuncc[Val(:ρsP)]) : ϕuncc[Val(:ρsP)] # required by zygote
+    # isempty conditional required by zygote
+    ρsP = isempty(ϕuncc[Val(:ρsP)]) ? similar(ϕuncc[Val(:ρsP)]) : ϕuncc[Val(:ρsP)] 
     UP = transformU_block_cholesky1(ρsP, cor_ends.P)
-    ρsM = isempty(ϕuncc[Val(:ρsM)]) ? similar(ϕuncc[Val(:ρsM)]) : ϕuncc[Val(:ρsM)] # required by zygote
+    ρsM = isempty(ϕuncc[Val(:ρsM)]) ? similar(ϕuncc[Val(:ρsM)]) : ϕuncc[Val(:ρsM)] 
     # cholesky factor of the correlation: diag(UM' * UM) .== 1
     # coefficients ρsM can be larger than 1, still yielding correlations <1 in UM' * UM
     UM = transformU_block_cholesky1(ρsM, cor_ends.M)
     #
-    logσ2_site_offsets = logσ2_sites[approx.idxs_repblocks,:]
+    logσ2_site_offsets = logσ2_sites_offset_blocks[approx.idxs_repblocks,:]
     logσ2_ζMs = approx.logσ2_ζM_bases .+ logσ2_par_offsets .+ logσ2_site_offsets
     #
     logσ2_ζP = vec(CA.getdata(ϕuncc[Val(:logσ2_ζP)]))

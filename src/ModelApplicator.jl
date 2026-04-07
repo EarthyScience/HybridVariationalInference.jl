@@ -167,6 +167,7 @@ end
 
 Fit a Normal distribution to number iterators `lower` and `upper` and transform 
 results of the wrapped `app` `AbstractModelApplicator`.
+The results of the inner applicator are assumed to be (0,1).
 If `repeat_inner` is given, each fitted distribution is repeated as many times
 to support independent multivariate normal distribution.
 

@@ -201,15 +201,19 @@ function init_hybrid_ϕunc(
         error("check and implement inferring median logσ2 from logσ2_ζMs")
         median(logσ2_ζMs; dims=1)
     end
-    is_end = approx.scalingblocks_ends # abbreviations
+    is_end = approx.scalingblocks_ends # abbreviation
     # update logσ2_ζM_base of last parameter in approx - its not calibrated
     approx = SApp(approx; logσ2_ζM_base = logσ2[is_end])
-    is_offset = range.(vcat(1,is_end[1:(end-1)]),(is_end .- 1)) # excluding last parameter
+    is_par_offset = range.(vcat(1,is_end[1:(end-1)]),(is_end .- 1)) # excluding last parameter
+    length_scale_blocks = vcat(first(is_end), diff(is_end))
+    is_par_offset = range.((is_end .- length_scale_blocks .+ 1),(is_end .- 1)) # excluding last parameter
     # need to provide plain vector and sort out positions in apply to satisfy Zygote
     # logσ2_ζM_offsets = map(is_end, is_offset) do i_end, is_offset
     #     logσ2[is_offset] .- logσ2[i_end]
     # end
-    logσ2_ζM_offsets_gen = (logσ2[is_offset] .- logσ2[i_end] for (i_end, is_offset) in zip(is_end, is_offset))
+    logσ2_ζM_offsets_gen = (logσ2[is_offset] .- logσ2[i_end] for 
+        (i_end, is_offset) in zip(is_end, is_par_offset))
+    #collect(logσ2_ζM_offsets_gen)
     logσ2_ζM_offsets = vcat(logσ2_ζM_offsets_gen...) 
     #tmp = CA.ComponentVector(;zip(Symbol.(axes(is_offset,1)), logσ2_ζM_offsets_gen)...)
     nt = (;
