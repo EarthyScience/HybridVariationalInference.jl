@@ -136,7 +136,7 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
     )
     cor_ends_new = if !isnothing(cor_ends)
         # if new cor_ends was specified then re-initialize the ρsP and ρsM in ϕq
-        (;ϕqc) = init_hybrid_ϕunc(approx, cor_ends, zero(eltype(ϕq)); θM, transM)
+        (;ϕqc) = init_hybrid_ϕunc(approx, cor_ends, zero(eltype(ϕq)); θM, transM, n_site)
         ϕq = CA.ComponentVector(;ϕq..., ρsP = ϕqc.ρsP, ρsM = ϕqc.ρsM)
         cor_ends
     else

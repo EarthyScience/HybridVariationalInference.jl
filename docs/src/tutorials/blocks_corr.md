@@ -86,7 +86,7 @@ Check that the new specification uses fewer parameters.
 length(get_hybridproblem_ϕq(prob)), length(get_hybridproblem_ϕq(prob_ind))
 ```
 
-    (7, 6)
+    (4, 3)
 
 ``` julia
 using OptimizationOptimisers
