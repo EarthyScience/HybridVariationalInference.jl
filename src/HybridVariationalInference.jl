@@ -29,6 +29,7 @@ import NaNMath # ignore missing observations in logDensity
 using DifferentiationInterface: DifferentiationInterface as DI
 import Zygote
 using IterTools: IterTools
+using PDMats
 
 export DoubleMM
 

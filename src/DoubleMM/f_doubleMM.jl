@@ -383,13 +383,15 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     pt = get_hybridproblem_par_templates(prob; scenario)
     n_siteall = n_site + n_site_test
     n_covar = get_hybridproblem_n_covar(prob; scenario)
+    (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     n_θM = length(pt.θM)
     FloatType = get_hybridproblem_float_type(prob; scenario)
-    xM, θMs_true0 = gen_cov_pred(rng, FloatType, n_covar_pc, n_covar, n_siteall, n_θM;
-        rhodec = 8, is_using_dropout = false)
+    (; xM, ζMs_true) = gen_cov_pred(rng, FloatType, n_covar_pc, n_covar, n_siteall, 
+        inverse(transM)(pt.θM);
+        scenario, rhodec = 8, is_using_dropout = false)
     int_θMs_sites = ComponentArrayInterpreter(pt.θM, (n_siteall,))
-    # normalize to be distributed around the prescribed true values
-    θMs_true = int_θMs_sites(scale_centered_at(θMs_true0, pt.θM, FloatType(0.1)))
+    transM_sites = StackedArray(transM, n_siteall)
+    θMs_true = int_θMs_sites(transM_sites(ζMs_true))
     f_batch = get_hybridproblem_PBmodel(prob; scenario)
     f = create_nsite_applicator(f_batch, n_siteall)
     #xP = fill((; S1 = xP_S1, S2 = xP_S2), n_siteall)

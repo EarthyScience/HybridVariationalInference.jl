@@ -24,10 +24,13 @@ cdev = cpu_device()
 
 prob = DoubleMM.DoubleMMCase()
 scenario = Val((:default,))
+
+
 #using Flux
 #scenario = Val((:use_Flux,))
 #scenario = Val((:use_Flux,:f_on_gpu))
 
+n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
 par_templates = get_hybridproblem_par_templates(prob; scenario)
 
 @testset "get_hybridproblem_priors" begin
@@ -37,18 +40,83 @@ par_templates = get_hybridproblem_par_templates(prob; scenario)
     @test quantile(priors[:K2], 0.95) ≈ θall.K2 * 3 # fitted in f_doubleMM
 end
 
+@testset "gen_hybridproblem_synthetic clustered_sites" begin
+    scenario = Val((:clustered_sites,:exactML))
+    scenario = Val((:clustered_sites,))
+    rng = StableRNG(111) # make sure to be the same as when constructing train_dataloader
+    (; xM, θP_true, θMs_true, xP,  y_true,  y_o, y_unc,
+    ) = gen_hybridproblem_synthetic(rng, prob; scenario);
+    @test eltype(xM) == eltype(θP_true) == eltype(θMs_true) == Float32
+    n_sites_cluster, clusters = CP.get_clusters(n_site; scenario)
+    θM_cl_center = map(x -> CA.getdata(par_templates.θM) .* x, [0.8, 1.0, 1.2])
+    #(; transP, transM) = get_hybridproblem_transforms(prob; scenario)
+    #ζM_cl_center = Ref(inverse(transM)(CA.getdata(par_templates.θM))) .* [0.8, 1.0, 1.2] # cluster centers
+    # i = 1 # i = 2 # i = 3
+    for i in 1:length(n_sites_cluster)
+        local i_sites_i = findall(clusters .== i)
+        @test all(isapprox.(
+            vec(mean(CA.getdata(θMs_true[:,i_sites_i]); dims = 2)), θM_cl_center[i], rtol = 0.05))
+        @test all(isapprox.(vec(std(CA.getdata(θMs_true[:,i_sites_i]); dims = 2)) ./ θM_cl_center[i],
+            0.05, rtol = 0.5))
+    end
+    @test size(xP) == (16, n_site)
+    @test size(y_o) == (8, n_site)
+    # test same results for same rng
+    rng2 = StableRNG(111)
+    gen2 = gen_hybridproblem_synthetic(rng2, prob; scenario)
+    @test gen2.y_o == y_o
+    # @usingany UnicodePlots
+    # histogram(θMs_true[1,:], nbins = 30)
+    # histogram(xM[1,:], nbins = 30)
+    # histogram(y_o[1,:], nbins = 30) 
+    # histogram(y_o[4,:], nbins = 30)   # only vague pattern of clustering in obs
+    # histogram(y_o[8,:], nbins = 30)
+end
+
+() -> begin
+    # fit a neural network to predict the parameters of the clusters from the covariates
+    # and test, if covariates hold enough information to predict the parameters
+    g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
+    ϕg = ϕg0
+    transMs = StackedArray(get_hybridproblem_transforms(prob; scenario).transM, n_site)
+    ζMs_true = inverse(transMs)(θMs_true)
+    flossg = (ϕg) -> begin
+        ζMs = g(xM, ϕg) # predict the parameters on unconstrained space
+        # θMs_tr = transMs(ζMs)
+        # loss = sum(abs2, θMs_tr' .- θMs_true)
+        loss = sum(abs2, ζMs .- ζMs_true)
+        return loss
+    end
+    optf = Optimization.OptimizationFunction((ϕg, p) -> flossg(ϕg), Optimization.AutoZygote())
+    optprob = Optimization.OptimizationProblem(optf, ϕg0)
+    tmp = solve(optprob, Adam(0.02), maxiters = 1600)
+    ϕg = tmp.u
+    ζMs = g(xM, ϕg) # predict the parameters on unconstrained space
+    # @usingany UnicodePlots
+    scatterplot(vec(ζMs_true[1,:]), vec(ζMs[1,:]))
+    scatterplot(vec(ζMs_true[2,:]), vec(ζMs[2,:]))
+    i = 3
+    i_sites_i = findall(clusters .== i)
+    scatterplot(vec(ζMs_true[1,i_sites_i]), vec(ζMs[1,i_sites_i]))
+    scatterplot(vec(ζMs_true[2,i_sites_i]), vec(ζMs[2,i_sites_i]))
+    #
+    θMs_tr = transMs(ζMs')
+    scatterplot(vec(θMs_true[1,:]), vec(θMs_tr'[1,:]))
+    scatterplot(vec(θMs_true[2,:]), vec(θMs_tr'[2,:]))
+end
+
 rng = StableRNG(111) # make sure to be the same as when constructing train_dataloader
 (; xM, θP_true, θMs_true, xP,  y_true,  y_o, y_unc,
 ) = gen_hybridproblem_synthetic(rng, prob; scenario);
-n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
 i_sites = 1:n_site
 fneglogden = get_hybridproblem_neg_logden_obs(prob; scenario)
 
 @testset "gen_hybridproblem_synthetic" begin
+    @test eltype(xM) == eltype(θP_true) == eltype(θMs_true) == Float32
     @test isapprox(
         vec(mean(CA.getdata(θMs_true); dims = 2)), CA.getdata(par_templates.θM), rtol = 0.02)
     @test isapprox(vec(std(CA.getdata(θMs_true); dims = 2)),
-        CA.getdata(par_templates.θM) .* 0.1, rtol = 0.02)
+        CA.getdata(par_templates.θM) .* 0.1, rtol = 0.1)
     @test size(xP) == (16, n_site)
     @test size(y_o) == (8, n_site)
 
@@ -57,6 +125,7 @@ fneglogden = get_hybridproblem_neg_logden_obs(prob; scenario)
     gen2 = gen_hybridproblem_synthetic(rng2, prob; scenario)
     @test gen2.y_o == y_o
 end
+
 
 @testset "f_doubleMM_Matrix" begin
     is = repeat((1:length(θP_true))', n_site)
