@@ -271,6 +271,7 @@ end
     pt = get_hybridproblem_par_templates(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     n_site, n_site_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    batch_fac = n_site / n_site_batch
     f = get_hybridproblem_PBmodel(prob; scenario)
     f2 = create_nsite_applicator(f, n_site)
     py = get_hybridproblem_neg_logden_obs(prob; scenario)
@@ -300,10 +301,10 @@ end
         priorsP, priorsM, par_templates.θP, par_templates.θM)     
     loss_gf = get_loss_gf(g, transM, transP, f,  py, intϕ;
         pbm_covars, n_site_batch = n_batch, priorsP, priorsM, zero_prior_logdensity,
-        intθMs = intθMs_batch, intθP,)
+        intθMs = intθMs_batch, intθP, batch_fac)
     loss_gf_site = get_loss_gf(g, transM, transP, f2, py, intϕ;
         pbm_covars, n_site_batch = n_site, priorsP, priorsM, zero_prior_logdensity,
-        intθMs = intθMs_site, intθP,)
+        intθMs = intθMs_site, intθP, batch_fac)
     nLjoint = @inferred first(loss_gf(p0, first(train_loader)...; is_testmode=true))
     (xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch) = first(train_loader)
     # @usingany Cthulhu
@@ -319,9 +320,9 @@ end
         #optprob, Adam(0.02), callback = callback_loss(100), maxiters = 5000);
         optprob, Adam(0.02), maxiters = 2000)
 
-    (;nLjoint_pen, y_pred, θMs_tr_pred, θP_pred, nLy, neg_log_prior, loss_penalty) = loss_gf_site(
+    (;nLjoint_pen, y_pred, θMs_tr_pred, θP_pred, nLy, nLprior_P, nLprior_M, loss_penalty) = loss_gf_site(
         res.u, train_loader.data...; is_testmode=true)
-    #(nLjoint,  y_pred, θMs_tr_pred, θP, nLy, neg_log_prior, loss_penalty) = loss_gf(p0, xM, xP, y_o, y_unc);
+    #(nLjoint,  y_pred, θMs_tr_pred, θP, nLy, nLprior_P, nLprior_M, loss_penalty) = loss_gf(p0, xM, xP, y_o, y_unc);
     θMs_tr_pred = CA.ComponentArray(θMs_tr_pred, CA.getaxes(θMs_true'))
     #TODO @test isapprox(par_templates.θP, intϕ(res.u).ϕP, rtol = 0.15)
     #@test cor(vec(θMs_true), vec(θMs_tr_pred)) > 0.8
@@ -330,10 +331,19 @@ end
     # started from low values -> increased but not too much above true values
     # logpdf.(priorsP, θP_pred)
     # logpdf.(priorsP, par_templates.θP)
-    @test all(transP(intϕ(p0).ϕP) .< θP_pred .< (1.2 .* par_templates.θP))
+    @test all(transP(intϕ(p0).ϕP) .< θP_pred .< (1.2 .* θP_true))
+    @test all(0.8 .* θP_true .< θP_pred .< (1.2 .* θP_true))
 
     () -> begin
         #@usingany UnicodePlots
+        pdf(priorsP[1], θP_pred[1])
+        pdf(priorsP[1], θP_true[1])
+        pdf(priorsP[1], transP(intϕ(p0).ϕP)[1])
+        #pdf(priorsM[1], transP(intϕ(p0).ϕP)[1])
+
+        quantile.(priorsM[2], [0.05, 0.5, 0.95])
+        loss_gf(p0, xM, xP, y_o, y_unc, i_sites)
+        #
         scatterplot(θMs_true'[:,1], θMs_tr_pred[:,1])
         scatterplot(θMs_true'[:,2], θMs_tr_pred[:,2])
         scatterplot(log.(vec(θMs_true')), log.(vec(θMs_tr_pred)))

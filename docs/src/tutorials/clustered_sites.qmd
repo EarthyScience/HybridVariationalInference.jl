@@ -60,7 +60,7 @@ n_sites_cluster
 ```
 
 ```{julia}
-boxplot(clusters, θMs_true[1,:], axis=(;xlabel="cluster", ylabel="true K1"))
+boxplot(clusters, train_data.θMs_true[1,:], axis=(;xlabel="cluster", ylabel="true K1"))
 ```
 
 We 
@@ -69,9 +69,9 @@ We
 - and sample it
 
 ```{julia}
-n_batch = 20
+n_site, n_batch_orig = get_hybridproblem_n_site_and_batch(probo; scenario)
 train_dataloader = MLUtils.DataLoader(
-    CA.getdata.(values(train_data[(:xM, :xP, :y_o, :y_unc, :i_sites)])), batchsize=n_batch, partial=false)  
+    CA.getdata.(values(train_data[(:xM, :xP, :y_o, :y_unc, :i_sites)])), batchsize=n_batch_orig, partial=false, shuffle=true)  
 prob = HybridProblem(probo; train_dataloader)
 prob.ϕg .= randn(length(prob.ϕg)) # new neutrally initialized ML parameterization
 prob.ϕq.ρsM .= zero(eltype(prob.ϕq.ρsM)) # new neutrally initialized ML parameterization
@@ -81,29 +81,72 @@ prob.ϕq.ρsM .= zero(eltype(prob.ϕq.ρsM)) # new neutrally initialized ML para
 using OptimizationOptimisers
 import Zygote
 ENV["MLDATADEVICES_SILENCE_WARN_NO_GPU"] = 1
-solver = HybridPointSolver(; alg=Adam(0.02))
+solver = HybridPointSolver(; alg=Adam(0.001))
 (; probo) = solve(prob, solver; rng,
     callback = callback_loss(100), # output during fitting
-    epochs = 60,
+    epochs = 100,
 );
 # continue sampling
-(; probo) = solve(prob, solver; rng,
+solver = HybridPointSolver(; alg=Adam(0.00001))
+(; probo) = solve(probo, solver; rng,
     callback = callback_loss(100), # output during fitting
-    epochs = 200,
+    epochs = 100,
 );
 probo_point = HybridProblem(probo);
 
-solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)
+solver = HybridPosteriorSolver(; alg=Adam(0.002), n_MC=3)
 (; probo, interpreters) = solve(probo_point, solver; rng,
     callback = callback_loss(100), # output during fitting
     epochs = 60,
 );
 # continue with more MC samples for better approximation
-solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=12)
+solver = HybridPosteriorSolver(; alg=Adam(0.00001), n_MC=6)
 (; probo, interpreters) = solve(probo, solver; rng,
     callback = callback_loss(100), # output during fitting
-    epochs = 60,
+    epochs = 300,
 );
+probo_batch = HybridProblem(probo);
+```
+
+Try inverting full batches, i.e. all sites together, to see if this
+changes estimated uncertainty.
+
+```{julia}
+train_dataloader_n_site = MLUtils.DataLoader(CA.getdata.(values(train_data[(:xM, :xP, :y_o, :y_unc, :i_sites)])), batchsize=n_site, partial=false)
+f_more_sites = create_nsite_applicator(probo_point.f_batch, n_site)
+prob_allsites = HybridProblem(probo_point; 
+    n_batch = n_site, train_dataloader = train_dataloader_n_site, f_batch =f_more_sites)
+solver = HybridPointSolver(; alg=Adam(0.01))
+(; probo) = solve(prob_allsites, solver; rng,
+    callback = callback_loss(10), # output during fitting
+    epochs = 800,
+);
+(; probo) = solve(probo, solver; rng,
+    callback = callback_loss(10), # output during fitting
+    epochs = 2000,
+);
+
+#get_hybridproblem_n_site_and_batch(prob_allsites; scenario)
+solver = HybridPosteriorSolver(; alg=Adam(0.01), n_MC=3)
+(; probo, interpreters) = solve(probo, solver; rng,
+    callback = callback_loss(10), # output during fitting
+    epochs = 800,
+);
+# continue with more MC samples for better approximation
+solver = HybridPosteriorSolver(; alg=Adam(0.001), n_MC=12)
+(; probo, interpreters) = solve(probo, solver; rng,
+    callback = callback_loss(10), # output during fitting
+    epochs = 500,
+);
+probo_allsites = HybridProblem(probo);
+```
+
+```{julia}
+fname = "intermediate/clustered_sites_probo_allsites.jld2"
+mkpath("intermediate")
+if probo_allsites isa AbstractHybridProblem # do not save on failure above
+    jldsave(fname, false, IOStream; probo = probo_allsites, interpreters)
+end
 ```
 
 ```{julia}
@@ -113,7 +156,11 @@ n_sample_pred = 400
 (; θsP, θsMs_tr) = sample_posterior(rng, probo; n_sample_pred, is_testmode = true)
 θMs_pred_tr = apply_preserve_axes(x -> median(x, dims=3),θsMs_tr)[:,:,1]
 θMs_meanpred_tr = apply_preserve_axes(x -> mean(x, dims=3),θsMs_tr)[:,:,1]
+#θMs_q05pred_tr = mapslices(x -> quantile(x, 0.05), CA.getdata(θsMs_tr); dims=3) 
+θMs_q05pred_tr = map(x -> quantile(x, 0.05), eachslice(θsMs_tr; dims=(1,2))) 
+θMs_q95pred_tr = map(x -> quantile(x, 0.95), eachslice(θsMs_tr; dims=(1,2))) 
 θMs_stdlogpred_tr = apply_preserve_axes(x -> std(log.(x), dims=3),θsMs_tr)[:,:,1]
+θMs_stdpred_tr = apply_preserve_axes(x -> std(x, dims=3),θsMs_tr)[:,:,1]
 ```
 ```{julia}
 #| eval: false
@@ -124,7 +171,7 @@ n_sample_pred = 400
 θMs_predpoint_tr = θMs_tr
 par = :K1
 #par = :r1
-i_cluster = 1
+i_cluster = 2
 i_sites_cluster = findall(clusters .== i_cluster)
 fig = Figure(); ax = Axis(fig[1,1], xlabel="true $par in cluster $i_cluster",ylabel="point predicted $par")
 scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], θMs_predpoint_tr[:,par][i_sites_cluster]) 
@@ -140,23 +187,41 @@ Correlation is greatly overesimated?
 CM = HVI.get_hybridproblem_correlation_Ms(probo)
 ```
 
-Leads to biases in some parameters of median prediction.
+Leads to some seemly biases in some parameters of median prediction.
 ```{julia}
-par = :K1
-#par = :r1
+par = :r1
+#par = :K1
 i_cluster = 2
 i_sites_cluster = findall(clusters .== i_cluster)
 fig = Figure(); ax = Axis(fig[1,1], xlabel="true $par in cluster $i_cluster",ylabel="median predicted $par")
-scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], θMs_stdlogpred_tr[:,par][i_sites_cluster]) 
+scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], θMs_pred_tr[:,par][i_sites_cluster]) 
 # scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], θMs_meanpred_tr[:,par][i_sites_cluster]) 
+scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], θMs_q05pred_tr[:,par][i_sites_cluster]) 
+scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], θMs_q95pred_tr[:,par][i_sites_cluster]) 
 ablines!(ax, 0, 1, color=:lightgray)
+fig
+```
+
+The true parameter is well within the predicted distribution.
+```{julia}
+i_site = i_sites_cluster[4]
+fig = Figure(); ax = Axis(fig[1,1], xlabel="predicted $par", ylabel="density")
+density!(ax,θsMs_tr[i_site,par,:])
+vlines!(ax, train_data.θMs_true[par,i_site], color=:red, linestyle=:dash)
 fig
 ```
 
 Had hoped that predicted uncertainty would be lower for clusters with more sites.
 But its not the case.
 ```{julia}
+θMs_ci90_tr = θMs_q95pred_tr .- θMs_q05pred_tr 
+
 par = :K1
 #par = :r1
 boxplot(clusters, θMs_stdlogpred_tr[:,par], axis=(;xlabel="cluster", ylabel="std(log.($par))"))
+boxplot(clusters, θMs_stdpred_tr[:,par], axis=(;xlabel="cluster", ylabel="std($par)"))
+boxplot(clusters, θMs_ci90_tr[:,par], axis=(;xlabel="cluster", ylabel="cf 90% ($par)"))
+
+boxplot(clusters, θMs_stdpred_tr[:,par] ./ θMs_meanpred_tr[:,par], axis=(;xlabel="cluster", ylabel="cv($par)"))
+
 ```

@@ -1144,7 +1144,7 @@ uuid = "3e5b6fbb-0976-4d2c-9146-d79de83f2fb0"
 version = "0.1.18"
 
 [[deps.HybridVariationalInference]]
-deps = ["Bijectors", "BlockDiagonals", "ChainRulesCore", "Combinatorics", "CommonSolve", "ComponentArrays", "DifferentiationInterface", "DistributionFits", "Distributions", "FillArrays", "Functors", "GPUArraysCore", "IterTools", "KernelAbstractions", "LinearAlgebra", "LogExpFunctions", "MLDataDevices", "MLUtils", "Missings", "NaNMath", "Optimisers", "Optimization", "Random", "StableRNGs", "StaticArrays", "StatsBase", "StatsFuns", "Test", "UnPack", "Zygote"]
+deps = ["Bijectors", "BlockDiagonals", "ChainRulesCore", "Combinatorics", "CommonSolve", "ComponentArrays", "DifferentiationInterface", "DistributionFits", "Distributions", "FillArrays", "Functors", "GPUArraysCore", "IterTools", "KernelAbstractions", "LinearAlgebra", "LogExpFunctions", "MLDataDevices", "MLUtils", "Missings", "NaNMath", "Optimisers", "Optimization", "PDMats", "Random", "StableRNGs", "StaticArrays", "StatsBase", "StatsFuns", "Test", "UnPack", "Zygote"]
 path = "../../.."
 uuid = "a108c475-a4e2-4021-9a84-cfa7df242f64"
 version = "0.2.0"

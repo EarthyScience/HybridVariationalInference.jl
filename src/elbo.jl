@@ -30,10 +30,11 @@ expected value of the likelihood of observations.
 function neg_elbo_gtf(args...; kwargs...)
     # TODO prior and penalty loss
     (;nLjoint, entropy_ζ, loss_penalty, 
-        nLy, neg_log_prior, neg_log_jac, 
+        nLy, nLprior_P, nLprior_M, neg_log_jac, 
         #nLmean_θ
         ) = neg_elbo_gtf_components(args...; kwargs...)
-    nL = nLjoint - entropy_ζ + loss_penalty #+ nLmean_θ
+    # negative of log_joint - need to substract entropy_ζ
+    nL = nLjoint + loss_penalty  - entropy_ζ #+ nLmean_θ
     # if !isfinite(nL) 
     #     @show nL
     #     @show nLjoint, entropy_ζ, loss_penalty, nLy, 
@@ -64,6 +65,7 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
     zero_prior_logdensity,
     approx::AbstractHVIApproximation,
     intθP, intθMs,
+    batch_fac,
 ) where {FT}
     ϕc = int_ϕg_ϕq(ϕ)
     VT= typeof(@view(ϕ[1:1]))
@@ -85,7 +87,7 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
         ζsP_cpu[:,1:n_MC], ζsMs_tr_cpu[:,:,1:n_MC], σ, f, py, xP, y_ob, y_unc;
         n_MC_cap, transP, transMs, priorsP, priorsM, 
         penalty_computer, ϕg, ϕq, is_omit_priors, zero_prior_logdensity, 
-        i_sites, intθMs, intθP)
+        i_sites, intθMs, intθP, batch_fac)
     #
     # maybe: provide trans_mP and trans_mMs with creating cost function
     # not used any more and merging named tuples takes long
@@ -145,6 +147,7 @@ function neg_elbo_ζtf(ζsP::AbstractArray{T}, ζsMs_tr, σ, f, py, xP, y_ob, y_
     is_omit_priors::Val,
     zero_prior_logdensity,
     i_sites, intθP, intθMs,
+    batch_fac = one(T), 
 ) where T
     n_MC = size(ζsP,2)
     #@show ζsMs_tr[1,4,:] # fourth component goes to NaN at some time
@@ -172,10 +175,10 @@ function neg_elbo_ζtf(ζsP::AbstractArray{T}, ζsMs_tr, σ, f, py, xP, y_ob, y_
             nLy_i = py(y_ob, y_pred_i, y_unc)
             loss_penalty_i = convert(eltype(nLy_i),first(penalty_computer(
                 y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), y_ob, i_sites, ϕg, ϕq)))
-            neg_log_prior_i = compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr,
+            nLprior_P_i, nLprior_M_i = compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr,
                 is_omit_priors, zero_prior_logdensity)
             # make sure names to not match outer, otherwise Box type instability
-            (nLy_i, neg_log_prior_i, -logjac_i, loss_penalty_i)
+            (nLy_i, nLprior_P_i, nLprior_M_i, -logjac_i, loss_penalty_i)
             #(nLy_i, 0.0, 0.0, 0.0)
         end
     # only Vector inferred, need to provide type hint
@@ -187,19 +190,20 @@ function neg_elbo_ζtf(ζsP::AbstractArray{T}, ζsMs_tr, σ, f, py, xP, y_ob, y_
     #@descend_code_warntype f_sample(first(eachcol(ζsP)), first(eachslice(ζsMs; dims=3)))
     #map_res = Test.@inferred map(f_sample, eachcol(ζsP), eachslice(ζsMs; dims=3))
     map_res = map(f_sample, eachcol(ζsP), eachslice(ζsMs_tr; dims=3))
-    nLys, neg_log_priors, neglogjacs, loss_penalties = vectuptotupvec(map_res)
+    nLys, nLpriors_P, nLpriors_M, neglogjacs, loss_penalties = vectuptotupvec(map_res)
     # For robustness may compute the expectation only on the n_smallest values
     # because its very sensitive to few large outliers
     #nLys_smallest = nsmallest(n_MC_cap, nLys) # does not work with Zygote
     if n_MC_cap == n_MC
-        nLy = sum(nLys) / n_MC
-        neg_log_prior = sum(neg_log_priors) / n_MC
-        neg_log_jac = sum(neglogjacs) / n_MC
-        loss_penalty = sum(loss_penalties) / n_MC
+        nLy_batch = sum(nLys) / n_MC
+        nLprior_P = sum(nLpriors_P) / n_MC
+        nLprior_M_batch = sum(nLpriors_M) / n_MC
+        neg_log_jac_batch = sum(neglogjacs) / n_MC
+        loss_penalty_batch = sum(loss_penalties) / n_MC
     else
         @warn "neg_elbo_ζtf: TPDP n_MC_cap: implement for for logjac, loss_penalty, and neg_log_prior not capped"
         nLys_smallest = partialsort(nLys, 1:n_MC_cap)
-        nLy = sum(nLys_smallest) / n_MC_cap
+        nLy_batch = sum(nLys_smallest) / n_MC_cap
     end
     #  sum_log_σ = sum(log.(σ))
     # logdet_jacT2 = -sum_log_σ # log Prod(1/σ_i) = -sum log σ_i 
@@ -211,25 +215,37 @@ function neg_elbo_ζtf(ζsP::AbstractArray{T}, ζsMs_tr, σ, f, py, xP, y_ob, y_
     end
     #@assert length(σ) == n_θ
     #entropy_ζ = convert(T, entropy_MvNormal(n_θ, logdetΣ))  # defined in logden_normal
-    entropy_ζ = entropy_MvNormal(n_θ, logdetΣ)  # defined in logden_normal
+    entropy_ζ_batch = entropy_MvNormal(n_θ, logdetΣ)  # defined in logden_normal
     # if i_sites[1] == 1
     #     #Main.@infiltrate_main
     #     @show nLy, entropy_ζ, nLmean_θ, n_MC, n_MC_cap, i_sites[1:3]
     #     @show std(nLys), std(nLys)/abs(nLy)
     #     @show std(nLys_smallest), std(nLys_smallest)/abs(nLy)
     # end
-    nLjoint = nLy + neg_log_prior + neg_log_jac
-    (;nLjoint, entropy_ζ, loss_penalty, nLy, neg_log_prior, neg_log_jac)
+    # scale Likelihood and penalties to estimate all-site case from batch case
+    #   scale nLy, priorsM, log_jac (sum for Exp), loss_penalty, and entropy
+    #   essentially all, except prior_θP
+    #bf = convert(T,batch_fac)
+    bf = one(T) # hardcoded - avoid scaling for batches
+    nLy = nLy_batch * bf
+    loss_penalty = loss_penalty_batch * bf
+    # do not scale neg_log_prior_P, because it is not estimated on batch but on mean_θP
+    nLprior_M = nLprior_M_batch * bf
+    neg_log_jac = neg_log_jac_batch * bf
+    nLjoint = nLy + nLprior_P + nLprior_M + neg_log_jac
+    entropy_ζ = entropy_ζ_batch * bf
+    (;nLjoint, entropy_ζ, loss_penalty, 
+        nLy, nLprior_P, nLprior_M, neg_log_jac)
 end
 
 function compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr,
         ::Val{omit_priors}, zero_prior_logdensity) where {omit_priors}
     if omit_priors
-        zero_prior_logdensity
+        (; nLprior_P = zero_prior_logdensity, nLprior_M = zero_prior_logdensity)
     elseif (θP isa AbstractGPUArray) || (θMs_tr isa AbstractGPUArray)
         @warn("neg_elbo_ζtf: Cannot apply priors to gpu array. Piors are omitted. "*
         "either compute PBM on CPU or omit priors.")
-        zero_prior_logdensity
+        (; nLprior_P = zero_prior_logdensity, nLprior_M = zero_prior_logdensity)
     else
         compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr, zero_prior_logdensity)
     end
@@ -270,15 +286,15 @@ function compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr, zero_prior_lo
     end
     # init keyword does not work with Zygote
     #nlMs_sum = sum(f_col, 1:length(priorsM), init = zero(nlP0)) 
-    nlMs_sum = sum(f_col, 1:length(priorsM))::typeof(nlP0) # not type inferred in julia 1.10
-    neg_log_prior_i = nlP0 - nlMs_sum
-    if !isfinite(neg_log_prior_i)
+    nlMs_sum = -sum(f_col, 1:length(priorsM))::typeof(nlP0) # not type inferred in julia 1.10
+    #neg_log_prior_i = nlP0 - nlMs_sum
+    if !isfinite(nlP0) || !isfinite(nlMs_sum)
         @show neg_log_prior_i, nlP0
         @show θMs_tr
         @show priorsM
         error("inspect non-finite priors")
     end
-    neg_log_prior_i
+    (; nLprior_P = nlP0, nLprior_M = nlMs_sum)
 end
 
 struct ZeroPenaltyComputer <: AbstractPenaltyComputer end

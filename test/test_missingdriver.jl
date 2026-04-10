@@ -82,6 +82,7 @@ end
 
 
 function test_driverNaN(scenario::Val{scen})  where scen
+    #scen = CP._val_value(scenario)
     prob = HybridProblem(DoubleMM.DoubleMMCase(); scenario);
     if (:use_rangescaling ∈ scen)
         @test prob.g isa RangeScalingModelApplicator

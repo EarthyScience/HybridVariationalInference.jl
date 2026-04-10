@@ -234,6 +234,7 @@ function get_loss_gf(g, transM, transP, f, py,
     is_omit_priors::Val = Val(false),
     zero_prior_logdensity,
     intθP, intθMs,
+    batch_fac,
     kwargs...) 
 
     let g = g, transM = transM, transP = transP, f = f, 
@@ -245,11 +246,12 @@ function get_loss_gf(g, transM, transP, f, py,
         priorsP = priorsP, priorsM = priorsM, 
         penalty_computer = penalty_computer,
         intθMs = get_concrete(intθMs), intθP = get_concrete(intθP),
+        batch_fac = batch_fac,
         n_θM = length(priorsM),
         cpu_dev = cpu_device() # real cpu, different form infer_cdev(gdevs) that maybe idenetity
         #, intP = get_concrete(intP)
         #inv_transP = inverse(transP), kwargs = kwargs
-        function loss_gf(ϕ, xM, xP, y_o, y_unc, i_sites; is_testmode)
+        function loss_gf(ϕ::AbstractVector{T}, xM, xP, y_o, y_unc, i_sites; is_testmode) where T
             ϕc = intϕ(ϕ)
             # GPUArraysCore.allowscalar(() -> if !all(isfinite.(ϕ))
             #     @show ϕc.ϕP
@@ -273,28 +275,33 @@ function get_loss_gf(g, transM, transP, f, py,
                 pbm_covar_indices; cdev, is_testmode, kwargs...)
             #σ = exp.(y_unc ./ 2)
             #nLy = sum(abs2, (y_pred .- y_o) ./ σ) 
-            nLy = py(y_o, y_pred, y_unc)
+            nLy_batch = py(y_o, y_pred, y_unc)
             # logpdf is not typestable for Distribution{Univariate, Continuous}
             logpdf_t = (prior, θ) -> logpdf(prior, θ)::eltype(θP_pred)
             logpdf_tv = (prior, θ::AbstractVector) -> begin
                 map(Base.Fix1(logpdf, prior), θ)::Vector{eltype(θP_pred)}
             end
-            neg_log_prior = 
+            nLprior_P, nLprior_M_batch =
                 # @descend_code_warntype (
                 compute_priors_logdensity(priorsP, priorsM, θP_pred, θMs_tr_pred,
                     is_omit_priors, zero_prior_logdensity)
-            if !isfinite(neg_log_prior)
+            if !isfinite(nLprior_P) || !isfinite(nLprior_M_batch)
                 @info "loss_gf: encountered non-finite prior density"
                 @show θP_pred, θMs_tr_pred, ϕc.ϕP
                 error("debug get_loss_gf")
             end
             ϕq = eltype(θP_pred)[]  # no uncertainty parameters optimized
-            loss_penalty = first(penalty_computer(
+            loss_penalty_batch = first(penalty_computer(
                 y_pred, addq_pred, intθMs(θMs_tr_pred), intθP(θP_pred), 
                 y_o, i_sites, ϕc.ϕg, ϕq))
             #@show nLy, neg_log_prior, loss_penalty
-            nLjoint_pen = nLy + neg_log_prior + loss_penalty
-            return (;nLjoint_pen, y_pred, θMs_tr_pred, θP_pred, nLy, neg_log_prior, loss_penalty)
+            #bf = convert(T, batch_fac)
+            bf = convert(T, 1.0)
+            nLy = nLy_batch * bf
+            nLprior_M = nLprior_M_batch * bf
+            loss_penalty = loss_penalty_batch * bf
+            nLjoint_pen = nLy + nLprior_P + nLprior_M + loss_penalty
+            return (;nLjoint_pen, y_pred, θMs_tr_pred, θP_pred, nLy, nLprior_P, nLprior_M, loss_penalty)
         end
     end
 end

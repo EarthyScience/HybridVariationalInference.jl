@@ -372,7 +372,7 @@ test_scenario = (scenario) -> begin
             cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
             is_testmode = true, 
             is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini)),
-            probc.approx, intθMs, intθP = int_P
+            probc.approx, intθMs, intθP = int_P, batch_fac = n_site / n_batch
             )
         )
         #@test cost isa Float64
@@ -384,7 +384,7 @@ test_scenario = (scenario) -> begin
                 cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
                 is_testmode = false, 
                 is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini)),
-                probc.approx, intθMs, intθP = int_P
+                probc.approx, intθMs, intθP = int_P, batch_fac = n_site / n_batch
                 ),
             CA.getdata(ϕ_ini))
         @test gr[1] isa Vector

@@ -155,6 +155,7 @@ test_without_flux = (scenario) -> begin
         g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
         pt = get_hybridproblem_par_templates(prob; scenario)
         n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+        batch_fac = n_site / n_batch
         train_loader = get_hybridproblem_train_dataloader(prob; scenario)
         (xM, xP, y_o, y_unc, i_sites) = first(train_loader)
         f = get_hybridproblem_PBmodel(prob; scenario)
@@ -178,7 +179,7 @@ test_without_flux = (scenario) -> begin
             priorsP, priorsM, par_templates.θP, par_templates.θM)     
         loss_gf = get_loss_gf(g, transM, transP, f, py, intϕ; 
             pbm_covars, n_site_batch = n_batch, priorsP, priorsM, zero_prior_logdensity,
-            intθMs, intθP,
+            intθMs, intθP, batch_fac,
             )
         (_xM, _xP, _y_o, _y_unc, _i_sites) = first(train_loader)
         #l1 = loss_gf(p0, _xM, _xP, _y_o, _y_unc, _i_sites; is_testmode = false)
