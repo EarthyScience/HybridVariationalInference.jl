@@ -122,6 +122,7 @@ function gf(prob::AbstractHybridProblem, xM::AbstractMatrix, xP::AbstractMatrix;
         f_dev = f
     end
     pt = get_hybridproblem_par_templates(prob; scenario)
+    n_θM = length(pt.θM)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     transMs = StackedArray(transM, n_site_pred)
     intP = ComponentArrayInterpreter(pt.θP)
@@ -135,22 +136,22 @@ function gf(prob::AbstractHybridProblem, xM::AbstractMatrix, xP::AbstractMatrix;
     # hence result is not type-inferred, but may test at this context
     res = is_infer ? 
         Test.@inferred( gf(
-            g_dev, transMs, transP, f_dev, xM_dev, xP, ϕg_dev, ζP_dev, pbm_covar_indices; 
+            g_dev, transMs, transP, f_dev, xM_dev, xP, ϕg_dev, n_θM, ζP_dev, pbm_covar_indices; 
             cdev, kwargs...)) :
-        gf(g_dev, transMs, transP, f_dev, xM_dev, xP, ϕg_dev, ζP_dev, pbm_covar_indices; 
+        gf(g_dev, transMs, transP, f_dev, xM_dev, xP, ϕg_dev, n_θM, ζP_dev, pbm_covar_indices; 
             cdev, kwargs...)
 end
 
-function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, ζP; 
+function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, n_θM, ζP; 
     cdev, pbm_covars, 
     intP = ComponentArrayInterpreter(ζP), kwargs...)
     pbm_covar_indices = intP(1:length(intP))[pbm_covars]
-    gf(g, transM, transP, f, xM, xP, ϕg, ζP, pbm_covar_indices; kwargs...)
+    gf(g, transM, transP, f, xM, xP, ϕg, n_θM, ζP, pbm_covar_indices; kwargs...)
 end
 
 
 
-function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, ζP, 
+function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, n_θM, ζP, 
     pbm_covar_indices::AbstractVector{<:Integer}; 
     cdev, is_testmode)
     # @show first(xM,5)
@@ -162,7 +163,7 @@ function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, ζP,
     # end
     #xMP = _append_PBM_covars(xM, intP(ζP), pbm_covars) 
     xMP = _append_each_covars(xM, CA.getdata(ζP), pbm_covar_indices)
-    θMs_tr = gtrans(g, transMs, xMP, ϕg; cdev, is_testmode)
+    θMs_tr = gtrans(g, transMs, xMP, ϕg, n_θM; cdev, is_testmode)
     # transPM = RRuleMonitor("transP", ζP -> transP(ζP))
     # θP = transPM(CA.getdata(ζP))
     θP = transP(CA.getdata(ζP))
@@ -179,11 +180,9 @@ end
 composition transM ∘ g: transformation after machine learning parameter prediction
 Provide a `transMs = StackedArray(transM, n_batch)`
 """
-function gtrans(g, transMs, xMP, ϕg; cdev, is_testmode)
-    # TODO remove after removing gf
-    # predict the log of the parameters
+function gtrans(g, transMs, xMP, ϕg, n_θM; cdev, is_testmode)
     ϕg = g(xMP, ϕg; is_testmode)
-    ζMs_tr = ϕg' 
+    ζMs_tr = ϕg[1:n_θM,:]' # ignore the uncerainty-related parameters
     ζMs_tr_cpu = cdev(ζMs_tr)
     θMs_tr = transMs(ζMs_tr_cpu)
     if !all(isfinite.(θMs_tr))
@@ -246,6 +245,7 @@ function get_loss_gf(g, transM, transP, f, py,
         priorsP = priorsP, priorsM = priorsM, 
         penalty_computer = penalty_computer,
         intθMs = get_concrete(intθMs), intθP = get_concrete(intθP),
+        n_θM = length(priorsM),
         cpu_dev = cpu_device() # real cpu, different form infer_cdev(gdevs) that maybe idenetity
         #, intP = get_concrete(intP)
         #inv_transP = inverse(transP), kwargs = kwargs
@@ -268,7 +268,8 @@ function get_loss_gf(g, transM, transP, f, py,
                 #Main.@infiltrate_main
             end
             y_pred, addq_pred, θMs_tr_pred, θP_pred = gf(
-                g, transMs, transP, f, xM, xP, CA.getdata(ϕc.ϕg), CA.getdata(ϕc.ϕP), 
+                g, transMs, transP, f, xM, xP, CA.getdata(ϕc.ϕg), n_θM,
+                CA.getdata(ϕc.ϕP), 
                 pbm_covar_indices; cdev, is_testmode, kwargs...)
             #σ = exp.(y_unc ./ 2)
             #nLy = sum(abs2, (y_pred .- y_o) ./ σ) 

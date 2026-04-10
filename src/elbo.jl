@@ -203,7 +203,7 @@ function neg_elbo_ζtf(ζsP::AbstractArray{T}, ζsMs_tr, σ, f, py, xP, y_ob, y_
     end
     #  sum_log_σ = sum(log.(σ))
     # logdet_jacT2 = -sum_log_σ # log Prod(1/σ_i) = -sum log σ_i 
-    logdetΣ = 2 * sum(log.(σ))
+    logdetΣ = 2 * sum(log.(σ)) # det(Σ) = Prod(σ_i^2)
     n_θ = size(ζsP, 1) + prod(size(ζsMs_tr)[1:2])
     if length(σ) != n_θ
         error("TODO infiltrate")
