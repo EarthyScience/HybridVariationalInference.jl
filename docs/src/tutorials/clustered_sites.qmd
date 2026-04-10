@@ -1,0 +1,162 @@
+---
+title: "Testing uncertainty with clustered sites"
+engine: julia
+execute:
+  echo: true
+  output: false
+  daemon: 3600  
+format:
+  commonmark:
+    variant: -raw_html+tex_math_dollars
+    wrap: preserve    
+bibliography: twutz_txt.bib
+---
+
+``` @meta
+CurrentModule = HybridVariationalInference  
+```
+
+This tutorial shows how HVI estimates uncertainty
+of parameters by effectively grouping observations
+of sites with similar parameters.
+
+First load necessary packages.
+
+```{julia}
+using HybridVariationalInference
+using HybridVariationalInference: HybridVariationalInference as HVI
+using StableRNGs
+using MLUtils
+using ComponentArrays: ComponentArrays as CA
+using SimpleChains # for reloading the optimized problem
+using DistributionFits
+using JLD2
+using CairoMakie
+using PairPlots   # scatterplot matrices
+```
+
+This tutorial uses the fitted object saved at the end of the 
+[Basic workflow without GPU](@ref) tutorial.
+
+```{julia}
+fname = "intermediate/basic_cpu_results.jld2"
+print(abspath(fname))
+probo = load(fname, "probo");
+```
+
+The synthetic data (observations and covariates) for this exercise generated parameters and covariates in
+three clusters with different number of sites.
+
+```{julia}
+#| echo: false
+scenario = Val((:clustered_sites,:exactML))
+#scenario = Val((:clustered_sites,))
+rng = StableRNG(111) # make sure to be the same as when constructing train_dataloader
+train_data = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); scenario);
+n_site = size(train_data.θMs_true, 2)
+train_data = (; train_data..., i_sites = 1:n_site)
+n_sites_cluster, clusters = HybridVariationalInference.get_clusters(n_site; scenario);
+n_sites_cluster
+```
+
+```{julia}
+boxplot(clusters, θMs_true[1,:], axis=(;xlabel="cluster", ylabel="true K1"))
+```
+
+We 
+- update the dataloader of the problem 
+- refit the posterior
+- and sample it
+
+```{julia}
+n_batch = 20
+train_dataloader = MLUtils.DataLoader(
+    CA.getdata.(values(train_data[(:xM, :xP, :y_o, :y_unc, :i_sites)])), batchsize=n_batch, partial=false)  
+prob = HybridProblem(probo; train_dataloader)
+prob.ϕg .= randn(length(prob.ϕg)) # new neutrally initialized ML parameterization
+prob.ϕq.ρsM .= zero(eltype(prob.ϕq.ρsM)) # new neutrally initialized ML parameterization
+```
+
+```{julia}
+using OptimizationOptimisers
+import Zygote
+ENV["MLDATADEVICES_SILENCE_WARN_NO_GPU"] = 1
+solver = HybridPointSolver(; alg=Adam(0.02))
+(; probo) = solve(prob, solver; rng,
+    callback = callback_loss(100), # output during fitting
+    epochs = 60,
+);
+# continue sampling
+(; probo) = solve(prob, solver; rng,
+    callback = callback_loss(100), # output during fitting
+    epochs = 200,
+);
+probo_point = HybridProblem(probo);
+
+solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)
+(; probo, interpreters) = solve(probo_point, solver; rng,
+    callback = callback_loss(100), # output during fitting
+    epochs = 60,
+);
+# continue with more MC samples for better approximation
+solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=12)
+(; probo, interpreters) = solve(probo, solver; rng,
+    callback = callback_loss(100), # output during fitting
+    epochs = 60,
+);
+```
+
+```{julia}
+using StableRNGs
+rng = StableRNG(112)
+n_sample_pred = 400
+(; θsP, θsMs_tr) = sample_posterior(rng, probo; n_sample_pred, is_testmode = true)
+θMs_pred_tr = apply_preserve_axes(x -> median(x, dims=3),θsMs_tr)[:,:,1]
+θMs_meanpred_tr = apply_preserve_axes(x -> mean(x, dims=3),θsMs_tr)[:,:,1]
+θMs_stdlogpred_tr = apply_preserve_axes(x -> std(log.(x), dims=3),θsMs_tr)[:,:,1]
+```
+```{julia}
+#| eval: false
+#| show = false
+θMs_pred_tr[:,:K1]
+# θMs_pred_tr'[:K1,:]   # TODO file issue
+(;y_pred, θMs_tr)  = predict_point_hvi(rng, probo; scenario)
+θMs_predpoint_tr = θMs_tr
+par = :K1
+#par = :r1
+i_cluster = 1
+i_sites_cluster = findall(clusters .== i_cluster)
+fig = Figure(); ax = Axis(fig[1,1], xlabel="true $par in cluster $i_cluster",ylabel="point predicted $par")
+scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], θMs_predpoint_tr[:,par][i_sites_cluster]) 
+# scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], θMs_meanpred_tr[:,par][i_sites_cluster]) 
+ablines!(ax, 0, 1, color=:lightgray)
+fig
+```
+## Inspect results
+
+Correlation is greatly overesimated?
+```{julia}
+#CM = HVI.get_hybridproblem_correlation_Ms(prob)
+CM = HVI.get_hybridproblem_correlation_Ms(probo)
+```
+
+Leads to biases in some parameters of median prediction.
+```{julia}
+par = :K1
+#par = :r1
+i_cluster = 2
+i_sites_cluster = findall(clusters .== i_cluster)
+fig = Figure(); ax = Axis(fig[1,1], xlabel="true $par in cluster $i_cluster",ylabel="median predicted $par")
+scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], θMs_stdlogpred_tr[:,par][i_sites_cluster]) 
+# scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], θMs_meanpred_tr[:,par][i_sites_cluster]) 
+ablines!(ax, 0, 1, color=:lightgray)
+fig
+```
+
+Had hoped that predicted uncertainty would be lower for clusters with more sites.
+But its not the case.
+```{julia}
+par = :K1
+#par = :r1
+boxplot(clusters, θMs_stdlogpred_tr[:,par], axis=(;xlabel="cluster", ylabel="std(log.($par))"))
+```
