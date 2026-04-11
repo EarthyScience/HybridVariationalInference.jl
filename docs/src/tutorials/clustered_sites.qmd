@@ -147,20 +147,31 @@ mkpath("intermediate")
 if probo_allsites isa AbstractHybridProblem # do not save on failure above
     jldsave(fname, false, IOStream; probo = probo_allsites, interpreters)
 end
+probo = load(fname, "probo");
 ```
 
+Because of the log-transformation to unconstrained space, a LogNormal distribution
+is estimated for each parameter. Hence, we fit marginal LogNormal distributions to the posterior samples and get properties from it.
+
+```{julia}
+function fit_lognormal(x; p_low = 0.25, p_upp = 0.75)
+    q_low, q_upp = quantile(x, (p_low,p_upp))
+    d = fit(LogNormal, @qp(q_low, p_low), @qp(q_upp, p_upp))
+end
+```
 ```{julia}
 using StableRNGs
 rng = StableRNG(112)
 n_sample_pred = 400
-(; θsP, θsMs_tr) = sample_posterior(rng, probo; n_sample_pred, is_testmode = true)
+#(; θsP, θsMs_tr) = sample_posterior(rng, probo; n_sample_pred, is_testmode = true)
+(; y, θsP, θsMs_tr) = predict_hvi(rng, probo; n_sample_pred);
 θMs_pred_tr = apply_preserve_axes(x -> median(x, dims=3),θsMs_tr)[:,:,1]
-θMs_meanpred_tr = apply_preserve_axes(x -> mean(x, dims=3),θsMs_tr)[:,:,1]
-#θMs_q05pred_tr = mapslices(x -> quantile(x, 0.05), CA.getdata(θsMs_tr); dims=3) 
-θMs_q05pred_tr = map(x -> quantile(x, 0.05), eachslice(θsMs_tr; dims=(1,2))) 
-θMs_q95pred_tr = map(x -> quantile(x, 0.95), eachslice(θsMs_tr; dims=(1,2))) 
-θMs_stdlogpred_tr = apply_preserve_axes(x -> std(log.(x), dims=3),θsMs_tr)[:,:,1]
-θMs_stdpred_tr = apply_preserve_axes(x -> std(x, dims=3),θsMs_tr)[:,:,1]
+θMs_dist_pred_tr = map(fit_lognormal, eachslice(θsMs_tr; dims=(1,2)))  
+θMs_mode_pred_tr = map(mode, θMs_dist_pred_tr)  
+θMs_q05pred_tr = map(x -> quantile(x, 0.05), θMs_dist_pred_tr)  
+θMs_q95pred_tr = map(x -> quantile(x, 0.95), θMs_dist_pred_tr)  
+#θMs_stdlogpred_tr = apply_preserve_axes(x -> std(log.(x), dims=3),θsMs_tr)[:,:,1]
+#θMs_stdpred_tr = apply_preserve_axes(x -> std(x, dims=3),θsMs_tr)[:,:,1]
 ```
 ```{julia}
 #| eval: false
@@ -193,21 +204,23 @@ par = :r1
 #par = :K1
 i_cluster = 2
 i_sites_cluster = findall(clusters .== i_cluster)
-fig = Figure(); ax = Axis(fig[1,1], xlabel="true $par in cluster $i_cluster",ylabel="median predicted $par")
-scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], θMs_pred_tr[:,par][i_sites_cluster]) 
+fig = Figure(); ax = Axis(fig[1,1], xlabel="true $par in cluster $i_cluster",ylabel="predicted $par")
+scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], θMs_q95pred_tr[:,par][i_sites_cluster], label = "95% quantile") 
+scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], θMs_mode_pred_tr[:,par][i_sites_cluster], label = "mode") 
 # scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], θMs_meanpred_tr[:,par][i_sites_cluster]) 
-scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], θMs_q05pred_tr[:,par][i_sites_cluster]) 
-scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], θMs_q95pred_tr[:,par][i_sites_cluster]) 
+scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], θMs_q05pred_tr[:,par][i_sites_cluster], label = "5% quantile") 
 ablines!(ax, 0, 1, color=:lightgray)
+axislegend(ax, unique=true; position = :rb)
 fig
 ```
 
 The true parameter is well within the predicted distribution.
 ```{julia}
 i_site = i_sites_cluster[4]
-fig = Figure(); ax = Axis(fig[1,1], xlabel="predicted $par", ylabel="density")
-density!(ax,θsMs_tr[i_site,par,:])
-vlines!(ax, train_data.θMs_true[par,i_site], color=:red, linestyle=:dash)
+fig = Figure(); ax = Axis(fig[1,1], xlabel="$par", ylabel="density")
+density!(ax,θsMs_tr[i_site,par,:], label="predicted")
+vlines!(ax, train_data.θMs_true[par,i_site], color=:red, linestyle=:dash, label="true")
+axislegend(ax, unique=true)
 fig
 ```
 
@@ -216,12 +229,36 @@ But its not the case.
 ```{julia}
 θMs_ci90_tr = θMs_q95pred_tr .- θMs_q05pred_tr 
 
-par = :K1
-#par = :r1
+par = :r1
+#par = :K1
 boxplot(clusters, θMs_stdlogpred_tr[:,par], axis=(;xlabel="cluster", ylabel="std(log.($par))"))
 boxplot(clusters, θMs_stdpred_tr[:,par], axis=(;xlabel="cluster", ylabel="std($par)"))
-boxplot(clusters, θMs_ci90_tr[:,par], axis=(;xlabel="cluster", ylabel="cf 90% ($par)"))
+boxplot(clusters, θMs_ci90_tr[:,par], axis=(;xlabel="cluster", ylabel="length cf 90% ($par)"))
 
 boxplot(clusters, θMs_stdpred_tr[:,par] ./ θMs_meanpred_tr[:,par], axis=(;xlabel="cluster", ylabel="cv($par)"))
-
 ```
+
+Plot range of predictions
+```{julia}
+#|  output: true
+σ = exp(train_data.y_unc[1]/2)
+```
+
+```{julia}
+#|  output: true
+i_obs = 4
+#i_obs = 1
+#i_obs = 8
+ymean = [mean(y[i_obs,s,:]) for s in axes(θsMs_tr, 1)]
+ysd = [std(y[i_obs,s,:]) for s in axes(θsMs_tr, 1)]
+fig = Figure(); ax = Axis(fig[1,1], xlabel="mean(y$i_obs)",ylabel="sd(y$i_obs)")
+#i_cluster = 1
+for i_cluster in axes(n_sites_cluster,1) 
+    i_sites_cluster = findall(clusters .== i_cluster)
+    scatter!(ax, ymean[i_sites_cluster], ysd[i_sites_cluster]) 
+end
+ablines!(ax, [σ] ,[0])
+fig
+```
+
+
