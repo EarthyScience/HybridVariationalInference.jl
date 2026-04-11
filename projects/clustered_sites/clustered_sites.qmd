@@ -39,7 +39,7 @@ This tutorial uses the fitted object saved at the end of the
 [Basic workflow without GPU](@ref) tutorial.
 
 ```{julia}
-fname = "intermediate/basic_cpu_results.jld2"
+fname = "../docs/src/tutorials/intermediate/basic_cpu_results.jld2"
 print(abspath(fname))
 probo = load(fname, "probo");
 ```
