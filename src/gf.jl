@@ -228,14 +228,18 @@ function get_loss_gf(g, transM, transP, f, py,
     intP::AbstractComponentArrayInterpreter = ComponentArrayInterpreter(
         intϕ(1:length(intϕ)).ϕP);
     cdev=cpu_device(),
+    par_templates::NamedTuple,
     pbm_covars, n_site_batch, 
     penalty_computer = ZeroPenaltyComputer(),
     priorsP, priorsM, 
-    is_omit_priors::Val = Val(false),
-    zero_prior_logdensity,
+    is_omit_priors::Val{omit_priors} = Val(false),
     intθP, intθMs,
-    batch_fac,
-    kwargs...) 
+    frac_cluster_all,
+    kwargs...) where omit_priors
+
+    pt = par_templates
+    zero_prior_logdensity = omit_priors ? zero(eltype(pt.θP)) : get_zero_prior_logdensity(
+    priorsP, priorsM, pt.θP, pt.θM)     
 
     let g = g, transM = transM, transP = transP, f = f, 
         intϕ = get_concrete(intϕ),
@@ -246,7 +250,7 @@ function get_loss_gf(g, transM, transP, f, py,
         priorsP = priorsP, priorsM = priorsM, 
         penalty_computer = penalty_computer,
         intθMs = get_concrete(intθMs), intθP = get_concrete(intθP),
-        batch_fac = batch_fac,
+        frac_cluster_all = convert.(eltype(pt.θP),frac_cluster_all),
         n_θM = length(priorsM),
         cpu_dev = cpu_device() # real cpu, different form infer_cdev(gdevs) that maybe idenetity
         #, intP = get_concrete(intP)
@@ -273,35 +277,36 @@ function get_loss_gf(g, transM, transP, f, py,
                 g, transMs, transP, f, xM, xP, CA.getdata(ϕc.ϕg), n_θM,
                 CA.getdata(ϕc.ϕP), 
                 pbm_covar_indices; cdev, is_testmode, kwargs...)
+            # TODO check computation
+            # TODO try to move up converstion t T to frac_cluster_all
+            frac_cluster = frac_cluster_all[i_sites]
             #σ = exp.(y_unc ./ 2)
             #nLy = sum(abs2, (y_pred .- y_o) ./ σ) 
-            nLy_batch = py(y_o, y_pred, y_unc)
+            nLy = py(y_o, y_pred, y_unc)
             # logpdf is not typestable for Distribution{Univariate, Continuous}
-            logpdf_t = (prior, θ) -> logpdf(prior, θ)::eltype(θP_pred)
-            logpdf_tv = (prior, θ::AbstractVector) -> begin
-                map(Base.Fix1(logpdf, prior), θ)::Vector{eltype(θP_pred)}
-            end
-            nLprior_P, nLprior_M_batch =
+            # logpdf_t = (prior, θ) -> logpdf(prior, θ)::eltype(θP_pred)
+            # logpdf_tv = (prior, θ::AbstractVector) -> begin
+            #     map(Base.Fix1(logpdf, prior), θ)::Vector{eltype(θP_pred)}
+            # end
+            nLprior_P, nLprior_Ms =
                 # @descend_code_warntype (
                 compute_priors_logdensity(priorsP, priorsM, θP_pred, θMs_tr_pred,
                     is_omit_priors, zero_prior_logdensity)
-            if !isfinite(nLprior_P) || !isfinite(nLprior_M_batch)
+            nLprior_M = sum(nLprior_Ms .* frac_cluster)
+            if !isfinite(nLprior_P) || !isfinite(nLprior_M)
                 @info "loss_gf: encountered non-finite prior density"
                 @show θP_pred, θMs_tr_pred, ϕc.ϕP
                 error("debug get_loss_gf")
             end
             ϕq = eltype(θP_pred)[]  # no uncertainty parameters optimized
-            loss_penalty_batch = first(penalty_computer(
+            loss_penalties = first(penalty_computer(
                 y_pred, addq_pred, intθMs(θMs_tr_pred), intθP(θP_pred), 
                 y_o, i_sites, ϕc.ϕg, ϕq))
+            loss_penalty = sum(loss_penalties .* frac_cluster)
             #@show nLy, neg_log_prior, loss_penalty
-            #bf = convert(T, batch_fac)
-            bf = convert(T, 1.0)
-            nLy = nLy_batch * bf
-            nLprior_M = nLprior_M_batch * bf
-            loss_penalty = loss_penalty_batch * bf
             nLjoint_pen = nLy + nLprior_P + nLprior_M + loss_penalty
-            return (;nLjoint_pen, y_pred, θMs_tr_pred, θP_pred, nLy, nLprior_P, nLprior_M, loss_penalty)
+            return (;nLjoint_pen, y_pred, θMs_tr_pred, θP_pred, nLy, nLprior_P, 
+                nLprior_M, loss_penalty)
         end
     end
 end
@@ -317,3 +322,4 @@ end
 #         end
 #     end    
 # end
+

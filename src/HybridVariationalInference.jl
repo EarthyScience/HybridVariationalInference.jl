@@ -2,7 +2,7 @@ module HybridVariationalInference
 
 using ComponentArrays: ComponentArrays as CA
 using Random
-using StatsBase # fit ZScoreTransform
+using StatsBase # fit ZScoreTransform, countmap
 using StatsFuns # norminvcdf
 using LogExpFunctions # logistic, loglogistic
 using Combinatorics # gen_hybridproblem_synthetic/combinations

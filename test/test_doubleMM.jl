@@ -43,6 +43,7 @@ end
 @testset "gen_hybridproblem_synthetic clustered_sites" begin
     scenario = Val((:clustered_sites,:exactML))
     scenario = Val((:clustered_sites,))
+    par_templates = get_hybridproblem_par_templates(prob; scenario)
     rng = StableRNG(111) # make sure to be the same as when constructing train_dataloader
     (; xM, θP_true, θMs_true, xP,  y_true,  y_o, y_unc,
     ) = gen_hybridproblem_synthetic(rng, prob; scenario);
@@ -53,6 +54,7 @@ end
     #ζM_cl_center = Ref(inverse(transM)(CA.getdata(par_templates.θM))) .* [0.8, 1.0, 1.2] # cluster centers
     # i = 1 # i = 2 # i = 3
     for i in 1:length(n_sites_cluster)
+        #@show i
         local i_sites_i = findall(clusters .== i)
         @test all(isapprox.(
             vec(mean(CA.getdata(θMs_true[:,i_sites_i]); dims = 2)), θM_cl_center[i], rtol = 0.05))
@@ -271,7 +273,7 @@ end
     pt = get_hybridproblem_par_templates(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     n_site, n_site_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-    batch_fac = n_site / n_site_batch
+    frac_cluster_all = fill(1, n_site)
     f = get_hybridproblem_PBmodel(prob; scenario)
     f2 = create_nsite_applicator(f, n_site)
     py = get_hybridproblem_neg_logden_obs(prob; scenario)
@@ -297,14 +299,12 @@ end
     intθMs_site = ComponentArrayInterpreter((n_site,), pt.θM)
 
     #loss_gf = get_loss_gf(g, transM, f,  intϕ; gdev = identity)
-    zero_prior_logdensity = CP.get_zero_prior_logdensity(
-        priorsP, priorsM, par_templates.θP, par_templates.θM)     
     loss_gf = get_loss_gf(g, transM, transP, f,  py, intϕ;
-        pbm_covars, n_site_batch = n_batch, priorsP, priorsM, zero_prior_logdensity,
-        intθMs = intθMs_batch, intθP, batch_fac)
+        pbm_covars, n_site_batch = n_batch, priorsP, priorsM, par_templates,
+        intθMs = intθMs_batch, intθP, frac_cluster_all)
     loss_gf_site = get_loss_gf(g, transM, transP, f2, py, intϕ;
-        pbm_covars, n_site_batch = n_site, priorsP, priorsM, zero_prior_logdensity,
-        intθMs = intθMs_site, intθP, batch_fac)
+        pbm_covars, n_site_batch = n_site, priorsP, priorsM, par_templates,
+        intθMs = intθMs_site, intθP, frac_cluster_all)
     nLjoint = @inferred first(loss_gf(p0, first(train_loader)...; is_testmode=true))
     (xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch) = first(train_loader)
     # @usingany Cthulhu

@@ -28,6 +28,7 @@ cdev = cpu_device()
 #scenario = Val((:MeanHVIApproxMat,))
 #scenario = Val((:covarK2,))
 #scen = CP._val_value(scenario)
+#scenario = Val((:clustered_sites, ))
 
 function construct_problem(; scenario::Val{scen}) where scen
     FT = Float32
@@ -155,7 +156,8 @@ test_without_flux = (scenario) -> begin
         g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
         pt = get_hybridproblem_par_templates(prob; scenario)
         n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-        batch_fac = n_site / n_batch
+        n_sites_cluster, clusters = CP.get_clusters(n_site; scenario)
+        frac_cluster_all = 1 ./ n_sites_cluster[clusters] 
         train_loader = get_hybridproblem_train_dataloader(prob; scenario)
         (xM, xP, y_o, y_unc, i_sites) = first(train_loader)
         f = get_hybridproblem_PBmodel(prob; scenario)
@@ -175,11 +177,10 @@ test_without_flux = (scenario) -> begin
         intθMs = ComponentArrayInterpreter((n_batch,), pt.θM)
 
         # Pass the site-data for the batches as separate vectors wrapped in a tuple
-        zero_prior_logdensity = CP.get_zero_prior_logdensity(
-            priorsP, priorsM, par_templates.θP, par_templates.θM)     
         loss_gf = get_loss_gf(g, transM, transP, f, py, intϕ; 
-            pbm_covars, n_site_batch = n_batch, priorsP, priorsM, zero_prior_logdensity,
-            intθMs, intθP, batch_fac,
+            par_templates = pt,
+            pbm_covars, n_site_batch = n_batch, priorsP, priorsM, 
+            intθMs, intθP, frac_cluster_all,
             )
         (_xM, _xP, _y_o, _y_unc, _i_sites) = first(train_loader)
         #l1 = loss_gf(p0, _xM, _xP, _y_o, _y_unc, _i_sites; is_testmode = false)
@@ -190,6 +191,7 @@ test_without_flux = (scenario) -> begin
             # @descend_code_warntype (
             loss_gf(p0, _xM, _xP, _y_o, _y_unc, _i_sites; is_testmode = true)
             )
+        @test typeof(l1[1]) == eltype(p0)
         tld = first(train_loader)
         gr = Zygote.gradient(p -> loss_gf(p, tld...; is_testmode = false)[1], CA.getdata(p0))
         @test gr[1] isa Vector
@@ -205,6 +207,7 @@ test_without_flux = (scenario) -> begin
                 callback = callback_loss(100),
                 optprob, Adam(0.02), epochs = 150);
             loss_gf_sites = get_loss_gf(g, transM, transP, f,  intϕ; 
+                par_templates = pt,
                 pbm_covars, n_site_batch = n_site)
             l1, y_pred, θMs_pred, θP, nLy, neg_log_prior = loss_gf_sites(
                 res.u, train_loader.data...)
@@ -217,6 +220,7 @@ end
 #scenario=Val((:default,))
 test_without_flux(Val((:default,)))
 test_without_flux(Val((:covarK2,)))
+test_without_flux(Val((:clustered_sites,)))
 
 import CUDA, cuDNN
 using GPUArraysCore

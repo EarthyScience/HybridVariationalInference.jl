@@ -89,13 +89,14 @@ function gen_cov_pred(rng::AbstractRNG, T::DataType,
 end
 
 function get_clusters(n_site; scenario::Val{scen}) where scen
-    if (:clustered_sites ∈ scen)
+    if any((:clustered_sites,) .∈ Ref(scen))
         n_sites_cluster = [30, n_site ÷ 4]
         n_sites_cluster = vcat(n_sites_cluster, n_site .- sum(n_sites_cluster)) # ensure sum is n_site
         clusters = vcat(fill.(1:length(n_sites_cluster), n_sites_cluster)...)
     else
-        n_sites_cluster = [n_site]
-        clusters = fill(1, n_site) # all sites in one cluster
+        # each site one cluster
+        n_sites_cluster = fill(1, n_site) 
+        clusters = 1:n_site
     end
     return n_sites_cluster, clusters
 end

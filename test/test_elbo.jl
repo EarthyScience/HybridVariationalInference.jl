@@ -27,7 +27,7 @@ rng = StableRNG(111)
 const prob = DoubleMM.DoubleMMCase()
 scenario = Val((:covarK2,))
 scenario = Val((:scalingall,))
-scenario = Val((:M3,))
+scenario = Val((:clustered_sites,))
 scenario = Val((:sepvar,))
 scenario = Val((:default,))
 
@@ -361,9 +361,13 @@ test_scenario = (scenario) -> begin
     end
 
     @testset "neg_elbo_gtf cpu $(last(CP._val_value(scenario)))" begin
+        scen = CP._val_value(scenario)
         i_sites = 1:n_batch
         transMs = StackedArray(transM, size(ζsMs_tr, 1))
-        intθMs = ComponentArrayInterpreter((n_batch,), int_M)
+        #intθMs = ComponentArrayInterpreter((n_batch,), int_M)
+        intθMs = get_concrete(ComponentArrayInterpreter((n_batch,), int_M))
+        n_sites_cluster, clusters = CP.get_clusters(n_site; scenario)
+        frac_cluster_all = convert.(eltype(ϕ_ini), 1 ./ n_sites_cluster[clusters])
         cost = @inferred (
         #@descend_code_warntype (
             neg_elbo_gtf(rng, ϕ_ini, g, f, py,
@@ -372,7 +376,7 @@ test_scenario = (scenario) -> begin
             cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
             is_testmode = true, 
             is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini)),
-            probc.approx, intθMs, intθP = int_P, batch_fac = n_site / n_batch
+            probc.approx, intθMs, intθP = int_P, frac_cluster_all 
             )
         )
         #@test cost isa Float64
@@ -384,7 +388,7 @@ test_scenario = (scenario) -> begin
                 cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
                 is_testmode = false, 
                 is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini)),
-                probc.approx, intθMs, intθP = int_P, batch_fac = n_site / n_batch
+                probc.approx, intθMs, intθP = int_P, frac_cluster_all 
                 ),
             CA.getdata(ϕ_ini))
         @test gr[1] isa Vector
@@ -514,7 +518,7 @@ end # test_scenario
 
 
 #test_scenario(Val((:scalingall,)))
-test_scenario(Val((:M3,)))
+test_scenario(Val((:clustered_sites,)))
 test_scenario(Val((:default,)))
 test_scenario(Val((:sepvar,)))
 
