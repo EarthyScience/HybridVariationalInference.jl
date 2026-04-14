@@ -23,3 +23,5 @@ docs/src_stash/*_files
 docs/src_stash/*.md
 docs/src_stash/*.html
 docs/src/tutorials/intermediate/clustered_sites_probo_allsites.jld2
+
+projects/clustered_sites/intermediate/*

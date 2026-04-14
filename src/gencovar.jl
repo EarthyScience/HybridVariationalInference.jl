@@ -11,7 +11,7 @@ function gen_cov_pred(rng::AbstractRNG, T::DataType,
     ) where scen
     n_ζM = length(ζM)
     n_sites_cluster, clusters = get_clusters(n_site; scenario)
-    if (:clustered_sites ∈ scen)
+    if any((:clustered_sites,:clustered_sites2) .∈ Ref(scen))
         # assuming all parameters log-transformed
         # generate clusters of similar parameters and then back-compute the covariates
         ζM_cl_center = map(x -> ζM .+ x, log.(T[0.8, 1.0, 1.2])) # cluster centers
@@ -89,7 +89,7 @@ function gen_cov_pred(rng::AbstractRNG, T::DataType,
 end
 
 function get_clusters(n_site; scenario::Val{scen}) where scen
-    if any((:clustered_sites,) .∈ Ref(scen))
+    if any((:clustered_sites,:clustered_sites2) .∈ Ref(scen))
         n_sites_cluster = [30, n_site ÷ 4]
         n_sites_cluster = vcat(n_sites_cluster, n_site .- sum(n_sites_cluster)) # ensure sum is n_site
         clusters = vcat(fill.(1:length(n_sites_cluster), n_sites_cluster)...)

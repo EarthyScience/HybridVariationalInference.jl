@@ -180,7 +180,8 @@ function HVI.get_hybridproblem_par_templates(
         end
         return ((; θP = θP_nor0, θM))
     end
-    if (:clustered_sites ∈ scen)
+    if (:clustered_sites ∈ scen) # three ML parameters to test blocks therein
+        # with clustered_sites2, keep the original two ML parameters
         # three components in θM
         return ((; θP = θP_M3, θM = θM_M3))
     end
@@ -220,7 +221,7 @@ function HVI.get_hybridproblem_MLapplicator(
     (; transM) = get_hybridproblem_transforms(prob; scenario)
     lowers, uppers = HVI.get_quantile_transformed(priors, transM)
     #n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-    range_scaled = if any((:scalingall, :clustered_sites) .∈ Ref(scen))
+    range_scaled = if any((:scalingall, :clustered_sites, :clustered_sites2) .∈ Ref(scen))
         1:length(θM)
     else
         1:0
@@ -422,8 +423,8 @@ function HVI.get_hybridproblem_cor_ends(prob::DoubleMMCase; scenario::Val{scen})
     if (:neglect_cor ∈ scen)
         # one block for each parameter, i.e. neglect all correlations
         (P = 1:length(pt.θP), M = 1:length(pt.θM))
-    elseif (:clustered_sites ∈ scen)
-        (P = 1:length(pt.θP), M = [1,length(pt.θM)]) # last two parameters
+    # elseif (:clustered_sites ∈ scen)
+    #     (P = 1:length(pt.θP), M = [1,length(pt.θM)]) # last two parameters
     else 
         # single big blocks  
         (P = [length(pt.θP)], M = [length(pt.θM)])
@@ -448,16 +449,10 @@ function HVI.get_hybridproblem_penalty_computer(prob::DoubleMMCase; scenario = (
 end
 
 function HVI.get_hybridproblem_HVIApproximation(prob::DoubleMMCase; scenario::Val{scen}) where {scen}
-    approx = if (:scalingall ∈ scen)
+    approx = if any((:scalingall,:clustered_sites,:clustered_sites2) .∈ Ref(scen))
         (;θP, θM)  = get_hybridproblem_par_templates(prob; scenario)
         FT = eltype(θM)
         block_ends = [length(θM)]
-        MeanScalingHVIApproximation(block_ends,FT(2) .* log.(FT(0.1) .* θM[block_ends]))
-    elseif (:clustered_sites ∈ scen) 
-        # last two parameters own scaling
-        (;θP, θM)  = get_hybridproblem_par_templates(prob; scenario)
-        FT = eltype(θM)
-        block_ends = [1,length(θM)]
         MeanScalingHVIApproximation(block_ends,FT(2) .* log.(FT(0.1) .* θM[block_ends]))
     elseif (:sepvar ∈ scen) 
         MeanVarSepHVIApproximation() 

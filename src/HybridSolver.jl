@@ -199,7 +199,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     is_omit_priors::Val{omit_priors} = Val(false),
     approx = prob.approx,
     clusters::AbstractVector{<:Integer} = 
-        fill(1, first(get_hybridproblem_n_site_and_batch(prob; scenario))),
+        1:first(get_hybridproblem_n_site_and_batch(prob; scenario)),
     kwargs...
 ) where {scen, is_infer, omit_priors}
     pt = get_hybridproblem_par_templates(prob; scenario)

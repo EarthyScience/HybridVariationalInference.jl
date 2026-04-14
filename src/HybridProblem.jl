@@ -134,6 +134,7 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
     approx::AbstractHVIApproximation = get_hybridproblem_HVIApproximation(prob; scenario),
     penalty_computer::PenaltyComputerOrFunction = get_hybridproblem_penalty_computer(prob; scenario),  
     )
+    n_batch_before = get_hybridproblem_n_site_and_batch(prob; scenario)[2]
     cor_ends_new = if !isnothing(cor_ends)
         # if new cor_ends was specified then re-initialize the ρsP and ρsM in ϕq
         (;ϕqc) = init_hybrid_ϕunc(approx, cor_ends, zero(eltype(ϕq)); θM, transM, n_site)
@@ -147,6 +148,12 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
     end
     if !isnothing(ϕunc)
         ϕq = CA.ComponentVector(ϕq; ϕunc...)
+    end
+    if n_batch != n_batch_before
+        # if updating n_btach, then need to adjust f_batch and train_dataloader
+        train_dataloader = MLUtils.DataLoader(
+           train_dataloader.data, batchsize=n_batch, partial=train_dataloader.partial, shuffle=train_dataloader.shuffle)  
+        f_batch = create_nsite_applicator(f_batch, n_batch)
     end
     HybridProblem(θM, ϕq, g, ϕg, f_batch, priors, py, transM, transP, train_dataloader,
         test_data, n_site, n_batch; cor_ends = cor_ends_new, pbm_covars, 
