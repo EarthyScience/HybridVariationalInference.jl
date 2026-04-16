@@ -49,6 +49,10 @@ using DistributionFits
 using JLD2
 using CairoMakie
 using PairPlots   # scatterplot matrices
+if !isdefined(Main, :load_inversion_results)
+    load_inversion_results = false
+end
+#load_inversion_results = true  # for loading rather than recalibrating
 ```
 
 ```{julia}
@@ -80,7 +84,10 @@ parameters, that are predicted by covariates.
 ```{julia}
 n_batch = 80
 scenario = Val((:clustered_sites2,:exactML))
+rng = StableRNG(111) # make sure to be the same as when constructing 
 train_data = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); scenario);
+n_site = size(train_data.θMs_true, 2)
+train_data = (; train_data..., i_sites = 1:n_site)
 prob0 = HybridProblem(DoubleMM.DoubleMMCase(); scenario, n_batch);
 #get_hybridproblem_n_site_and_batch(prob0; scenario)
 get_hybridproblem_par_templates(prob0; scenario)
@@ -94,44 +101,43 @@ n_sites_cluster, clusters = HybridVariationalInference.get_clusters(n_site; scen
 n_sites_cluster
 ```
 ```{julia}
-boxplot(clusters, train_data.θMs_true[2,:], axis=(;xlabel="cluster", ylabel="true K1"))
+Makie.boxplot(clusters, train_data.θMs_true[2,:], axis=(;xlabel="cluster", ylabel="true K1"))
 ```
-
-We 
-- update the dataloader of the problem 
-- refit the posterior
-- and sample it
-
 
 ```{julia}
 using OptimizationOptimisers
 import Zygote
 ENV["MLDATADEVICES_SILENCE_WARN_NO_GPU"] = 1
-solver = HybridPointSolver(; alg=Adam(0.002))
-(; probo) = solve(prob0, solver; rng,
-    callback = callback_loss(100), # output during fitting
-    epochs = 200,
-);
-# continue sampling with smaller adjustment rate
-solver = HybridPointSolver(; alg=Adam(0.001))
-(; probo) = solve(probo, solver; rng,
-    callback = callback_loss(100), # output during fitting
-    epochs = 500,
-);
-probo_point = HybridProblem(probo);
+if load_inversion_results
+    fname = "intermediate/probo_unclustered.jld2"
+    probo = probo_unclustered = load(fname, "probo");
+else
+    solver = HybridPointSolver(; alg=Adam(0.002))
+    (; probo) = solve(prob0, solver; rng,
+        callback = callback_loss(100), # output during fitting
+        epochs = 200,
+    );
+    # continue sampling with smaller adjustment rate
+    solver = HybridPointSolver(; alg=Adam(0.001))
+    (; probo) = solve(probo, solver; rng,
+        callback = callback_loss(100), # output during fitting
+        epochs = 500,
+    );
+    probo_point = HybridProblem(probo);
 
-solver = HybridPosteriorSolver(; alg=Adam(0.001), n_MC=3)
-(; probo, interpreters) = solve(probo_point, solver; rng,
-    callback = callback_loss(100), # output during fitting
-    epochs = 200,
-);
-# continue with more MC samples for better approximation
-solver = HybridPosteriorSolver(; alg=Adam(0.001), n_MC=6)
-(; probo, interpreters) = solve(probo, solver; rng,
-    callback = callback_loss(100), # output during fitting
-    epochs = 300,
-);
-probo_unclustered = HybridProblem(probo);
+    solver = HybridPosteriorSolver(; alg=Adam(0.001), n_MC=3)
+    (; probo, interpreters) = solve(probo_point, solver; rng,
+        callback = callback_loss(100), # output during fitting
+        epochs = 200,
+    );
+    # continue with more MC samples for better approximation
+    solver = HybridPosteriorSolver(; alg=Adam(0.001), n_MC=6)
+    (; probo, interpreters) = solve(probo, solver; rng,
+        callback = callback_loss(100), # output during fitting
+        epochs = 300,
+    );
+    probo_unclustered = HybridProblem(probo);
+end
 ```
 
 ```{julia}
@@ -203,19 +209,22 @@ s_unclustered = sample_and_aggregate(rng, probo_unclustered);
 ```{julia}
 #| eval: false
 #| show = false
-θMs_pred_tr[:,:K1]
-# θMs_pred_tr'[:K1,:]   # TODO file issue
-(;y_pred, θMs_tr)  = predict_point_hvi(rng, probo; scenario)
-θMs_predpoint_tr = θMs_tr
-par = :K1
-#par = :r1
-i_cluster = 2
-i_sites_cluster = findall(clusters .== i_cluster)
-fig = Figure(); ax = Axis(fig[1,1], xlabel="true $par in cluster $i_cluster",ylabel="point predicted $par")
-scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], θMs_predpoint_tr[:,par][i_sites_cluster]) 
-# scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], θMs_meanpred_tr[:,par][i_sites_cluster]) 
-ablines!(ax, 0, 1, color=:lightgray)
-fig
+() -> begin
+    s = s_unclustered
+    s.θMs_pred_tr[:,:K1]
+    # s.θMs_pred_tr'[:K1,:]   # TODO file issue
+    (;y_pred, θMs_tr)  = predict_point_hvi(rng, probo; scenario)
+    θMs_predpoint_tr = θMs_tr
+    par = :K1
+    #par = :r1
+    i_cluster = 2
+    i_sites_cluster = findall(clusters .== i_cluster)
+    fig = Figure(); ax = Axis(fig[1,1], xlabel="true $par in cluster $i_cluster",ylabel="point predicted $par")
+    scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], θMs_predpoint_tr[:,par][i_sites_cluster]) 
+    # scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], θMs_meanpred_tr[:,par][i_sites_cluster]) 
+    ablines!(ax, 0, 1, color=:lightgray)
+    fig
+end
 ```
 
 ## Inspect results
@@ -232,6 +241,7 @@ is not able to resolve the within-cluster pattern.
 ```{julia}
 s = s_unclustered
 #s = s_clustered
+#s = s_clustered_800
 par = :r1
 #par = :K1
 i_cluster = 2
@@ -285,6 +295,9 @@ Here for two intermediate substrate concentrations, the uncertainty of the
 prediction is a magnitude lower and of the same magnitude in all clusters.
 The pattern with the magnitude of predictions changes with model drivers of substrate concentrations.
 
+For clustered fits, the predicted uncertainty of model output rates
+is consistently lower for the cluster with many sites.
+
 ```{julia}
 #|  output: true
 i_obs = 4
@@ -323,6 +336,25 @@ end
 end
 ```
 
+In the case where only clustering information for cluster 3 is provided,
+the reduction in uncertainty is much more moderate and
+the pattern within cluter is recovered.
+```{julia}
+() -> begin
+    #cluster_orig = clusters
+    # try not proding cluster information for two first clusters
+    i = findfirst(==(3), clusters)
+    clusters[1:i] .= 1:i
+    clusters[i:end] .= i
+    #
+    # invert and inspect
+    #
+    fname = "intermediate/clustered_sites_probo_400_3rd_cluster.jld2"
+    mkpath("intermediate")
+    jldsave(fname, false, IOStream; probo, interpreters)
+end
+
+```
 Note the `clusters` argument to `solve`.
 ```{julia}
 using OptimizationOptimisers
@@ -335,7 +367,7 @@ solver = HybridPosteriorSolver(; alg=Adam(0.002), n_MC=3)
     epochs = 800,
     clusters,
 );
-# continue with more MC samples and lower graident update rate for better approximation
+# continue with more MC samples and lower gradient update rate for better approximation
 solver = HybridPosteriorSolver(; alg=Adam(0.0002), n_MC=6)
 (; probo, interpreters) = solve(probo, solver; rng,
     callback = callback_loss(100), # output during fitting
@@ -403,11 +435,12 @@ end
 For plotting use AoG and collection information into a DataFrame.
 ```{julia}
 using AlgebraOfGraphics, CairoMakie, DataFrames
+#n_sites_cluster, clusters = HybridVariationalInference.get_clusters(n_site; scenario);
 set_aog_theme!() # optional
 pars = keys(s_clustered.θMs_mode_pred_tr[1,:])
 ss = (clustered = s_clustered, unclustered = s_unclustered)
 #ss = (clustered = s_clustered_400, unclustered = s_unclustered)
-ss = (clustered_800 = s_clustered_800, clustered_400 = s_clustered_400, clustered = s_clustered, unclustered = s_unclustered)
+#ss = (clustered_800 = s_clustered_800, clustered_400 = s_clustered_400, clustered = s_clustered, unclustered = s_unclustered)
 par = first(pars)
 ssym = first(keys(ss))
 df = mapreduce(vcat, keys(ss)) do ssym
@@ -444,4 +477,32 @@ because there are not enough sites of smaller cluster size in each batch.
 But when increasing n_batch again, estimated uncertainty decreases.
 The uncertainty estimate seems to be not very robust, but depend on
 the realized ML fit.
+
+Another hypothesis is that the inversion is strongly influenced not accounting for model uncertainty.
+Residual variance in observations is entirely allocated to uncertainty in
+model parameters. 
+
+## Clustering sites
+
+Rather than doing three big clusters, start with smaller clusters
+and increase cluster size until estimates variance of a single predicted
+parameter at unconstrained scale matches the variance of the predictions
+within one cluster.
+
+Start with the unclustered HVI results (each observation its own cluster)
+
+```{julia}
+probo = probo_unclustered
+```
+
+Get the lower triangular cholesky factor of the correlation matrix. This is
+easier to invert than the full correlation matrix.
+
+```{julia}
+using LinearAlgebra
+Ucor = get_hybridproblem_cholesky_correlation_Ms(probo, train_data.xM; scenario)
+(;σP, σMs) = get_marginal_std(probo, train_data.xM; scenario)
+invΣ = HybridVariationalInference.compute_invcov(Ucor, σMs)
+```
+
 

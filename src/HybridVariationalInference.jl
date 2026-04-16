@@ -30,6 +30,8 @@ using DifferentiationInterface: DifferentiationInterface as DI
 import Zygote
 using IterTools: IterTools
 using PDMats
+using Distances, Clustering
+
 
 export DoubleMM
 
@@ -121,7 +123,8 @@ export get_ca_starts, get_ca_ends, get_cor_count
 include("cholesky.jl")
 
 export neg_elbo_gtf, sample_posterior, predict_hvi, ZeroPenaltyComputer
-export get_hybridproblem_correlation_Ms
+export get_hybridproblem_correlation_Ms, get_hybridproblem_cholesky_correlation_Ms
+export get_marginal_std
 include("elbo_dev.jl")
 include("elbo_sepvec.jl")
 include("elbo_scaling.jl")

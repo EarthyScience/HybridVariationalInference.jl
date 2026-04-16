@@ -634,39 +634,71 @@ function get_hybridproblem_correlation_Ms(prob::AbstractHybridProblem;
     UM' * UM
 end
 
-function get_hybridproblem_cholesky_correlation_Ms(prob::AbstractHybridProblem; 
-    xM = nothing, scenario = Val(()))
+function get_hybridproblem_cholesky_correlation_Ms(prob::AbstractHybridProblem, xM; 
+    scenario = Val(()))
     ϕq = get_hybridproblem_ϕq(prob; scenario)
     cor_ends = get_hybridproblem_cor_ends(prob; scenario)
-    ρsM = ϕq[Val(:ρsM)]
-    UM = transformU_block_cholesky1(ρsM, cor_ends.M)
+    ϕm = if isnothing(xM)
+        Matrix{eltype(ϕq)}[]
+    else
+        g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
+        g(xM, prob.ϕg) # TODO separate state, avoid prob.ϕg
+    end
+    get_cholesky_correlation_Ms(prob.approx, ϕq, cor_ends.M, ϕm)
 end
 
-function sample_ζresid_norm(approx::MeanHVIApproximationMat, 
+function get_cholesky_correlation_Ms(
+    ::Union{MeanHVIApproximation,MeanHVIApproximationMat,MeanScalingHVIApproximation},
+    ϕq::CA.ComponentVector, cor_ends_M, ϕm::AbstractMatrix=Matrix{eltype(ϕq)}[],)
+    # correlations only depend on globally optimized parameters ϕq.ρsM
+    ρsM = ϕq[Val(:ρsM)]
+    UM = transformU_block_cholesky1(ρsM, cor_ends_M)
+end
+
+
+function sample_ζresid_norm(
+    approx::Union{AbstractMeanScalingHVIApproximation, MeanHVIApproximationMat},
     i_sites,
     zP::AbstractMatrix, zMs::AbstractMatrix, 
     ϕm::TM, ϕq::AbstractVector{T};
     int_ϕq=get_concrete(ComponentArrayInterpreter(ϕq)),
-    cor_ends,
-    # assume to index into ϕq at the beginning, or provide those indices here
+    cor_ends
 ) where {T,TM<:AbstractMatrix{T}}
-    ζMs = ϕm
-    ϕuncc = ϕqc = int_ϕq(CA.getdata(ϕq))
+    ϕqc = int_ϕq(CA.getdata(ϕq))
     ζP = ϕqc[Val(:μP)]
-    n_θP, n_θMs, (n_θM, n_batch) = length(ζP), length(ζMs), size(ζMs)
-    # do not create a UpperTriangular Matrix of an AbstractGÜUArray in transformU_cholesky1
-    ρsP = isempty(ϕuncc[Val(:ρsP)]) ? similar(ϕuncc[Val(:ρsP)]) : ϕuncc[Val(:ρsP)] # required by zygote
+    n_θP, n_θM, n_batch = length(ζP), get_numberof_θM(approx, ϕm), size(ϕm, 2)
+
+    UM = get_cholesky_correlation_Ms(approx, ϕqc, cor_ends.M, ϕm)
+    # isempty conditional required by zygote
+    ρsP = isempty(ϕqc[Val(:ρsP)]) ? similar(ϕqc[Val(:ρsP)]) : ϕqc[Val(:ρsP)] 
     UP = transformU_block_cholesky1(ρsP, cor_ends.P)
-    ρsM = isempty(ϕuncc[Val(:ρsM)]) ? similar(ϕuncc[Val(:ρsM)]) : ϕuncc[Val(:ρsM)] # required by zygote
-    # cholesky factor of the correlation: diag(UM' * UM) .== 1
-    # coefficients ρsM can be larger than 1, still yielding correlations <1 in UM' * UM
-    UM = transformU_block_cholesky1(ρsM, cor_ends.M)
-    cf = ϕuncc[Val(:coef_logσ2_ζMs)]
-    logσ2_logMs = vec(cf[1, :] .+ cf[2, :] .* ζMs)
-    logσ2_ζP = vec(CA.getdata(ϕuncc[Val(:logσ2_ζP)]))
-    # CUDA cannot multiply BlockDiagonal * Diagonal, construct already those blocks
-    σMs = reshape(exp.(logσ2_logMs ./ 2), n_θM, :)
-    σP = exp.(logσ2_ζP ./ 2)
+    (;σP, σMs) = get_marginal_std(approx, ϕqc, ϕm)
+
+    # # add 0 as last logσ2_par_offset-par in block
+    # logσ2_par_offsets_before_end = OneBasedVectorWithZero(ϕqc[Val(:logσ2_ζM_offsets)])
+    # logσ2_par_offsets = logσ2_par_offsets_before_end[approx.idxs_par0]
+    # n_scale_blocks = length(approx.scalingblocks_ends)
+    # n_par = size(ϕm,1) - n_scale_blocks
+    # ζMs = ϕm[1:n_par,:]
+    # logσ2_sites_offset_blocks = logit.(ϕm[(n_par+1):end,:]) # (0..1)->(-Inf, +Inf), 0.5->0
+    # ζP = ϕqc[Val(:μP)]
+    # n_θP, n_θMs, (n_θM, n_batch) = length(ζP), length(ζMs), size(ζMs)
+    # # do not create a UpperTriangular Matrix of an AbgeneraGÜUArray in transformU_cholesky1
+    # # isempty conditional required by zygote
+    # ρsP = isempty(ϕqc[Val(:ρsP)]) ? similar(ϕqc[Val(:ρsP)]) : ϕqc[Val(:ρsP)] 
+    # UP = transformU_block_cholesky1(ρsP, cor_ends.P)
+    # ρsM = isempty(ϕqc[Val(:ρsM)]) ? similar(ϕqc[Val(:ρsM)]) : ϕqc[Val(:ρsM)] 
+    # # cholesky factor of the correlation: diag(UM' * UM) .== 1
+    # # coefficients ρsM can be larger than 1, still yielding correlations <1 in UM' * UM
+    # UM = transformU_block_cholesky1(ρsM, cor_ends.M)
+    # #
+    # logσ2_site_offsets = logσ2_sites_offset_blocks[approx.idxs_repblocks,:]
+    # logσ2_ζMs = approx.logσ2_ζM_bases .+ logσ2_par_offsets .+ logσ2_site_offsets
+    # #
+    # logσ2_ζP = vec(CA.getdata(ϕqc[Val(:logσ2_ζP)]))
+    # # CUDA cannot multiply BlockDiagonal * Diagonal, construct already those blocks
+    # σMs = exp.(logσ2_ζMs ./ T(2))
+    # σP = exp.(logσ2_ζP ./ T(2))
     # BlockDiagonal does work with CUDA, but not with combination of Zygote and CUDA
     # need to construct full matrix for CUDA
     Uσ, diagUσ = _compute_choleskyfactor(UP, UM, σP, σMs, n_batch) # inferred only BlockDiagonal
@@ -675,10 +707,6 @@ function sample_ζresid_norm(approx::MeanHVIApproximationMat,
     # is this multiplication efficient if Uσ is not concrete but only sumtype BlockDiagonal?
     urandn = hcat(zP, zMs)
     ζ_resids_parfirst = (Uσ' * urandn') #::typeof(urandn) # n_par x n_MC
-    # if !all(isfinite.(ζ_resids_parfirst))
-    #     @show ζ_resids_parfirst
-    #     @show Uσ
-    # end
     #ζ_resids_parfirst = (urandn * Uσ)' #::typeof(urandn) # n_par x n_MC
     #ζ_resids_parfirst = urandn' * Uσ # n_MC x n_par
     # need to handle empty(ζP) explicitly, otherwise Zygote tries to take gradient
@@ -691,6 +719,33 @@ function sample_ζresid_norm(approx::MeanHVIApproximationMat,
     # #map(std, eachcol(ζ_resid[:, 2 + n_batch .+ (-1:5)])) # all ~ 100, except first two
     # # returns AbstractGPUuArrays to either continue on GPU or need to transfer to CPU
     # ζ_resid, diagUσ
+end
+
+"""
+Get the marginal standard deviations of the covariance matrix, that usually 
+depends on ML predictions.
+
+Returns a NamedTuple with entries
+- `σP`: vector of marginal standard deviations of population-level parameters
+- `σMs`: `(n_θM, n_indiv)` matrix of marginal standard deviations of individual parameters
+"""
+function get_marginal_std(prob::AbstractHybridProblem, xM::AbstractMatrix; scenario)
+    g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
+    ϕg = prob.ϕg # TODO separate state and avoid prob.ϕg
+    ϕm = g(xM, ϕg)
+    get_marginal_std(prob.approx, prob.ϕq, ϕm)
+end
+
+function get_marginal_std(::AbstractMeanHVIApproximation, 
+    ϕqc::CA.ComponentVector, ϕm::AbstractMatrix=Matrix{eltype(ϕq)}[])
+    ζMs = ϕm
+    n_θM = size(ζMs, 1)
+    cf = ϕqc[Val(:coef_logσ2_ζMs)]
+    logσ2_logMs = vec(cf[1, :] .+ cf[2, :] .* ζMs)
+    logσ2_ζP = vec(CA.getdata(ϕqc[Val(:logσ2_ζP)]))
+    σP = exp.(logσ2_ζP ./ 2)
+    σMs = reshape(exp.(logσ2_logMs ./ 2), n_θM, :)
+    (;σP, σMs)
 end
 
 """
@@ -781,6 +836,9 @@ function _compute_choleskyfactor(
     diagUσ = diag(B)
     B, diagUσ
 end
+
+compute_cov(corU, σ) = Diagonal(σ) * (corU'*corU) * Diagonal(σ)
+compute_invcov(corU, σ) = Diagonal(1 ./ σ) * (inv(corU) * inv(corU')) * Diagonal(1 ./ σ)
 
 # TODO replace by KA.rand when it becomes available, see ones_similar
 # https://github.com/JuliaGPU/KernelAbstractions.jl/issues/488

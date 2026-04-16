@@ -24,12 +24,24 @@ ggdev = gpu_device()
 
 rng = StableRNG(111)
 
+@testset "compute_invcov" begin
+    A = Hermitian(rand(3,3) + I)
+    covU = cholesky(A).U
+    σ = diag(covU)
+    corU = inv(Diagonal(σ)) * covU
+    @test isapprox(corU * Diagonal(σ), covU, rtol=0.1)
+    Apred = CP.compute_cov(corU, σ)
+    @test isapprox(Apred, A, rtol=0.1)
+    inv_pred = CP.compute_invcov(corU, σ)
+    @test isapprox(inv_pred, inv(A), rtol=0.1)
+end
+
 const prob = DoubleMM.DoubleMMCase()
 scenario = Val((:covarK2,))
 scenario = Val((:scalingall,))
-scenario = Val((:clustered_sites,))
 scenario = Val((:sepvar,))
 scenario = Val((:default,))
+scenario = Val((:clustered_sites,))
 
 pt = get_hybridproblem_par_templates(prob; scenario)
 FT = eltype(pt.θM)
