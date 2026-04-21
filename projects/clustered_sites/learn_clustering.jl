@@ -35,13 +35,11 @@ X_matrix = Matrix(df)
 
 # Precompute differences: (X_i - X_j) for all i, j
 # Use broadcasting to compute all pairwise differences
+n_rows, n_vars = size(X_matrix)  # e.g., 2000×10
 #diffs = X_matrix' .- X_matrix  # Shape: (n_vars, n_rows, n_rows)
 diffs = reshape(X_matrix, n_rows, 1, n_vars) .- reshape(X_matrix, 1, n_rows, n_vars)
 
-# If you want to go faster, use:
-# dist_matrix = sqrt.(sum((diffs * Sigma_inv) .* diffs, dims=3)[:, :, 1])
 
-n_rows, n_vars = size(X_matrix)  # e.g., 2000×10
 
 # Step 4: Compute Mahalanobis distances
 dist_matrix = zeros(n_rows, n_rows)
@@ -51,6 +49,8 @@ for i in 1:n_rows
         dist_matrix[i, j] = sqrt(diff' * Sigma_inv * diff)
     end
 end
+# If you want to go faster, use:
+# dist_matrix = sqrt.(sum((diffs * Sigma_inv) .* diffs, dims=3)[:, :, 1])
 
 # Step 5: Hierarchical clustering
 #linkage_matrix = linkage(dist_matrix, :ward)

@@ -129,14 +129,27 @@ else
     (; probo, interpreters) = solve(probo_point, solver; rng,
         callback = callback_loss(100), # output during fitting
         epochs = 200,
+        cluster_rep = 20, # assume n sites together in one cluster
     );
     # continue with more MC samples for better approximation
     solver = HybridPosteriorSolver(; alg=Adam(0.001), n_MC=6)
     (; probo, interpreters) = solve(probo, solver; rng,
         callback = callback_loss(100), # output during fitting
         epochs = 300,
+        cluster_rep = 20, # assume n sites together in one cluster
     );
     probo_unclustered = HybridProblem(probo);
+end
+```
+
+```{julia}
+() -> begin
+    fname = "intermediate/probo_point.jld2"
+    mkpath("intermediate")
+    if probo_point isa AbstractHybridProblem # do not save on failure above
+        jldsave(fname, false, IOStream; probo = probo_point)
+    end
+    probo = load(fname, "probo");
 end
 ```
 
@@ -200,10 +213,15 @@ function sample_and_aggregate(rng, probo, n_sample_pred = 400)
     #θMs_stdpred_tr = apply_preserve_axes(x -> std(x, dims=3),θsMs_tr)[:,:,1]
     (; y, θsP, θsMs_tr, θMs_pred_tr, θMs_dist_pred_tr, θMs_mode_pred_tr, θMs_q05pred_tr, θMs_q95pred_tr)
 end
+() -> begin
+    s = sample_and_aggregate(rng, probo);
+end
+```
+
+```{julia}
 using StableRNGs
 rng = StableRNG(112)
 s_unclustered = sample_and_aggregate(rng, probo_unclustered);
-
 ```
 
 ```{julia}
@@ -432,6 +450,16 @@ end
 
 ### Inspect clustered vs non_clustered
 
+Load the clusterd and non-clustered results
+```{julia}
+probo_point = load("intermediate/probo_unclustered.jld2", "probo");
+s_unclustered = sample_and_aggregate(rng, probo_unclustered);
+probo_unclustered = load("intermediate/probo_unclustered.jld2", "probo");
+s_unclustered = sample_and_aggregate(rng, probo_unclustered);
+probo_clustered = load("intermediate/probo_clustered.jld2", "probo");
+s = s_clustered = sample_and_aggregate(rng, probo_clustered);
+```
+
 For plotting use AoG and collection information into a DataFrame.
 ```{julia}
 using AlgebraOfGraphics, CairoMakie, DataFrames
@@ -493,6 +521,9 @@ Start with the unclustered HVI results (each observation its own cluster)
 
 ```{julia}
 probo = probo_unclustered
+probo = probo_clustered
+probo = probo_point
+
 ```
 
 Get the lower triangular cholesky factor of the correlation matrix. This is
@@ -500,9 +531,31 @@ easier to invert than the full correlation matrix.
 
 ```{julia}
 using LinearAlgebra
+#using Clustering
 Ucor = get_hybridproblem_cholesky_correlation_Ms(probo, train_data.xM; scenario)
 (;σP, σMs) = get_marginal_std(probo, train_data.xM; scenario)
-invΣ = HybridVariationalInference.compute_invcov(Ucor, σMs)
+σM = vec(median(σMs; dims=2))
+#invΣ = HybridVariationalInference.compute_invcov(Ucor, σM)
+#Σ = HybridVariationalInference.compute_cov(Ucor, σM)
+# Σ * invΣ
+#X_matrix = train_data.xM'  # cluster ML outputs rather than covariates
+n_sample_pred = 400
+g, ϕg0 = get_hybridproblem_MLapplicator(probo; scenario)
+n_θ = HybridVariationalInference.get_numberof_θM(probo.approx, ϕg0)
+ζ = g(train_data.xM, probo.ϕg)
+X_matrix = ζ'[:,1:n_θ]
+#
+n_cluster = 4
+clusters = HybridVariationalInference.cluster_records(X_matrix, Ucor, σM; n_cluster);
+#
+# check within each cluster, if distribution of parameters is
+# larger than predicted uncertainty and split cluster
+i_cluster = 3
+i_sites = findall(isequal.(clusters, 3))
+X_matrix = ζ'[i_sites,1:n_θ]
+σM = vec(median(σMs[:,i_sites]; dims=2))
+
+
 ```
 
 

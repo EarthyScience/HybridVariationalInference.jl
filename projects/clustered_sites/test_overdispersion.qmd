@@ -1,0 +1,79 @@
+
+# Testing for points within cluster to be spread more than expected by average Covariance
+
+## Test counting the number of pairs
+That share one component.
+```{julia}
+using Plots
+using StatsBase: binomial
+
+# Function to count overlapping pairs (shared exactly one point)
+function count_overlapping_pairs(m)
+    # Generate all unordered pairs (i,j) with i < j
+    pairs = collect(Iterators.flatten(((i, j) for j in i+1:m) for i in 1:m))
+    N = length(pairs)
+
+    count = 0
+    # Loop over all unordered pairs of pairs
+    for i in 1:N
+        for j in (i+1):N
+            p1 = pairs[i]
+            p2 = pairs[j]
+            # Count intersection: share one point
+            # (1,2) and (2,3) share point 2, but (1,2) and (3,4) share no points
+            n_shared = length(intersect(p1, p2))
+            if n_shared == 1
+                count += 1
+            elseif n_shared > 1
+                error("Unexpected: pairs should not share more than one point")
+            end
+        end
+    end
+    return count
+end
+
+# Generate data for m = 3 to 15
+m_values = 3:10
+counts = [count_overlapping_pairs(m) for m in m_values]
+expected = [3 * binomial(m, 3) for m in m_values]
+
+# Create the plot
+Plots.plot(m_values, counts, 
+     label="Observed", 
+     marker=:circle, 
+     color=:blue, 
+     linewidth=2,
+     xlabel="Number of Points (m)",
+     ylabel="Number of Overlapping Pairs",
+     title="Number of Unordered Pairs of Pairs Sharing Exactly One Point",
+     grid=true,
+     legend=:topright)
+
+# Add expected line
+Plots.plot!(m_values, expected, 
+      label="Expected: 3 × binom{m}{3}", 
+      linestyle=:dash, 
+      color=:red, 
+      linewidth=2)
+
+# Add annotations
+annotate!(10, 100, text("Matches exactly", :right, 10, :black))
+
+# Save as PNG (optional)
+# savefig("overlapping_pairs_plot.png")
+
+# Display
+display(plot!)
+```
+
+## Test simplifying Cov formula
+
+```{julia}
+n = 2
+m_values = 3:10
+expected1 = [2*n * binomial(m,2) + 2*n * 3 * binomial(m, 3) for m in m_values]
+expected2 = [n * m * abs2(m-1) for m in m_values]
+expected1 == expected2
+```
+
+## derivation

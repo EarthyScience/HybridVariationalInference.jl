@@ -200,6 +200,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     approx = prob.approx,
     clusters::AbstractVector{<:Integer} = 
         1:first(get_hybridproblem_n_site_and_batch(prob; scenario)),
+    cluster_rep = 1, 
     kwargs...
 ) where {scen, is_infer, omit_priors}
     pt = get_hybridproblem_par_templates(prob; scenario)
@@ -209,7 +210,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     n_sites_cluster = [count(==(element),clusters) for element in 1:maximum(clusters)]
-    frac_cluster_all = 1 ./ n_sites_cluster[clusters] 
+    frac_cluster_all = (1 / cluster_rep) ./ n_sites_cluster[clusters] 
     ϕq = get_hybridproblem_ϕq(prob; scenario)
     (; ϕ, interpreters) = init_hybrid_params(ϕg0, ϕq)
     int_ϕq = interpreters.ϕq

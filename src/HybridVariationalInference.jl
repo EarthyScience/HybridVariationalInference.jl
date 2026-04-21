@@ -145,4 +145,7 @@ include("RRuleMonitor.jl")
 
 include("chainrulescore.jl")
 
+export cluster_records
+include("clustering.jl")
+
 end
