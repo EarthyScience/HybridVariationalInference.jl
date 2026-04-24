@@ -46,13 +46,14 @@ using MLUtils
 using ComponentArrays: ComponentArrays as CA
 using SimpleChains # for reloading the optimized problem
 using DistributionFits
+import StatsBase
 using JLD2
 using CairoMakie
 using PairPlots   # scatterplot matrices
 if !isdefined(Main, :load_inversion_results)
     load_inversion_results = false
 end
-#load_inversion_results = true  # for loading rather than recalibrating
+# load_inversion_results = true  # for loading rather than recalibrating
 ```
 
 ```{julia}
@@ -104,13 +105,30 @@ n_sites_cluster
 Makie.boxplot(clusters, train_data.θMs_true[2,:], axis=(;xlabel="cluster", ylabel="true K1"))
 ```
 
+For experimenting with clustering later, assume that each site is a representative
+of a larger cluster, and hence its uncertainty is reduced.
+Asumme `n_cluster_initial` clusters, that will be split into smaller cluster 
+during the process.
+It is expected that is easiert to find a good fit for the uncertainty with larger
+clusters and smaller estimated uncertainty, because the expected value on 
+transformed scale is closer to the point estimate.
+
+
+### Perform the inversion
+
+```{julia}
+n_cluster_initial = 12
+cluster_rep = size(train_data.xP,2) ÷ n_cluster_initial
+#cluster_rep = 8  # start with larger uncertainty to detect 
+```
+
 ```{julia}
 using OptimizationOptimisers
 import Zygote
 ENV["MLDATADEVICES_SILENCE_WARN_NO_GPU"] = 1
 if load_inversion_results
-    fname = "intermediate/probo_unclustered.jld2"
-    probo = probo_unclustered = load(fname, "probo");
+    probo_point = load("intermediate/probo_point.jld2", "probo");
+    probo_unclustered = load("intermediate/probo_unclustered.jld2", "probo");
 else
     solver = HybridPointSolver(; alg=Adam(0.002))
     (; probo) = solve(prob0, solver; rng,
@@ -125,50 +143,49 @@ else
     );
     probo_point = HybridProblem(probo);
 
+    () -> begin
+        fname = "intermediate/probo_point.jld2"
+        mkpath("intermediate")
+        if probo_point isa AbstractHybridProblem # do not save on failure above
+            jldsave(fname, false, IOStream; probo = probo_point)
+        end
+        probo = load(fname, "probo");
+    end
+
     solver = HybridPosteriorSolver(; alg=Adam(0.001), n_MC=3)
     (; probo, interpreters) = solve(probo_point, solver; rng,
         callback = callback_loss(100), # output during fitting
         epochs = 200,
-        cluster_rep = 20, # assume n sites together in one cluster
+        cluster_rep,
     );
     # continue with more MC samples for better approximation
-    solver = HybridPosteriorSolver(; alg=Adam(0.001), n_MC=6)
+    # but also with more samples per batch
+    probo = HybridProblem(probo, n_batch = min(n_site, probo_point.n_batch * 4))
+    solver = HybridPosteriorSolver(; alg=Adam(0.0002), n_MC=6)
     (; probo, interpreters) = solve(probo, solver; rng,
         callback = callback_loss(100), # output during fitting
         epochs = 300,
-        cluster_rep = 20, # assume n sites together in one cluster
+        cluster_rep,
     );
     probo_unclustered = HybridProblem(probo);
-end
-```
 
-```{julia}
-() -> begin
-    fname = "intermediate/probo_point.jld2"
-    mkpath("intermediate")
-    if probo_point isa AbstractHybridProblem # do not save on failure above
-        jldsave(fname, false, IOStream; probo = probo_point)
+    () -> begin
+        fname = "intermediate/probo_unclustered.jld2"
+        mkpath("intermediate")
+        if probo_unclustered isa AbstractHybridProblem # do not save on failure above
+            jldsave(fname, false, IOStream; probo = probo_unclustered, interpreters)
+        end
     end
-    probo = load(fname, "probo");
 end
 ```
 
-```{julia}
-() -> begin
-    fname = "intermediate/probo_unclustered.jld2"
-    mkpath("intermediate")
-    if probo_unclustered isa AbstractHybridProblem # do not save on failure above
-        jldsave(fname, false, IOStream; probo = probo_unclustered, interpreters)
-    end
-    probo = load(fname, "probo");
-end
-```
 
-Try inverting full batches, i.e. all sites together, to see if this
-changes estimated uncertainty.
+
 
 ```{julia}
 () -> begin
+    # Try inverting full batches, i.e. all sites together, to see if this
+    # changes estimated uncertainty.
     probo = prob_allsites = HybridProblem(probo; n_batch = n_site)
     solver = HybridPosteriorSolver(; alg=Adam(0.001), n_MC=6)
     (; probo, interpreters) = solve(probo, solver; rng,
@@ -176,17 +193,15 @@ changes estimated uncertainty.
         epochs = 300,
     );
     probo_unclusterd_allsites = HybridProblem(probo);
-end
-```
 
-```{julia}
-() -> begin
-    fname = "intermediate/clustered_sites_probo_allsites.jld2"
-    mkpath("intermediate")
-    if probo_allsites isa AbstractHybridProblem # do not save on failure above
-        jldsave(fname, false, IOStream; probo = probo_allsites, interpreters)
+    () -> begin
+        fname = "intermediate/clustered_sites_probo_allsites.jld2"
+        mkpath("intermediate")
+        if probo_allsites isa AbstractHybridProblem # do not save on failure above
+            jldsave(fname, false, IOStream; probo = probo_allsites, interpreters)
+        end
+        probo = load(fname, "probo");
     end
-    probo = load(fname, "probo");
 end
 ```
 
@@ -250,7 +265,7 @@ end
 Correlation is greatly overesimated?
 ```{julia}
 #CM = HVI.get_hybridproblem_correlation_Ms(prob)
-CM = HVI.get_hybridproblem_correlation_Ms(probo)
+CM = HVI.get_hybridproblem_correlation_Ms(probo; xM = train_data.xM)
 ```
 
 Leads to slight biases in some parameters of median prediction.
@@ -421,7 +436,7 @@ s = s_clustered_800 = sample_and_aggregate(rng, probo_clustered_800);
     if probo_clustered isa AbstractHybridProblem # do not save on failure above
         jldsave(fname, false, IOStream; probo = probo_clustered, interpreters)
     end
-    probo = load(fname, "probo");
+    probo_clustered = probo = load(fname, "probo");
 end
 ```
 
@@ -520,42 +535,51 @@ within one cluster.
 Start with the unclustered HVI results (each observation its own cluster)
 
 ```{julia}
-probo = probo_unclustered
-probo = probo_clustered
-probo = probo_point
+() -> begin
+    # start from the unclustered inversion
+    fname = "intermediate/probo_unclustered.jld2"
+    prob = probo_unclustered = load(fname, "probo");
+end
+```
 
+```{julia}
+probo = HybridProblem(probo_point)
+probo = HybridProblem(probo_clustered)
+probo = HybridProblem(probo_unclustered)
 ```
 
 Get the lower triangular cholesky factor of the correlation matrix. This is
 easier to invert than the full correlation matrix.
 
 ```{julia}
-using LinearAlgebra
-#using Clustering
-Ucor = get_hybridproblem_cholesky_correlation_Ms(probo, train_data.xM; scenario)
-(;σP, σMs) = get_marginal_std(probo, train_data.xM; scenario)
-σM = vec(median(σMs; dims=2))
-#invΣ = HybridVariationalInference.compute_invcov(Ucor, σM)
-#Σ = HybridVariationalInference.compute_cov(Ucor, σM)
-# Σ * invΣ
-#X_matrix = train_data.xM'  # cluster ML outputs rather than covariates
-n_sample_pred = 400
-g, ϕg0 = get_hybridproblem_MLapplicator(probo; scenario)
-n_θ = HybridVariationalInference.get_numberof_θM(probo.approx, ϕg0)
-ζ = g(train_data.xM, probo.ϕg)
-X_matrix = ζ'[:,1:n_θ]
-#
-n_cluster = 4
-clusters = HybridVariationalInference.cluster_records(X_matrix, Ucor, σM; n_cluster);
-#
-# check within each cluster, if distribution of parameters is
-# larger than predicted uncertainty and split cluster
-i_cluster = 3
-i_sites = findall(isequal.(clusters, 3))
-X_matrix = ζ'[i_sites,1:n_θ]
-σM = vec(median(σMs[:,i_sites]; dims=2))
-
+solver = HybridPosteriorSolver(; alg=Adam(0.002), n_MC=6)
+(; probo, clusters) = HVI.refit_clusters(rng, probo, solver, train_data.xM; scenario)
 
 ```
 
+Plot the clusters.
+```{julia}
+    fig = Figure(); ax = Axis(fig[1,1], xlabel="ζ_1",ylabel="ζ_2")
+    #i_cluster = first(cluster_ids)
+    for i_cluster in 1:maximum(clusters)
+        i_sites_cluster = findall(clusters .== i_cluster)
+        #scatter!(ax, mean(X[i_sites_cluster,1]), std(X[i_sites_cluster,1])) 
+        scatter!(ax, X[i_sites_cluster,1], X[i_sites_cluster,2]) 
+    end
+    #ablines!(ax, [σ] ,[0])
+    fig
+```
+
+There are clusters with as few as two or three individuals, but also clusters with about 50 individuals.
+
+```{julia}
+cnts_clusters = StatsBase.countmap(clusters)
+sort(collect(values(cnts_clusters)))
+```
+
+Compare observed and predicted marginal distances within each cluster.
+
+```{julia}
+
+```
 

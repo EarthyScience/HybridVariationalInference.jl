@@ -28,10 +28,10 @@ rng = StableRNG(111)
     A = Hermitian(rand(3,3) + I)
     covU = cholesky(A).U
     σ = diag(covU)
-    corU = inv(Diagonal(σ)) * covU
-    @test isapprox(corU * Diagonal(σ), covU, rtol=0.1)
+    corU = covU * inv(Diagonal(σ))
+    @test isapprox(corU * Diagonal(σ), covU, rtol=0.01)
     Apred = CP.compute_cov(corU, σ)
-    @test isapprox(Apred, A, rtol=0.1)
+    @test isapprox(Apred, A, rtol=0.01)
     inv_pred = CP.compute_invcov(corU, σ)
     @test isapprox(inv_pred, inv(A), rtol=0.1)
 end

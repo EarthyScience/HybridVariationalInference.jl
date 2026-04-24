@@ -630,7 +630,7 @@ At unconstrained parameter scale.
 """
 function get_hybridproblem_correlation_Ms(prob::AbstractHybridProblem; 
     xM = nothing, scenario = Val(()))
-    UM = get_hybridproblem_cholesky_correlation_Ms(prob; xM, scenario)
+    UM = get_hybridproblem_cholesky_correlation_Ms(prob, xM; scenario)
     UM' * UM
 end
 
