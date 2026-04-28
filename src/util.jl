@@ -34,6 +34,20 @@ function vectuptotupvec_allowmissing(
         allowmissing(passmissing(getindex).(vectup, i))::Vector{Tim[i]}
     end, npar)
 end
+function vectuptotupvec(vecntup::AbstractVector{<:NamedTuple{KEYS}}) where KEYS
+    #vectup = values.(vecntup)   
+    Ti = eltype(vecntup).parameters[2].parameters
+    npar = length(Ti)
+    tupvec = ntuple(i -> 
+        (getindex.(vecntup, i))::Vector{Ti[i]}, npar)
+    NamedTuple{KEYS}(tupvec)
+end
+# function vectuptotupvec_(vecntup::AbstractVector{<:NamedTuple}) 
+#     vectup = values.(vecntup)
+#     tupvec = vectuptotupvec(vectup)
+#     NamedTuple{keys(first(vecntup))}(tupvec)
+# end
+
 
 """
     take_n!(itr, n)  

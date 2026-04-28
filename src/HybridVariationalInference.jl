@@ -145,7 +145,7 @@ include("RRuleMonitor.jl")
 
 include("chainrulescore.jl")
 
-export cluster_records
+export cluster_records, extract_MLpred
 include("clustering.jl")
 
 end

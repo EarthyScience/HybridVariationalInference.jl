@@ -98,16 +98,21 @@ The synthetic data (observations and covariates) for this exercise generated par
 three clusters with different number of sites.
 
 ```{julia}
-n_sites_cluster, clusters = HybridVariationalInference.get_clusters(n_site; scenario);
+n_sites_cluster, clusters_pre = HVI.get_clusters(n_site; scenario);
 n_sites_cluster
 ```
 ```{julia}
-Makie.boxplot(clusters, train_data.θMs_true[2,:], axis=(;xlabel="cluster", ylabel="true K1"))
+Makie.boxplot(clusters_pre, train_data.θMs_true[1,:], axis=(;xlabel="cluster", ylabel="true r1"))
 ```
+
+```{julia}
+Makie.barplot(n_sites_cluster, axis=(;xlabel="cluster", ylabel="number of observations"))
+```
+
 
 For experimenting with clustering later, assume that each site is a representative
 of a larger cluster, and hence its uncertainty is reduced.
-Asumme `n_cluster_initial` clusters, that will be split into smaller cluster 
+Asumme `n_cluster_initial` clusters_pre, that will be split into smaller cluster 
 during the process.
 It is expected that is easiert to find a good fit for the uncertainty with larger
 clusters and smaller estimated uncertainty, because the expected value on 
@@ -128,7 +133,7 @@ import Zygote
 ENV["MLDATADEVICES_SILENCE_WARN_NO_GPU"] = 1
 if load_inversion_results
     probo_point = load("intermediate/probo_point.jld2", "probo");
-    probo_unclustered = load("intermediate/probo_unclustered.jld2", "probo");
+    probo_unclustered_rep = load("intermediate/probo_unclustered_rep.jld2", "probo");
 else
     solver = HybridPointSolver(; alg=Adam(0.002))
     (; probo) = solve(prob0, solver; rng,
@@ -149,7 +154,7 @@ else
         if probo_point isa AbstractHybridProblem # do not save on failure above
             jldsave(fname, false, IOStream; probo = probo_point)
         end
-        probo = load(fname, "probo");
+        probo_point = probo = load(fname, "probo");
     end
 
     solver = HybridPosteriorSolver(; alg=Adam(0.001), n_MC=3)
@@ -167,7 +172,25 @@ else
         epochs = 300,
         cluster_rep,
     );
-    probo_unclustered = HybridProblem(probo);
+    probo_unclustered_rep = HybridProblem(probo);
+
+    () -> begin
+        fname = "intermediate/probo_unclustered_rep.jld2"
+        mkpath("intermediate")
+        if probo_unclustered_rep isa AbstractHybridProblem # do not save on failure above
+            jldsave(fname, false, IOStream; probo = probo_unclustered_rep, interpreters)
+        end
+    end
+
+    # refit without cluster_rep to compare to clustered result
+    probo = probo_unclustered_rep
+    solver = HybridPosteriorSolver(; alg=Adam(0.002), n_MC=3)
+    (; probo, interpreters) = solve(probo, solver; rng,
+        callback = callback_loss(100), # output during fitting
+        epochs = 1000,
+        # do not inlcude cluster_rep,
+    );
+    probo_unclustered = probo
 
     () -> begin
         fname = "intermediate/probo_unclustered.jld2"
@@ -176,10 +199,9 @@ else
             jldsave(fname, false, IOStream; probo = probo_unclustered, interpreters)
         end
     end
+
 end
 ```
-
-
 
 
 ```{julia}
@@ -236,7 +258,7 @@ end
 ```{julia}
 using StableRNGs
 rng = StableRNG(112)
-s_unclustered = sample_and_aggregate(rng, probo_unclustered);
+s_unclustered = sample_and_aggregate(rng, probo_unclustered_rep);
 ```
 
 ```{julia}
@@ -280,7 +302,8 @@ par = :r1
 i_cluster = 2
 #i_cluster = 1
 #i_cluster = 3
-i_sites_cluster = findall(clusters .== i_cluster)
+i_sites_cluster = findall(clusters_pre .== i_cluster)
+i_sites_cluster = axes(clusters_pre,1)
 fig = Figure(); ax = Axis(fig[1,1], xlabel="true $par in cluster $i_cluster",ylabel="predicted $par")
 scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], s.θMs_q95pred_tr[:,par][i_sites_cluster], label = "95% quantile") 
 scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], s.θMs_mode_pred_tr[:,par][i_sites_cluster], label = "mode") 
@@ -289,6 +312,22 @@ scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], s.θMs_q05pred_tr[:,p
 ablines!(ax, 0, 1, color=:lightgray)
 axislegend(ax, unique=true; position = :rb)
 fig
+```
+
+
+```{julia}
+par = :r1
+i_sites_cluster = findall(clusters_pre .== i_cluster)
+i_sites_cluster = axes(clusters_pre,1)
+fig = Figure(); ax = Axis(fig[1,1], xlabel="true $par",ylabel="predicted $par")
+scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], s.θMs_q95pred_tr[:,par][i_sites_cluster], label = "95% quantile") 
+scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], s.θMs_mode_pred_tr[:,par][i_sites_cluster], label = "mode") 
+# scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], s,θMs_meanpred_tr[:,par][i_sites_cluster]) 
+scatter!(ax, train_data.θMs_true[par,:][i_sites_cluster], s.θMs_q05pred_tr[:,par][i_sites_cluster], label = "5% quantile") 
+ablines!(ax, 0, 1, color=:lightgray)
+axislegend(ax, unique=true; position = :rb)
+fig
+
 ```
 
 The true parameter are well within the predicted distribution.
@@ -309,13 +348,16 @@ But its not the case.
 
 par = :r1
 #par = :K1
-#boxplot(clusters, θMs_stdlogpred_tr[:,par], axis=(;xlabel="cluster", ylabel="std(log.($par))"))
-#boxplot(clusters, θMs_stdpred_tr[:,par], axis=(;xlabel="cluster", ylabel="std($par)"))
-boxplot(clusters, θMs_ci90_tr[:,par], axis=(;xlabel="cluster", ylabel="length cf 90% ($par)"))
+#boxplot(clusters_pre, θMs_stdlogpred_tr[:,par], axis=(;xlabel="cluster", ylabel="std(log.($par))"))
+#boxplot(clusters_pre, θMs_stdpred_tr[:,par], axis=(;xlabel="cluster", ylabel="std($par)"))
+boxplot(clusters_pre, θMs_ci90_tr[:,par], axis=(;xlabel="cluster", ylabel="length cf 90% ($par)"))
 
-#boxplot(clusters, θMs_stdpred_tr[:,par] ./ θMs_meanpred_tr[:,par], axis=(;xlabel="cluster", ylabel="cv($par)"))
+#boxplot(clusters_pre, θMs_stdpred_tr[:,par] ./ θMs_meanpred_tr[:,par], axis=(;xlabel="cluster", ylabel="cv($par)"))
 ```
 
+```{julia}
+scatter(s.θMs_pred_tr[:,par], θMs_ci90_tr[:,par], color = clusters_pre, axis=(;xlabel="predicted $par", ylabel="length cf 90% ($par)"))
+```
 Plot range of predictions.
 
 The synthetic noise in the observations is of magnitude (standard deviation):
@@ -341,7 +383,7 @@ ysd = [std(s.y[i_obs,i_site,:]) for i_site in axes(s.θsMs_tr, 1)]
 fig = Figure(); ax = Axis(fig[1,1], xlabel="mean(y$i_obs)",ylabel="sd(y$i_obs)")
 #i_cluster = 1
 for i_cluster in axes(n_sites_cluster,1) 
-    local i_sites_cluster = findall(clusters .== i_cluster)
+    local i_sites_cluster = findall(clusters_pre .== i_cluster)
     scatter!(ax, ymean[i_sites_cluster], ysd[i_sites_cluster]) 
 end
 ablines!(ax, [σ] ,[0])
@@ -356,16 +398,16 @@ information on the clustering to the HVI inversion.
 ```{julia}
 () -> begin
     # start from the unclustered inversion
-    fname = "intermediate/probo_unclustered.jld2"
-    prob = probo_unclustered = load(fname, "probo");
+    fname = "intermediate/probo_unclustered_rep.jld2"
+    prob = probo_unclustered_rep = load(fname, "probo");
 end
 ```
 
 ```{julia}
 () -> begin
     # try with larger number of sites within batch
-    prob = HybridProblem(probo_unclustered; n_batch = 400)
-    prob = HybridProblem(probo_unclustered; n_batch = n_site)
+    prob = HybridProblem(probo_unclustered_rep; n_batch = 400)
+    prob = HybridProblem(probo_unclustered_rep; n_batch = n_site)
 end
 ```
 
@@ -463,12 +505,115 @@ end
 ```
 
 
+## Clustering sites
+
+Rather than doing three big clusters, start with smaller clusters
+and increase cluster size until estimates variance of a single predicted
+parameter at unconstrained scale matches the variance of the predictions
+within one cluster.
+
+Start with the unclustered HVI results (each observation its own cluster)
+
+```{julia}
+() -> begin
+    # start from the unclustered inversion
+    fname = "intermediate/probo_unclustered_rep.jld2"
+    prob = probo_unclustered_rep = load(fname, "probo");
+end
+```
+
+```{julia}
+() -> begin
+    probo = HybridProblem(probo_point)
+    probo = HybridProblem(probo_clustered)
+    probo = HybridProblem(probo_unclustered_rep)
+end
+```
+
+Get the lower triangular cholesky factor of the correlation matrix. This is
+easier to invert than the full correlation matrix.
+
+```{julia}
+solver = HybridPosteriorSolver(; alg=Adam(0.001), n_MC=6)
+(; probo, clusters) = HVI.refit_clusters(rng, probo, solver, train_data.xM; scenario)
+probo_clustered = probo
+# probo = probo_clustered
+s = s_clustered = sample_and_aggregate(rng, probo_clustered);
+
+
+() -> begin
+        fname = "intermediate/probo_clustered.jld2"
+        mkpath("intermediate")
+        if probo_clustered isa AbstractHybridProblem # do not save on failure above
+            jldsave(fname, false, IOStream; probo = probo_clustered, clusters)
+        end
+        probo, clusters = load(fname, "probo", "clusters");
+end
+```
+
+Plot the clusters.
+```{julia}
+    fig = Figure(); ax = Axis(fig[1,1], xlabel="ζ_1",ylabel="ζ_2")
+    #i_cluster = first(cluster_ids)
+    for i_cluster in 1:maximum(clusters)
+        i_sites_cluster = findall(clusters .== i_cluster)
+        #scatter!(ax, mean(X[i_sites_cluster,1]), std(X[i_sites_cluster,1])) 
+        scatter!(ax, X[i_sites_cluster,1], X[i_sites_cluster,2]) 
+    end
+    #ablines!(ax, [σ] ,[0])
+    fig
+```
+
+There are clusters with only few individuals, but also clusters with about 50 individuals.
+
+```{julia}
+cnts_clusters = StatsBase.countmap(clusters)
+sort(collect(values(cnts_clusters)))
+```
+
+Compare observed and predicted marginal distances within each cluster.
+
+```{julia}
+(; X, σMs) = extract_MLpred(probo, train_data.xM; scenario)
+i_par = 2
+stat_cluster = map((k for k in keys(cnts_clusters))) do i_cluster
+    i_sites = findall(isequal.(clusters, i_cluster))
+    X_cl = X[i_sites,:]
+    σM_cl = vec(std(X_cl; dims = 1))
+    q05 = quantile(X_cl[:,i_par], 0.05)
+    q95 = quantile(X_cl[:,i_par], 0.95)
+    σM_cl_pred = vec(median(σMs[:,i_sites]; dims=2))
+    ζ_cl = vec(median(X_cl; dims=1))
+    #HVI.check_overdispersion(X_cl, Ucor, σM_cl_pred) 
+    (;i_cluster, σM_pred = σM_cl_pred[i_par], σM = σM_cl[i_par], ζ = ζ_cl[i_par], q05, q95)
+end |> HVI.vectuptotupvec
+
+fig = Figure(); ax = Axis(fig[1,1], xlabel="ζ_$i_par",ylabel="standard deviation")
+scatter!(ax, stat_cluster.ζ, stat_cluster.σM_pred, label = "predicted")
+scatter!(ax, stat_cluster.ζ, stat_cluster.σM, label = "across sites in cluster")
+axislegend(ax, unique=true; position = :rt)
+fig
+```
+
+The predicted uncertainty decreases with prescribed clusters, but in a continuous
+fashion.
+```{julia}
+scatter(X[:,1], σMs[1,:], color = clusters_pre, axis=(;xlabel="predicted ζ_r", ylabel="predicted standard deviation"))
+```
+```{julia}
+fig = Figure(); ax = Axis(fig[1,1], xlabel="ζ_$i_par",ylabel="std")
+scatter!(ax, stat_cluster.ζ, stat_cluster.ζ)
+scatter!(ax, stat_cluster.ζ, stat_cluster.q05)
+scatter!(ax, stat_cluster.ζ, stat_cluster.q95)
+fig
+```
+
 ### Inspect clustered vs non_clustered
 
 Load the clusterd and non-clustered results
 ```{julia}
-probo_point = load("intermediate/probo_unclustered.jld2", "probo");
-s_unclustered = sample_and_aggregate(rng, probo_unclustered);
+probo_point = load("intermediate/probo_point.jld2", "probo");
+s_point = sample_and_aggregate(rng, probo_point);
 probo_unclustered = load("intermediate/probo_unclustered.jld2", "probo");
 s_unclustered = sample_and_aggregate(rng, probo_unclustered);
 probo_clustered = load("intermediate/probo_clustered.jld2", "probo");
@@ -489,7 +634,7 @@ ssym = first(keys(ss))
 df = mapreduce(vcat, keys(ss)) do ssym
     s = ss[ssym]
     mapreduce(vcat, pars) do par 
-        df = DataFrame(;clustering=ssym, par, cluster = clusters, dist = s.θMs_dist_pred_tr[:,par])
+        df = DataFrame(;clustering=ssym, par, cluster = clusters_pre, dist = s.θMs_dist_pred_tr[:,par])
     end
 end
 df = transform(df, :dist .=> 
@@ -525,61 +670,5 @@ Another hypothesis is that the inversion is strongly influenced not accounting f
 Residual variance in observations is entirely allocated to uncertainty in
 model parameters. 
 
-## Clustering sites
 
-Rather than doing three big clusters, start with smaller clusters
-and increase cluster size until estimates variance of a single predicted
-parameter at unconstrained scale matches the variance of the predictions
-within one cluster.
-
-Start with the unclustered HVI results (each observation its own cluster)
-
-```{julia}
-() -> begin
-    # start from the unclustered inversion
-    fname = "intermediate/probo_unclustered.jld2"
-    prob = probo_unclustered = load(fname, "probo");
-end
-```
-
-```{julia}
-probo = HybridProblem(probo_point)
-probo = HybridProblem(probo_clustered)
-probo = HybridProblem(probo_unclustered)
-```
-
-Get the lower triangular cholesky factor of the correlation matrix. This is
-easier to invert than the full correlation matrix.
-
-```{julia}
-solver = HybridPosteriorSolver(; alg=Adam(0.002), n_MC=6)
-(; probo, clusters) = HVI.refit_clusters(rng, probo, solver, train_data.xM; scenario)
-
-```
-
-Plot the clusters.
-```{julia}
-    fig = Figure(); ax = Axis(fig[1,1], xlabel="ζ_1",ylabel="ζ_2")
-    #i_cluster = first(cluster_ids)
-    for i_cluster in 1:maximum(clusters)
-        i_sites_cluster = findall(clusters .== i_cluster)
-        #scatter!(ax, mean(X[i_sites_cluster,1]), std(X[i_sites_cluster,1])) 
-        scatter!(ax, X[i_sites_cluster,1], X[i_sites_cluster,2]) 
-    end
-    #ablines!(ax, [σ] ,[0])
-    fig
-```
-
-There are clusters with as few as two or three individuals, but also clusters with about 50 individuals.
-
-```{julia}
-cnts_clusters = StatsBase.countmap(clusters)
-sort(collect(values(cnts_clusters)))
-```
-
-Compare observed and predicted marginal distances within each cluster.
-
-```{julia}
-
-```
 

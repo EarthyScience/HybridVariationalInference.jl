@@ -6,6 +6,7 @@ function refit_clusters(rng, probo, solver, xM ;
     σM = vec(median(σMs; dims=2))
     # first clustering based on uncertainty of unclusterd sites but with argument cluster_rep
     clusters = clusters0 = cluster_records(X, Ucor, σM; n_cluster = n_cluster_initial)
+    (; probo, X, σMs) = refit(rng, probo, solver, xM, clusters; scenario, epochs)
     # cnts_clusters_tosplit tracks the number of sites in clusters still to check, 
     # and will be updated on splitting clusters
     cnts_clusters_totest = cnts0 = StatsBase.countmap(clusters)
@@ -30,8 +31,10 @@ function refit_clusters(rng, probo, solver, xM ;
                 i_splits = i_splits - 1
             end
         end
-        cnts_clusters_totest = merge(cnts_clusters_totest, cnts_new)
-        (; probo, X, σMs) = refit(rng, probo, solver, xM, clusters; scenario, epochs)
+        if length(cnts_clusters_totest) != 0
+            cnts_clusters_totest = merge(cnts_clusters_totest, cnts_new)
+            (; probo, X, σMs) = refit(rng, probo, solver, xM, clusters; scenario, epochs)
+        end
     end
     (; probo, clusters)
 end
