@@ -47,7 +47,7 @@ end
             θMs::AbstractMatrix, θP::AbstractVector, 
             y_obs::AbstractMatrix, i_sites::AbstractVector{<:Int}, 
             ϕg, ϕq::AbstractVector)
-Add zero i.e. no additional loss terms during the HVI fit.
+Add additional loss terms during the HVI fit.
 
 The basic cost in HVI is the negative log of the joint probability, i.e.
 the likelihood of the observations given the parameters * prior probability
@@ -68,7 +68,7 @@ Arguments
 - ϕq::AbstractVector, additional parameters of the posterior
 
 Returns a NamedTuple
-- with first element (Real): the total penalty
+- with first element (AbstractVector{<:Real}): the penalty for each site
 - other component (Real): optional information on parts of the penalty
 """
 function compute_penalty end;

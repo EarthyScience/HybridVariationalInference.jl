@@ -186,7 +186,9 @@ function neg_elbo_ζtf(ζsP::AbstractArray{T}, ζsMs_tr, σ, f, py, xP, y_ob, y_
             # scale Likelihood and penalties to estimate all-site case from batch case
             #   scale nLy, priorsM, log_jac (sum for Exp), loss_penalty, and entropy
             #   essentially all, except prior_θP
-            loss_penalty_if = sum(loss_penalty_i .* frac_cluster)
+            # penalty should also be scaled, but then it does not select good parameters
+            #loss_penalty_if = sum(loss_penalty_i .* frac_cluster)
+            loss_penalty_if = sum(loss_penalty_i)
             nLprior_M_if = sum(nLprior_M_is .* frac_cluster)
             neg_log_jac_if = -logjac_P -sum(logjac_Ms .* frac_cluster)
             (nLy_i, nLprior_P_i, nLprior_M_if, neg_log_jac_if, loss_penalty_if)
@@ -628,18 +630,18 @@ end
 Extract correlation matrix of a problem based on `MeanHVIApproximation`.
 At unconstrained parameter scale.
 """
-function get_hybridproblem_correlation_Ms(prob::AbstractHybridProblem; 
+function get_hybridproblem_correlation_Ms(prob::AbstractHybridProblem;
     xM = nothing, scenario = Val(()))
-    UM = get_hybridproblem_cholesky_correlation_Ms(prob, xM; scenario)
+    UM = get_hybridproblem_cholesky_correlation_Ms(prob; xM, scenario)
     UM' * UM
 end
 
-function get_hybridproblem_cholesky_correlation_Ms(prob::AbstractHybridProblem, xM; 
-    scenario = Val(()))
+function get_hybridproblem_cholesky_correlation_Ms(prob::AbstractHybridProblem;
+    xM = nothing, scenario = Val(()))
     ϕq = get_hybridproblem_ϕq(prob; scenario)
     cor_ends = get_hybridproblem_cor_ends(prob; scenario)
     ϕm = if isnothing(xM)
-        Matrix{eltype(ϕq)}[]
+        Matrix{eltype(ϕq)}(undef,0,0)
     else
         g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
         g(xM, prob.ϕg) # TODO separate state, avoid prob.ϕg

@@ -16,6 +16,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     is_omit_priors::Val{omit_priors} = Val(false),
     clusters::AbstractVector{<:Integer} = 
         1:first(get_hybridproblem_n_site_and_batch(prob; scenario)),
+    cluster_rep = 1,
     kwargs...
 ) where {is_infer, omit_priors}
     gdevs = isnothing(gdevs) ? get_gdev_MP(scenario) : gdevs
@@ -29,7 +30,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     ϕ0_cpu = vcat(ϕg0, ϕP0)
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     n_sites_cluster = [count(==(element),clusters) for element in 1:maximum(clusters)]
-    frac_cluster_all = 1 ./ n_sites_cluster[clusters] 
+    frac_cluster_all = (1 / cluster_rep) ./ n_sites_cluster[clusters] 
     train_loader = get_hybridproblem_train_dataloader(prob; scenario)
     #TODO provide different test data
     # TODO use 1/10 of the training data

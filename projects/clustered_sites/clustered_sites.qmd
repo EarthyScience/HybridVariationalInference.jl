@@ -535,7 +535,7 @@ easier to invert than the full correlation matrix.
 
 ```{julia}
 solver = HybridPosteriorSolver(; alg=Adam(0.001), n_MC=6)
-(; probo, clusters) = HVI.refit_clusters(rng, probo, solver, train_data.xM; scenario)
+(; probo, clusters) = HVI.refit_clusters(rng, probo, solver, train_data.xM; )
 probo_clustered = probo
 # probo = probo_clustered
 s = s_clustered = sample_and_aggregate(rng, probo_clustered);
@@ -574,7 +574,7 @@ sort(collect(values(cnts_clusters)))
 Compare observed and predicted marginal distances within each cluster.
 
 ```{julia}
-(; X, σMs) = extract_MLpred(probo, train_data.xM; scenario)
+(; X, σMs) = extract_MLpred(probo, train_data.xM)
 i_par = 2
 stat_cluster = map((k for k in keys(cnts_clusters))) do i_cluster
     i_sites = findall(isequal.(clusters, i_cluster))
