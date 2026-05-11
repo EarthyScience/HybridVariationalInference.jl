@@ -180,7 +180,7 @@ end
 """
     overdispersion_test(Y, μ, Σ; α=0.05)
 
-Test whether the q×p sample matrix Y (rows = indiviudals) is overdispersed
+Test whether the q×p sample matrix Y (rows = individuals) is overdispersed
 relative to the reference distribution N(μ, Σ).
 
 Returns: S_n, E0, Var0, Z, p_value_normal, p_value_chisq

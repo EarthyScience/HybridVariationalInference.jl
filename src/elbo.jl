@@ -33,7 +33,7 @@ function neg_elbo_gtf(args...; kwargs...)
         nLy, nLprior_P, nLprior_M, neg_log_jac, 
         #nLmean_θ
         ) = neg_elbo_gtf_components(args...; kwargs...)
-    # negative of log_joint - need to substract entropy_ζ
+    # negative of log_joint - need to subtract entropy_ζ
     nL = nLjoint + loss_penalty  - entropy_ζ #+ nLmean_θ
     # if !isfinite(nL) 
     #     @show nL
@@ -174,7 +174,7 @@ function neg_elbo_ζtf(ζsP::AbstractArray{T}, ζsMs_tr, σ, f, py, xP, y_ob, y_
             # @usingany Cthulhu
             # @descend_code_warntype f(θP, θMs, xP)
             nLy_i = py(y_ob, y_pred_i, y_unc)
-            # MAYBE aovid convert by making sure penalty_computer returs proper type
+            # MAYBE avoid convert by making sure penalty_computer returns proper type
             # Test.@inferred compute_penalty(penalty_computer, y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), i_sites, ϕg, ϕq)[1]
             # loss_penalty_i = convert.(typeof(nLy_i),first(compute_penalty(penalty_computer,
             #     y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), i_sites, ϕg, ϕq)))
@@ -221,7 +221,7 @@ function neg_elbo_ζtf(ζsP::AbstractArray{T}, ζsMs_tr, σ, f, py, xP, y_ob, y_
     #  sum_log_σ = sum(log.(σ))
     # logdet_jacT2 = -sum_log_σ # log Prod(1/σ_i) = -sum log σ_i 
     #logdetΣ = 2 * sum(log.(σ)) # det(Σ) = Prod(σ_i^2)
-    # also scale entropy (that depends on logdetΣ) for only a fraction fo sites in btach
+    # also scale entropy (that depends on logdetΣ) for only a fraction of sites in btach
     n_θP = size(ζsP,1)
     n_θM, n_site = size(ζsMs_tr)[1:2]
     n_θ = n_θP + n_θM * n_site
@@ -369,9 +369,9 @@ function predict_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()),
             compute_penalty(penalty_computer,
             y[:,:,i_MC], addq[:,:,i_MC], intθMs(θsMs_tr[:,:,i_MC]), intθP(θsP[:,i_MC]), i_sites, 
             prob.ϕg, prob.ϕq)
-            ) # TOOD separate from prob
+            ) # TODO separate from prob
     end
-    # reshape into CompoentMatrix with site rows
+    # reshape into ComponentMatrix with site rows
     # intPen = ComponentArrayInterpreter((n_site_pred,), 
     #     CA.ComponentVector(NamedTuple{keys(penalties_sum)}(0.0 for _ in keys(penalties_sum)))
     # )
@@ -531,8 +531,8 @@ function generate_ζ(
     μ_ζMs0 = ϕm0[1:n_θm, :]
     # if !all(isfinite.(μ_ζMs0))
     #     @show μ_ζMs0
-    #     is_infinte_ϕg = !all(isfinite.(ϕg))
-    #     @show is_infinte_ϕg
+    #     is_infinite_ϕg = !all(isfinite.(ϕg))
+    #     @show is_infinite_ϕg
     #     error("encountered non-finite μ_ζMs0")
     # end
     ζsP = isempty(μ_ζP) ? ζP_resids : (μ_ζP .+ ζP_resids)  # n_par x n_MC 

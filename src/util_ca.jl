@@ -71,7 +71,7 @@ axis_length(ax::CA.Shaped1DAxis) = length(ax)
 Converts a ComponentMatrix with scalar keys in first or second dimension to a DataFrame.
 If keys are in first column, the result corresponds to transposing the first
 two dimensions. 
-With arrays of higher dimension, columsn dim3 and dim4 are added that report
+With arrays of higher dimension, columns dim3 and dim4 are added that report
 the index in this dimension.
 """
 function as_data_frame end

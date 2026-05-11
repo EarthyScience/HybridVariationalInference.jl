@@ -54,7 +54,7 @@ for each parameter.
 """
 struct MeanScalingHVIApproximation{T} <: AbstractMeanScalingHVIApproximation 
     scalingblocks_ends::Vector{Int} # indices of end of blocks with the same scaling factor
-    # log_var of last parameters in block (to be mulitplied by par_factor and site_factor)
+    # log_var of last parameters in block (to be multiplied by par_factor and site_factor)
     logσ2_ζM_bases::Vector{T} # already repeated for blocks in parameters
     # indexing into logσ2_par_offsets_before_end, including repeats and zeros
     idxs_par0::Vector{Int}

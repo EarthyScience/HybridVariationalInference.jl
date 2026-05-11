@@ -36,7 +36,7 @@ assumptions in the shape of the posterior that introduce bias, and also
 the PBM and model drivers can be biased.
 
 One needs a method, where a part of the uncertainty decreases with number
-of observations, but another part does not scale with nubmer of observations.
+of observations, but another part does not scale with number of observations.
 
 ```{julia}
 using HybridVariationalInference
@@ -188,7 +188,7 @@ else
     (; probo, interpreters) = solve(probo, solver; rng,
         callback = callback_loss(100), # output during fitting
         epochs = 1000,
-        # do not inlcude cluster_rep,
+        # do not include cluster_rep,
     );
     probo_unclustered = probo
 
@@ -413,7 +413,7 @@ end
 
 In the case where only clustering information for cluster 3 is provided,
 the reduction in uncertainty is much more moderate and
-the pattern within cluter is recovered.
+the pattern within cluster is recovered.
 ```{julia}
 () -> begin
     #cluster_orig = clusters
@@ -646,7 +646,7 @@ df = transform(df, [:q95, :q05] => ByRow((u,l) -> u - l) => :ci90);
 With clustering, the uncertainty is magnitude smaller.
 
 ```{julia}
-plt = data(df) * mapping(:cluster, :ci90 => "lenght of 90% cf interval", color = :clustering => nonnumeric, dodge = :clustering => nonnumeric, row = :par) * visual(BoxPlot);
+plt = data(df) * mapping(:cluster, :ci90 => "length of 90% cf interval", color = :clustering => nonnumeric, dodge = :clustering => nonnumeric, row = :par) * visual(BoxPlot);
 draw(plt, facet = (; linkxaxes = :minimal, linkyaxes = :none))
 ```
 
@@ -655,7 +655,7 @@ But its not the case for a batch size of 80.
 Only for a batch size of 400, the inversion picks up the lower uncertainty.
 
 ```{julia}
-plt = data(subset(df, :clustering => ByRow(x -> x ∉ (:unclustered,)))) * mapping(:cluster, :ci90 => "lenght of 90% cf interval", color = :clustering => nonnumeric, dodge = :clustering => nonnumeric, row = :par) * visual(BoxPlot);
+plt = data(subset(df, :clustering => ByRow(x -> x ∉ (:unclustered,)))) * mapping(:cluster, :ci90 => "length of 90% cf interval", color = :clustering => nonnumeric, dodge = :clustering => nonnumeric, row = :par) * visual(BoxPlot);
 draw(plt, facet = (; linkxaxes = :minimal, linkyaxes = :none))
 ```
 

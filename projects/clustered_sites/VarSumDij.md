@@ -75,7 +75,7 @@ We evaluate the two components separately.
 
 There are $\binom{n}{2} = \frac{n(n-1)}{2}$ pairs $(i,j)$ with $i < j$, each contributing:
 
-$$\sum_{i<j} \operatorname{Var}(D_{ij}^2) = \binom{n}{2} \cdot 8p = 4pn(n-1).$$
+$$\sum_{i<j} \operatorname{Var}(D_{ij}^2) = \binom{n}{2} \cdot 8p = 4 p n (n-1).$$
 
 ### A.5.2 Off-Diagonal Covariance Terms
 
@@ -137,15 +137,15 @@ $$n\binom{n-1}{2} = \frac{n(n-1)(n-2)}{2} = 3\binom{n}{3}.$$
 
 Assembling all terms:
 
-$$\operatorname{Var}(S) = \underbrace{4pn(n-1)}_{\text{diagonal}} + \underbrace{2 \cdot 3\binom{n}{3} \cdot 2p}_{\text{shared-index pairs}}$$
+$$\operatorname{Var}(S) = \underbrace{4 p n (n-1)}_{\text{diagonal}} + \underbrace{2 \cdot 3\binom{n}{3} \cdot 2p}_{\text{shared-index pairs}}$$
 
-$$= 4pn(n-1) + 2p \cdot n(n-1)(n-2)$$
+$$= 4 p n(n-1) + 2p \cdot n(n-1)(n-2)$$
 
-$$= 2pn(n-1)\bigl[2 + (n-2)\bigr]$$
+$$= 2 p n (n-1)\bigl[2 + (n-2)\bigr]$$
 
-$$= 2pn(n-1) \cdot n$$
+$$= 2 p n (n-1) \cdot n$$
 
-$$\boxed{\operatorname{Var}(S) = 2pn^2(n-1)}$$
+$$\boxed{\operatorname{Var}(S) = 2 p n^2 (n-1)}$$
 
 ---
 
@@ -153,9 +153,9 @@ $$\boxed{\operatorname{Var}(S) = 2pn^2(n-1)}$$
 
 The analytical variance of the total sum of squared Mahalanobis distances is:
 
-$$\operatorname{Var}(S) = 2pn^2(n-1),$$
+$$\operatorname{Var}(S) = 2 p n^2 (n-1),$$
 
-with corresponding mean $\mathbb{E}[S] = pn(n-1)$.
+with corresponding mean $\mathbb{E}[S] = p n (n-1)$.
 
 Several observations are worth emphasizing:
 

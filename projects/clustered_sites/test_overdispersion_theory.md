@@ -20,13 +20,13 @@ $H_0: x_1, \ldots, x_n \overset{\text{iid}}{\sim} \mathcal{N}_p(\mu, \Sigma) \qu
 
 $H_1: \text{the sample is more dispersed than } \mathcal{N}_p(\mu, \Sigma) \quad \text{(overdispersion)}$
 
-From Appendix A, under $H_0$ with $n$ indiviudals:
+From Appendix A, under $H_0$ with $n$ individuals:
 
-$$\mathbb{E}_0[S_n] = pn(n-1)$$
+$$\mathbb{E}_0[S_n] = p n (n-1)$$
 
-$$\operatorname{Var}_0(S_n) = 2pn^2(n-1)$$
+$$\operatorname{Var}_0(S_n) = 2 p n^2 (n-1)$$
 
-$$\operatorname{SD}_0(S_n) = \sqrt{2pn^2(n-1)} = n\sqrt{2p(n-1)}$$
+$$\operatorname{SD}_0(S_n) = \sqrt{2 p n^2(n-1)} = n\sqrt{2p(n-1)}$$
 
 These depend only on the dimension $p$ and sample size $n$, not on $\mu$ or $\Sigma$.
 
@@ -34,7 +34,7 @@ These depend only on the dimension $p$ and sample size $n$, not on $\mu$ or $\Si
 
 We construct a standardized statistic:
 
-$$Z = \frac{S_n - \mathbb{E}_0[S_n]}{\operatorname{SD}_0(S_n)} = \frac{S_n - pn(n-1)}{n\sqrt{2p(n-1)}}.$$
+$$Z = \frac{S_n - \mathbb{E}_0[S_n]}{\operatorname{SD}_0(S_n)} = \frac{S_n - p n (n-1)}{n\sqrt{2p(n-1)}}.$$
 
 For sufficiently large $n$, by a central limit theorem argument, $Z \overset{\cdot}{\sim} \mathcal{N}(0,1)$ under $H_0$.
 
@@ -48,14 +48,14 @@ $$S_n \overset{\cdot}{\sim} c \cdot \chi^2_\nu,$$
 
 where $c$ and $\nu$ are chosen by moment matching:
 
-$$\mathbb{E}[c\chi^2_\nu] = c\nu = pn(n-1),$$
-$$\operatorname{Var}(c\chi^2_\nu) = 2c^2\nu = 2pn^2(n-1).$$
+$$\mathbb{E}[c\chi^2_\nu] = c\nu = p n (n-1),$$
+$$\operatorname{Var}(c\chi^2_\nu) = 2c^2\nu = 2 p n^2 (n-1).$$
 
 Solving:
 
-$$c = \frac{\operatorname{Var}_0(S_n)}{\mathbb{E}_0[S_n] \cdot 2} \cdot 2 = \frac{2pn^2(n-1)}{2pn(n-1)} = n,$$
+$$c = \frac{\operatorname{Var}_0(S_n)}{\mathbb{E}_0[S_n] \cdot 2} \cdot 2 = \frac{2 p n^2(n-1)}{2 p n(n-1)} = n,$$
 
-$$\nu = \frac{\mathbb{E}_0[S_n]}{c} = \frac{pn(n-1)}{n} = p(n-1).$$
+$$\nu = \frac{\mathbb{E}_0[S_n]}{c} = \frac{p n (n-1)}{n} = p (n-1).$$
 
 Therefore:
 
@@ -80,10 +80,10 @@ TODO: Is $\mu$ required?
 $$S_n = \sum_{i<j} (x_i - x_j)^\top \Sigma^{-1}(x_i - x_j).$$
 
 **Step 2.** Compute the null moments:
-$$\mathbb{E}_0[S_n] = pn(n-1), \qquad \operatorname{Var}_0(S_n) = 2pn^2(n-1).$$
+$$\mathbb{E}_0[S_n] = p n (n-1), \qquad \operatorname{Var}_0(S_n) = 2 p n^2 (n-1).$$
 
 **Step 3.** Compute the standardized statistic (large $n$):
-$$Z = \frac{S_n - pn(n-1)}{n\sqrt{2p(n-1)}}.$$
+$$Z = \frac{S_n - p n (n-1)}{n\sqrt{2p(n-1)}}.$$
 
 **Step 4.** Compute the $p$-value:
 - **Normal approximation** (large $n$): $\quad p\text{-value} = 1 - \Phi(Z).$
@@ -95,7 +95,7 @@ $$Z = \frac{S_n - pn(n-1)}{n\sqrt{2p(n-1)}}.$$
 
 ### B.6.1 Unknown $\mu$ and $\Sigma$
 
-In practice, $\mu$ and $\Sigma$ are typically estimated from a large **reference dataset** of $N \gg n$ indiviudals. Denote these estimates $\hat{\mu}$ and $\hat{\Sigma}$. Then:
+In practice, $\mu$ and $\Sigma$ are typically estimated from a large **reference dataset** of $N \gg n$ individuals. Denote these estimates $\hat{\mu}$ and $\hat{\Sigma}$. Then:
 
 - Replace $\Sigma^{-1}$ with $\hat{\Sigma}^{-1}$ in the computation of $D_{ij}^2$.
 - The null moments remain approximately valid provided $N$ is large relative to $n$ and $p$, so that estimation uncertainty in $\hat{\mu}$ and $\hat{\Sigma}$ is negligible.

@@ -182,7 +182,7 @@ Provide a `transMs = StackedArray(transM, n_batch)`
 """
 function gtrans(g, transMs, xMP, ϕg, n_θM; cdev, is_testmode)
     ϕg = g(xMP, ϕg; is_testmode)
-    ζMs_tr = ϕg[1:n_θM,:]' # ignore the uncerainty-related parameters
+    ζMs_tr = ϕg[1:n_θM,:]' # ignore the uncertainty-related parameters
     ζMs_tr_cpu = cdev(ζMs_tr)
     θMs_tr = transMs(ζMs_tr_cpu)
     if !all(isfinite.(θMs_tr))
@@ -278,7 +278,6 @@ function get_loss_gf(g, transM, transP, f, py,
                 CA.getdata(ϕc.ϕP), 
                 pbm_covar_indices; cdev, is_testmode, kwargs...)
             # TODO check computation
-            # TODO try to move up converstion t T to frac_cluster_all
             frac_cluster = frac_cluster_all[i_sites]
             #σ = exp.(y_unc ./ 2)
             #nLy = sum(abs2, (y_pred .- y_o) ./ σ) 

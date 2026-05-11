@@ -348,7 +348,7 @@ function HVI.get_hybridproblem_train_dataloader(prob::DoubleMMCase; scenario::Va
         rng::AbstractRNG = StableRNG(111), kwargs...
 ) where {scen}
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-    # In order to avoid cirular dependcies, need to implement specific version of
+    # In order to avoid circular dependencies, need to implement specific version of
     #    HVI.get_hybridproblem_n_covar, which be default relies on the train_dataloader
     dl = construct_dataloader_from_synthetic(rng, prob; scenario, n_batch, kwargs...) 
     if (:driverNAN ∈ scen)

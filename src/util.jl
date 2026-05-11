@@ -90,7 +90,7 @@ function insert_zeros(v::AbstractVector, positions::AbstractVector{<:Integer})
     @assert length(v) + length(positions) == positions[end] "The last position in `positions` must be equal to the final length of the output vector after all insertions."
     dpos1 = diff(positions) .- 1
     @assert all(dpos1 .>= 0) "Positions must be in strictly ascending order."
-    # length of blocks before insert is diff(postions) -1 
+    # length of blocks before insert is diff(positions) -1 
     length_blocks_beforeinsert = Iterators.flatten((first(positions) .- 1, dpos1))
     #collect(length_blocks_beforeinsert) == [1,2]
     it = drop_iterate(v)  # to allow take_n!
@@ -106,7 +106,7 @@ function ChainRulesCore.rrule(::typeof(insert_zeros), v::AbstractVector, positio
     # Reverse pass (pullback) for gradient of `insert_zeros`:
     # - We only propagate gradients into `v`.
     # - `positions` is treated as non-differentiable (NoTangent()).
-    # We ignore the gradients for the postions, where zero was inserted
+    # We ignore the gradients for the positions, where zero was inserted
     # Otherwise, we just need to extract the corresponding positions in ȳ
     function pullback(ȳ)
         n = length(v)
