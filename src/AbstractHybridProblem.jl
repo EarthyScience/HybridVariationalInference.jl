@@ -12,7 +12,6 @@ For a specific prob, provide functions that specify details
 - `get_hybridproblem_train_dataloader` (may use `construct_dataloader_from_synthetic`)
 - `get_hybridproblem_test_data`
 - `get_hybridproblem_priors` 
-- `get_hybridproblem_n_covar` 
 - `get_hybridproblem_n_site_and_batch` 
 optionally
 - `gen_hybridproblem_synthetic`
@@ -28,6 +27,86 @@ The initial value of parameters to estimate is spread
 - `ϕq`: additional parameters of the approximte posterior: returned by `get_hybridproblem_ϕq`
 """
 abstract type AbstractHybridProblem end;
+
+abstract type AbstractPenaltyComputer end;
+const PenaltyComputerOrFunction = Union{AbstractPenaltyComputer, Function}
+
+"""
+    CustomPenaltyComputer(f::Function)
+
+A wrapper to use a custom function to compute additional loss penalty terms 
+during the HVI fit.
+"""    
+struct CustomPenaltyComputer <: AbstractPenaltyComputer
+    f::Function
+end
+
+"""
+        compute_penalty(::PenaltyComputerOrFunction, 
+            y_pred::AbstractMatrix, addq_pred::AbstractMatrix, 
+            θMs::AbstractMatrix, θP::AbstractVector, 
+            i_sites::AbstractVector{<:Int}, 
+            ϕg, ϕq::AbstractVector)
+Add additional loss terms during the HVI fit.
+
+The basic cost in HVI is the negative log of the joint probability, i.e.
+the likelihood of the observations given the parameters * prior probability
+of the parameters.
+
+Sometimes there is additional knowledge not encoded in the prior, such as
+one parameter must be larger than another, or entropy-weights of the
+ML-parameters, and the solver accept a function to add additional loss terms.
+
+Arguments
+- y_pred::AbstractMatrix: Observations
+- addq_pred::AbstractMatrix: Additional quantities computed by the PBM
+- θMs_tr::AbstractMatrix: site parameters (with sites in rows and parameters in columns)
+- θP::AbstractVector: global parameters
+- i_sites: indices of sites in the minibatch, useful for using precoputed quantities
+- ϕg: ML-model parameters, 
+- ϕq::AbstractVector, additional parameters of the posterior
+
+Returns a NamedTuple
+- with first element (AbstractVector{<:Real}): the penalty for each site
+- other component (Real): optional information on parts of the penalty
+"""
+function compute_penalty end;
+function compute_penalty(pc::CustomPenaltyComputer, args...; kwargs...)
+    pc.f(args...; kwargs...)
+end
+
+function (pc::AbstractPenaltyComputer)(args...; kwargs...) 
+    compute_penalty(pc, args...; kwargs...)   
+end
+
+"""
+    reshape_penalty_matrix(penalty::NamedTuple{KEYS}) where KEYS
+    reshape_penalty_matrix(penalty::ComponentVector{ET,KEYS}) where {ET,KEYS}
+
+Reshape the output of the penalty computer to a ComponentMatrix.
+Assuming that all the component in penalty are of the same element type and length.
+"""
+function reshape_penalty_matrix(penalty::NamedTuple) 
+    reshape_penalty_matrix(CA.ComponentVector(penalty))
+end
+function reshape_penalty_matrix(penalty::CA.ComponentVector{ET}) where {ET}
+    keys_pen = keys(first(CA.getaxes(penalty)))
+    n_site_pred = length(penalty[keys_pen[1]])
+    intPen = ComponentArrayInterpreter((n_site_pred,), 
+        CA.ComponentVector(NamedTuple{keys_pen}(zero(ET) for _ in keys_pen))
+    )
+    penalty_mat = intPen(CA.getdata(penalty)) 
+end
+
+
+
+"""
+    get_hybridproblem_penalty_computer(::AbstractHybridProblem; scenario)
+
+Return a func
+"""
+function get_hybridproblem_penalty_computer end;
+
 
 """
     get_hybridproblem_MLapplicator([rng::AbstractRNG,] ::AbstractHybridProblem; scenario=())
@@ -127,16 +206,15 @@ function get_hybridproblem_transforms end
 """
     get_hybridproblem_n_covar(::AbstractHybridProblem; scenario)
 
-Provide the number of covariates. 
+Provide the number of covariates. Default implementation falls back to train_dataloader
 """
-function get_hybridproblem_n_covar(::AbstractHybridProblem; scenario) end
-# function get_hybridproblem_n_covar(prob::AbstractHybridProblem; scenario)
-#     train_loader = get_hybridproblem_train_dataloader(Random.default_rng(), prob; scenario)
-#     (xM, xP, y_o, y_unc) = first(train_loader)
-#     n_covar = size(xM, 1)
-#     return (n_covar)
-# end
-
+function get_hybridproblem_n_covar(prob::AbstractHybridProblem; scenario)
+    train_dataloader = get_hybridproblem_train_dataloader(
+        Random.default_rng(), prob; scenario)
+    (xM, xP, y_o, y_unc) = first(train_dataloader)
+    n_covar = size(xM, 1)
+    return (n_covar)
+end
 
 function get_hybridproblem_pbmpar_covars(::AbstractHybridProblem; scenario) 
     ()
@@ -317,6 +395,15 @@ function setup_PBMpar_interpreter(θP, θM, θall = vcat(θP, θM))
     intθ = ComponentArrayInterpreter(flatten1(CA.ComponentVector(; θP, θM, θFix)))
     intθ, θFix
 end
+
+"""
+    get_hybridproblem_HVIApproximation(::AbstractHybridProblem; scenario)
+
+Return a AbstractHVIApproximation that should be used with this problem
+"""
+function get_hybridproblem_HVIApproximation end
+    
+
 
 
 

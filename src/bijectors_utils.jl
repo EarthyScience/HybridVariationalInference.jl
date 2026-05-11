@@ -1,3 +1,38 @@
+"""
+    with_logabsdet_jacobians
+
+Similar to with_logabsdet_jacobian, but returns as the second component a
+vector of Jacobians of transformation of each component in x.
+"""
+function with_logabsdet_jacobians end;
+
+with_logabsdet_jacobians(::typeof(identity), x) = x, zero(x)
+
+#MAYBE: need to implement fallbacks for other Bijectors than Exp()
+function with_logabsdet_jacobians(sb::Stacked, x::AbstractVector)
+    if sb.length_in != length(x)
+        error("input length mismatch ($(sb.length_in) != $(length(x)))")
+    end
+    y, logjacs = _with_logabsdet_jacobians(sb, x)
+    if Bijectors.output_length(sb, length(x)) != length(y)
+        error("output length mismatch ($(output_length(sb, length(x))) != $(length(y)))")
+    end
+    # if size(logjacs) != size(y)
+    #     Main.@infiltrate_main
+    # end
+    @assert size(logjacs) == size(y)
+    return (y, logjacs)
+end
+function _with_logabsdet_jacobians(sb::Stacked, x::AbstractVector)
+    ys_and_logjacs = map(zip(sb.bs, sb.ranges_in)) do (b, r)
+        with_logabsdet_jacobians(b, x[r])
+    end
+    y = reduce(vcat, map(first, ys_and_logjacs))
+    #logjacs = reduce(+, map(last, ys_and_logjacs))
+    logjacs = reduce(vcat, map(last, ys_and_logjacs))
+    return (y, logjacs)
+end
+
 #------------------- Exp
 
 """
@@ -21,6 +56,19 @@ Bijectors.logabsdetjac(b::Exp, x) = sum(x)
 function Bijectors.with_logabsdet_jacobian(b::Exp, x)
     return exp.(x), sum(x)
 end
+
+"""
+    with_logabsdet_jacobians
+
+Similar to with_logabsdet_jacobian, but returns as the second component a
+vector of Jacobians of transformation of each component in x, rather than 
+the sum.
+"""
+function with_logabsdet_jacobians(b::Exp, x)
+    return exp.(x), x
+end
+
+
 # function Bijectors.with_logabsdet_jacobian(ib::Inverse{<:Exp}, y)
 #     x = transform(ib, y)
 #     return x, -logabsdetjac(inverse(ib), x)
@@ -54,6 +102,11 @@ end
 #     x = transform(ib, y)
 #     return x, -logabsdetjac(inverse(ib), x)
 # end
+
+function with_logabsdet_jacobians(b::Logistic, x)
+    return transform(b,x), loglogistic.(x) .+ log1mlogistic.(x)
+end
+
 Bijectors.is_monotonically_increasing(::Logistic) = true
 
 
@@ -106,6 +159,20 @@ function Bijectors.with_logabsdet_jacobian(sb::StackedArray, x::AbstractArray)
     (y, logjac) = with_logabsdet_jacobian(sb.stacked, vec(x))
     ym = reshape(y, size(x))
     return (ym, logjac)
+end
+
+"""
+    with_logabsdet_jacobians(sb::StackedArray, x::AbstractArray)
+
+Return a Jacobian for each row in x.
+"""
+function with_logabsdet_jacobians(sb::StackedArray, x::AbstractArray)
+    (y, logjacs_vec) = with_logabsdet_jacobians(sb.stacked, vec(x))
+    ym = reshape(y, size(x))
+    # move sum to elbo, here return all components
+    #logjacs = sum(reshape(logjacs_vec, sb.nrow, :); dims = 2)[:,1]
+    logjacs = reshape(logjacs_vec, sb.nrow, :)
+    return (ym, logjacs)
 end
 
 function Bijectors.inverse(sb::StackedArray) 

@@ -85,11 +85,11 @@ function predict_point_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()),
         xM = isnothing(xM) ? xM_dl : xM
         xP = isnothing(xP) ? xP_dl : xP
     end
-    y_pred, θMs_tr, θP = gf(prob, xM, xP; scenario, gdevs, is_testmode, kwargs...)    
+    y_pred, addq_pred, θMs_tr, θP = gf(prob, xM, xP; scenario, gdevs, is_testmode, kwargs...)    
     pt = get_hybridproblem_par_templates(prob)
     θPc = ComponentArrayInterpreter(pt.θP)(θP)
     θMsc = ComponentArrayInterpreter((size(θMs_tr,1),), pt.θM)(θMs_tr)
-    (;y_pred, θMs_tr=θMsc, θP=θPc)
+    (;y_pred, addq_pred, θMs_tr=θMsc, θP=θPc)
 end
 
 
@@ -122,6 +122,7 @@ function gf(prob::AbstractHybridProblem, xM::AbstractMatrix, xP::AbstractMatrix;
         f_dev = f
     end
     pt = get_hybridproblem_par_templates(prob; scenario)
+    n_θM = length(pt.θM)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     transMs = StackedArray(transM, n_site_pred)
     intP = ComponentArrayInterpreter(pt.θP)
@@ -135,22 +136,22 @@ function gf(prob::AbstractHybridProblem, xM::AbstractMatrix, xP::AbstractMatrix;
     # hence result is not type-inferred, but may test at this context
     res = is_infer ? 
         Test.@inferred( gf(
-            g_dev, transMs, transP, f_dev, xM_dev, xP, ϕg_dev, ζP_dev, pbm_covar_indices; 
+            g_dev, transMs, transP, f_dev, xM_dev, xP, ϕg_dev, n_θM, ζP_dev, pbm_covar_indices; 
             cdev, kwargs...)) :
-        gf(g_dev, transMs, transP, f_dev, xM_dev, xP, ϕg_dev, ζP_dev, pbm_covar_indices; 
+        gf(g_dev, transMs, transP, f_dev, xM_dev, xP, ϕg_dev, n_θM, ζP_dev, pbm_covar_indices; 
             cdev, kwargs...)
 end
 
-function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, ζP; 
+function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, n_θM, ζP; 
     cdev, pbm_covars, 
     intP = ComponentArrayInterpreter(ζP), kwargs...)
     pbm_covar_indices = intP(1:length(intP))[pbm_covars]
-    gf(g, transM, transP, f, xM, xP, ϕg, ζP, pbm_covar_indices; kwargs...)
+    gf(g, transM, transP, f, xM, xP, ϕg, n_θM, ζP, pbm_covar_indices; kwargs...)
 end
 
 
 
-function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, ζP, 
+function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, n_θM, ζP, 
     pbm_covar_indices::AbstractVector{<:Integer}; 
     cdev, is_testmode)
     # @show first(xM,5)
@@ -162,28 +163,26 @@ function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, ζP,
     # end
     #xMP = _append_PBM_covars(xM, intP(ζP), pbm_covars) 
     xMP = _append_each_covars(xM, CA.getdata(ζP), pbm_covar_indices)
-    θMs_tr = gtrans(g, transMs, xMP, ϕg; cdev, is_testmode)
+    θMs_tr = gtrans(g, transMs, xMP, ϕg, n_θM; cdev, is_testmode)
     # transPM = RRuleMonitor("transP", ζP -> transP(ζP))
     # θP = transPM(CA.getdata(ζP))
     θP = transP(CA.getdata(ζP))
     θP_cpu = cdev(θP) 
-    y_pred = f(θP_cpu, θMs_tr, xP)
+    y_pred, addq_pred = f(θP_cpu, θMs_tr, xP)
     # fM = RRuleMonitor("f in gf", (θP_cpu) -> f(θP_cpu, θMs_tr, xP), DI.AutoForwardDiff())
     # y_pred = fM(θP_cpu) 
     # fM = RRuleMonitor("f in gf", (θP_cpu, θMs_tr) -> f(θP_cpu, θMs_tr, xP))
     # y_pred = fM(θP_cpu, θMs_tr) # very slow large JvP with θMs_tr
-    return y_pred, θMs_tr, θP_cpu
+    return y_pred, addq_pred, θMs_tr, θP_cpu
 end
 
 """
 composition transM ∘ g: transformation after machine learning parameter prediction
 Provide a `transMs = StackedArray(transM, n_batch)`
 """
-function gtrans(g, transMs, xMP, ϕg; cdev, is_testmode)
-    # TODO remove after removing gf
-    # predict the log of the parameters
+function gtrans(g, transMs, xMP, ϕg, n_θM; cdev, is_testmode)
     ϕg = g(xMP, ϕg; is_testmode)
-    ζMs_tr = ϕg' 
+    ζMs_tr = ϕg[1:n_θM,:]' # ignore the uncertainty-related parameters
     ζMs_tr_cpu = cdev(ζMs_tr)
     θMs_tr = transMs(ζMs_tr_cpu)
     if !all(isfinite.(θMs_tr))
@@ -229,12 +228,18 @@ function get_loss_gf(g, transM, transP, f, py,
     intP::AbstractComponentArrayInterpreter = ComponentArrayInterpreter(
         intϕ(1:length(intϕ)).ϕP);
     cdev=cpu_device(),
+    par_templates::NamedTuple,
     pbm_covars, n_site_batch, 
-    floss_penalty = zero_penalty_loss,
+    penalty_computer = ZeroPenaltyComputer(),
     priorsP, priorsM, 
-    is_omit_priors::Val = Val(false),
-    zero_prior_logdensity,
-    kwargs...) 
+    is_omit_priors::Val{omit_priors} = Val(false),
+    intθP, intθMs,
+    frac_cluster_all,
+    kwargs...) where omit_priors
+
+    pt = par_templates
+    zero_prior_logdensity = omit_priors ? zero(eltype(pt.θP)) : get_zero_prior_logdensity(
+    priorsP, priorsM, pt.θP, pt.θM)     
 
     let g = g, transM = transM, transP = transP, f = f, 
         intϕ = get_concrete(intϕ),
@@ -243,11 +248,14 @@ function get_loss_gf(g, transM, transP, f, py,
         pbm_covar_indices = CA.getdata(intP(1:length(intP))[pbm_covars]),
         zero_prior_logdensity = zero_prior_logdensity, is_omit_priors = is_omit_priors,
         priorsP = priorsP, priorsM = priorsM, 
-        floss_penalty = floss_penalty,
+        penalty_computer = penalty_computer,
+        intθMs = get_concrete(intθMs), intθP = get_concrete(intθP),
+        frac_cluster_all = convert.(eltype(pt.θP),frac_cluster_all),
+        n_θM = length(priorsM),
         cpu_dev = cpu_device() # real cpu, different form infer_cdev(gdevs) that maybe idenetity
         #, intP = get_concrete(intP)
         #inv_transP = inverse(transP), kwargs = kwargs
-        function loss_gf(ϕ, xM, xP, y_o, y_unc, i_sites; is_testmode)
+        function loss_gf(ϕ::AbstractVector{T}, xM, xP, y_o, y_unc, i_sites; is_testmode) where T
             ϕc = intϕ(ϕ)
             # GPUArraysCore.allowscalar(() -> if !all(isfinite.(ϕ))
             #     @show ϕc.ϕP
@@ -265,31 +273,40 @@ function get_loss_gf(g, transM, transP, f, py,
                 @show ϕc.ϕP
                 #Main.@infiltrate_main
             end
-            y_pred, θMs_tr_pred, θP_pred = gf(
-                g, transMs, transP, f, xM, xP, CA.getdata(ϕc.ϕg), CA.getdata(ϕc.ϕP), 
+            y_pred, addq_pred, θMs_tr_pred, θP_pred = gf(
+                g, transMs, transP, f, xM, xP, CA.getdata(ϕc.ϕg), n_θM,
+                CA.getdata(ϕc.ϕP), 
                 pbm_covar_indices; cdev, is_testmode, kwargs...)
+            # TODO check computation
+            frac_cluster = frac_cluster_all[i_sites]
             #σ = exp.(y_unc ./ 2)
             #nLy = sum(abs2, (y_pred .- y_o) ./ σ) 
             nLy = py(y_o, y_pred, y_unc)
             # logpdf is not typestable for Distribution{Univariate, Continuous}
-            logpdf_t = (prior, θ) -> logpdf(prior, θ)::eltype(θP_pred)
-            logpdf_tv = (prior, θ::AbstractVector) -> begin
-                map(Base.Fix1(logpdf, prior), θ)::Vector{eltype(θP_pred)}
-            end
-            neg_log_prior = 
+            # logpdf_t = (prior, θ) -> logpdf(prior, θ)::eltype(θP_pred)
+            # logpdf_tv = (prior, θ::AbstractVector) -> begin
+            #     map(Base.Fix1(logpdf, prior), θ)::Vector{eltype(θP_pred)}
+            # end
+            nLprior_P, nLprior_Ms =
                 # @descend_code_warntype (
                 compute_priors_logdensity(priorsP, priorsM, θP_pred, θMs_tr_pred,
                     is_omit_priors, zero_prior_logdensity)
-            if !isfinite(neg_log_prior)
+            nLprior_M = sum(nLprior_Ms .* frac_cluster)
+            if !isfinite(nLprior_P) || !isfinite(nLprior_M)
                 @info "loss_gf: encountered non-finite prior density"
                 @show θP_pred, θMs_tr_pred, ϕc.ϕP
                 error("debug get_loss_gf")
             end
             ϕq = eltype(θP_pred)[]  # no uncertainty parameters optimized
-            loss_penalty = floss_penalty(y_pred, θMs_tr_pred, θP_pred, ϕc.ϕg, ϕq)
+            loss_penalties = first(compute_penalty(penalty_computer,
+                y_pred, addq_pred, intθMs(θMs_tr_pred), intθP(θP_pred), 
+                i_sites, ϕc.ϕg, ϕq))
+            #loss_penalty = sum(loss_penalties .* frac_cluster)
+            loss_penalty = sum(loss_penalties)
             #@show nLy, neg_log_prior, loss_penalty
-            nLjoint_pen = nLy + neg_log_prior + loss_penalty
-            return (;nLjoint_pen, y_pred, θMs_tr_pred, θP_pred, nLy, neg_log_prior, loss_penalty)
+            nLjoint_pen = nLy + nLprior_P + nLprior_M + loss_penalty
+            return (;nLjoint_pen, y_pred, θMs_tr_pred, θP_pred, nLy, nLprior_P, 
+                nLprior_M, loss_penalty)
         end
     end
 end
@@ -305,3 +322,4 @@ end
 #         end
 #     end    
 # end
+

@@ -116,10 +116,10 @@ the inversion assuming loglornally distributed observation errors.
 
 ``` julia
 n_sample_pred = 400
-(y_normal, θsP_normal, θsMs_normal) = (; y, θsP, θsMs_tr) = predict_hvi(
-  Random.default_rng(), probo_normal; n_sample_pred)
-(y_lognormal, θsP_lognormal, θsMs_lognormal) = (; y, θsP, θsMs_tr) = predict_hvi(
-  Random.default_rng(), probo_lognormal; n_sample_pred)
+(; y, θsP, θsMs_tr) = predict_hvi(Random.default_rng(), probo_normal; n_sample_pred)
+(y_normal, θsP_normal, θsMs_normal) = (y, θsP, θsMs_tr)
+(; y, θsP, θsMs_tr) = predict_hvi(Random.default_rng(), probo_lognormal; n_sample_pred)
+(y_lognormal, θsP_lognormal, θsMs_lognormal) = (y, θsP, θsMs_tr)
 ```
 
 Get the original observations from the DataLoader of the problem, and

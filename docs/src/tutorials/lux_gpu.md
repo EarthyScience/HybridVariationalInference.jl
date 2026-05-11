@@ -49,7 +49,9 @@ Note that all the setup is almost the same, as in the basic workflow. The
 only difference is that a `Lux.Chains` object is provided to `construct_ChainsApplicator`.
 
 ``` julia
-n_out = length(prob.θM) # number of individuals to predict 
+
+#n_out = length(prob.θM) # number of individuals to predict 
+n_out = get_numberof_MLinputs(prob.approx, prob.θM)
 n_covar = 5 #size(xM,1)
 n_input = n_covar 
 
@@ -65,7 +67,8 @@ g_chain_app, ϕg0 = construct_ChainsApplicator(rng, g_lux)
 priorsM = Tuple(prob.priors[k] for k in keys(prob.θM))
 lowers, uppers = get_quantile_transformed(priorsM, prob.transM)
 FT = eltype(prob.θM)
-g_chain_scaled = NormalScalingModelApplicator(g_chain_app, lowers, uppers, FT)
+range_scaled = 1:length(lowers) # do only scale means, but not the uncertainty factor
+g_chain_scaled = NormalScalingModelApplicator(g_chain_app, lowers, uppers, FT; range_scaled)
 ```
 
 Update the `HybridProblem` to use this ML model.
@@ -117,12 +120,13 @@ The sampling and prediction methods, also take this `gdevs` keyword argument.
 
 ``` julia
 n_sample_pred = 400
-(y_dev, θsP_dev, θsMs_dev) = (; y, θsP, θsMs_tr) = predict_hvi(
-  rng, probo_lux; n_sample_pred, 
-  gdevs = (; gdev_M=gpu_device(), gdev_P=gpu_device()));
+(; y, θsP, θsMs_tr) = predict_hvi(rng, probo_lux; n_sample_pred, 
+  gdevs = (; gdev_M=gpu_device(), gdev_P=gpu_device())); 
+(y_dev, θsP_dev, θsMs_dev) = (y, θsP, θsMs_tr)
 ```
 
 If `gdev_P` is not an `AbstractGPUDevice` then all the results are on CPU.
+This is the case, if running this tutorial on a machine without GPU/CUDA setup.
 If `gdev_P` is an `AbstractGPUDevice` then the results are GPUArrays
 and need to be transferred to CPU.
 

@@ -14,12 +14,14 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     epochs,
     is_omitting_NaNbatches = false,
     is_omit_priors::Val{omit_priors} = Val(false),
+    clusters::AbstractVector{<:Integer} = 
+        1:first(get_hybridproblem_n_site_and_batch(prob; scenario)),
+    cluster_rep = 1,
     kwargs...
 ) where {is_infer, omit_priors}
     gdevs = isnothing(gdevs) ? get_gdev_MP(scenario) : gdevs
     pt = get_hybridproblem_par_templates(prob; scenario)
     g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
-    FT = get_hybridproblem_float_type(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     ϕq0 = get_hybridproblem_ϕq(prob; scenario)
     ϕP0 = ϕq0[Val(:μP)]
@@ -27,6 +29,8 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     #ϕ0_cpu = vcat(ϕg0, pt.θP .* FT(0.9))  # slightly disturb θP_true
     ϕ0_cpu = vcat(ϕg0, ϕP0)
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    n_sites_cluster = [count(==(element),clusters) for element in 1:maximum(clusters)]
+    frac_cluster_all = (1 / cluster_rep) ./ n_sites_cluster[clusters] 
     train_loader = get_hybridproblem_train_dataloader(prob; scenario)
     #TODO provide different test data
     # TODO use 1/10 of the training data
@@ -63,17 +67,24 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     priors = get_hybridproblem_priors(prob; scenario)
     priorsP = Tuple(priors[k] for k in keys(pt.θP))
     priorsM = Tuple(priors[k] for k in keys(pt.θM))
-    zero_prior_logdensity = omit_priors ? 0f0 : get_zero_prior_logdensity(
-        priorsP, priorsM, pt.θP, pt.θM)     
     #intP = ComponentArrayInterpreter(pt.θP)
+    intθP = ComponentArrayInterpreter(pt.θP)
+    intθMs = ComponentArrayInterpreter((n_batch,), pt.θM)
+    penalty_computer = get_hybridproblem_penalty_computer(prob; scenario)
     loss_gf = get_loss_gf(g_dev, transM, transP, f_dev,  py, intϕ;
         n_site_batch=n_batch, 
+        par_templates = pt, 
         cdev=infer_cdev(gdevs), pbm_covars, 
-        priorsP, priorsM, is_omit_priors, zero_prior_logdensity,)
+        priorsP, priorsM, is_omit_priors, penalty_computer,
+        intθMs, intθP, frac_cluster_all,
+        )
     loss_gf_test = get_loss_gf(g_dev, transM, transP, ftest_dev,  py, intϕ;
         n_site_batch=n_site_test,
+        par_templates = pt,
         cdev=infer_cdev(gdevs), pbm_covars, 
-        priorsP, priorsM, is_omit_priors, zero_prior_logdensity,)
+        priorsP, priorsM, is_omit_priors, penalty_computer,
+        intθMs, intθP, frac_cluster_all,
+        )
     # call loss function once
     l1 = is_infer ? 
         Test.@inferred(loss_gf(ϕ0_dev, first(train_loader_dev)...; is_testmode=true))[1] : 
@@ -188,6 +199,9 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     is_inferred::Val{is_infer} = Val(false),
     is_omit_priors::Val{omit_priors} = Val(false),
     approx = prob.approx,
+    clusters::AbstractVector{<:Integer} = 
+        1:first(get_hybridproblem_n_site_and_batch(prob; scenario)),
+    cluster_rep = 1, 
     kwargs...
 ) where {scen, is_infer, omit_priors}
     pt = get_hybridproblem_par_templates(prob; scenario)
@@ -196,6 +210,8 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    n_sites_cluster = [count(==(element),clusters) for element in 1:maximum(clusters)]
+    frac_cluster_all = (1 / cluster_rep) ./ n_sites_cluster[clusters] 
     ϕq = get_hybridproblem_ϕq(prob; scenario)
     (; ϕ, interpreters) = init_hybrid_params(ϕg0, ϕq)
     int_ϕq = interpreters.ϕq
@@ -233,6 +249,12 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
 
     py = get_hybridproblem_neg_logden_obs(prob; scenario)
 
+    penalty_computer = get_hybridproblem_penalty_computer(prob; scenario)
+    # intθP = ComponentArrayInterpreter(pt.θP, (solver.n_MC,))
+    # intθMs = ComponentArrayInterpreter((n_batch,), pt.θM, (solver.n_MC,))
+    intθP = ComponentArrayInterpreter(pt.θP)
+    intθMs = ComponentArrayInterpreter((n_batch,), pt.θM)
+
     priors_θP_mean, priors_θMs_mean = construct_priors_θ_mean(
         prob, ϕ0_dev.ϕg, keys(pt.θM), pt.θP, θmean_quant, g_dev, transM, transP;
         scenario, gdevs, pbm_covars)
@@ -241,7 +263,8 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
         g_dev, transP, transMs, f_dev, py;
         solver.n_MC, solver.n_MC_cap, cor_ends, priors_θP_mean, priors_θMs_mean, 
         cdev=infer_cdev(gdevs), pbm_covars, pt.θP, int_ϕq, int_ϕg_ϕq, priorsP, priorsM,
-        is_omit_priors, zero_prior_logdensity, approx,
+        is_omit_priors, zero_prior_logdensity, approx, penalty_computer, intθMs, intθP,
+        frac_cluster_all,
         )
     # test loss function once
     # tmp = first(train_loader_dev)
@@ -292,11 +315,13 @@ The loss function takes in addition to ϕ, data that changes with minibatch
 """
 function get_loss_elbo(g, transP, transMs, f, py;
     n_MC, n_MC_mean = max(n_MC,20), n_MC_cap=n_MC, 
-    cor_ends, priors_θP_mean, priors_θMs_mean, cdev, pbm_covars, θP,
+    cor_ends, priors_θP_mean, priors_θMs_mean, cdev, pbm_covars, θP::AbstractVector{T},
     int_ϕq, int_ϕg_ϕq,
-    priorsP, priorsM, floss_penalty = zero_penalty_loss,
+    priorsP, priorsM, penalty_computer = ZeroPenaltyComputer(),
     is_omit_priors, zero_prior_logdensity, approx,
-)
+    intθMs, intθP,
+    frac_cluster_all,
+) where T
     let g = g, transP = transP, transMs = transMs, f = f, py = py, 
         n_MC = n_MC, n_MC_cap = n_MC_cap, n_MC_mean = n_MC_mean,
         cor_ends = cor_ends,
@@ -305,9 +330,11 @@ function get_loss_elbo(g, transP, transMs, f, py;
         pbm_covar_indices = get_pbm_covar_indices(θP, pbm_covars),
         trans_mP=StackedArray(transP, n_MC_mean), 
         trans_mMs=StackedArray(transMs.stacked, n_MC_mean),
-        priorsP=priorsP, priorsM=priorsM, floss_penalty=floss_penalty,
+        priorsP=priorsP, priorsM=priorsM, penalty_computer=penalty_computer,
         is_omit_priors = is_omit_priors, zero_prior_logdensity = zero_prior_logdensity,
-        approx = approx
+        approx = approx,
+        intθMs = get_concrete(intθMs), intθP = get_concrete(intθP),
+        frac_cluster_all = convert.(T, frac_cluster_all)
 
         function loss_elbo(ϕ, rng, xM, xP, y_o, y_unc, i_sites; is_testmode)
             #ϕc = int_ϕg_ϕq(ϕ)
@@ -316,8 +343,9 @@ function get_loss_elbo(g, transP, transMs, f, py;
                 int_ϕq, int_ϕg_ϕq,
                 n_MC, n_MC_cap, n_MC_mean, cor_ends, priors_θP_mean, priors_θMs_mean,
                 cdev, pbm_covar_indices, transP, transMs, trans_mP, trans_mMs,
-                priorsP, priorsM, floss_penalty, #ϕg = ϕc.ϕg, ϕq = ϕc.ϕq,
+                priorsP, priorsM, penalty_computer, #ϕg = ϕc.ϕg, ϕq = ϕc.ϕq,
                 is_testmode, is_omit_priors, zero_prior_logdensity, approx,
+                intθMs, intθP, frac_cluster_all,
             )
         end
     end
@@ -371,9 +399,10 @@ function compute_elbo_components(
     f_batch = get_hybridproblem_PBmodel(prob; scenario)
     f = (n_site_pred == n_batch) ? f : create_nsite_applicator(f_batch, n_site_pred)
     py = get_hybridproblem_neg_logden_obs(prob; scenario)
-    priors_θ_mean = construct_priors_θ_mean(
-        prob, ϕ0_dev.ϕg, keys(θM), θP, θmean_quant, g_dev, transM;
-        scenario, gdev, cdev, pbm_covars)
+    priors_θ_mean = nothing
+    # priors_θ_mean = construct_priors_θ_mean(
+    #     prob, ϕ0_dev.ϕg, keys(θM), θP, θmean_quant, g_dev, transM;
+    #     scenario, gdev, cdev, pbm_covars)
     neg_elbo_gtf_components(
         rng, ϕ0_dev, g_dev, transPMs_batch, f, py, xM, xP, y_o, y_unc, i_sites, interpreters;
         solver.n_MC, solver.n_MC_cap, cor_ends, priors_θ_mean)
@@ -388,6 +417,7 @@ function construct_priors_θ_mean(prob, ϕg, keysθM, θP, θmean_quant, g_dev, 
     ) where {scen}
     iszero(θmean_quant) ? ([],[]) :
     begin
+        n_θM = length(keysθM)
         gdev=gdevs.gdev_M
         #cdev=infer_cdev(gdevs)
         n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
@@ -405,7 +435,7 @@ function construct_priors_θ_mean(prob, ϕg, keysθM, θP, θmean_quant, g_dev, 
         # ζMs_cpu = cdev(ζMs)
         # θMs_tr = transMs(ζMs_cpu)
         θMs_tr = gtrans(
-            g_dev, transMs, xMP_all, CA.getdata(ϕg); cdev=cpu_device(), is_testmode = true)
+            g_dev, transMs, xMP_all, CA.getdata(ϕg), n_θM; cdev=cpu_device(), is_testmode = true)
         priors_dict = get_hybridproblem_priors(prob; scenario)
         priorsP = [priors_dict[k] for k in keys(θP)]
         priors_θP_mean = map(priorsP, θP) do priorsP, θPi

@@ -2,7 +2,7 @@ module HybridVariationalInference
 
 using ComponentArrays: ComponentArrays as CA
 using Random
-using StatsBase # fit ZScoreTransform
+using StatsBase # fit ZScoreTransform, countmap
 using StatsFuns # norminvcdf
 using LogExpFunctions # logistic, loglogistic
 using Combinatorics # gen_hybridproblem_synthetic/combinations
@@ -28,9 +28,14 @@ using KernelAbstractions
 import NaNMath # ignore missing observations in logDensity
 using DifferentiationInterface: DifferentiationInterface as DI
 import Zygote
+using IterTools: IterTools
+using PDMats
+using Distances, Clustering
+#using OptimizationOptimisers
 
 export DoubleMM
 
+include("OneBasedVectorWithZero.jl")
 include("util.jl")
 
 export extend_stacked_nrow, StackedArray
@@ -41,14 +46,16 @@ VERSION >= v"1.11.0-DEV.469" && eval(Meta.parse("public Logistic"))
 include("bijectors_utils.jl")
 
 export AbstractHVIApproximation, AbstractMeanHVIApproximation
+export get_numberof_MLinputs
 export MeanHVIApproximation, MeanHVIApproximationMat
 export AbstractMeanVarSepHVIApproximation, MeanVarSepHVIApproximation
+export AbstractMeanScalingHVIApproximation, MeanScalingHVIApproximation
 include("HVIApproximation.jl")
 
 export AbstractComponentArrayInterpreter, ComponentArrayInterpreter,
        StaticComponentArrayInterpreter
 export flatten1, get_concrete, get_positions, stack_ca_int, compose_interpreters
-export construct_partric
+export construct_partric, get_numberof_inputs_outputs
 include("ComponentArrayInterpreter.jl")
 
 export AbstractModelApplicator, construct_ChainsApplicator
@@ -65,14 +72,17 @@ include("PBMApplicator.jl")
 # export AbstractGPUDataHandler, NullGPUDataHandler, get_default_GPUHandler
 # include("GPUDataHandler.jl")
 
-export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_PBmodel,
+export AbstractHybridProblem, AbstractPenaltyComputer, CustomPenaltyComputer,
+        compute_penalty,
+       get_hybridproblem_MLapplicator, get_hybridproblem_PBmodel,
+       get_hybridproblem_penalty_computer,
        get_hybridproblem_ϕq, get_hybridproblem_θP,
        get_hybridproblem_float_type, gen_hybridproblem_synthetic,
        get_hybridproblem_par_templates, get_hybridproblem_transforms,
        get_hybridproblem_train_dataloader,
        get_hybridproblem_test_data,
        get_hybridproblem_neg_logden_obs,
-       get_hybridproblem_n_covar,
+       get_hybridproblem_n_covar, # default
        get_hybridproblem_n_site_and_batch,
        get_hybridproblem_cor_ends,
        get_hybridproblem_priors,
@@ -80,6 +90,7 @@ export AbstractHybridProblem, get_hybridproblem_MLapplicator, get_hybridproblem_
        gen_cov_pred,
        construct_dataloader_from_synthetic,
        gdev_hybridproblem_dataloader, gdev_hybridproblem_data,
+       get_hybridproblem_HVIApproximation,
        setup_PBMpar_interpreter,
        get_gdev_MP,
        init_hybrid_ϕq       
@@ -99,7 +110,7 @@ include("gencovar.jl")
 export callback_loss
 include("util_opt.jl")
 
-export cpu_ca, apply_preserve_axes
+export cpu_ca, apply_preserve_axes, as_data_frame
 include("util_ca.jl")
 
 export ones_similar_x
@@ -111,10 +122,12 @@ include("logden_normal.jl")
 export get_ca_starts, get_ca_ends, get_cor_count
 include("cholesky.jl")
 
-export neg_elbo_gtf, sample_posterior, predict_hvi, zero_penalty_loss
-export get_hybridproblem_correlation_Ms
+export neg_elbo_gtf, sample_posterior, predict_hvi, ZeroPenaltyComputer
+export get_hybridproblem_correlation_Ms, get_hybridproblem_cholesky_correlation_Ms
+export get_marginal_std
 include("elbo_dev.jl")
 include("elbo_sepvec.jl")
+include("elbo_scaling.jl")
 include("elbo.jl")
 include("elbo2.jl")
 
@@ -131,5 +144,8 @@ export RRuleMonitor
 include("RRuleMonitor.jl")
 
 include("chainrulescore.jl")
+
+export cluster_records, extract_MLpred
+include("clustering.jl")
 
 end

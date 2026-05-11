@@ -22,12 +22,8 @@ end
 function HVI.construct_3layer_MLApplicator(
     rng::AbstractRNG, prob::HVI.AbstractHybridProblem, ::Val{:SimpleChains};
     scenario::Val{scen}) where scen
-    n_covar = get_hybridproblem_n_covar(prob; scenario)
-    n_pbm_covars = length(get_hybridproblem_pbmpar_covars(prob; scenario))
-    n_input = n_covar + n_pbm_covars
-    FloatType = get_hybridproblem_float_type(prob; scenario)
-    (;θM) = get_hybridproblem_par_templates(prob; scenario)
-    n_out = length(θM)
+    (; n_input, n_output) = get_numberof_inputs_outputs(prob; scenario)
+    float_type = get_hybridproblem_float_type(prob; scenario)
     is_using_dropout = :use_dropout ∈ scen
     g_chain = if is_using_dropout
         SimpleChain(
@@ -38,7 +34,7 @@ function HVI.construct_3layer_MLApplicator(
             TurboDense{true}(tanh, n_input * 4),
             SimpleChains.Dropout(0.2),
             # dense layer without bias that maps to n outputs and `logistic` activation
-            TurboDense{false}(logistic, n_out)
+            TurboDense{false}(logistic, n_output)
         )
     else
         SimpleChain(
@@ -47,10 +43,10 @@ function HVI.construct_3layer_MLApplicator(
             TurboDense{true}(tanh, n_input * 4),
             TurboDense{true}(tanh, n_input * 4),
             # dense layer without bias that maps to n outputs and `logistic` activation
-            TurboDense{false}(logistic, n_out)
+            TurboDense{false}(logistic, n_output)
         )
     end
-    construct_ChainsApplicator(rng, g_chain, FloatType)
+    construct_ChainsApplicator(rng, g_chain, float_type)
 end
 
 end # module

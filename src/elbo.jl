@@ -30,10 +30,11 @@ expected value of the likelihood of observations.
 function neg_elbo_gtf(args...; kwargs...)
     # TODO prior and penalty loss
     (;nLjoint, entropy_ζ, loss_penalty, 
-        nLy, neg_log_prior, neg_log_jac, 
+        nLy, nLprior_P, nLprior_M, neg_log_jac, 
         #nLmean_θ
         ) = neg_elbo_gtf_components(args...; kwargs...)
-    nL = nLjoint - entropy_ζ + loss_penalty #+ nLmean_θ
+    # negative of log_joint - need to subtract entropy_ζ
+    nL = nLjoint + loss_penalty  - entropy_ζ #+ nLmean_θ
     # if !isfinite(nL) 
     #     @show nL
     #     @show nLjoint, entropy_ζ, loss_penalty, nLy, 
@@ -58,12 +59,23 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
     trans_mP =StackedArray(transP, n_MC), # provide with creating cost function
     trans_mMs =StackedArray(transMs.stacked, n_MC),
     priorsP, priorsM,
-    floss_penalty = zero_penalty_loss,
+    penalty_computer = ZeroPenaltyComputer(),
     is_testmode,
     is_omit_priors,
     zero_prior_logdensity,
     approx::AbstractHVIApproximation,
+    intθP, intθMs,
+    frac_cluster_all,
 ) where {FT}
+    ϕc = int_ϕg_ϕq(ϕ)
+    VT= typeof(@view(ϕ[1:1]))
+    ϕg = CA.getdata(ϕc.ϕg)::VT
+    ϕq = CA.getdata(ϕc.ϕq)::VT
+    if(!all(isfinite.(ϕ)))
+        @show ϕq
+        @show ϕg
+        error("encountered non-finite optimized parameters")
+    end
     n_MCr = isempty(priors_θP_mean) ? n_MC : max(n_MC, n_MC_mean)
     ζsP, ζsMs_tr, σ = generate_ζ(approx, rng, g, ϕ, xM; n_MC=n_MCr, cor_ends, pbm_covar_indices,
         int_ϕq, int_ϕg_ϕq, is_testmode, i_sites)
@@ -71,14 +83,11 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
     ζsMs_tr_cpu = cdev(ζsMs_tr) # fetch to CPU, because for <1000 sites (n_batch) this is faster
     #
     # maybe: translate ζ once and supply to both neg_elbo and negloglik_meanθ
-    ϕc = int_ϕg_ϕq(ϕ)
-    VT= typeof(@view(ϕ[1:1]))
-    ϕg = CA.getdata(ϕc.ϕg)::VT
-    ϕq = CA.getdata(ϕc.ϕq)::VT
     loss_comps = neg_elbo_ζtf(
         ζsP_cpu[:,1:n_MC], ζsMs_tr_cpu[:,:,1:n_MC], σ, f, py, xP, y_ob, y_unc;
         n_MC_cap, transP, transMs, priorsP, priorsM, 
-        floss_penalty, ϕg, ϕq, is_omit_priors, zero_prior_logdensity,)
+        penalty_computer, ϕg, ϕq, is_omit_priors, zero_prior_logdensity, 
+        i_sites, intθMs, intθP, frac_cluster_all)
     #
     # maybe: provide trans_mP and trans_mMs with creating cost function
     # not used any more and merging named tuples takes long
@@ -126,23 +135,38 @@ Compute the neg_elbo for each sampled parameter vector (last dimension of ζs).
   - `neg_log_prior`: the prior of parameters at constrained scale
   - `logjac`, negative logarithm of the absolute value of the determinant of the Jacobian of 
     the transformation `θ=T(ζ)`.
-- `loss_penalty`: additional loss terms from floss_penalty
+- `loss_penalty`: additional loss terms from penalty_computer
 - compute entropy of transformation
 """
-function neg_elbo_ζtf(ζsP, ζsMs_tr, σ, f, py, xP, y_ob, y_unc;
+function neg_elbo_ζtf(ζsP::AbstractArray{T}, ζsMs_tr, σ, f, py, xP, y_ob, y_unc;
     n_MC_cap=size(ζsP,2),
     transP,
     transMs=StackedArray(transM, size(ζsMs_tr, 2)),
     priorsP, priorsM,
-    floss_penalty, ϕg, ϕq,
+    penalty_computer, ϕg, ϕq,
     is_omit_priors::Val,
     zero_prior_logdensity,
-) 
+    i_sites, intθP, intθMs,
+    frac_cluster_all, 
+) where T
     n_MC = size(ζsP,2)
-    f_sample = (ζP, ζMs_tr) -> begin    
-            θP, θMs_tr, logjac_i = transform_and_logjac_ζ(ζP, ζMs_tr; transP, transMs)
+    #@show ζsMs_tr[1,4,:] # fourth component goes to NaN at some time
+    if !all(isfinite.(ζsMs_tr))
+        return (;
+            nLjoint=T(1e9), entropy_ζ=zero(T), loss_penalty=zero(T), nLy=zero(T),
+            neg_log_prior=T(1e9), neg_log_jac=zero(T))
+    end
+    frac_cluster = frac_cluster_all[i_sites]
+    f_sample = (ζP, ζMs_tr) -> begin
+            θP, θMs_tr, logjac_P, logjac_Ms = transform_and_logjac_ζ(ζP, ζMs_tr; transP, transMs)
+            if !all(isfinite.(θMs_tr))
+                i_row = findfirst(θM -> !all(isfinite.(θM)), eachrow(θMs_tr))
+                @show i_row #info "encountered non-finite θMs_tr at $(i_row)th site"
+                @show θMs_tr[i_row,:]
+                @show ζMs_tr[i_row,:]
+            end
             #  currently logpdf only works on CPU
-            y_pred_i = f(θP, θMs_tr, xP)
+            (y_pred_i, addq_pred_i) = f(θP, θMs_tr, xP)
             #nLy1 = neg_logden_indep_normal(y_ob, y_pred_i, y_unc)
             # Main.@infiltrate_main
             # Test.@inferred( f(θP, θMs, xP) )
@@ -150,11 +174,24 @@ function neg_elbo_ζtf(ζsP, ζsMs_tr, σ, f, py, xP, y_ob, y_unc;
             # @usingany Cthulhu
             # @descend_code_warntype f(θP, θMs, xP)
             nLy_i = py(y_ob, y_pred_i, y_unc)
-            loss_penalty_i = convert(eltype(nLy_i),floss_penalty(y_pred_i, θMs_tr, θP, ϕg, ϕq))
-            neg_log_prior_i = compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr,
+            # MAYBE avoid convert by making sure penalty_computer returns proper type
+            # Test.@inferred compute_penalty(penalty_computer, y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), i_sites, ϕg, ϕq)[1]
+            # loss_penalty_i = convert.(typeof(nLy_i),first(compute_penalty(penalty_computer,
+            #     y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), i_sites, ϕg, ϕq)))
+            loss_penalty_i = compute_penalty(penalty_computer,
+                y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), i_sites, ϕg, ϕq)[1]
+            nLprior_P_i, nLprior_M_is = compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr,
                 is_omit_priors, zero_prior_logdensity)
             # make sure names to not match outer, otherwise Box type instability
-            (nLy_i, neg_log_prior_i, -logjac_i, loss_penalty_i)
+            # scale Likelihood and penalties to estimate all-site case from batch case
+            #   scale nLy, priorsM, log_jac (sum for Exp), loss_penalty, and entropy
+            #   essentially all, except prior_θP
+            # penalty should also be scaled, but then it does not select good parameters
+            #loss_penalty_if = sum(loss_penalty_i .* frac_cluster)
+            loss_penalty_if = sum(loss_penalty_i)
+            nLprior_M_if = sum(nLprior_M_is .* frac_cluster)
+            neg_log_jac_if = -logjac_P -sum(logjac_Ms .* frac_cluster)
+            (nLy_i, nLprior_P_i, nLprior_M_if, neg_log_jac_if, loss_penalty_if)
             #(nLy_i, 0.0, 0.0, 0.0)
         end
     # only Vector inferred, need to provide type hint
@@ -163,16 +200,17 @@ function neg_elbo_ζtf(ζsP, ζsMs_tr, σ, f, py, xP, y_ob, y_unc;
     # Test.@inferred map(f_sample, eachcol(ζsP), eachslice(ζsMs; dims=3))
     #using ShareAdd
     #@usingany Cthulhu
-    #@descend_code_warntype f_sample(first(eachcol(ζsP)), first(eachslice(ζsMs; dims=3)))
-    #map_res = Test.@inferred map(f_sample, eachcol(ζsP), eachslice(ζsMs; dims=3))
+    #@descend_code_warntype f_sample(first(eachcol(ζsP)), first(eachslice(ζsMs_tr; dims=3)))
+    #Test.@inferred map(f_sample, eachcol(ζsP), eachslice(ζsMs_tr; dims=3))
     map_res = map(f_sample, eachcol(ζsP), eachslice(ζsMs_tr; dims=3))
-    nLys, neg_log_priors, neglogjacs, loss_penalties = vectuptotupvec(map_res)
+    nLys, nLpriors_P, nLpriors_M, neglogjacs, loss_penalties = vectuptotupvec(map_res)
     # For robustness may compute the expectation only on the n_smallest values
     # because its very sensitive to few large outliers
     #nLys_smallest = nsmallest(n_MC_cap, nLys) # does not work with Zygote
     if n_MC_cap == n_MC
         nLy = sum(nLys) / n_MC
-        neg_log_prior = sum(neg_log_priors) / n_MC
+        nLprior_P = sum(nLpriors_P) / n_MC
+        nLprior_M = sum(nLpriors_M) / n_MC
         neg_log_jac = sum(neglogjacs) / n_MC
         loss_penalty = sum(loss_penalties) / n_MC
     else
@@ -182,13 +220,16 @@ function neg_elbo_ζtf(ζsP, ζsMs_tr, σ, f, py, xP, y_ob, y_unc;
     end
     #  sum_log_σ = sum(log.(σ))
     # logdet_jacT2 = -sum_log_σ # log Prod(1/σ_i) = -sum log σ_i 
-    logdetΣ = 2 * sum(log.(σ))
-    n_θ = size(ζsP, 1) + prod(size(ζsMs_tr)[1:2])
-    if length(σ) != n_θ
-        error("TODO infiltrate")
-        #Main.@infiltrate_main
-    end
-    #@assert length(σ) == n_θ
+    #logdetΣ = 2 * sum(log.(σ)) # det(Σ) = Prod(σ_i^2)
+    # also scale entropy (that depends on logdetΣ) for only a fraction of sites in btach
+    n_θP = size(ζsP,1)
+    n_θM, n_site = size(ζsMs_tr)[1:2]
+    n_θ = n_θP + n_θM * n_site
+    @assert length(σ) == n_θ
+    σP = σ[1:n_θP]
+    σMs = reshape(σ[(n_θP+1):end], :, n_site)
+    #logdetΣ = 2 * (sum(log.(σ))) # det(Σ) = Prod(σ_i^2)
+    logdetΣ = 2 * (sum(log.(σP)) + sum(frac_cluster .* log.(σMs))) # det(Σ) = Prod(σ_i^2)
     entropy_ζ = entropy_MvNormal(n_θ, logdetΣ)  # defined in logden_normal
     # if i_sites[1] == 1
     #     #Main.@infiltrate_main
@@ -196,18 +237,19 @@ function neg_elbo_ζtf(ζsP, ζsMs_tr, σ, f, py, xP, y_ob, y_unc;
     #     @show std(nLys), std(nLys)/abs(nLy)
     #     @show std(nLys_smallest), std(nLys_smallest)/abs(nLy)
     # end
-    nLjoint = nLy + neg_log_prior + neg_log_jac
-    (;nLjoint, entropy_ζ, loss_penalty, nLy, neg_log_prior, neg_log_jac)
+    nLjoint = nLy + nLprior_P + nLprior_M + neg_log_jac
+    (;nLjoint, entropy_ζ, loss_penalty, 
+        nLy, nLprior_P, nLprior_M, neg_log_jac)
 end
 
 function compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr,
         ::Val{omit_priors}, zero_prior_logdensity) where {omit_priors}
     if omit_priors
-        zero_prior_logdensity
+        (; nLprior_P = zero_prior_logdensity, nLprior_M = fill(zero_prior_logdensity, size(θMs_tr,1)))
     elseif (θP isa AbstractGPUArray) || (θMs_tr isa AbstractGPUArray)
         @warn("neg_elbo_ζtf: Cannot apply priors to gpu array. Piors are omitted. "*
         "either compute PBM on CPU or omit priors.")
-        zero_prior_logdensity
+        (; nLprior_P = zero_prior_logdensity, nLprior_M = fill(zero_prior_logdensity, size(θMs_tr,1)))
     else
         compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr, zero_prior_logdensity)
     end
@@ -215,74 +257,32 @@ end
 
 function compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr, zero_prior_logdensity)
     logpdf_t = (prior, θ) -> logpdf(prior, θ)::eltype(θP)
-    function logpdf_tv_sum(prior, θ::AbstractVector{T}) where T 
-        # logpdf_tv_sum_inner = let prior = prior
-        #     function(θi)
-        #         lp = logpdf(prior, θi)
-        #         # TT = ChainRulesCore.@ignore_derivatives Base.return_types(logpdf, Tuple{typeof(prior), typeof(θi)})
-        #         # if TT != [typeof(lp)] 
-        #         #     error("encountered unstable logpdf: $TT")
-        #         # end
-        #         lp
-        #     end
-        # end
-        # sum(logpdf_tv_sum_inner, θ)
-        sum(θi -> logpdf(prior, θi), θ)
-    end
     # handle edge case of no global parameters, where priorsP is empty
     nlP0 = isempty(priorsP) ? zero_prior_logdensity : -sum(logpdf_t.(priorsP, θP))
-    # fi = (priorMi, θMi) -> begin
-    #     logpdf_tv_sum(priorMi, θMi)
-    #     sum(logpdf_tv_sum(priorMi, θMi))::eltype(θMi)
-    # end
-    f_col = let priorsM=priorsM, θMs_tr=θMs_tr
-        function f_col_inner(i)
-            # TP = ChainRulesCore.@ignore_derivatives Base.return_types(getindex, Tuple{typeof(priorsM), typeof(i)})
-            # if TP != [typeof(priorsM[i])] 
-            #     error("encountered unstable priorsM: $TP")
-            # end
-            logpdf_tv_sum(priorsM[i], θMs_tr[:,i])
-            #Tθ = Base.return_types(getindex, Tuple{typeof(θMs), Colon, typeof(i)})
-            #TRET = Base.return_types(logpdf_tv_sum, Tuple{typeof(priorsM[i]), typeof(θMs[:,i])})
-        end
-    end
-    # init keyword does not work with Zygote
-    #nlMs_sum = sum(f_col, 1:length(priorsM), init = zero(nlP0)) 
-    nlMs_sum = sum(f_col, 1:length(priorsM))::typeof(nlP0) # not type inferred in julia 1.10
-    neg_log_prior_i = nlP0 - nlMs_sum
-    if !isfinite(neg_log_prior_i)
-        @show neg_log_prior_i, nlP0
-        @show θMs_tr
+    # prior for each parameter across vector (therefore Base.Fix1) of site
+    #nLprior_Ms_pars = map(i_par -> -logpdf(priorsM[i_par], θMs_tr[:,i_par])::Vector{typeof(nlP0)}, 1:length(priorsM))
+    nLprior_Ms_pars = map(i_par -> -map(
+        Base.Fix1(logpdf, priorsM[i_par]), θMs_tr[:,i_par])::Vector{typeof(nlP0)}, 
+        1:length(priorsM))
+    # aggregate across vars, for each site
+    nLprior_Ms = reduce(+, nLprior_Ms_pars)
+    if !isfinite(nlP0) || !all(isfinite.(nLprior_Ms))
+        @show nlP0, sum(nLprior_Ms)
         @show priorsM
+        @show θMs_tr
+        @show nLprior_Ms
         error("inspect non-finite priors")
     end
-    neg_log_prior_i
+    (; nLprior_P = nlP0, nLprior_Ms)
 end
 
-"""
-    zero_penalty_loss(y_pred, θMs, θP, ϕg, ϕq)
-
-Add zero i.e. no additional loss terms during the HVI fit.
-
-The basic cost in HVI is the negative log of the joint probability, i.e.
-the likelihood of the observations given the parameters * prior probability
-of the parameters.
-
-Sometimes there is additional knowledge not encoded in the prior, such as
-one parameter must be larger than another, or entropy-weights of the
-ML-parameters, and the solver accept a function to add additional loss terms.
-
-Arguments
-- y_pred::AbstractMatrix: Observations
-- θMs::AbstractMatrix: site parameters
-- θP::AbstractVector: global parameters
-- ϕg: ML-model parameters, 
-- ϕq::AbstractVector, additional parameters of the posterior
-"""
-function zero_penalty_loss(
-    y_pred::AbstractMatrix, θMs::AbstractMatrix, θP::AbstractVector, 
+struct ZeroPenaltyComputer <: AbstractPenaltyComputer end
+function compute_penalty(
+    ::ZeroPenaltyComputer,
+    y_pred::AbstractMatrix, addq_pred::AbstractMatrix, θMs_tr::AbstractMatrix, θP::AbstractVector, 
+    i_sites::AbstractVector,
     ϕg, ϕq::AbstractVector)
-    return zero(eltype(θMs))
+    return (; penalty = fill(zero(eltype(θMs_tr)), size(θMs_tr,1)))
 end
 
 
@@ -304,12 +304,20 @@ Prediction function for hybrid variational inference parameter model.
 
 Returns an NamedTuple `(; y, θsP, θsMs_tr, entropy_ζ)` with entries
 - `y`: Array `(n_obs, n_site, n_sample_pred)` of model predictions.
+- `addq`: Array `(n_addq, n_site, n_sample_pred)` of additional quantities computed 
+  by the PBM.
 - `θsP`: ComponentArray `(n_θP, n_sample_pred)` of PBM model parameters
   that are kept constant across sites.
 - `θsMs_tr`: ComponentArray `(n_site, n_θM, n_sample_pred)` of PBM model parameters
   that vary by site.
 - `entropy_ζ`: The entropy of the log-determinant of the transformation of 
   the set of model parameters, which is involved in uncertainty quantification.
+- `ζsP`: ComponentArray `(n_θP, n_sample_pred)` of PBM model parameters
+  that are kept constant across sites at the unconstrained scale.
+- `ζsMs_tr`: ComponentArray `(n_site, n_θM, n_sample_pred)` of PBM model parameters
+  that vary by site at the unconstrained scale.
+- `penalties`: output of problems penalty computer average across samples as a ComponentVector
+  Each component is a vector of length n_site.
 
 Note that for some approximations, such as `MeanVarSepHVIApproximation`, 
 `prob.ϕq` contains uncertainty parameters that are specific to sites. 
@@ -322,6 +330,7 @@ function predict_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()),
     xM = nothing, xP = nothing,
     is_testmode = true,
     i_sites = nothing,
+    n_sample_pred = 200,
     kwargs...
     )
     if isnothing(xM) || isnothing(xP)
@@ -333,8 +342,8 @@ function predict_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()),
         xM = isnothing(xM) ? xM_dl[:,i_sites] : xM
     end
     # sample_posterior required consistent prob.ϕq and xM
-    (; θsP, θsMs_tr, entropy_ζ) = sample_posterior(
-        rng, prob, xM; scenario, gdevs, is_testmode, i_sites, kwargs...)
+    (; θsP, θsMs_tr, entropy_ζ, ζsP, ζsMs_tr) = sample_posterior(
+        rng, prob, xM; scenario, gdevs, is_testmode, i_sites, n_sample_pred,kwargs...)
     #
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     n_site_pred = size(θsMs_tr,1) # determined by size(xM)
@@ -347,8 +356,28 @@ function predict_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()),
         f_dev = f
     end
     #y = apply_process_model(θsP, θsMs_tr, f_dev, xP)
-    y = f_dev(θsP, θsMs_tr, xP)
-    (; y, θsP, θsMs_tr, entropy_ζ)
+    (y, addq) = f_dev(θsP, θsMs_tr, xP)
+    # compute penalties
+    penalty_computer = get_hybridproblem_penalty_computer(prob; scenario)
+    pt = get_hybridproblem_par_templates(prob; scenario)
+    intθP = ComponentArrayInterpreter(pt.θP)
+    intθMs = ComponentArrayInterpreter((n_site_pred,), pt.θM)
+    #i_MC = 1
+    #MAYBE use StaticArrays from NamedTuple and initial value
+    penalties_sum = mapreduce((x,y) -> x .+ y, axes(y,3)) do i_MC
+        CA.ComponentVector(
+            compute_penalty(penalty_computer,
+            y[:,:,i_MC], addq[:,:,i_MC], intθMs(θsMs_tr[:,:,i_MC]), intθP(θsP[:,i_MC]), i_sites, 
+            prob.ϕg, prob.ϕq)
+            ) # TODO separate from prob
+    end
+    # reshape into ComponentMatrix with site rows
+    # intPen = ComponentArrayInterpreter((n_site_pred,), 
+    #     CA.ComponentVector(NamedTuple{keys(penalties_sum)}(0.0 for _ in keys(penalties_sum)))
+    # )
+    # penalties = intPen(CA.getdata(penalties_sum)) ./ n_sample_pred
+    penalties = reshape_penalty_matrix(penalties_sum) ./ n_sample_pred
+    (; y, addq, θsP, θsMs_tr, entropy_ζ, ζsP, ζsMs_tr, penalties)
 end
 
 """
@@ -420,13 +449,18 @@ function sample_posterior(rng, prob::AbstractHybridProblem, xM::AbstractMatrix;
     if isnothing(approx) 
         approx = prob.approx  # assuming has field approx, e.g. if its a HybridProblem
     end
-    (; θsP, θsMs_tr, entropy_ζ) = sample_posterior(rng, g_dev, ϕ_dev, xM;
+    (; θsP, θsMs_tr, entropy_ζ, ζsP, ζsMs_tr) = sample_posterior(rng, g_dev, ϕ_dev, xM;
         int_ϕg_ϕq, int_ϕq, transP, transM, 
         n_sample_pred, cdev=infer_cdev(gdevs), cor_ends, pbm_covar_indices, approx,
         kwargs...)
-    θsPc = ComponentArrayInterpreter(par_templates.θP, (n_sample_pred,))(θsP)
-    θsMsc_tr = ComponentArrayInterpreter((n_site,), par_templates.θM, (n_sample_pred,))(θsMs_tr)
-    (; θsP=θsPc, θsMs_tr=θsMsc_tr, entropy_ζ)
+    # attach ComponentArray structure
+    intP = ComponentArrayInterpreter(par_templates.θP, (n_sample_pred,))
+    θsPc = intP(θsP)
+    ζsPc = intP(ζsP)
+    intMs = ComponentArrayInterpreter((n_site,), par_templates.θM, (n_sample_pred,))
+    θsMsc_tr = intMs(θsMs_tr)
+    ζsMsc_tr = intMs(ζsMs_tr)
+    (; θsP=θsPc, θsMs_tr=θsMsc_tr, entropy_ζ, ζsP=ζsPc, ζsMs_tr=ζsMsc_tr)
 end
 
 function sample_posterior(rng, g, ϕ::AbstractVector, xM::AbstractMatrix;
@@ -454,7 +488,7 @@ function sample_posterior(rng, g, ϕ::AbstractVector, xM::AbstractMatrix;
     θsP, θsMs_tr = is_infer ? 
         Test.@inferred(transform_ζs(ζsP, ζsMs_tr; trans_mP, trans_mMs)) :
         transform_ζs(ζsP, ζsMs_tr; trans_mP, trans_mMs)
-    (; θsP, θsMs_tr, entropy_ζ)
+    (; θsP, θsMs_tr, entropy_ζ, ζsP, ζsMs_tr)
 end
 
 
@@ -470,7 +504,8 @@ The output shape of size `(n_site x n_par x n_MC)` is tailored to iterating
 each MC sample and then transforming each parameter on block across sites.
 """
 function generate_ζ(
-    approx::Union{AbstractMeanHVIApproximation, AbstractMeanVarSepHVIApproximation}, 
+    #approx::Union{AbstractMeanHVIApproximation, AbstractMeanVarSepHVIApproximation}, 
+    approx::AbstractHVIApproximation, 
     rng::AbstractRNG, 
     g, ϕ::AbstractVector{FT}, xM::MT;
     int_ϕg_ϕq::AbstractComponentArrayInterpreter,
@@ -490,9 +525,16 @@ function generate_ζ(
     # TODO replace pbm_covar_indices by ComponentArray? dimensions to be type-inferred?
     xMP0 = _append_each_covars(xM, CA.getdata(μ_ζP), pbm_covar_indices)
     ϕm0 = g(xMP0, ϕg; is_testmode)
-    μ_ζMs0 = ϕm0
     ζP_resids, ζMs_parfirst_resids, σ = sample_ζresid_norm(approx, rng, 
         i_sites, ϕm0, ϕq; n_MC, cor_ends, int_ϕq)
+    n_θm = size(ζMs_parfirst_resids, 1)
+    μ_ζMs0 = ϕm0[1:n_θm, :]
+    # if !all(isfinite.(μ_ζMs0))
+    #     @show μ_ζMs0
+    #     is_infinite_ϕg = !all(isfinite.(ϕg))
+    #     @show is_infinite_ϕg
+    #     error("encountered non-finite μ_ζMs0")
+    # end
     ζsP = isempty(μ_ζP) ? ζP_resids : (μ_ζP .+ ζP_resids)  # n_par x n_MC 
     if pbm_covar_indices isa SA.SVector{0}
         # do not need to predict again but just add the residuals to μ_ζP and μ_ζMs
@@ -587,14 +629,18 @@ ML-model predcitions of size `(n_θM, n_site)`.
 * `int_ϕq`: Interpret vector as ComponentVector with components
    ρsP, ρsM, logσ2_ζP, coef_logσ2_ζMs(intercept + slope), 
 """
-function sample_ζresid_norm(approx::AbstractHVIApproximation, rng::Random.AbstractRNG, 
+function sample_ζresid_norm(
+    #approx::Union{AbstractMeanHVIApproximation,AbstractMeanVarSepHVIApproximation}, 
+    approx::AbstractHVIApproximation,
+    rng::Random.AbstractRNG, 
     i_sites,
     ϕm::AbstractMatrix, ϕq::AbstractVector,
     args...; 
     n_MC, cor_ends, int_ϕq)
     ζP = int_ϕq(CA.getdata(ϕq))[Val(:μP)]
     ζMs = ϕm
-    n_θP, n_θMs = length(ζP), length(ζMs)
+    n_θP, n_θM = length(ζP), get_numberof_θM(approx,ζMs)
+    n_θMs = n_θM * size(ζMs,2)
     # intm_PMs_parfirst = !isnothing(intm_PMs_parfirst) ? intm_PMs_parfirst : begin
     #     n_θM, n_site_batch = size(ζMs)
     #     get_concrete(ComponentArrayInterpreter(
@@ -603,7 +649,7 @@ function sample_ζresid_norm(approx::AbstractHVIApproximation, rng::Random.Abstr
     #urandn = _create_randn(rng, CA.getdata(ζP), n_MC, n_θP + n_θMs)
     #z = _create_randn(rng, CA.getdata(ζP), n_MC, n_θP)
     zP = _create_randn(rng, CA.getdata(ζP), n_MC, n_θP)
-    zMs = _create_randn(rng, CA.getdata(ζP), n_MC, n_θMs)
+    zMs = _create_randn(rng, CA.getdata(ζP), n_MC, n_θMs) # ζP only for type inference
     sample_ζresid_norm(approx, i_sites, zP, zMs, CA.getdata(ϕm), ϕq, args...;
         cor_ends, 
         int_ϕq=get_concrete(int_ϕq)
@@ -616,45 +662,77 @@ end
 Extract correlation matrix of a problem based on `MeanHVIApproximation`.
 At unconstrained parameter scale.
 """
-function get_hybridproblem_correlation_Ms(prob::AbstractHybridProblem; 
+function get_hybridproblem_correlation_Ms(prob::AbstractHybridProblem;
     xM = nothing, scenario = Val(()))
     UM = get_hybridproblem_cholesky_correlation_Ms(prob; xM, scenario)
     UM' * UM
 end
 
-function get_hybridproblem_cholesky_correlation_Ms(prob::AbstractHybridProblem; 
+function get_hybridproblem_cholesky_correlation_Ms(prob::AbstractHybridProblem;
     xM = nothing, scenario = Val(()))
     ϕq = get_hybridproblem_ϕq(prob; scenario)
     cor_ends = get_hybridproblem_cor_ends(prob; scenario)
-    ρsM = ϕq[Val(:ρsM)]
-    UM = transformU_block_cholesky1(ρsM, cor_ends.M)
+    ϕm = if isnothing(xM)
+        Matrix{eltype(ϕq)}(undef,0,0)
+    else
+        g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
+        g(xM, prob.ϕg) # TODO separate state, avoid prob.ϕg
+    end
+    get_cholesky_correlation_Ms(prob.approx, ϕq, cor_ends.M, ϕm)
 end
 
-function sample_ζresid_norm(approx::MeanHVIApproximationMat, 
+function get_cholesky_correlation_Ms(
+    ::Union{MeanHVIApproximation,MeanHVIApproximationMat,MeanScalingHVIApproximation},
+    ϕq::CA.ComponentVector, cor_ends_M, ϕm::AbstractMatrix=Matrix{eltype(ϕq)}[],)
+    # correlations only depend on globally optimized parameters ϕq.ρsM
+    ρsM = ϕq[Val(:ρsM)]
+    UM = transformU_block_cholesky1(ρsM, cor_ends_M)
+end
+
+
+function sample_ζresid_norm(
+    approx::Union{AbstractMeanScalingHVIApproximation, MeanHVIApproximationMat},
     i_sites,
     zP::AbstractMatrix, zMs::AbstractMatrix, 
     ϕm::TM, ϕq::AbstractVector{T};
     int_ϕq=get_concrete(ComponentArrayInterpreter(ϕq)),
-    cor_ends,
-    # assume to index into ϕq at the beginning, or provide those indices here
+    cor_ends
 ) where {T,TM<:AbstractMatrix{T}}
-    ζMs = ϕm
-    ϕuncc = ϕqc = int_ϕq(CA.getdata(ϕq))
+    ϕqc = int_ϕq(CA.getdata(ϕq))
     ζP = ϕqc[Val(:μP)]
-    n_θP, n_θMs, (n_θM, n_batch) = length(ζP), length(ζMs), size(ζMs)
-    # do not create a UpperTriangular Matrix of an AbstractGÜUArray in transformU_cholesky1
-    ρsP = isempty(ϕuncc[Val(:ρsP)]) ? similar(ϕuncc[Val(:ρsP)]) : ϕuncc[Val(:ρsP)] # required by zygote
+    n_θP, n_θM, n_batch = length(ζP), get_numberof_θM(approx, ϕm), size(ϕm, 2)
+
+    UM = get_cholesky_correlation_Ms(approx, ϕqc, cor_ends.M, ϕm)
+    # isempty conditional required by zygote
+    ρsP = isempty(ϕqc[Val(:ρsP)]) ? similar(ϕqc[Val(:ρsP)]) : ϕqc[Val(:ρsP)] 
     UP = transformU_block_cholesky1(ρsP, cor_ends.P)
-    ρsM = isempty(ϕuncc[Val(:ρsM)]) ? similar(ϕuncc[Val(:ρsM)]) : ϕuncc[Val(:ρsM)] # required by zygote
-    # cholesky factor of the correlation: diag(UM' * UM) .== 1
-    # coefficients ρsM can be larger than 1, still yielding correlations <1 in UM' * UM
-    UM = transformU_block_cholesky1(ρsM, cor_ends.M)
-    cf = ϕuncc[Val(:coef_logσ2_ζMs)]
-    logσ2_logMs = vec(cf[1, :] .+ cf[2, :] .* ζMs)
-    logσ2_ζP = vec(CA.getdata(ϕuncc[Val(:logσ2_ζP)]))
-    # CUDA cannot multiply BlockDiagonal * Diagonal, construct already those blocks
-    σMs = reshape(exp.(logσ2_logMs ./ 2), n_θM, :)
-    σP = exp.(logσ2_ζP ./ 2)
+    (;σP, σMs) = get_marginal_std(approx, ϕqc, ϕm)
+
+    # # add 0 as last logσ2_par_offset-par in block
+    # logσ2_par_offsets_before_end = OneBasedVectorWithZero(ϕqc[Val(:logσ2_ζM_offsets)])
+    # logσ2_par_offsets = logσ2_par_offsets_before_end[approx.idxs_par0]
+    # n_scale_blocks = length(approx.scalingblocks_ends)
+    # n_par = size(ϕm,1) - n_scale_blocks
+    # ζMs = ϕm[1:n_par,:]
+    # logσ2_sites_offset_blocks = logit.(ϕm[(n_par+1):end,:]) # (0..1)->(-Inf, +Inf), 0.5->0
+    # ζP = ϕqc[Val(:μP)]
+    # n_θP, n_θMs, (n_θM, n_batch) = length(ζP), length(ζMs), size(ζMs)
+    # # do not create a UpperTriangular Matrix of an AbgeneraGÜUArray in transformU_cholesky1
+    # # isempty conditional required by zygote
+    # ρsP = isempty(ϕqc[Val(:ρsP)]) ? similar(ϕqc[Val(:ρsP)]) : ϕqc[Val(:ρsP)] 
+    # UP = transformU_block_cholesky1(ρsP, cor_ends.P)
+    # ρsM = isempty(ϕqc[Val(:ρsM)]) ? similar(ϕqc[Val(:ρsM)]) : ϕqc[Val(:ρsM)] 
+    # # cholesky factor of the correlation: diag(UM' * UM) .== 1
+    # # coefficients ρsM can be larger than 1, still yielding correlations <1 in UM' * UM
+    # UM = transformU_block_cholesky1(ρsM, cor_ends.M)
+    # #
+    # logσ2_site_offsets = logσ2_sites_offset_blocks[approx.idxs_repblocks,:]
+    # logσ2_ζMs = approx.logσ2_ζM_bases .+ logσ2_par_offsets .+ logσ2_site_offsets
+    # #
+    # logσ2_ζP = vec(CA.getdata(ϕqc[Val(:logσ2_ζP)]))
+    # # CUDA cannot multiply BlockDiagonal * Diagonal, construct already those blocks
+    # σMs = exp.(logσ2_ζMs ./ T(2))
+    # σP = exp.(logσ2_ζP ./ T(2))
     # BlockDiagonal does work with CUDA, but not with combination of Zygote and CUDA
     # need to construct full matrix for CUDA
     Uσ, diagUσ = _compute_choleskyfactor(UP, UM, σP, σMs, n_batch) # inferred only BlockDiagonal
@@ -675,6 +753,33 @@ function sample_ζresid_norm(approx::MeanHVIApproximationMat,
     # #map(std, eachcol(ζ_resid[:, 2 + n_batch .+ (-1:5)])) # all ~ 100, except first two
     # # returns AbstractGPUuArrays to either continue on GPU or need to transfer to CPU
     # ζ_resid, diagUσ
+end
+
+"""
+Get the marginal standard deviations of the covariance matrix, that usually 
+depends on ML predictions.
+
+Returns a NamedTuple with entries
+- `σP`: vector of marginal standard deviations of population-level parameters
+- `σMs`: `(n_θM, n_indiv)` matrix of marginal standard deviations of individual parameters
+"""
+function get_marginal_std(prob::AbstractHybridProblem, xM::AbstractMatrix; scenario)
+    g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
+    ϕg = prob.ϕg # TODO separate state and avoid prob.ϕg
+    ϕm = g(xM, ϕg)
+    get_marginal_std(prob.approx, prob.ϕq, ϕm)
+end
+
+function get_marginal_std(::AbstractMeanHVIApproximation, 
+    ϕqc::CA.ComponentVector, ϕm::AbstractMatrix=Matrix{eltype(ϕq)}[])
+    ζMs = ϕm
+    n_θM = size(ζMs, 1)
+    cf = ϕqc[Val(:coef_logσ2_ζMs)]
+    logσ2_logMs = vec(cf[1, :] .+ cf[2, :] .* ζMs)
+    logσ2_ζP = vec(CA.getdata(ϕqc[Val(:logσ2_ζP)]))
+    σP = exp.(logσ2_ζP ./ 2)
+    σMs = reshape(exp.(logσ2_logMs ./ 2), n_θM, :)
+    (;σP, σMs)
 end
 
 """
@@ -766,6 +871,9 @@ function _compute_choleskyfactor(
     B, diagUσ
 end
 
+compute_cov(corU, σ) = Diagonal(σ) * (corU'*corU) * Diagonal(σ)
+compute_invcov(corU, σ) = Diagonal(1 ./ σ) * (inv(corU) * inv(corU')) * Diagonal(1 ./ σ)
+
 # TODO replace by KA.rand when it becomes available, see ones_similar
 # https://github.com/JuliaGPU/KernelAbstractions.jl/issues/488
 function _create_randn(rng, ::AbstractVector{T}, dims...) where {T}
@@ -782,8 +890,12 @@ Transform parameters and compute absolute of determinant of Jacobian of the tran
 
 function transform_and_logjac_ζ(ζP::AbstractVector, ζMs_tr::AbstractMatrix;
     transP::Bijectors.Transform,
-    transMs::StackedArray=StackedArray(transM, size(ζMs_tr, 1)))
-    θMs_tr, logjac_M = Bijectors.with_logabsdet_jacobian(transMs, ζMs_tr)
+    transMs::StackedArray=StackedArray(transM, size(ζMs_tr, 1))
+    )
+    # return all components, already reshaped by StackedArray
+    # need to sum across rows to summed get logdetjac for each site
+    θMs_tr, logjac_M_comps = with_logabsdet_jacobians(transMs, ζMs_tr)
+    logjac_Ms = sum(logjac_M_comps; dims = 2)[:,1]
     # if !all(isfinite.(θMs)) 
     #     @show θMs
     #     @show ζMs
@@ -797,14 +909,14 @@ function transform_and_logjac_ζ(ζP::AbstractVector, ζMs_tr::AbstractMatrix;
     θMs_tr = min.(sqrt(floatmax(eltype(θMs_tr))), θMs_tr) 
     θMs_tr = max.(sqrt(floatmin(eltype(θMs_tr))), θMs_tr) 
     θP, logjac_P = if isempty(ζP)
-        ζP, zero(logjac_M)  
+        collect(ζP), zero(first(logjac_Ms))  # collect necessary for type stability
     else
         θP, logjac_P = Bijectors.with_logabsdet_jacobian(transP, ζP)
         θP = min.(sqrt(floatmax(eltype(θP))), θP) 
         θP = max.(sqrt(floatmin(eltype(θP))), θP) 
         θP, logjac_P
     end
-    θP, θMs_tr, logjac_P + logjac_M
+    θP, θMs_tr, logjac_P, logjac_Ms
 end
 
 """

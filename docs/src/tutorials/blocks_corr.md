@@ -86,7 +86,7 @@ Check that the new specification uses fewer parameters.
 length(get_hybridproblem_ϕq(prob)), length(get_hybridproblem_ϕq(prob_ind))
 ```
 
-    (7, 6)
+    (4, 3)
 
 ``` julia
 using OptimizationOptimisers
@@ -106,10 +106,10 @@ First, draw a sample.
 
 ``` julia
 n_sample_pred = 400
-(y_cor, θsP_cor, θsMs_tr_cor) = (; y, θsP, θsMs_tr) = predict_hvi(
-  Random.default_rng(), probo_cor; n_sample_pred)
-(y_ind, θsP_ind, θsMs_tr_ind) = (; y, θsP, θsMs_tr) = predict_hvi(
-  Random.default_rng(), probo_ind; n_sample_pred)
+(; y, θsP, θsMs_tr) = predict_hvi(Random.default_rng(), probo_cor; n_sample_pred)
+(y_cor, θsP_cor, θsMs_tr_cor) = (y, θsP, θsMs_tr)
+(; y, θsP, θsMs_tr) = predict_hvi(Random.default_rng(), probo_ind; n_sample_pred)
+(y_ind, θsP_ind, θsMs_tr_ind) = (y, θsP, θsMs_tr)
 ```
 
 ``` julia

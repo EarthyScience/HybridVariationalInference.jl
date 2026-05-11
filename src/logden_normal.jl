@@ -71,7 +71,7 @@ end
 # end
 
 
-entropy_MvNormal(K, logdetΣ) = (K * log(2 * π * ℯ) + logdetΣ) / 2
+entropy_MvNormal(K::Integer, logdetΣ::T) where T = (T(K) * log(T(2) * T(π) * T(ℯ)) + logdetΣ) / T(2)
 # compiler figures out log(2 * π * ℯ) already, no need to tinker
 #entropy_MvNormal(K, logdetΣ) = (K * (1 + log(2π)) + logdetΣ) / 2
 entropy_MvNormal(Σ) = entropy_MvNormal(size(Σ, 1), logdet(Σ))

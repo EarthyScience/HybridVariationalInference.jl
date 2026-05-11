@@ -94,7 +94,11 @@ Arguments:
 - `ρ0`: default entry for ρsP and ρsM, defaults = 0f0.
 - `coef_logσ2_logM`: default column for `coef_logσ2_ζMs`, defaults to `[-10.0, 0.0]`
 
-Returns a `ComponentVector` of 
+Returns a Tuple of
+- `ϕqc::ComponentVector`: parameters of the posterior approximation
+- `approx`: possibly updated Approximation
+
+For MeanHVIApproximation, `ϕqc` contains components
 - `logσ2_ζP`: vector of log-variances of ζP (on log scale).
   defaults to -10
 - `coef_logσ2_ζMs`: offset and slope for the log-variances of ζM scaling with 
@@ -121,7 +125,7 @@ function init_hybrid_ϕunc(
         coef_logσ2_ζMs,
         ρsP,
         ρsM)
-    ca = CA.ComponentVector(;nt...)::CA.ComponentVector
+   (; ϕqc = CA.ComponentVector(;nt...)::CA.ComponentVector, approx)
 end
 
 function init_hybrid_ϕunc(
@@ -149,7 +153,7 @@ function init_hybrid_ϕunc(
         logσ2_ζMs,
         ρsP,
         ρsM)
-    ca = CA.ComponentVector(;nt...)::CA.ComponentVector
+    (; ϕqc = CA.ComponentVector(;nt...)::CA.ComponentVector, approx)
 end
 
 function compute_σ_unconstrained(transM::Stacked, θM, rel_err)
@@ -174,4 +178,49 @@ end
 #         int_nt(CA.getdata(CA.ComponentVector(;nt_ev...)))
 #     end
 # end
+
+
+function init_hybrid_ϕunc(
+        approx::SApp,
+        cor_ends::NamedTuple,
+        ρ0::FT = 0.0f0,
+        logσ2_ζMs::AbstractMatrix{FT} = Array{FT}(undef, 0, 0),
+        logσ2_ζP::AbstractVector{FT} = fill(FT(-10.0), cor_ends.P[end]),
+        ρsP = fill(ρ0, get_cor_count(cor_ends.P)),
+        ρsM = fill(ρ0, get_cor_count(cor_ends.M));
+        transM,
+        θM::CA.ComponentVector,
+        n_site::Integer,
+        relerr = 0.01,
+) where {FT, SApp <: MeanScalingHVIApproximation}
+    logσ2 = if isempty(logσ2_ζMs) 
+        # relative error of the template of θM
+        σ = compute_σ_unconstrained(transM, CA.getdata(θM), relerr)        
+        logσ2 = FT(2) * log.(convert.(FT,σ)) 
+    else
+        error("check and implement inferring median logσ2 from logσ2_ζMs")
+        median(logσ2_ζMs; dims=1)
+    end
+    is_end = approx.scalingblocks_ends # abbreviation
+    # update logσ2_ζM_base of last parameter in approx - its not calibrated
+    approx = SApp(approx; logσ2_ζM_base = logσ2[is_end])
+    is_par_offset = range.(vcat(1,is_end[1:(end-1)]),(is_end .- 1)) # excluding last parameter
+    length_scale_blocks = vcat(first(is_end), diff(is_end))
+    is_par_offset = range.((is_end .- length_scale_blocks .+ 1),(is_end .- 1)) # excluding last parameter
+    # need to provide plain vector and sort out positions in apply to satisfy Zygote
+    # logσ2_ζM_offsets = map(is_end, is_offset) do i_end, is_offset
+    #     logσ2[is_offset] .- logσ2[i_end]
+    # end
+    logσ2_ζM_offsets_gen = (logσ2[is_offset] .- logσ2[i_end] for 
+        (i_end, is_offset) in zip(is_end, is_par_offset))
+    #collect(logσ2_ζM_offsets_gen)
+    logσ2_ζM_offsets = vcat(logσ2_ζM_offsets_gen...) 
+    #tmp = CA.ComponentVector(;zip(Symbol.(axes(is_offset,1)), logσ2_ζM_offsets_gen)...)
+    nt = (;
+        logσ2_ζP,
+        logσ2_ζM_offsets,
+        ρsP,
+        ρsM)
+    (; ϕqc = CA.ComponentVector(;nt...)::CA.ComponentVector, approx)
+end
 

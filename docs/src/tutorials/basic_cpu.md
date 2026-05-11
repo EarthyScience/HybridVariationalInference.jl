@@ -35,7 +35,8 @@ $$
 function f_doubleMM(θc::CA.ComponentVector{ET}, x) where ET
     # extract parameters not depending on order, i.e whether they are in θP or θM
     @unpack r0, r1, K1, K2 = θc
-    r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
+    y = r0 .+ r1 .* x.S1 ./ (K1 .+ x.S1) .* x.S2 ./ (K2 .+ x.S2)
+    (y, y[1:0])
 end
 ```
 
@@ -43,6 +44,10 @@ Its formulation is independent of which parameters are global, site-specific,
 or fixed during the model inversion.
 However, it cannot assume an ordering in the parameters, but needs to
 access the components by its symbolic names in the provided `ComponentArray`.
+
+In addition to the predictions, the PBM returns additional quantities that may
+be used in penalizing unrealistic conditions independent of observations.
+In this simple example, just an empty vector is returned.
 
 ## Likelihood function
 
@@ -181,8 +186,11 @@ PBM parameters, given the covariates.
 Here, we specify a 3-layer feed-forward neural network using the `SimpleChains`
 framework which works efficiently on CPU.
 
+The ML model predicts the components of θM and an additional uncertainty
+factor per site.
+
 ``` julia
-n_out = length(θM) # number of individuals to predict 
+n_out = length(θM) + 1 # number of individuals to predict, and uncertainty factor
 n_input = n_covar = size(xM,1)
 
 g_chain = SimpleChain(
@@ -216,10 +224,16 @@ specific prior distribution forms.
 However, for simplicity, a [`NormalScalingModelApplicator`](@ref)
 is fitted to the transformed 5% and 95% quantiles of the original prior.
 
+All raw ML output are in the range (0,1). We want to scale the predictions
+of the mean parameters to the likeli range on unconstrained scale, but do
+not scale the output for the uncertainty factor. This is taken care of
+by the, `range_scaled`, keyword argument.
+
 ``` julia
 priorsM = Tuple(priors_dict[k] for k in keys(θM))
 lowers, uppers = get_quantile_transformed(priorsM, transM)
-g_chain_scaled = NormalScalingModelApplicator(g_chain_app, lowers, uppers, FT)
+range_scaled = 1:length(lowers) # do only scale means, but not the uncertainty factor
+g_chain_scaled = NormalScalingModelApplicator(g_chain_app, lowers, uppers, FT; range_scaled)
 ```
 
 The `g_chain_scaled` `ModelApplicator` now predicts in unconstrained scale,
@@ -227,22 +241,44 @@ transforms logistic predctions around 0.5 to the range of
 high prior probability of the parameters,
 and transforms ML predictions near 0 or 1 towards the outer lower probability ranges.
 
+## Setting up the Approximation strategy and the initial parameters
+
+Here, we are using the `MeanScalingHVIApproximation` approximation of the posterior
+density, where the ML model predicts the means of the model at unconstrained scale
+and a multiplier, i.e offset at log scale, of the main diagonal of the
+covariance matrix for each site.
+
+We need to specify the structure of scaling blocks (here we use on block for
+all parameters), the magnitude of the variance (that will be multiplied by the
+site factor) at log-scale.
+
+Given this information, the initial values to be optimized and some information
+in the approximator can be initialized.
+
+``` julia
+block_ends = [length(θM)]      # one scaling factor of all parameters
+σ = FT(0.1) .* θM[block_ends]  # standard deviation of 10% of values of template
+logσ2 =  FT(2) .* log.(σ)      # transform to log_var scale
+approx = MeanScalingHVIApproximation(block_ends, logσ2)
+
+(;ϕqc, approx) = init_hybrid_ϕq(approx, θP, θM, transP; n_site, transM)
+```
+
 ## Assembling the information
 
 All the specifications above are stored in a [`HybridProblem`](@ref) structure.
 
-Before, a [`PBMSiteApplicator`](@ref) is constructed that translates an invocation
-given a vector of global parameters, and a matrix of site parameters to
+Before, a [`PBMSiteApplicator`](@ref) is constructed that efficiently
+translates an invocation given
+a vector of global parameters, and a matrix of site parameters to
 invocation of the process based model (PBM), defined at the beginning.
 
 ``` julia
-approx = MeanHVIApproximation()
 f_batch = PBMSiteApplicator(f_doubleMM; θP, θM, θFix, xPvec=xP[:,1])
-ϕq0 = init_hybrid_ϕq(approx, θP, θM, transP; n_site, transM)
 
-prob = HybridProblem(θM, ϕq0, g_chain_scaled, ϕg0, 
+prob = HybridProblem(θM, ϕqc, g_chain_scaled, ϕg0, 
     f_batch, priors_dict, py,
-    transM, transP, train_dataloader, test_data,n_covar, n_site, n_batch; approx)
+    transM, transP, train_dataloader, test_data, n_site, n_batch; approx)
 ```
 
 ## Perform the inversion
@@ -311,7 +347,8 @@ function f_doubleMM_sites(θc_tr::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
     K1 = is_valid .* CA.getdata(θc_tr[:, Val(:K1)])'
     K2 = is_valid .* CA.getdata(θc_tr[:, Val(:K2)])'
     # each variable is a matrix (n_obs x n_site)
-    r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
+    y = r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
+    (y, y[1:0,:])
 end
 ```
 
@@ -347,8 +384,8 @@ in the following [Inspect results of fitted problem](@ref) tutorial.
 In order to use the results from this tutorial in other tutorials,
 the updated `probo` `HybridProblem` and the interpreters are saved to a JLD2 file.
 
-Before the problem is updated, so that it uses the redefinition [`DoubleMM.f_doubleMM_sites`](@ref)
-of the PBM in module `DoubleMM` rather than
+Before the problem is updated, it uses the redefinition [`DoubleMM.f_doubleMM_sites`](@ref)
+of the PBM in module `DoubleMM` rather than what we defined in
 module `Main` to allow for easier reloading with JLD2.
 
 ``` julia
