@@ -7,12 +7,14 @@ and provides a value at index 0 (defaulting to zero) that is not stored in the u
 
 Example usage:
 ```jldoctest; output=false
-v = HVI.OneBasedVectorWithZero([10,20,30])
+v = HybridVariationalInference.OneBasedVectorWithZero([10,20,30])
 v[1] == 10
 v[2] == 20
 v[3] == 30
 v[0] == 0 # default value at index 0 is zero
 v[[1,0,0,3]] == [10,0,0,30]
+# output
+true
 ```         
 """
 struct OneBasedVectorWithZero{E,V<:AbstractVector{E}} <: AbstractVector{E}

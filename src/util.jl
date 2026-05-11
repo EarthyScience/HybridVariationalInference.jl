@@ -57,16 +57,18 @@ return them as a vector, while mutating `itr` to now start after those `n` eleme
 
 # Examples
 ```jldoctest; output=false
-it = drop_iterate(1:5) # initialize the iterator
+it = HybridVariationalInference.drop_iterate(1:5) # initialize the iterator
 
-a1 = take_n!(it,3)
+a1 = HybridVariationalInference.take_n!(it,3)
 collect(a1) == [1,2,3]
 
-a2 = take_n!(it,3)
+a2 = HybridVariationalInference.take_n!(it,3)
 collect(a2) == [4,5]  # only two element left, so return those
 
-a3 = take_n!(it,3)
+a3 = HybridVariationalInference.take_n!(it,3)
 collect(a3) == [] # no elements left, so return empty vector
+# output
+true
 ```
 """
 function take_n!(itr::Base.RefValue{<:Base.Iterators.Drop},n)

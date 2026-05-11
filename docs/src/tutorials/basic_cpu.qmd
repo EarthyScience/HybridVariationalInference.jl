@@ -190,6 +190,29 @@ train_dataloader = MLUtils.DataLoader(
     CA.getdata.(values(train_data)), batchsize=n_batch, partial=false)  
 ```
 
+## Setting up the Approximation strategy and the initial parameters
+
+Here, we are using the `MeanScalingHVIApproximation` approximation of the posterior
+density, where the ML model predicts the means of the model at unconstrained scale
+and a multiplier, i.e offset at log scale, of the main diagonal of the 
+covariance matrix for each site.
+
+We need to specify the structure of scaling blocks (here we use on block for
+all parameters), the magnitude of the variance (that will be multiplied by the
+site factor) at log-scale.
+
+Given this information, the initial values to be optimized and some information
+in the approximator can be initialized.
+
+```{julia}
+block_ends = [length(θM)]      # one scaling factor of all parameters
+σ = FT(0.1) .* θM[block_ends]  # standard deviation of 10% of values of template
+logσ2 =  FT(2) .* log.(σ)      # transform to log_var scale
+approx = MeanScalingHVIApproximation(block_ends, logσ2)
+
+(;ϕqc, approx) = init_hybrid_ϕq(approx, θP, θM, transP; n_site, transM)
+```
+
 ## The Machine-Learning model
 
 The machine-learning (ML) part predicts parameters of the posterior of site-specific
@@ -201,7 +224,8 @@ The ML model predicts the components of θM and an additional uncertainty
 factor per site.
 
 ```{julia}
-n_out = length(θM) + 1 # number of individuals to predict, and uncertainty factor
+#n_out = length(θM) + 1 # number of individuals to predict, and uncertainty factor
+n_out = get_numberof_MLinputs(approx, θM)
 n_input = n_covar = size(xM,1)
 
 g_chain = SimpleChain(
@@ -252,37 +276,10 @@ transforms logistic predctions around 0.5 to the range of
 high prior probability of the parameters, 
 and transforms ML predictions near 0 or 1 towards the outer lower probability ranges.
 
-## Setting up the Approximation strategy and the initial parameters
-
-Here, we are using the `MeanScalingHVIApproximation` approximation of the posterior
-density, where the ML model predicts the means of the model at unconstrained scale
-and a multiplier, i.e offset at log scale, of the main diagonal of the 
-covariance matrix for each site.
-
-We need to specify the structure of scaling blocks (here we use on block for
-all parameters), the magnitude of the variance (that will be multiplied by the
-site factor) at log-scale.
-
-Given this information, the initial values to be optimized and some information
-in the approximator can be initialized.
-
-```{julia}
-block_ends = [length(θM)]      # one scaling factor of all parameters
-σ = FT(0.1) .* θM[block_ends]  # standard deviation of 10% of values of template
-logσ2 =  FT(2) .* log.(σ)      # transform to log_var scale
-approx = MeanScalingHVIApproximation(block_ends, logσ2)
-
-(;ϕqc, approx) = init_hybrid_ϕq(approx, θP, θM, transP; n_site, transM)
-```
 
 ## Assembling the information
 
 All the specifications above are stored in a [`HybridProblem`](@ref) structure.
-
-Before, a [`PBMSiteApplicator`](@ref) is  constructed that efficiently 
-translates an invocation given 
-a vector of global parameters, and a matrix of site parameters to
-invocation of the process based model (PBM), defined at the beginning.
 
 ```{julia}
 f_batch = PBMSiteApplicator(f_doubleMM; θP, θM, θFix, xPvec=xP[:,1])

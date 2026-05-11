@@ -1,9 +1,14 @@
-# Basic workflow without GPU
+# Basic workflow without GPU using MeanHVIApproximation
 
 
 ``` @meta
 CurrentModule = HybridVariationalInference  
 ```
+
+Similar to the [Basic workflow without GPU](@ref), but using an approximation of
+the posterior, that does not estimate a site-specific scaling factor of
+the uncertainty, but estimates uncertainty scaling with the parameter value
+at unconstrained scale.
 
 First load necessary packages.
 
