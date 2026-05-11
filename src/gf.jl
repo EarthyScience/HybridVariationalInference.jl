@@ -299,9 +299,9 @@ function get_loss_gf(g, transM, transP, f, py,
                 error("debug get_loss_gf")
             end
             ϕq = eltype(θP_pred)[]  # no uncertainty parameters optimized
-            loss_penalties = first(penalty_computer(
+            loss_penalties = first(compute_penalty(penalty_computer,
                 y_pred, addq_pred, intθMs(θMs_tr_pred), intθP(θP_pred), 
-                y_o, i_sites, ϕc.ϕg, ϕq))
+                i_sites, ϕc.ϕg, ϕq))
             #loss_penalty = sum(loss_penalties .* frac_cluster)
             loss_penalty = sum(loss_penalties)
             #@show nLy, neg_log_prior, loss_penalty

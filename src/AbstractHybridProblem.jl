@@ -45,7 +45,7 @@ end
         compute_penalty(::PenaltyComputerOrFunction, 
             y_pred::AbstractMatrix, addq_pred::AbstractMatrix, 
             θMs::AbstractMatrix, θP::AbstractVector, 
-            y_obs::AbstractMatrix, i_sites::AbstractVector{<:Int}, 
+            i_sites::AbstractVector{<:Int}, 
             ϕg, ϕq::AbstractVector)
 Add additional loss terms during the HVI fit.
 
@@ -62,7 +62,6 @@ Arguments
 - addq_pred::AbstractMatrix: Additional quantities computed by the PBM
 - θMs_tr::AbstractMatrix: site parameters (with sites in rows and parameters in columns)
 - θP::AbstractVector: global parameters
-- y_obs::AbstractMatrix, observations
 - i_sites: indices of sites in the minibatch, useful for using precoputed quantities
 - ϕg: ML-model parameters, 
 - ϕq::AbstractVector, additional parameters of the posterior
@@ -79,6 +78,26 @@ end
 function (pc::AbstractPenaltyComputer)(args...; kwargs...) 
     compute_penalty(pc, args...; kwargs...)   
 end
+
+"""
+    reshape_penalty_matrix(penalty::NamedTuple{KEYS}) where KEYS
+    reshape_penalty_matrix(penalty::ComponentVector{ET,KEYS}) where {ET,KEYS}
+
+Reshape the output of the penalty computer to a ComponentMatrix.
+Assuming that all the component in penalty are of the same element type and length.
+"""
+function reshape_penalty_matrix(penalty::NamedTuple) 
+    reshape_penalty_matrix(CA.ComponentVector(penalty))
+end
+function reshape_penalty_matrix(penalty::CA.ComponentVector{ET}) where {ET}
+    keys_pen = keys(first(CA.getaxes(penalty)))
+    n_site_pred = length(penalty[keys_pen[1]])
+    intPen = ComponentArrayInterpreter((n_site_pred,), 
+        CA.ComponentVector(NamedTuple{keys_pen}(zero(ET) for _ in keys_pen))
+    )
+    penalty_mat = intPen(CA.getdata(penalty)) 
+end
+
 
 
 """

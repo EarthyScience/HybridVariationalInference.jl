@@ -63,4 +63,16 @@ axis_length(ax::CA.UnitRange) = length(ax)
 axis_length(ax::CA.ShapedAxis) = length(ax)
 axis_length(ax::CA.Shaped1DAxis) = length(ax)
 
+"""
+    as_data_frame(cm::CA.ComponentMatrix) 
+    as_data_frame(cm::CA.ComponentArray{T,3}) 
+    as_data_frame(cm::CA.ComponentArray{T,4}) 
 
+Converts a ComponentMatrix with scalar keys in first or second dimension to a DataFrame.
+If keys are in first column, the result corresponds to transposing the first
+two dimensions. 
+With arrays of higher dimension, columsn dim3 and dim4 are added that report
+the index in this dimension.
+"""
+function as_data_frame end
+# in ext/HybridVariationalInferenceDataFramesExt.jl to avoid DataFrames dependency 

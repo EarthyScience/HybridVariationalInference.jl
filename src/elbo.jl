@@ -175,11 +175,11 @@ function neg_elbo_ζtf(ζsP::AbstractArray{T}, ζsMs_tr, σ, f, py, xP, y_ob, y_
             # @descend_code_warntype f(θP, θMs, xP)
             nLy_i = py(y_ob, y_pred_i, y_unc)
             # MAYBE aovid convert by making sure penalty_computer returs proper type
-            # Test.@inferred penalty_computer(y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), y_ob, i_sites, ϕg, ϕq)[1]
-            # loss_penalty_i = convert.(typeof(nLy_i),first(penalty_computer(
-            #     y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), y_ob, i_sites, ϕg, ϕq)))
-            loss_penalty_i = penalty_computer(
-                y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), y_ob, i_sites, ϕg, ϕq)[1]
+            # Test.@inferred compute_penalty(penalty_computer, y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), i_sites, ϕg, ϕq)[1]
+            # loss_penalty_i = convert.(typeof(nLy_i),first(compute_penalty(penalty_computer,
+            #     y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), i_sites, ϕg, ϕq)))
+            loss_penalty_i = compute_penalty(penalty_computer,
+                y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), i_sites, ϕg, ϕq)[1]
             nLprior_P_i, nLprior_M_is = compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr,
                 is_omit_priors, zero_prior_logdensity)
             # make sure names to not match outer, otherwise Box type instability
@@ -280,7 +280,7 @@ struct ZeroPenaltyComputer <: AbstractPenaltyComputer end
 function compute_penalty(
     ::ZeroPenaltyComputer,
     y_pred::AbstractMatrix, addq_pred::AbstractMatrix, θMs_tr::AbstractMatrix, θP::AbstractVector, 
-    y_obs::AbstractMatrix, i_sites::AbstractVector,
+    i_sites::AbstractVector,
     ϕg, ϕq::AbstractVector)
     return (; penalty = fill(zero(eltype(θMs_tr)), size(θMs_tr,1)))
 end
@@ -312,6 +312,12 @@ Returns an NamedTuple `(; y, θsP, θsMs_tr, entropy_ζ)` with entries
   that vary by site.
 - `entropy_ζ`: The entropy of the log-determinant of the transformation of 
   the set of model parameters, which is involved in uncertainty quantification.
+- `ζsP`: ComponentArray `(n_θP, n_sample_pred)` of PBM model parameters
+  that are kept constant across sites at the unconstrained scale.
+- `ζsMs_tr`: ComponentArray `(n_site, n_θM, n_sample_pred)` of PBM model parameters
+  that vary by site at the unconstrained scale.
+- `penalties`: output of problems penalty computer average across samples as a ComponentVector
+  Each component is a vector of length n_site.
 
 Note that for some approximations, such as `MeanVarSepHVIApproximation`, 
 `prob.ϕq` contains uncertainty parameters that are specific to sites. 
@@ -324,6 +330,7 @@ function predict_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()),
     xM = nothing, xP = nothing,
     is_testmode = true,
     i_sites = nothing,
+    n_sample_pred = 200,
     kwargs...
     )
     if isnothing(xM) || isnothing(xP)
@@ -335,8 +342,8 @@ function predict_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()),
         xM = isnothing(xM) ? xM_dl[:,i_sites] : xM
     end
     # sample_posterior required consistent prob.ϕq and xM
-    (; θsP, θsMs_tr, entropy_ζ) = sample_posterior(
-        rng, prob, xM; scenario, gdevs, is_testmode, i_sites, kwargs...)
+    (; θsP, θsMs_tr, entropy_ζ, ζsP, ζsMs_tr) = sample_posterior(
+        rng, prob, xM; scenario, gdevs, is_testmode, i_sites, n_sample_pred,kwargs...)
     #
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     n_site_pred = size(θsMs_tr,1) # determined by size(xM)
@@ -350,7 +357,27 @@ function predict_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()),
     end
     #y = apply_process_model(θsP, θsMs_tr, f_dev, xP)
     (y, addq) = f_dev(θsP, θsMs_tr, xP)
-    (; y, addq, θsP, θsMs_tr, entropy_ζ)
+    # compute penalties
+    penalty_computer = get_hybridproblem_penalty_computer(prob; scenario)
+    pt = get_hybridproblem_par_templates(prob; scenario)
+    intθP = ComponentArrayInterpreter(pt.θP)
+    intθMs = ComponentArrayInterpreter((n_site_pred,), pt.θM)
+    #i_MC = 1
+    #MAYBE use StaticArrays from NamedTuple and initial value
+    penalties_sum = mapreduce((x,y) -> x .+ y, axes(y,3)) do i_MC
+        CA.ComponentVector(
+            compute_penalty(penalty_computer,
+            y[:,:,i_MC], addq[:,:,i_MC], intθMs(θsMs_tr[:,:,i_MC]), intθP(θsP[:,i_MC]), i_sites, 
+            prob.ϕg, prob.ϕq)
+            ) # TOOD separate from prob
+    end
+    # reshape into CompoentMatrix with site rows
+    # intPen = ComponentArrayInterpreter((n_site_pred,), 
+    #     CA.ComponentVector(NamedTuple{keys(penalties_sum)}(0.0 for _ in keys(penalties_sum)))
+    # )
+    # penalties = intPen(CA.getdata(penalties_sum)) ./ n_sample_pred
+    penalties = reshape_penalty_matrix(penalties_sum) ./ n_sample_pred
+    (; y, addq, θsP, θsMs_tr, entropy_ζ, ζsP, ζsMs_tr, penalties)
 end
 
 """
@@ -422,13 +449,18 @@ function sample_posterior(rng, prob::AbstractHybridProblem, xM::AbstractMatrix;
     if isnothing(approx) 
         approx = prob.approx  # assuming has field approx, e.g. if its a HybridProblem
     end
-    (; θsP, θsMs_tr, entropy_ζ) = sample_posterior(rng, g_dev, ϕ_dev, xM;
+    (; θsP, θsMs_tr, entropy_ζ, ζsP, ζsMs_tr) = sample_posterior(rng, g_dev, ϕ_dev, xM;
         int_ϕg_ϕq, int_ϕq, transP, transM, 
         n_sample_pred, cdev=infer_cdev(gdevs), cor_ends, pbm_covar_indices, approx,
         kwargs...)
-    θsPc = ComponentArrayInterpreter(par_templates.θP, (n_sample_pred,))(θsP)
-    θsMsc_tr = ComponentArrayInterpreter((n_site,), par_templates.θM, (n_sample_pred,))(θsMs_tr)
-    (; θsP=θsPc, θsMs_tr=θsMsc_tr, entropy_ζ)
+    # attach ComponentArray structure
+    intP = ComponentArrayInterpreter(par_templates.θP, (n_sample_pred,))
+    θsPc = intP(θsP)
+    ζsPc = intP(ζsP)
+    intMs = ComponentArrayInterpreter((n_site,), par_templates.θM, (n_sample_pred,))
+    θsMsc_tr = intMs(θsMs_tr)
+    ζsMsc_tr = intMs(ζsMs_tr)
+    (; θsP=θsPc, θsMs_tr=θsMsc_tr, entropy_ζ, ζsP=ζsPc, ζsMs_tr=ζsMsc_tr)
 end
 
 function sample_posterior(rng, g, ϕ::AbstractVector, xM::AbstractMatrix;
@@ -456,7 +488,7 @@ function sample_posterior(rng, g, ϕ::AbstractVector, xM::AbstractMatrix;
     θsP, θsMs_tr = is_infer ? 
         Test.@inferred(transform_ζs(ζsP, ζsMs_tr; trans_mP, trans_mMs)) :
         transform_ζs(ζsP, ζsMs_tr; trans_mP, trans_mMs)
-    (; θsP, θsMs_tr, entropy_ζ)
+    (; θsP, θsMs_tr, entropy_ζ, ζsP, ζsMs_tr)
 end
 
 

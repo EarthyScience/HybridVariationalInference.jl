@@ -110,7 +110,7 @@ include("gencovar.jl")
 export callback_loss
 include("util_opt.jl")
 
-export cpu_ca, apply_preserve_axes
+export cpu_ca, apply_preserve_axes, as_data_frame
 include("util_ca.jl")
 
 export ones_similar_x
