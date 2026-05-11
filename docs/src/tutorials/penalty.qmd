@@ -111,7 +111,7 @@ solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)
 
 ## Inspect the computed maxima
 Function predic_hvi also evaluates the penalties. Internally, the penalty function is 
-called for each sample, but only the everage is computed and returned.
+called for each sample, but only the average is computed and returned.
 ```{julia}
 rng = StableRNGs.StableRNG(112)
 n_sample_pred = 200

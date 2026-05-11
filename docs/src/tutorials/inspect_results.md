@@ -89,6 +89,9 @@ covariances among parameters.
 Lets look at how the estimated uncertainty of a site parameter changes with
 its expected value.
 
+For each site compute across the samples the mean and the
+standard deviation.
+
 ``` julia
 par = :K1
 θmean = [mean(θsMs_tr[s,par,:]) for s in axes(θsMs_tr, 1)]
@@ -106,19 +109,16 @@ values of the parameter.
 
 ## Correlations among site parameters at uncronstrained scale
 
-The features a correlation matrix of site parameters at unconstrained scale.
+The posterior approximation uses a correlation matrix
+of site parameters at unconstrained scale that is assumed to
+be equal across sites.
 It can be extracted using function [`get_hybridproblem_correlation_Ms`](@ref).
 
-In a first implementation, this function operates on an `AbstractHybridProblem`
-assuming that its returned `ϕq` contains a component `ρsM`
-that is used to parameterize the
+The actual inversion estimates parameters in component `ρsM` that construct the
 Cholesky factor of the correlation matrix.
 
 ``` julia
-CM = HVI.get_hybridproblem_correlation_Ms(probo)
-fig = Figure(); ax = Axis(fig[1,1], xlabel="mean($par)",ylabel="sd($par)")
-scatter!(ax, θmean, θsd) 
-fig
+CM = get_hybridproblem_correlation_Ms(probo)
 ```
 
 ## Predictive Posterior
@@ -132,7 +132,7 @@ sampling the posterior and predictive posterior and returns the additional
 `NamedTuple` entry `y`.
 
 ``` julia
-(; y, θsP, θsMs_tr) = predict_hvi(rng, probo; n_sample_pred)
+(; y, θsP, θsMs_tr) = predict_hvi(rng, probo; n_sample_pred);
 ```
 
 ``` julia
@@ -157,10 +157,10 @@ scatter!(ax, ymean, ysd)
 fig
 ```
 
-![](inspect_results_files/figure-commonmark/cell-13-output-1.png)
+![](inspect_results_files/figure-commonmark/cell-14-output-1.png)
 
 We see that observed values for associated substrate concentrations range about from
-0.51 to 0.59 with an estimated standard deviation around 0.005 that decreases
+0.5 to 0.6 with an estimated standard deviation around 0.005 that decreases
 with the observed value.
 
 If only a point prediction is required, function [`predict_point_hvi`](@ref)

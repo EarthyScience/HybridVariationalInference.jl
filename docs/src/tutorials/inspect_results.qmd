@@ -146,7 +146,7 @@ The actual inversion estimates parameters in component `ρsM` that construct the
 Cholesky factor of the correlation matrix.
 
 ```{julia}
-CM = HVI.get_hybridproblem_correlation_Ms(probo)
+CM = get_hybridproblem_correlation_Ms(probo)
 ```
 
 ## Predictive Posterior

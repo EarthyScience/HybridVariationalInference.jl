@@ -29,6 +29,7 @@ using HybridVariationalInference
 using SimpleChains
 using ComponentArrays: ComponentArrays as CA
 using JLD2
+import StableRNGs
 ```
 
 This tutorial reuses and modifies the fitted object saved at the end of the
@@ -49,18 +50,22 @@ In this example we want to avoid local minima when parameter, `r1`, is larger th
 70% of the maximum observation.
 
 ``` julia
+# compute the maximum of observed rates at each site
+y_obs = get_hybridproblem_train_dataloader(prob).data[3]
+const y_obs_max = map(col -> maximum(x -> isfinite(x) ? x : zero(x), col), eachcol(y_obs))
+
 function compute_penalty_r1(y_pred::AbstractMatrix, addq_pred::AbstractMatrix, 
-            θMs_tr::AbstractMatrix, θP::AbstractVector, 
-            y_obs::AbstractMatrix, i_sites,
+            θMs_tr::AbstractMatrix, θP::AbstractVector, i_sites,
             ϕg, ϕq::AbstractVector)
-    # compute the maximum of observed rates at each site
-    y_obs_max = map(col -> maximum(x -> isfinite(x) ? x : zero(x), col), 
-        eachcol(y_obs))
+    # get the maximum of current batch from closure of this function
+    y_obs_max_sites = y_obs_max[i_sites]
     # add a penalty if r1 is larger than 0.95 times the maximum
-    penalty = sum(max.(zero(eltype(θMs_tr)), θMs_tr[:,:r1] .- 0.95 .* y_obs_max))
+    penalty = max.(zero(eltype(θMs_tr)), θMs_tr[:,:r1] .- 0.95 .* y_obs_max_sites)
     (; penalty)
 end
 ```
+
+The PenaltyComputer receives argument, `i_sites`, which can be used to index precomputed observation maxima.
 
 ## Update the problem and redo the inversion
 
@@ -71,9 +76,9 @@ returns zero penalty cost.
 We can pass the function directly or alternatively construct a [`CustomPenaltyComputer`](@ref) and update the problem.
 
 ``` julia
-#penalty_computer = CustomPenaltyComputer(compute_penalty_r1)
-#prob_pen = HybridProblem(prob; penalty_computer)
-prob_pen = HybridProblem(prob; penalty_computer = compute_penalty_r1)
+#prob_pen = HybridProblem(prob; penalty_computer = compute_penalty_r1)
+penalty_computer = CustomPenaltyComputer(compute_penalty_r1)
+prob_pen = HybridProblem(prob; penalty_computer)
 
 using OptimizationOptimisers
 import Zygote
@@ -95,13 +100,32 @@ solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)
 );
 ```
 
+## Inspect the computed maxima
+
+Function predic_hvi also evaluates the penalties. Internally, the penalty function is
+called for each sample, but only the average is computed and returned.
+
+``` julia
+rng = StableRNGs.StableRNG(112)
+n_sample_pred = 200
+(; y, θsP, θsMs_tr, ζsP, ζsMs_tr, penalties) = predict_hvi(rng, probo; n_sample_pred);
+size(penalties)
+```
+
+The penalties object is a ComponentMatrix, and we can look at a specific site
+and a named component returned by
+
+``` julia
+i_site = 3
+penalties[i_site, :penalty]
+```
+
 ## Writing a customized PenaltyComputer
 
 In the above example, the maximum of the observations in the batch
-are recomputed each time, the PenaltyComputer is called.
+are accesses by a global variable.
 
-This can be avoided, because the function receives argument, `i_sites`,
-which can be used to index precomputed observation maxima, stored
+This can be improved. The precomputed maxima can be stored
 in a struct implementing type `AbstractPenaltyComputer`
 and function `compute_penalty`.
 
@@ -116,17 +140,16 @@ end
 function HybridVariationalInference.compute_penalty(
     pc::R1PenaltyComputer,
     y_pred::AbstractMatrix, addq_pred::AbstractMatrix, θMs_tr::AbstractMatrix, θP::AbstractVector, 
-    y_obs::AbstractMatrix, i_sites, 
+    i_sites::AbstractVector, 
     ϕg, ϕq::AbstractVector
     )
-    @assert pc.r_max[i_sites] == 0.95 .* map(col -> maximum(x -> isfinite(x) ? x : zero(x), col), eachcol(y_obs))
+    # @assert pc.r_max[i_sites] == 0.95 .* map(col -> maximum(x -> isfinite(x) ? x : zero(x), col), eachcol(y_obs))
     # add a penalty if r1 is larger r_max
-    penalty = sum(max.(zero(eltype(θMs_tr)), θMs_tr[:,:r1] .- pc.r_max[i_sites]))
+    penalty = max.(zero(eltype(θMs_tr)), θMs_tr[:,:r1] .- pc.r_max[i_sites])
     (;penalty)
 end
 
-ys = get_hybridproblem_train_dataloader(probo).data[3]
-penalty_computer = R1PenaltyComputer(ys)
+penalty_computer = R1PenaltyComputer(y_obs)
 ```
 
 Rerunning the inversion using with the update PenaltyComputer:

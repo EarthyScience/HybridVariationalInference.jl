@@ -252,14 +252,14 @@ transforms logistic predctions around 0.5 to the range of
 high prior probability of the parameters, 
 and transforms ML predictions near 0 or 1 towards the outer lower probability ranges.
 
-## Setting up the Approximation strategy and the initial parmeters
+## Setting up the Approximation strategy and the initial parameters
 
 Here, we are using the `MeanScalingHVIApproximation` approximation of the posterior
 density, where the ML model predicts the means of the model at unconstrained scale
 and a multiplier, i.e offset at log scale, of the main diagonal of the 
 covariance matrix for each site.
 
-We need to specify the stucture of scaling blocks (here we use on block for
+We need to specify the structure of scaling blocks (here we use on block for
 all parameters), the magnitude of the variance (that will be multiplied by the
 site factor) at log-scale.
 
