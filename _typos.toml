@@ -5,3 +5,6 @@ extend-exclude = ["docs/src_stash/"]
 SOM = "SOM"
 negLogLik = "negLogLik"
 Missings = "Missings"
+
+[default.extend-identifiers]
+bse = "bse"
