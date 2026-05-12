@@ -27,6 +27,7 @@ function test_no_globals(scenario::Val{scen})  where scen
         #callback = callback_loss(100), # output during fitting
         #callback = callback_loss(10), # output during fitting
         epochs = 2,
+        epochs_callback = 0, # no progress output
         is_omit_priors = Val(:f_on_gpu ∈ scen), # prior computation does not work on gpu
         scenario,
     );
@@ -44,6 +45,7 @@ function test_no_globals(scenario::Val{scen})  where scen
             #callback = callback_loss(10), # output during fitting
             is_omit_priors = Val(:f_on_gpu ∈ scen), # prior computation does not work on gpu
             epochs = 2,
+            epochs_callback = 0, # no progress output
             scenario,
         );    
         @test all(isfinite.(CP.get_hybridproblem_θP(probo)))

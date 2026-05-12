@@ -453,7 +453,7 @@ function HVI.get_hybridproblem_HVIApproximation(prob::DoubleMMCase; scenario::Va
         (;θP, θM)  = get_hybridproblem_par_templates(prob; scenario)
         FT = eltype(θM)
         block_ends = [length(θM)]
-        MeanScalingHVIApproximation(block_ends,FT(2) .* log.(FT(0.1) .* θM[block_ends]))
+        MeanScalingHVIApproximation(block_ends, FT(2) .* log.(FT(0.1) .* θM[block_ends]))
     elseif (:sepvar ∈ scen) 
         MeanVarSepHVIApproximation() 
     else

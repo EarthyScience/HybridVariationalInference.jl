@@ -294,17 +294,17 @@ end
     train_loader = get_hybridproblem_train_dataloader(prob; scenario)
     @assert train_loader.data == (xM, xP, y_o, y_unc, i_sites)
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
-    intθP = ComponentArrayInterpreter(pt.θP)
-    intθMs_batch = ComponentArrayInterpreter((n_batch,), pt.θM)
-    intθMs_site = ComponentArrayInterpreter((n_site,), pt.θM)
+    #intθP = ComponentArrayInterpreter(pt.θP)
+    #intθMs_batch = ComponentArrayInterpreter((n_batch,), pt.θM)
+    #intθMs_site = ComponentArrayInterpreter((n_site,), pt.θM)
 
     #loss_gf = get_loss_gf(g, transM, f,  intϕ; gdev = identity)
     loss_gf = get_loss_gf(g, transM, transP, f,  py, intϕ;
         pbm_covars, n_site_batch = n_batch, priorsP, priorsM, par_templates,
-        intθMs = intθMs_batch, intθP, frac_cluster_all)
+        frac_cluster_all)
     loss_gf_site = get_loss_gf(g, transM, transP, f2, py, intϕ;
         pbm_covars, n_site_batch = n_site, priorsP, priorsM, par_templates,
-        intθMs = intθMs_site, intθP, frac_cluster_all)
+        frac_cluster_all)
     nLjoint = @inferred first(loss_gf(p0, first(train_loader)...; is_testmode=true))
     (xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch) = first(train_loader)
     # @usingany Cthulhu

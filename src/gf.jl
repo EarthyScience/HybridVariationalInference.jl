@@ -233,13 +233,15 @@ function get_loss_gf(g, transM, transP, f, py,
     penalty_computer = ZeroPenaltyComputer(),
     priorsP, priorsM, 
     is_omit_priors::Val{omit_priors} = Val(false),
-    intθP, intθMs,
+    #intθP, intθM,
     frac_cluster_all,
     kwargs...) where omit_priors
 
     pt = par_templates
     zero_prior_logdensity = omit_priors ? zero(eltype(pt.θP)) : get_zero_prior_logdensity(
-    priorsP, priorsM, pt.θP, pt.θM)     
+    priorsP, priorsM, pt.θP, pt.θM)   
+    intθMs = ComponentArrayInterpreter((n_site_batch,), pt.θM)
+    intθP = ComponentArrayInterpreter(pt.θP)
 
     let g = g, transM = transM, transP = transP, f = f, 
         intϕ = get_concrete(intϕ),

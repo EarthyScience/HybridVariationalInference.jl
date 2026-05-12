@@ -29,6 +29,7 @@ cdev = cpu_device()
 #scenario = Val((:covarK2,))
 #scen = CP._val_value(scenario)
 #scenario = Val((:clustered_sites, ))
+#scenario = Val((:scalingall, ))   
 
 function construct_problem(; scenario::Val{scen}) where scen
     FT = Float32
@@ -58,7 +59,8 @@ function construct_problem(; scenario::Val{scen}) where scen
     test_data = (; xM = xM[:, i_test], xP = xP[:, i_test], y_true = y_true[:, i_test],
         y_o = y_o[:, i_test], y_unc = y_unc[:, i_test])
     approx = if (:scalingall ∈ scen) 
-        MeanHVIApproximationMat([length(θM)])
+        block_ends = [length(θM)]
+        MeanScalingHVIApproximation(block_ends, FT(2) .* log.(FT(0.1) .* θM[block_ends]))
     elseif (:MeanHVIApproxBlocks ∈ scen) 
         MeanHVIApproximationMat() 
     else
@@ -66,7 +68,7 @@ function construct_problem(; scenario::Val{scen}) where scen
     end
     n_covar = size(xM,1) 
     n_input = (:covarK2 ∈ scen) ? n_covar +1 : n_covar
-    n_out =  get_numberof_MLinputs(approx, θM)
+    n_out = get_numberof_MLinputs(approx, θM)    
     g_chain = SimpleChain(
         static(n_input), # input dimension (optional)
         # dense layer with bias that maps to 8 outputs and applies `tanh` activation
@@ -95,9 +97,9 @@ function construct_problem(; scenario::Val{scen}) where scen
     # scale (0,1) outputs MLmodel to normal distribution fitted to priors translated to ζ
     priorsM = Tuple(priors_dict[k] for k in keys(θM))
     lowers, uppers = get_quantile_transformed(priorsM, transM)
-    
+    range_scaled = 1:length(lowers) # do only scale means, but not the uncertainty factor
     app, ϕg0 = construct_ChainsApplicator(rng, g_chain, FT)
-    g_chain_scaled = NormalScalingModelApplicator(app, lowers, uppers, FT)
+    g_chain_scaled = NormalScalingModelApplicator(app, lowers, uppers, FT; range_scaled)
     #g_chain_scaled = app
     pbm_covars = (:covarK2 ∈ scen) ? (:K2,) : ()
     f_batch = PBMSiteApplicator(
@@ -173,14 +175,12 @@ test_without_flux = (scenario) -> begin
         priorsM = Tuple(priors[k] for k in keys(par_templates.θM))
         # slightly disturb θP_true
         p = p0 = vcat(ϕg0, par_templates.θP .* convert(eltype(ϕg0), 0.8))  
-        intθP = ComponentArrayInterpreter(pt.θP)
-        intθMs = ComponentArrayInterpreter((n_batch,), pt.θM)
 
         # Pass the site-data for the batches as separate vectors wrapped in a tuple
         loss_gf = get_loss_gf(g, transM, transP, f, py, intϕ; 
             par_templates = pt,
             pbm_covars, n_site_batch = n_batch, priorsP, priorsM, 
-            intθMs, intθP, frac_cluster_all,
+            frac_cluster_all,
             )
         (_xM, _xP, _y_o, _y_unc, _i_sites) = first(train_loader)
         #l1 = loss_gf(p0, _xM, _xP, _y_o, _y_unc, _i_sites; is_testmode = false)
@@ -237,11 +237,10 @@ test_with_flux = (scenario) -> begin
         rng = StableRNG(111)
         solver = HybridPointSolver(; alg=Adam(0.02))
         (; ϕ, resopt, probo) = solve(prob, solver; scenario, rng,
-            #callback = callback_loss(100), maxiters = 1200
-            #maxiters = 1200
-            #maxiters = 20
-            #maxiters=200,
+            #callback = callback_loss(100), 
             epochs = 2,
+            epochs_callback = 1, # print every epoch
+            #epochs_callback = 0, # do not evaluate test and do not print
             gdevs = (; gdev_M=identity, gdev_P=identity),
             #gpu_handler = NullGPUDataHandler
             is_inferred = Val(true),
@@ -266,6 +265,7 @@ test_with_flux = (scenario) -> begin
             #maxiters = 20 # too small so that it yields error
             #maxiters=37, # still complains "need to specify maxiters or epochs"
             epochs = 1,
+            epochs_callback = 1, # print every epoch
             θmean_quant = 0.01,   # test constraining mean to initial prediction     
             gdevs = (; gdev_M=identity, gdev_P=identity),
             is_inferred = Val(true),
@@ -404,7 +404,8 @@ end # test_with flux
 
 #test_with_flux_gpu(Val((:MeanHVIApproxBlocks,))) # do not test any more, its slower
 #scenario = Val(())
-test_with_flux_gpu(Val((:default,)))
+#test_with_flux_gpu(Val((:default,)))
+test_with_flux_gpu(Val((:scalingall,)))
 test_with_flux_gpu(Val((:covarK2,)))
 test_with_flux_gpu(Val((:useSitePBM,)))
 
