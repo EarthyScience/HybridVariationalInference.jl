@@ -11,15 +11,13 @@ the solver to converge to global minimum.
 ## Motivation
 
 The basic cost in HVI is the negative log of the joint probability, i.e.
-the likelihood of the observations given the parameters \* prior probability
+the likelihood of the observations given the parameters times the prior probability
 of the parameters.
 
-Sometimes there is additional knowledge not encoded in the prior, such as
-one parameter must be larger than another, or entropy-weights of the
-ML-parameters, and the solver accept a function to add additional loss terms.
-The loglikelihood function assigns a cost to the mismatch between predictions and
-observations. This often needs to be customized to the specific inversion.
-
+Sometimes one wants to specify additional knowledge not encoded in the prior,
+such as one parameter must be larger than another, or entropy-weights of the
+ML-parameters.
+For such cases, the solver accept a function that computes additional loss terms.
 This guide walks through the specification of such additional penalties.
 
 First load necessary packages.
@@ -65,15 +63,19 @@ function compute_penalty_r1(y_pred::AbstractMatrix, addq_pred::AbstractMatrix,
 end
 ```
 
-The PenaltyComputer receives argument, `i_sites`, which can be used to index precomputed observation maxima.
+The penalty is computed for each site in the batch separately.
+Here, the `i_sites` argument is used to index into precomputed observation maxima.
 
 ## Update the problem and redo the inversion
 
-HybridProblem has keyword argument `penalty_computer` to specify the Callable
+HybridProblem provides the `penalty_computer` keyword argument to specify the Callable
 that computes the penalty. It defaults to `ZeroPenaltyComputer`, which
 returns zero penalty cost.
 
-We can pass the function directly or alternatively construct a [`CustomPenaltyComputer`](@ref) and update the problem.
+The argument accepts the function directly
+(or alternatively construct a [`CustomPenaltyComputer`](@ref)).
+Next, the updated problem is solved, using [`HybridPointSolver`](@ref) and
+[`HybridPosteriorSolver`](@ref).
 
 ``` julia
 #prob_pen = HybridProblem(prob; penalty_computer = compute_penalty_r1)
@@ -102,8 +104,9 @@ solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)
 
 ## Inspect the computed maxima
 
-Function predic_hvi also evaluates the penalties. Internally, the penalty function is
-called for each sample, but only the average is computed and returned.
+The [`predict_hvi`](@ref) function also evaluates the penalties.
+Internally, the penalty function is
+called for each sample, but predict_hvi computes and returns the average.
 
 ``` julia
 rng = StableRNGs.StableRNG(112)
@@ -123,11 +126,12 @@ penalties[i_site, :penalty]
 ## Writing a customized PenaltyComputer
 
 In the above example, the maximum of the observations in the batch
-are accesses by a global variable.
+are accessed by a global variable, which can lead to type stability and
+performance problems.
 
 This can be improved. The precomputed maxima can be stored
 in a struct implementing type `AbstractPenaltyComputer`
-and function `compute_penalty`.
+with associated function `compute_penalty`.
 
 ``` julia
 struct R1PenaltyComputer{T} <: AbstractPenaltyComputer where T
