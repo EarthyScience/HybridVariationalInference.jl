@@ -54,10 +54,11 @@ function construct_problem(; scenario::Val{scen}) where scen
     n_site_test = 60
     # dependency on DeoubleMMCase -> take care of changes in covariates
     (; xM, θP_true, θMs_true, xP, y_true,  y_o, y_unc
-    ) = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); n_site_test,scenario)
-    i_test = n_site .+ (1:n_site_test)
-    test_data = (; xM = xM[:, i_test], xP = xP[:, i_test], y_true = y_true[:, i_test],
-        y_o = y_o[:, i_test], y_unc = y_unc[:, i_test])
+    ) = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); scenario)
+    i_sites_test = sample(rng, 1:n_site, n_site_test, replace=false)
+    test_data = (; xM = xM[:, i_sites_test], xP = xP[:, i_sites_test], 
+        y_o = y_o[:, i_sites_test], y_unc = y_unc[:, i_sites_test],
+        i_sites = i_sites_test)
     approx = if (:scalingall ∈ scen) 
         block_ends = [length(θM)]
         MeanScalingHVIApproximation(block_ends, FT(2) .* log.(FT(0.1) .* θM[block_ends]))
@@ -86,7 +87,8 @@ function construct_problem(; scenario::Val{scen}) where scen
     #         MLUtils.DataLoader((xM, xP, y_o, y_unc, i_sites), batchsize=n_batch, partial=false)
     #     end
     # end
-    i_train = 1:n_site
+    i_train = setdiff(1:n_site, i_sites_test)
+    @assert sort(vcat(i_sites_test, i_train)) == 1:n_site
     train_dataloader = MLUtils.DataLoader(
         (CA.getdata(xM[:,i_train]), CA.getdata(xP[:,i_train]), y_o[:,i_train], 
         y_unc[:,i_train], i_sites[i_train]), batchsize=n_batch, partial=false)
@@ -239,8 +241,8 @@ test_with_flux = (scenario) -> begin
         (; ϕ, resopt, probo) = solve(prob, solver; scenario, rng,
             #callback = callback_loss(100), 
             epochs = 2,
-            epochs_callback = 1, # print every epoch
-            #epochs_callback = 0, # do not evaluate test and do not print
+            #epochs_callback = 1, # print every epoch
+            epochs_callback = 0, # do not evaluate test and do not print
             gdevs = (; gdev_M=identity, gdev_P=identity),
             #gpu_handler = NullGPUDataHandler
             is_inferred = Val(true),
@@ -264,8 +266,9 @@ test_with_flux = (scenario) -> begin
             #callback = callback_loss(100), maxiters = 1200,
             #maxiters = 20 # too small so that it yields error
             #maxiters=37, # still complains "need to specify maxiters or epochs"
-            epochs = 1,
+            epochs = 2,
             epochs_callback = 1, # print every epoch
+            #epochs_callback = 0, # not progress output
             θmean_quant = 0.01,   # test constraining mean to initial prediction     
             gdevs = (; gdev_M=identity, gdev_P=identity),
             is_inferred = Val(true),
@@ -304,6 +307,7 @@ test_with_flux_gpu = (scenario) -> begin
                 #maxiters = 37, # smallest value by trial and error
                 #maxiters = 20 # too small so that it yields error
                 epochs = 2,
+                epochs_callback = 0, # not progress output
                 θmean_quant = 0.01,   # test constraining mean to initial prediction     
                 is_inferred = Val(true),
                 gdevs = (; gdev_M=gpu_device(), gdev_P=identity),);
@@ -315,6 +319,7 @@ test_with_flux_gpu = (scenario) -> begin
             (; probo, ϕ, resopt) = solve(prob, solver; scenario = scenf,
                 #maxiters = 37, 
                 epochs = 2,
+                epochs_callback = 0, # not progress output
                 gdevs = (; gdev_M=gpu_device(), gdev_P=identity),
                 is_inferred = Val(true),
             );
@@ -332,7 +337,8 @@ test_with_flux_gpu = (scenario) -> begin
             test_correlation = () -> begin
                 n_epoch = 20 # requires 
                 (; ϕ, resopt, probo) = solve(prob, solver; scenario = scenf,
-                    maxiters = n_batches_in_epoch * n_epoch, 
+                    epochs = n_epoch,
+                    epochs_callback = 2, # not progress output
                     gdevs = (; gdev_M=gpu_device(), gdev_P=identity),
                     callback = callback_loss(n_batches_in_epoch*5)
                 );
@@ -387,6 +393,7 @@ test_with_flux_gpu = (scenario) -> begin
                     #maxiters = 37, # smallest value by trial and error
                     #maxiters = 20, # too small so that it yields error
                     epochs = 1,
+                    epochs_callback = 0, # not progress output
                     #θmean_quant = 0.01,   # TODO make possible on gpu
                     gdevs = (; gdev_M=gpu_device(), gdev_P=gpu_device()),
                     is_inferred = Val(true),

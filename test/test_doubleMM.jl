@@ -275,7 +275,6 @@ end
     n_site, n_site_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     frac_cluster_all = fill(1, n_site)
     f = get_hybridproblem_PBmodel(prob; scenario)
-    f2 = create_nsite_applicator(f, n_site)
     py = get_hybridproblem_neg_logden_obs(prob; scenario)
     priors = get_hybridproblem_priors(prob; scenario)
     priorsP = Tuple(priors[k] for k in keys(par_templates.θP))
@@ -292,7 +291,9 @@ end
     # train_loader = MLUtils.DataLoader(
     #     (xM, xP, y_o, y_unc, i_sites), batchsize = n_site_batch)
     train_loader = get_hybridproblem_train_dataloader(prob; scenario)
-    @assert train_loader.data == (xM, xP, y_o, y_unc, i_sites)
+    i_sites_train = train_loader.data[5]
+    n_site_train = length(i_sites_train)
+    @assert train_loader.data[1:4] == (xM[:,i_sites_train], xP[:,i_sites_train], y_o[:,i_sites_train], y_unc[:,i_sites_train])
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
     #intθP = ComponentArrayInterpreter(pt.θP)
     #intθMs_batch = ComponentArrayInterpreter((n_batch,), pt.θM)
@@ -302,8 +303,9 @@ end
     loss_gf = get_loss_gf(g, transM, transP, f,  py, intϕ;
         pbm_covars, n_site_batch = n_batch, priorsP, priorsM, par_templates,
         frac_cluster_all)
+    f2 = create_nsite_applicator(f, n_site_train)
     loss_gf_site = get_loss_gf(g, transM, transP, f2, py, intϕ;
-        pbm_covars, n_site_batch = n_site, priorsP, priorsM, par_templates,
+        pbm_covars, n_site_batch = n_site_train, priorsP, priorsM, par_templates,
         frac_cluster_all)
     nLjoint = @inferred first(loss_gf(p0, first(train_loader)...; is_testmode=true))
     (xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch) = first(train_loader)
@@ -318,7 +320,7 @@ end
 
     res = Optimization.solve(
         #optprob, Adam(0.02), callback = callback_loss(100), maxiters = 5000);
-        optprob, Adam(0.02), maxiters = 2000)
+        optprob, Adam(0.02), epochs = 40)
 
     (;nLjoint_pen, y_pred, θMs_tr_pred, θP_pred, nLy, nLprior_P, nLprior_M, loss_penalty) = loss_gf_site(
         res.u, train_loader.data...; is_testmode=true)
@@ -326,8 +328,8 @@ end
     θMs_tr_pred = CA.ComponentArray(θMs_tr_pred, CA.getaxes(θMs_true'))
     #TODO @test isapprox(par_templates.θP, intϕ(res.u).ϕP, rtol = 0.15)
     #@test cor(vec(θMs_true), vec(θMs_tr_pred)) > 0.8
-    @test cor(θMs_true'[:, 1], θMs_tr_pred[:, 1]) > 0.8
-    @test cor(θMs_true'[:, 2], θMs_tr_pred[:, 2]) > 0.8
+    @test cor(θMs_true'[i_sites_train, 1], θMs_tr_pred[:, 1]) > 0.8
+    @test cor(θMs_true'[i_sites_train, 2], θMs_tr_pred[:, 2]) > 0.8
     # started from low values -> increased but not too much above true values
     # logpdf.(priorsP, θP_pred)
     # logpdf.(priorsP, par_templates.θP)

@@ -93,6 +93,7 @@ function test_driverNaN(scenario::Val{scen})  where scen
         #callback = callback_loss(100), # output during fitting
         #callback = callback_loss(10), # output during fitting
         epochs = 2,
+        #epochs_callback = 0, # not progress output
         is_omit_priors = Val(:f_on_gpu ∈ scen), # prior computation does not work on gpu
         scenario,
     );
@@ -109,6 +110,7 @@ function test_driverNaN(scenario::Val{scen})  where scen
         (; probo, interpreters) = solve(prob, solver; rng,
             callback = callback_loss(10), # output during fitting
             epochs = 2,
+            epochs_callback = 0, # not progress output
             scenario,
         );    
         @test all(isfinite.(probo.θP))

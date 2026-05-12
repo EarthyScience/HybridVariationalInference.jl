@@ -34,13 +34,11 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     n_sites_cluster = [count(==(element),clusters) for element in 1:maximum(clusters)]
     frac_cluster_all = (1 / cluster_rep) ./ n_sites_cluster[clusters] 
     train_loader = get_hybridproblem_train_dataloader(prob; scenario)
-    #TODO provide different test data
-    # TODO use 1/10 of the training data
-    i_test = rand(1:n_site, Integer(floor(n_site/10)))
-    test_data = map(train_loader.data) do data_comp
-        ndims(data_comp) == 2 ? data_comp[:, i_test] : data_comp[i_test]
-    end
-    #test_data = train_loader.data
+    test_data = get_hybridproblem_test_data(prob; scenario) 
+    # i_test = rand(1:n_site, Integer(floor(n_site/10)))
+    # test_data = map(train_loader.data) do data_comp
+    #     ndims(data_comp) == 2 ? data_comp[:, i_test] : data_comp[i_test]
+    # end
     gdev = gdevs.gdev_M
     if gdev isa MLDataDevices.AbstractGPUDevice
         ϕ0_dev = gdev(ϕ0_cpu)
@@ -259,11 +257,11 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     zero_prior_logdensity = omit_priors ? 0f0 : get_zero_prior_logdensity(
         priorsP, priorsM, pt.θP, pt.θM)     
     train_loader = get_hybridproblem_train_dataloader(prob; scenario)
-    # TODO think about problem returning all the data rather than dataloader
-    i_test = rand(1:n_site, Integer(floor(n_site/10)))
-    test_data = map(train_loader.data) do data_comp
-        ndims(data_comp) == 2 ? data_comp[:, i_test] : data_comp[i_test]
-    end
+    test_data = get_hybridproblem_test_data(prob; scenario) 
+    # i_test = rand(1:n_site, Integer(floor(n_site/10)))
+    # test_data = map(train_loader.data) do data_comp
+    #     ndims(data_comp) == 2 ? data_comp[:, i_test] : data_comp[i_test]
+    # end
     n_batch_test = size(test_data[1],2)
     if first(train_loader)[1] isa CA.ComponentArray
         @warn("ML model covariates (1) were provided as ComponentArray. " * 
@@ -504,7 +502,8 @@ function construct_priors_θ_mean(prob, ϕg, keysθM, θP, θmean_quant, g_dev, 
         ζP = apply_preserve_axes(inverse(transP), θP)
         pbm_covar_indices = get_pbm_covar_indices(θP, pbm_covars)
         xMP_all = _append_each_covars(xM_all, CA.getdata(ζP), pbm_covar_indices)
-        transMs = StackedArray(transM, n_site)
+        n_site_train = size(xM_all, 2)
+        transMs = StackedArray(transM, n_site_train)
         # ζMs = g_dev(xMP_all, CA.getdata(ϕg))'  # transpose to par-last for StackedArray
         # ζMs_cpu = cdev(ζMs)
         # θMs_tr = transMs(ζMs_cpu)

@@ -72,8 +72,8 @@ test_scenario = (scenario) -> begin
         # wrap inside function to not define(pollute) variables in level up
         _trainloader = get_hybridproblem_train_dataloader(probc; scenario)
         (_xM, _xP, _y_o, _y_unc, _i_sites) = _trainloader.data
-        @test _xM == xM
-        @test _y_o == y_o
+        @test _xM == xM[:,_i_sites]
+        @test _y_o == y_o[:,_i_sites]
     end; tmpf()
 
     # prediction by g(ϕg, XM) does not correspond to θMs_true, randomly initialized

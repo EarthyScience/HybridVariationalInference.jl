@@ -263,7 +263,7 @@ Return a DataLoader that provides a tuple of
 """
 function get_hybridproblem_train_dataloader end
 function get_hybridproblem_test_data end
-
+function get_hybridproblem_i_sites_test end
 
 """
     construct_dataloader_from_synthetic(rng::AbstractRNG, prob::AbstractHybridProblem;
@@ -272,16 +272,19 @@ function get_hybridproblem_test_data end
 Construct a dataloader based on `gen_hybridproblem_synthetic`. 
 """
 function construct_dataloader_from_synthetic(rng::AbstractRNG, prob::AbstractHybridProblem;
-        scenario = (), n_batch, n_site_test = 0,
+        scenario = (), n_batch,
         #gdev = :use_gpu ∈ scenario ? gpu_device() : identity,
         )
-    (; xM, xP, y_o, y_unc) = gen_hybridproblem_synthetic(rng, prob; n_site_test, scenario)
-    n_site = size(xM,2) - n_site_test
+    (; xM, xP, y_o, y_unc) = gen_hybridproblem_synthetic(rng, prob; scenario)
+    i_sites_test = get_hybridproblem_i_sites_test(prob; scenario)
+    n_site = size(xM, 2)
     @assert size(xP,2) == n_site
     @assert size(y_o,2) == n_site
     @assert size(y_unc,2) == n_site
-    i_sites = 1:n_site
-    train_loader = MLUtils.DataLoader((CA.getdata(xM), CA.getdata(xP), y_o, y_unc, i_sites);
+    i_sites = setdiff(1:n_site, i_sites_test)
+    train_loader = MLUtils.DataLoader((
+        CA.getdata(xM)[:,i_sites], CA.getdata(xP)[:,i_sites], 
+        y_o[:,i_sites], y_unc[:,i_sites], i_sites);
         batchsize = n_batch, partial = false)
     return (train_loader)
 end
