@@ -44,12 +44,13 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
         ϕ0_dev = gdev(ϕ0_cpu)
         g_dev = gdev(g)
         train_loader_dev = gdev_hybridproblem_dataloader(train_loader; gdevs)
-        test_data_dev = gdev_hybridproblem_data(test_data; gdevs)
+        test_data_dev = gdev_hybridproblem_data(
+            test_data[keys(test_data)[1:5]]; gdevs)
     else
         ϕ0_dev = ϕ0_cpu
         g_dev = g
         train_loader_dev = train_loader
-        test_data_dev = test_data
+        test_data_dev = test_data[keys(test_data)[1:5]]
     end
     f = get_hybridproblem_PBmodel(prob; scenario)
     ftest = create_nsite_applicator(f, size(test_data[1],2))
@@ -275,12 +276,12 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
         ϕ0_dev = gdevs.gdev_M(ϕ)
         g_dev = gdevs.gdev_M(g) # zygote fails if  gdev is a CPUDevice, although should be non-op
         train_loader_dev = gdev_hybridproblem_dataloader(train_loader; gdevs)
-        test_data_dev = gdev_hybridproblem_data(test_data; gdevs)
+        test_data_dev = gdev_hybridproblem_data(test_data[keys(test_data)[1:5]]; gdevs)
     else
         ϕ0_dev = ϕ
         g_dev = g
         train_loader_dev = train_loader
-        test_data_dev = test_data
+        test_data_dev = test_data[keys(test_data)[1:5]]
     end
     f = get_hybridproblem_PBmodel(prob; scenario)
     f_test = create_nsite_applicator(f, n_batch_test)
@@ -330,6 +331,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     # @usingany Cthulhu
     # @descend_code_warntype loss_elbo(ϕ0_dev, rng, first(train_loader_dev)...)
     # omit for type stability in AD
+    @assert length(first(train_loader_dev)) == 5
     l0 = 
     #is_infer ? 
     #     (Test.@inferred loss_elbo(ϕ0_dev, rng, first(train_loader_dev)...; is_testmode=true)) :
