@@ -36,6 +36,7 @@ using Distances, Clustering
 export DoubleMM
 
 include("OneBasedVectorWithZero.jl")
+export cat_namedtuple_lastdim, index_at_dim
 include("util.jl")
 
 export extend_stacked_nrow, StackedArray

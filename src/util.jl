@@ -118,3 +118,54 @@ function ChainRulesCore.rrule(::typeof(insert_zeros), v::AbstractVector, positio
     end
     return y, pullback
 end
+
+"""
+    cat_namedtuple_lastdim(nt_agg, nt; along) 
+
+Reducing function that takes two NamedTuple objects of the same type and
+concatenates each component along specified dimension.
+
+Optionally, the dimension at which to concatenate can be specified in
+the `along` NamedTuple argument.
+"""
+function cat_namedtuple_lastdim(nt_agg::NamedTuple, nt::NamedTuple; along = map(ndims, nt)::NamedTuple) 
+    NamedTuple( map(nt, keys(nt)) do comp, key
+        key => cat(nt_agg[key], comp; dims = along[key])
+    end)
+end
+
+"""
+    index_at_dim(x::AbstractArray{T, N}, i::AbstractVector{Int}; dim::Int) where {T, N}
+
+Index into array `x` along dimension `dim` using indices `i`, while selecting
+all elements along all other dimensions.
+
+# Arguments
+- `x::AbstractArray{T, N}`: Input array of type `T` and `N` dimensions.
+- `i::AbstractVector{Int}`: Vector of indices to select along dimension `dim`.
+- `dim::Int`: The dimension along which to index.
+
+# Returns
+- An array of the same type as `x` with the same number of dimensions, where
+  the size along `dim` is `length(i)` and all other dimensions are unchanged.
+
+# Examples
+```julia
+x = reshape(1:24, 3, 2, 4)
+
+# Index along dimension 1
+index_at_dim(x, [1]; dim=1)        # 1×2×4 array
+
+# Index along dimension 2
+index_at_dim(x, [1, 3]; dim=1)     # 2×2×4 array
+
+# Index along dimension 3
+index_at_dim(x, [2, 4]; dim=3)     # 3×2×2 array
+```
+"""
+function index_at_dim(x::AbstractArray{T, N}, i::AbstractVector{Int}; dim::Int) where {T, N}
+    colons = ntuple(d -> d == dim ? i : Colon(), N)
+    return x[colons...]
+end
+
+
