@@ -248,7 +248,9 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     n_sites_cluster = [count(==(element),clusters) for element in 1:maximum(clusters)]
     frac_cluster_all = (1 / cluster_rep) ./ n_sites_cluster[clusters] 
-    ϕq = get_hybridproblem_ϕq(prob; scenario)
+    ranef = get_hybridproblem_ranef(prob; scenario)     
+    ϕq_ranef = setup_ϕq_ranef(ranef, n_site)
+    ϕq = (;get_hybridproblem_ϕq(prob; scenario)..., ranef = ϕq_ranef)
     (; ϕ, interpreters) = init_hybrid_params(ϕg0, ϕq)
     int_ϕq = interpreters.ϕq
     int_ϕg_ϕq = interpreters.ϕg_ϕq
@@ -310,6 +312,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
         #pt.θP, 
         int_ϕq, int_ϕg_ϕq, priorsP, priorsM,
         is_omit_priors, zero_prior_logdensity, approx, penalty_computer, 
+        ranef,
         #intθMs, intθP,
         frac_cluster_all,
         )
@@ -321,6 +324,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
         #pt.θP, 
         int_ϕq, int_ϕg_ϕq, priorsP, priorsM,
         is_omit_priors, zero_prior_logdensity, approx, penalty_computer, 
+        ranef,
         #intθMs, intθP,
         frac_cluster_all,
         )
@@ -387,6 +391,7 @@ function get_loss_elbo(g, transP, transM, f, py, n_batch;
     int_ϕq, int_ϕg_ϕq,
     priorsP, priorsM, penalty_computer = ZeroPenaltyComputer(),
     is_omit_priors, zero_prior_logdensity, approx,
+    ranef::AbstractRandomEffects,
     #intθMs, intθP,
     frac_cluster_all,
 ) 
@@ -407,6 +412,7 @@ function get_loss_elbo(g, transP, transM, f, py, n_batch;
         is_omit_priors = is_omit_priors, zero_prior_logdensity = zero_prior_logdensity,
         approx = approx,
         intθMs = get_concrete(intθMs), intθP = get_concrete(intθP),
+        ranef = ranef
         frac_cluster_all = convert.(T, frac_cluster_all)
 
 
@@ -419,7 +425,7 @@ function get_loss_elbo(g, transP, transM, f, py, n_batch;
                 cdev, pbm_covar_indices, transP, transMs, trans_mP, trans_mMs,
                 priorsP, priorsM, penalty_computer, #ϕg = ϕc.ϕg, ϕq = ϕc.ϕq,
                 is_testmode, is_omit_priors, zero_prior_logdensity, approx,
-                intθMs, intθP, frac_cluster_all,
+                intθMs, intθP, ranef, frac_cluster_all,
             )
         end
     end

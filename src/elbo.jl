@@ -30,11 +30,11 @@ expected value of the likelihood of observations.
 function neg_elbo_gtf(args...; kwargs...)
     # TODO prior and penalty loss
     (;nLjoint, entropy_ζ, loss_penalty, 
-        nLy, nLprior_P, nLprior_M, neg_log_jac, 
+        nLy, nLprior_P, nLprior_M, neg_log_jac, nLRanef,
         #nLmean_θ
         ) = neg_elbo_gtf_components(args...; kwargs...)
     # negative of log_joint - need to subtract entropy_ζ
-    nL = nLjoint + loss_penalty  - entropy_ζ #+ nLmean_θ
+    nL = nLjoint + loss_penalty - entropy_ζ + nLRanef #+ nLmean_θ
     # if !isfinite(nL) 
     #     @show nL
     #     @show nLjoint, entropy_ζ, loss_penalty, nLy, 
@@ -65,6 +65,7 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
     zero_prior_logdensity,
     approx::AbstractHVIApproximation,
     intθP, intθMs,
+    ranef::AbstractRandomEffects,
     frac_cluster_all,
 ) where {FT}
     ϕc = int_ϕg_ϕq(ϕ)
@@ -87,7 +88,7 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
         ζsP_cpu[:,1:n_MC], ζsMs_tr_cpu[:,:,1:n_MC], σ, f, py, xP, y_ob, y_unc;
         n_MC_cap, transP, transMs, priorsP, priorsM, 
         penalty_computer, ϕg, ϕq, is_omit_priors, zero_prior_logdensity, 
-        i_sites, intθMs, intθP, frac_cluster_all)
+        i_sites, intθMs, intθP, ranef, frac_cluster_all)
     #
     # maybe: provide trans_mP and trans_mMs with creating cost function
     # not used any more and merging named tuples takes long
@@ -147,6 +148,7 @@ function neg_elbo_ζtf(ζsP::AbstractArray{T}, ζsMs_tr, σ, f, py, xP, y_ob, y_
     is_omit_priors::Val,
     zero_prior_logdensity,
     i_sites, intθP, intθMs,
+    ranef::AbstractRandomEffects,
     frac_cluster_all, 
 ) where T
     n_MC = size(ζsP,2)
@@ -238,8 +240,9 @@ function neg_elbo_ζtf(ζsP::AbstractArray{T}, ζsMs_tr, σ, f, py, xP, y_ob, y_
     #     @show std(nLys_smallest), std(nLys_smallest)/abs(nLy)
     # end
     nLjoint = nLy + nLprior_P + nLprior_M + neg_log_jac
+    nLRanef = -compute_nLranef(ranef, ϕq(Val(:ranef)))
     (;nLjoint, entropy_ζ, loss_penalty, 
-        nLy, nLprior_P, nLprior_M, neg_log_jac)
+        nLy, nLprior_P, nLprior_M, neg_log_jac, nLRanef)
 end
 
 function compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr,
@@ -527,7 +530,8 @@ function generate_ζ(
     ζP_resids, ζMs_parfirst_resids, σ = sample_ζresid_norm(approx, rng, 
         i_sites, ϕm0, ϕq; n_MC, cor_ends, int_ϕq)
     n_θm = size(ζMs_parfirst_resids, 1)
-    μ_ζMs0 = ϕm0[1:n_θm, :]
+    μ_ζMs_g0 = ϕm0[1:n_θm, :]
+    μ_ζMs0 = add_ranef(ranef, μ_ζMs_g0, ϕq[Val(:ranef)], i_sites) 
     # if !all(isfinite.(μ_ζMs0))
     #     @show μ_ζMs0
     #     is_infinite_ϕg = !all(isfinite.(ϕg))
@@ -550,7 +554,8 @@ function generate_ζ(
         ζsMs_vec = map(eachcol(ζsP), eachslice(ζMs_parfirst_resids; dims=3)) do ζP, rMs
             # second pass: append ζP rather than μ_ζP to covars to xM
             xMP = _append_each_covars(xM, CA.getdata(ζP), pbm_covar_indices)
-            μ_ζMst = ϕm = g(xMP, ϕg; is_testmode)
+            μ_ζMs_gt = ϕm = g(xMP, ϕg; is_testmode)
+            μ_ζMst = add_ranef(ranef, μ_ζMs_gt, ϕq[Val(:ranef)], i_sites) 
             ζMs = (μ_ζMst .+ rMs)'  # already transform to par-last form
             ζMs
         end
@@ -580,7 +585,8 @@ function _append_each_covars(xM, ζP::AbstractVector, pbm_covar_indices::Abstrac
     _append_each_covars(xM, ζP_covar)
 end
 function _append_each_covars(xM, ζP_covar::AbstractVector)
-    #@show ζP, typeof(ζP)
+    isempty(ζP_covar) && return(xM)
+    @show ζP_covar, typeof(ζP_covar), typeof(xM)
     @assert eltype(xM) == eltype(ζP_covar)
     #Main.@infiltrate_main
     ζP_rep = reduce(hcat, fill(ζP_covar, size(xM, 2)))

@@ -46,6 +46,11 @@ VERSION >= v"1.11.0-DEV.469" && eval(Meta.parse("public Exp"))
 VERSION >= v"1.11.0-DEV.469" && eval(Meta.parse("public Logistic")) 
 include("bijectors_utils.jl")
 
+export AbstractRandomEffects, RandomEffects, NullRandomEffects
+export AbstractCovariancePrior, CVPrior_LKJ_Cauchy
+export compute_nLranef, add_ranef, setup_ϕq_ranef
+include("RandomEffects.jl")
+
 export AbstractHVIApproximation, AbstractMeanHVIApproximation
 export get_numberof_MLinputs
 export MeanHVIApproximation, MeanHVIApproximationMat
@@ -75,19 +80,20 @@ include("PBMApplicator.jl")
 
 export AbstractHybridProblem, AbstractPenaltyComputer, CustomPenaltyComputer,
         compute_penalty,
-       get_hybridproblem_MLapplicator, get_hybridproblem_PBmodel,
-       get_hybridproblem_penalty_computer,
-       get_hybridproblem_ϕq, get_hybridproblem_θP,
-       get_hybridproblem_float_type, gen_hybridproblem_synthetic,
-       get_hybridproblem_par_templates, get_hybridproblem_transforms,
-       get_hybridproblem_train_dataloader,
-       get_hybridproblem_test_data,
-       get_hybridproblem_neg_logden_obs,
-       get_hybridproblem_n_covar, # default
-       get_hybridproblem_n_site_and_batch,
-       get_hybridproblem_cor_ends,
-       get_hybridproblem_priors,
-       get_hybridproblem_pbmpar_covars,
+        get_hybridproblem_MLapplicator, get_hybridproblem_PBmodel,
+        get_hybridproblem_penalty_computer,
+        get_hybridproblem_ϕq, get_hybridproblem_θP,
+        get_hybridproblem_float_type, gen_hybridproblem_synthetic,
+        get_hybridproblem_par_templates, get_hybridproblem_transforms,
+        get_hybridproblem_train_dataloader,
+        get_hybridproblem_test_data,
+        get_hybridproblem_neg_logden_obs,
+        get_hybridproblem_n_covar, # default
+        get_hybridproblem_n_site_and_batch,
+        get_hybridproblem_cor_ends,
+        get_hybridproblem_priors,
+        get_hybridproblem_pbmpar_covars,
+        get_hybridproblem_ranef,
        gen_cov_pred,
        construct_dataloader_from_synthetic,
        gdev_hybridproblem_dataloader, gdev_hybridproblem_data,

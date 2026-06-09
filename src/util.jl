@@ -169,3 +169,150 @@ function index_at_dim(x::AbstractArray{T, N}, i::AbstractVector{Int}; dim::Int) 
 end
 
 
+
+using LinearAlgebra
+
+"""
+    log_density_mvn_cholesky(x, U)
+
+Compute the log-density of a zero-mean multivariate normal distribution
+with covariance matrix C = U' * U, where U is the upper Cholesky factor.
+
+Arguments:
+- x: vector of length n (the sample)
+- U: upper triangular Cholesky factor of the covariance matrix (n × n)
+
+Returns:
+- log p(x) ∈ ℝ: log-density at x
+"""
+function log_density_mvn_cholesky(U::AbstractMatrix{T}, x::AbstractVector{T}) where T
+    n = length(x)
+    # Solve L * y = x for y (forward substitution)
+    y = U' \ x  # Efficient triangular solve
+    # Compute ||y||^2 = y' * y
+    quad_form = dot(y, y)  # or: sum(abs2, y)
+    # Compute sum of log(diagonals) of U → this is log(sqrt(det(C)))
+    if any(diag(U) .< 0) 
+        @info("log_density_mvn_cholesky: encountered diag(U) components smaller than zero: $(diag(U))")
+        # ignore_derivatives() do
+        #     Main.@infiltrate_main
+        # end
+    end
+    log_det_C_half = sum(log, diag(U))  # = 0.5 * log|C|
+    # Full log-density formula
+    log2π = T(1.8378770664093453)   #log(2π)
+    log_density = -T(0.5) * (quad_form + T(2) * log_det_C_half + n * log2π)
+    return log_density
+end
+
+# Prompt: Write a Julia function replace_values(x::Matrix, i_sites::Vector{Int}, pos::Vector{Int}, y::Matrix) that returns a new matrix where x[i_sites, pos] is replaced by y and all other values are unchanged. The function must be fully non-mutating and compatible with Zygote automatic differentiation. Use one-hot projection matrices P_row and P_col to scatter y into the full matrix space via P_row * y * P_col', and blend with x using a binary mask derived from the outer product of row and column indicator vectors. It should use matrix comprehensions to form P_row and P_col.
+"""
+    replace_values_matrix(x::Matrix, i_sites::Vector{<:Integer}, pos::Vector{<:Integer}, y::Matrix)
+
+Return a new matrix where the submatrix at positions `x[i_sites, pos]` is replaced by `y`, 
+while all other values remain unchanged.
+
+This function performs a non-mutating replacement using one-hot projection matrices and 
+a binary mask derived from the outer product of indicator vectors. It is designed to be 
+compatible with automatic differentiation frameworks like Zygote.
+
+### Parameters
+- `x`: The input matrix of size `(m, n)` to be modified.
+- `i_sites`: A vector of row indices (1-based) specifying which rows to replace.
+- `pos`: A vector of column indices (1-based) specifying which columns to replace.
+- `y`: The replacement matrix of size `(length(i_sites), length(pos))`.
+
+### Returns
+- A new matrix of the same size as `x`, where `x[i_sites, pos]` is replaced by `y`.
+
+### Details
+- The function constructs one-hot projection matrices `P_row` (size `m × length(i_sites)`) 
+  and `P_col` (size `n × length(pos)`) using matrix comprehensions.
+- The replacement values are scattered into the full matrix space via `P_row * y * P_col'`.
+- A binary mask is created using the outer product of indicator vectors for `i_sites` and `pos`.
+- The result is computed as `x .* (1 - mask) + (P_row * y * P_col') .* mask`, blending the original 
+  matrix with the scattered replacement values.
+
+### Example
+```julia
+x = [1 2 3; 4 5 6; 7 8 9]
+i_sites = [1, 3]
+pos = [2, 3]
+y = [10 11; 12 13]
+
+result = replace_values(x, i_sites, pos, y)
+# result = [1 10 11; 4 5 6; 7 12 13]
+"""
+function replace_values_matrix(x::AbstractMatrix{T}, i_sites::AbstractVector{<:Integer}, pos::AbstractVector{<:Integer}, y::AbstractMatrix{T}) where T
+    # Precompute projection matrices (one-hot style)
+    P_row = [i == k for i in 1:size(x, 1), k in i_sites]  # n_rows × length(i_sites)
+    P_col = [j == k for j in 1:size(x, 2), k in pos]      # n_cols × length(pos)
+    # Project y into full matrix space: P_row * y * P_col'
+    y_full = P_row * y * P_col'
+    # Compute mask as outer product of indicator vectors
+    # row_mask = [i in i_sites for i in 1:size(x, 1)]
+    # col_mask = [j in pos     for j in 1:size(x, 2)]
+    # replace_mask0 = row_mask .* col_mask'
+    replace_mask = sum(P_row, dims=2) .* sum(P_col, dims=2)'
+    res = (1 .- replace_mask) .* x .+ replace_mask .* y_full
+    res
+end
+
+"""
+    replace_columns_matrix(x::Matrix, col_indices::Vector{Int}, y::Matrix)
+
+Return a new matrix where the specified columns of `x` are replaced by the columns of `y`.
+
+This function performs a non-mutating column replacement using one-hot projection matrices 
+and is compatible with automatic differentiation frameworks like Zygote.
+
+### Parameters
+- `x`: The input matrix of size `(m, n)` to be modified.
+- `col_indices`: A vector of column indices (1-based) specifying which columns to replace.
+- `y`: The replacement matrix of size `(m, length(col_indices))`.
+
+### Returns
+- A new matrix of the same size as `x`, where the columns at positions `col_indices` are replaced by the corresponding columns of `y`.
+
+### Details
+- The function constructs a one-hot projection matrix `P_col` (size `n × length(col_indices)`) 
+  using matrix comprehensions, where each column corresponds to a target column index.
+- The replacement values are scattered into the full matrix space via `x * (I - P_col * P_col') + y * P_col'`.
+- The operation is differentiable with respect to all inputs.
+
+### Example
+```julia
+x = [1 2 3; 4 5 6; 7 8 9]
+col_indices = [1, 3]
+y = [10 11; 12 13; 14 15]
+
+result = replace_columns_matrix(x, col_indices, y)
+#result = HVI.replace_columns_matrix(x, col_indices, y)
+# result == [10 2 11; 12 5 13; 14 8 15]
+```
+
+### Notes
+- All column indices must be valid (1-based).
+- The function is fully non-mutating and compatible with Zygote for automatic differentiation.
+- The operation is differentiable with respect to all inputs.
+"""
+function replace_columns_matrix(x::AbstractMatrix{T}, col_indices::AbstractVector{<:Integer}, y::AbstractMatrix{T}) where T
+    # Get dimensions
+    m, n = size(x)
+    p = length(col_indices)
+    
+    # Validate inputs
+    # @assert p == size(y, 2) "Number of columns in y must match length of col_indices"
+    # @assert m == size(y, 1) "Number of rows in y must match number of rows in x"
+    # @assert all(1 .<= col_indices .<= n) "col_indices must be valid column indices"
+    
+    # Create one-hot projection matrix using matrix comprehension
+    # P_col: n × p matrix where each column is a one-hot vector for col_indices
+    P_col = ChainRulesCore.@ignore_derivatives [
+        j_it == j_col ? one(T) : zero(T) for j_it in 1:n, j_col in col_indices]
+    
+    # Replace columns: keep original columns (I - P_col * P_col') and replace with y * P_col'
+    # This is equivalent to: x * (I - P_col * P_col') + y * P_col'
+    result = x * (LinearAlgebra.I - P_col * P_col') .+ y * P_col'
+    return result
+end

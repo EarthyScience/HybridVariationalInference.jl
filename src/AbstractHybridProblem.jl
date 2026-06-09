@@ -405,6 +405,16 @@ end
 Return a AbstractHVIApproximation that should be used with this problem
 """
 function get_hybridproblem_HVIApproximation end
+"""
+    get_hybridproblem_ranef(::AbstractHybridProblem; scenario)      
+
+Return a AbstractRandomEffects that should be used with this problem.
+The default is `NullRandomEffects()`, which does not add any random effects.
+"""
+function get_hybridproblem_ranef(prob::AbstractHybridProblem; scenario = ())
+    NullRandomEffects()
+end
+
     
 
 

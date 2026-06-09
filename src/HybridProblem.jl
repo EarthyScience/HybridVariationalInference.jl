@@ -45,6 +45,7 @@ struct HybridProblem <: AbstractHybridProblem
     pbm_covars::NTuple{_N, Symbol} where _N
     approx::AbstractHVIApproximation
     penalty_computer::PenaltyComputerOrFunction
+    ranef::AbstractRandomEffects
     #penalty_computer::
     #inner constructor to constrain the types
     function HybridProblem(
@@ -65,11 +66,12 @@ struct HybridProblem <: AbstractHybridProblem
             pbm_covars::NTuple{N,Symbol} = (),
             approx::AbstractHVIApproximation = MeanHVIApproximationMat(),
             penalty_computer::PenaltyComputerOrFunction = ZeroPenaltyComputer(),
+            ranef::AbstractRandomEffects = NullRandomEffects(),
     ) where N
         new(
             θM, f_batch, g, ϕg, ϕq, priors, py, transM, transP, cor_ends, 
             train_dataloader, test_data, n_site, n_batch, pbm_covars, 
-            approx, penalty_computer)
+            approx, penalty_computer, ranef)
     end
 end
 
@@ -133,6 +135,7 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
     ϕunc = nothing,
     approx::AbstractHVIApproximation = get_hybridproblem_HVIApproximation(prob; scenario),
     penalty_computer::PenaltyComputerOrFunction = get_hybridproblem_penalty_computer(prob; scenario),  
+    ranef = get_hybridproblem_ranef(prob; scenario),
     )
     n_batch_before = get_hybridproblem_n_site_and_batch(prob; scenario)[2]
     cor_ends_new = if !isnothing(cor_ends)
@@ -307,4 +310,8 @@ end
 
 function get_hybridproblem_HVIApproximation(prob::HybridProblem; scenario = ())
     prob.approx
+end
+
+function get_hybridproblem_ranef(prob::HybridProblem; scenario = ())
+    prob.ranef
 end

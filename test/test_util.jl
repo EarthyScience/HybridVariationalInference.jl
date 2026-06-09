@@ -1,7 +1,11 @@
 using Test
 using HybridVariationalInference: vectuptotupvec_allowmissing, vectuptotupvec, insert_zeros
+using HybridVariationalInference: replace_columns_matrix
 using HybridVariationalInference: HybridVariationalInference as HVI
 using Zygote
+using Distributions
+using LinearAlgebra
+
 
 
 @testset "OneBasedVectorWithZero" begin
@@ -133,4 +137,77 @@ end;
     vectupm = [missing, (1,1.01, "string 1"), (2,2.02, "string 2")] 
     gr = Zygote.gradient(x -> sum(skipmissing(vectuptotupvec_allowmissing(x)[1])), vectupm)
 end;
+
+@testset "log_density_mvn_cholesky" begin
+    # Test cases: different dimensions and covariance matrices
+    test_cases = [
+        (2, 0.1),   # 2D, small variance
+        #(3, 1.0),   # 3D, moderate
+        #(5, 2.0),   # 5D, larger
+        (10, 0.5),  # 10D, small
+    ]
+    # n, scale = test_cases[3]
+    for (n, scale) in test_cases
+        # Generate a random positive definite covariance matrix
+        A = randn(n, n)
+        C = A * A' + scale * I  # Ensure positive definite
+        U = cholesky(C).L'
+        x = randn(n)
+        log_p_custom = HVI.log_density_mvn_cholesky(U, x)
+        # Compute log-density using Distributions.jl
+        dist = MvNormal(zeros(n), C)
+        log_p_builtin = logpdf(dist, x)
+        @test isapprox(log_p_custom, log_p_builtin, atol=1e-10)
+    end
+    # test Zygote can handle this function
+    () -> begin
+        A = rand(3,3)
+        U = cholesky(A * A' + I).L'
+        Zygote.gradient(x -> HVI.log_density_mvn_cholesky(U, x), randn(3))
+    end
+end
+
+@testset "replace_columns_matrix" begin
+    # Test case 1: Basic replacement
+    x = [1 2 3; 4 5 6; 7 8 9]
+    col_indices = [1, 3]
+    y = [10 11; 12 13; 14 15]
+    result = replace_columns_matrix(x, col_indices, y)
+    expected = [10 2 11; 12 5 13; 14 8 15]
+    @test result ≈ expected
+    tmp = Zygote.gradient(y -> sum(replace_columns_matrix(x, col_indices, y)), y)
+    #    
+    # Test case 2: Replace all columns
+    x = [1 2; 3 4]
+    col_indices = [1, 2]
+    y = [5 6; 7 8]
+    #
+    result = replace_columns_matrix(x, col_indices, y)
+    expected = [5 6; 7 8]
+    @test result ≈ expected
+    #    
+    # Test case 3: Replace single column
+    x = [1 2 3; 4 5 6]
+    col_indices = [2]
+    y = reshape([10; 20], :,1)
+    result = replace_columns_matrix(x, col_indices, y)
+    expected = [1 10 3; 4 20 6]
+    @test result ≈ expected
+    #
+    # Test case 4: Empty replacement
+    x = [1.0 2; 3 4]
+    col_indices = Int[]
+    y = Matrix{Float64}(undef, 2, 0)
+    result = replace_columns_matrix(x, col_indices, y)
+    expected = x
+    @test result ≈ expected
+    #    
+    # Test case 5: Differentiation compatibility (Zygote)
+    x = [1.0 2.0; 3.0 4.0]
+    col_indices = [1]
+    y = reshape([5.0; 6.0], :, 1)
+    # Check that gradient can be computed
+    gradient((x,y) -> sum(replace_columns_matrix(x, col_indices, y)), x,y)
+end
+
 

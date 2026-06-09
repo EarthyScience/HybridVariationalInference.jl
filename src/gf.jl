@@ -107,6 +107,7 @@ function gf(prob::AbstractHybridProblem, xM::AbstractMatrix, xP::AbstractMatrix;
     scenario = Val(()), 
     gdevs = nothing, #get_gdev_MP(scenario), 
     is_inferred::Val{is_infer} = Val(false),
+    i_sites,
     kwargs...
 ) where is_infer
     gdevs = isnothing(gdevs) ? get_gdev_MP(scenario) : gdevs
@@ -134,12 +135,15 @@ function gf(prob::AbstractHybridProblem, xM::AbstractMatrix, xP::AbstractMatrix;
     g_dev, ϕg_dev, xM_dev, ζP_dev =  gdev(g), gdev(ϕg), gdev(CA.getdata(xM)), gdev(CA.getdata(ζP))
     # most of the properties of prob are not type-inferred
     # hence result is not type-inferred, but may test at this context
+    ranef = get_hybridproblem_ranef(prob; scenario)
+    ϕq_ranef = ϕq[Val(:ranef)]
+    i_sites = 
     res = is_infer ? 
         Test.@inferred( gf(
             g_dev, transMs, transP, f_dev, xM_dev, xP, ϕg_dev, n_θM, ζP_dev, pbm_covar_indices; 
-            cdev, kwargs...)) :
+            cdev, ranef, ϕq_ranef, i_sites, kwargs...)) :
         gf(g_dev, transMs, transP, f_dev, xM_dev, xP, ϕg_dev, n_θM, ζP_dev, pbm_covar_indices; 
-            cdev, kwargs...)
+            cdev, ranef, ϕq_ranef, i_sites, kwargs...)
 end
 
 function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, n_θM, ζP; 
@@ -153,6 +157,7 @@ end
 
 function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, n_θM, ζP, 
     pbm_covar_indices::AbstractVector{<:Integer}; 
+    ranef::AbstractRandomEffects, ϕq_ranef, i_sites,
     cdev, is_testmode)
     # @show first(xM,5)
     # @show first(ϕg,5)
@@ -163,7 +168,7 @@ function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, n_θM, 
     # end
     #xMP = _append_PBM_covars(xM, intP(ζP), pbm_covars) 
     xMP = _append_each_covars(xM, CA.getdata(ζP), pbm_covar_indices)
-    θMs_tr = gtrans(g, transMs, xMP, ϕg, n_θM; cdev, is_testmode)
+    θMs_tr = gtrans(g, transMs, xMP, ϕg, n_θM; ranef, ϕq_ranef, i_sites, cdev, is_testmode)
     # transPM = RRuleMonitor("transP", ζP -> transP(ζP))
     # θP = transPM(CA.getdata(ζP))
     θP = transP(CA.getdata(ζP))
@@ -180,10 +185,15 @@ end
 composition transM ∘ g: transformation after machine learning parameter prediction
 Provide a `transMs = StackedArray(transM, n_batch)`
 """
-function gtrans(g, transMs, xMP, ϕg, n_θM; cdev, is_testmode)
+function gtrans(g, transMs, xMP, ϕg, n_θM; 
+    ranef::AbstractRandomEffects, ϕq_ranef, i_sites,
+    cdev, is_testmode
+    )
     ϕg = g(xMP, ϕg; is_testmode)
     ζMs_tr = ϕg[1:n_θM,:]' # ignore the uncertainty-related parameters
-    ζMs_tr_cpu = cdev(ζMs_tr)
+    ζMs_tr_cpu0 = cdev(ζMs_tr)
+    ζMs_tr_cpu = add_ranef(ranef, ζMs_tr_cpu0, ϕq_ranef, i_sites)
+    #@show ζMs_tr_cpu .- ζMs_tr_cpu0
     θMs_tr = transMs(ζMs_tr_cpu)
     if !all(isfinite.(θMs_tr))
         @info "gtrans: encountered non-finite parameters"
@@ -224,9 +234,9 @@ and returns a NamedTuple of
 - `neg_log_prior`: negative log-prior of `θMs_tr` and `θP`
 """
 function get_loss_gf(g, transM, transP, f, py,  
-    intϕ::AbstractComponentArrayInterpreter,
-    intP::AbstractComponentArrayInterpreter = ComponentArrayInterpreter(
-        intϕ(1:length(intϕ)).ϕP);
+    intϕ::AbstractComponentArrayInterpreter;
+    # intP::AbstractComponentArrayInterpreter = nothing, #ComponentArrayInterpreter(
+    #     intϕ(1:length(intϕ))[:Val(:ϕq)][:Val(:ϕP)]);
     cdev=cpu_device(),
     par_templates::NamedTuple,
     pbm_covars, n_site_batch, 
@@ -234,6 +244,7 @@ function get_loss_gf(g, transM, transP, f, py,
     priorsP, priorsM, 
     is_omit_priors::Val{omit_priors} = Val(false),
     #intθP, intθM,
+    ranef::AbstractRandomEffects,
     frac_cluster_all,
     kwargs...) where omit_priors
 
@@ -247,18 +258,23 @@ function get_loss_gf(g, transM, transP, f, py,
         intϕ = get_concrete(intϕ),
         transMs = StackedArray(transM, n_site_batch),
         cdev = cdev,
-        pbm_covar_indices = CA.getdata(intP(1:length(intP))[pbm_covars]),
+        pbm_covar_indices = CA.getdata(intθP(1:length(intθP))[pbm_covars]),
         zero_prior_logdensity = zero_prior_logdensity, is_omit_priors = is_omit_priors,
         priorsP = priorsP, priorsM = priorsM, 
         penalty_computer = penalty_computer,
         intθMs = get_concrete(intθMs), intθP = get_concrete(intθP),
+        ranef = ranef,
         frac_cluster_all = convert.(eltype(pt.θP),frac_cluster_all),
         n_θM = length(priorsM),
         cpu_dev = cpu_device() # real cpu, different form infer_cdev(gdevs) that maybe idenetity
         #, intP = get_concrete(intP)
         #inv_transP = inverse(transP), kwargs = kwargs
+
         function loss_gf(ϕ::AbstractVector{T}, xM, xP, y_o, y_unc, i_sites; is_testmode) where T
             ϕc = intϕ(ϕ)
+            #ϕq = ϕc[Val(:ϕg)]  # looses structure
+            ϕq = ϕc.ϕq
+            ϕq_ranef = ϕq[Val(:ranef)]
             # GPUArraysCore.allowscalar(() -> if !all(isfinite.(ϕ))
             #     @show ϕc.ϕP
             #     error("invokded loss function loss_gf with non-finite parameters")
@@ -272,14 +288,15 @@ function get_loss_gf(g, transM, transP, f, py,
             # y_pred, _, _ = apply_f_trans(ζP_cpu, ζMs_cpu, f, xP; transM, transP)
             if !all(isfinite.(ϕ)) 
                 @info "loss_gf: encountered non-finite ϕ"
-                @show ϕc.ϕP
+                @show ϕq.ϕP
                 #Main.@infiltrate_main
             end
             y_pred, addq_pred, θMs_tr_pred, θP_pred = gf(
-                g, transMs, transP, f, xM, xP, CA.getdata(ϕc.ϕg), n_θM,
-                CA.getdata(ϕc.ϕP), 
-                pbm_covar_indices; cdev, is_testmode, kwargs...)
-            # TODO check computation
+                g, transMs, transP, f, xM, xP, CA.getdata(ϕc[Val(:ϕg)]), n_θM,
+                CA.getdata(ϕq[Val(:ϕP)]), 
+                pbm_covar_indices; cdev, is_testmode, 
+                ranef, ϕq_ranef, i_sites,
+                kwargs...)
             frac_cluster = frac_cluster_all[i_sites]
             #σ = exp.(y_unc ./ 2)
             #nLy = sum(abs2, (y_pred .- y_o) ./ σ) 
@@ -299,16 +316,16 @@ function get_loss_gf(g, transM, transP, f, py,
                 @show θP_pred, θMs_tr_pred, ϕc.ϕP
                 error("debug get_loss_gf")
             end
-            ϕq = eltype(θP_pred)[]  # no uncertainty parameters optimized
             loss_penalties = first(compute_penalty(penalty_computer,
                 y_pred, addq_pred, intθMs(θMs_tr_pred), intθP(θP_pred), 
-                i_sites, ϕc.ϕg, ϕq))
+                i_sites, ϕc[Val(:ϕg)], ϕq))
             #loss_penalty = sum(loss_penalties .* frac_cluster)
             loss_penalty = sum(loss_penalties)
             #@show nLy, neg_log_prior, loss_penalty
-            nLjoint_pen = nLy + nLprior_P + nLprior_M + loss_penalty
+            nLRanef = compute_nLranef(ranef, ϕq[Val(:ranef)])
+            nLjoint_pen = nLy + nLprior_P + nLprior_M + loss_penalty + nLRanef
             return (;nLjoint_pen, y_pred, θMs_tr_pred, θP_pred, nLy, nLprior_P, 
-                nLprior_M, loss_penalty)
+                nLprior_M, loss_penalty, nLRanef)
         end
     end
 end

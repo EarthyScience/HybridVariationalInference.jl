@@ -1,10 +1,12 @@
 using Test
 using HybridVariationalInference
 using HybridVariationalInference: HybridVariationalInference as CP
+#using HybridVariationalInference: HybridVariationalInference as HVI
 using StableRNGs
 using Random
 using Statistics
 using ComponentArrays: ComponentArrays as CA
+using StaticArrays: StaticArrays as SA
 using Bijectors
 
 using SimpleChains
@@ -280,11 +282,21 @@ end
     priorsP = Tuple(priors[k] for k in keys(par_templates.θP))
     priorsM = Tuple(priors[k] for k in keys(par_templates.θM))
 
+    ranef = RandomEffects(SA.SVector{1}([1]), ϕg0[1])
+    #ranef = NullRandomEffects()
+    ϕq_ranef = setup_ϕq_ranef(ranef, n_site)
     intϕ = ComponentArrayInterpreter(CA.ComponentVector(
-        ϕg = 1:length(ϕg0), ϕP = par_templates.θP))
+        ϕg = 1:length(ϕg0), 
+        ϕq = CA.ComponentVector(
+            ϕP=par_templates.θP,
+            ranef=ϕq_ranef
+            )
+        ))
     p = p0 = vcat(ϕg0,
         CP.apply_preserve_axes(inverse(transP), par_templates.θP) .-
-        convert(eltype(ϕg0), 0.1))  # slightly disturb θP_true
+        convert(eltype(ϕg0), 0.1),  # slightly disturb θP_true
+        ϕq_ranef,
+    )
     #p = p0 = vcat(ϕg_opt1, par_templates.θP);  # almost true
 
     # Pass the site-data for the batches as separate vectors wrapped in a tuple
@@ -302,21 +314,31 @@ end
     #loss_gf = get_loss_gf(g, transM, f,  intϕ; gdev = identity)
     loss_gf = get_loss_gf(g, transM, transP, f,  py, intϕ;
         pbm_covars, n_site_batch = n_batch, priorsP, priorsM, par_templates,
-        frac_cluster_all)
+        ranef, frac_cluster_all)
     f2 = create_nsite_applicator(f, n_site_train)
     loss_gf_site = get_loss_gf(g, transM, transP, f2, py, intϕ;
         pbm_covars, n_site_batch = n_site_train, priorsP, priorsM, par_templates,
-        frac_cluster_all)
+        ranef, frac_cluster_all)
     nLjoint = @inferred first(loss_gf(p0, first(train_loader)...; is_testmode=true))
+    # p01 = copy(p0); p01[end] = 5.0 
+    p01 = copy(p0); p01[intϕ(1:length(p01)).ϕq.ranef.β[1:5]] .= 2.0 # one of the beta
+    nLjoint2 = @inferred first(loss_gf(p01, first(train_loader)...; is_testmode=true))
+    @test nLjoint < nLjoint2
     (xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch) = first(train_loader)
     # @usingany Cthulhu
     # @descend_code_warntype loss_gf(p0, xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch)
-    Zygote.gradient(
+    tmp = Zygote.gradient(
         p0 -> first(loss_gf(
             p0, xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch; is_testmode=false)), CA.getdata(p0))
+    # tmp = Zygote.gradient(
+    #     p0 -> first(loss_gf(
+    #         p0, xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch; is_testmode=false)), CA.getdata(p01))
+    intϕ(first(tmp)).ϕq
     optf = Optimization.OptimizationFunction((ϕ, data) -> first(loss_gf(ϕ, data...; is_testmode=false)),
         Optimization.AutoZygote())
+        #Optimization.AutoFiniteDiff())
     optprob = OptimizationProblem(optf, CA.getdata(p0), train_loader)
+    #optprob = OptimizationProblem(optf, CA.getdata(p01), train_loader)
 
     res = Optimization.solve(
         #optprob, Adam(0.02), callback = callback_loss(100), maxiters = 5000);
@@ -325,6 +347,9 @@ end
     (;nLjoint_pen, y_pred, θMs_tr_pred, θP_pred, nLy, nLprior_P, nLprior_M, loss_penalty) = loss_gf_site(
         res.u, train_loader.data...; is_testmode=true)
     #(nLjoint,  y_pred, θMs_tr_pred, θP, nLy, nLprior_P, nLprior_M, loss_penalty) = loss_gf(p0, xM, xP, y_o, y_unc);
+    ϕq_opt = intϕ(res.u).ϕq
+    ϕq_opt.ranef
+    intϕ(p0).ϕq.ranef
     θMs_tr_pred = CA.ComponentArray(θMs_tr_pred, CA.getaxes(θMs_true'))
     #TODO @test isapprox(par_templates.θP, intϕ(res.u).ϕP, rtol = 0.15)
     #@test cor(vec(θMs_true), vec(θMs_tr_pred)) > 0.8
@@ -333,7 +358,7 @@ end
     # started from low values -> increased but not too much above true values
     # logpdf.(priorsP, θP_pred)
     # logpdf.(priorsP, par_templates.θP)
-    @test all(transP(intϕ(p0).ϕP) .< θP_pred .< (1.2 .* θP_true))
+    @test all(transP(intϕ(p0).ϕq.ϕP) .< θP_pred .< (1.2 .* θP_true))
     @test all(0.8 .* θP_true .< θP_pred .< (1.2 .* θP_true))
 
     () -> begin
