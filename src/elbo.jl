@@ -520,7 +520,7 @@ function generate_ζ(
     ϕq = CA.getdata(ϕc[Val(:ϕq)])
     ϕqc = int_ϕq(ϕq)
     μ_ζP = CA.getdata(ϕqc[Val(:μP)])
-    # first pass: append μ_ζP_to covars, need ML prediction for magnitude of ζMs
+    # first pass only : append μ_ζP_to covars, need ML prediction for magnitude of ζMs
     # TODO replace pbm_covar_indices by ComponentArray? dimensions to be type-inferred?
     xMP0 = _append_each_covars(xM, CA.getdata(μ_ζP), pbm_covar_indices)
     ϕm0 = g(xMP0, ϕg; is_testmode)
