@@ -38,10 +38,11 @@ end
 
 const prob = DoubleMM.DoubleMMCase()
 scenario = Val((:covarK2,))
-scenario = Val((:scalingall,))
 scenario = Val((:sepvar,))
-scenario = Val((:clustered_sites,))
 scenario = Val((:default,))
+scenario = Val((:ranef,))
+scenario = Val((:clustered_sites,))
+#scenario = Val((:scalingall,))  # Also in clustered_sites One site uncertainty-scaling factor predicted by ML
 
 pt = get_hybridproblem_par_templates(prob; scenario)
 FT = eltype(pt.θM)
@@ -50,6 +51,8 @@ FT = eltype(pt.θM)
 #approx = MeanScalingHVIApproximation([length(pt.θM)], FT(2) .* log.([FT(0.1) * pt.θM[end]]))
 
 test_scenario = (scenario) -> begin
+    scen = CP._val_value(scenario)
+    #@show scen
     #probc = HybridProblem(prob; scenario, approx);
     probc = HybridProblem(prob; scenario);
     # tmp = first(get_hybridproblem_train_dataloader(prob; scenario))[1]
@@ -90,6 +93,16 @@ test_scenario = (scenario) -> begin
     priorsP = [priors[k] for k in keys(par_templates.θP)]
     priorsM = [priors[k] for k in keys(par_templates.θM)]
 
+    ranef = if (:ranef ∈ scen)
+        par_ranef = (:r1, :K1)
+        ranef_spec = RandomEffects(par_ranef)
+        ranef = get_ranef_computer(
+            ranef_spec, keys(par_templates.θM), n_site, one(eltype(par_templates.θM)))
+    else
+        NullRandomEffectsComputer{eltype(par_templates.θM)}(n_site)
+    end
+    ϕq_ranef = setup_ϕq_ranef(ranef)
+
     n_MC = 3
     (; transP, transM) = get_hybridproblem_transforms(probc; scenario)
     cor_ends = get_hybridproblem_cor_ends(probc; scenario)
@@ -97,7 +110,8 @@ test_scenario = (scenario) -> begin
     # transM = Stacked(elementwise(identity), elementwise(exp))
     #transM = Stacked(elementwise(identity), elementwise(exp), elementwise(exp)) # test mismatch
     (;ϕqc, approx) = tmp = init_hybrid_ϕq(
-        probc.approx, par_templates.θP, par_templates.θM, transP, cor_ends; transM, n_site)
+        probc.approx, par_templates.θP, par_templates.θM, transP, cor_ends; 
+        transM, n_site, ϕq_ranef)
     probc = HybridProblem(probc; approx) # update approx in probc
     # (ϕunc0, approx) = init_hybrid_ϕunc(cor_ends, zero(FT))
     # ϕq0 = CP.update_μP_by_θP(ϕunc0, θP_true, transP)
@@ -125,7 +139,7 @@ test_scenario = (scenario) -> begin
         CP.generate_ζ(
         probc.approx, rng, g, ϕ_ini, xM[:, i_sites];
         n_MC, cor_ends, pbm_covar_indices,
-        i_sites,
+        i_sites, ranef,
         int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq, is_testmode = false)
     )
 
@@ -142,7 +156,7 @@ test_scenario = (scenario) -> begin
             ϕ -> begin
                 _ζsP, _ζsMs_tr, _σ = CP.generate_ζ(
                     probc.approx, rng, g, ϕ, xM[:, i_sites];
-                    i_sites,
+                    i_sites, ranef,
                     n_MC=8, cor_ends, pbm_covar_indices,
                     int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq,
                      is_testmode = true)
@@ -388,7 +402,7 @@ test_scenario = (scenario) -> begin
             cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
             is_testmode = true, 
             is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini)),
-            probc.approx, intθMs, intθP = int_P, frac_cluster_all 
+            probc.approx, intθMs, intθP = int_P, frac_cluster_all, ranef
             )
         )
         #@test cost isa Float64
@@ -400,7 +414,7 @@ test_scenario = (scenario) -> begin
                 cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
                 is_testmode = false, 
                 is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini)),
-                probc.approx, intθMs, intθP = int_P, frac_cluster_all 
+                probc.approx, intθMs, intθP = int_P, frac_cluster_all, ranef 
                 ),
             CA.getdata(ϕ_ini))
         @test gr[1] isa Vector
@@ -421,7 +435,7 @@ test_scenario = (scenario) -> begin
                 n_MC=3, cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
                 is_testmode = true,
                 is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini)),
-                probc.approx,
+                probc.approx, ranef,
                 )
             )
             @test cost isa Float64
@@ -432,7 +446,7 @@ test_scenario = (scenario) -> begin
                     n_MC=3, cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
                     is_testmode = false,
                     is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini)),
-                    probc.approx,
+                    probc.approx, ranef,
                     ),
                 ϕ)
             @test gr[1] isa GPUArraysCore.AbstractGPUVector
@@ -456,7 +470,7 @@ test_scenario = (scenario) -> begin
                 cdev = identity,
                 n_sample_pred, cor_ends, pbm_covar_indices,
                 is_testmode = true,
-                probc.approx,
+                probc.approx, ranef,
                 )
             )
         @test θsP isa AbstractMatrix
@@ -485,7 +499,7 @@ test_scenario = (scenario) -> begin
                     cdev = identity, # do not transfer to CPU
                     n_sample_pred, cor_ends, pbm_covar_indices,
                     is_testmode = true,
-                    probc.approx,
+                    probc.approx, ranef,
                     )
                 )
             # this variant without the problem, does not attach axes
@@ -531,6 +545,7 @@ end # test_scenario
 
 #test_scenario(Val((:scalingall,)))
 test_scenario(Val((:clustered_sites,)))
+test_scenario(Val((:clustered_sites, :ranef,)))  # with random effects in all parameters
 test_scenario(Val((:default,)))
 test_scenario(Val((:sepvar,)))
 

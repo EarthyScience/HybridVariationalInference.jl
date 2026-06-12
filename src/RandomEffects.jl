@@ -8,7 +8,9 @@ struct NullRandomEffectsComputer{T} <: AbstractRandomEffectsComputer{T}
 end
 compute_nLranef(re::NullRandomEffectsComputer{T}, rm) where T = zero(T)
 add_ranef(re::NullRandomEffectsComputer, μ, ϕq_ranef, i_sites) = μ
-setup_ϕq_ranef(re::NullRandomEffectsComputer{T}) where T = reshape( T[], 0, re.n_site)
+function setup_ϕq_ranef(re::NullRandomEffectsComputer{T}) where T 
+    res = CA.ComponentVector(β=reshape( T[], 0, re.n_site))
+end
 struct NullRandomEffects <: AbstractRandomEffects; end
 function get_ranef_computer(
     rn::NullRandomEffects, 
@@ -43,11 +45,11 @@ end
 """
 
 """
-struct RandomEffectsComputer{N,T,NM} <: AbstractRandomEffectsComputer{T} 
+struct RandomEffectsComputer{N,T,NM,NNM} <: AbstractRandomEffectsComputer{T} 
     parameters::NTuple{N, Symbol}
     prior_Σ::AbstractCovariancePrior{N,T} # changed type to float_template
     ncomp_U::Int8                         # number of components to describe correlation
-    P_col::SA.SMatrix{NM, N, Bool}        # projection matrix of subset of randam to all
+    P_col::SA.SMatrix{NM, N, Bool, NNM}   # projection matrix of subset of randam to all
     n_site::Int                           # number of sites to setup parameter vector
 end
 function get_ranef_computer(
@@ -89,7 +91,8 @@ Assume μ to bin in n_site x n_par
 function add_ranef(re::RandomEffectsComputer, μ, ϕq_ranef, i_sites)
     ranef = CA.getdata(ϕq_ranef[Val(:β)][i_sites,:])
     # moved construction of projection matrix to RandomEffectsComputer
-    ranef_full = ranef * re.P_col'
+    P_col = re.P_col
+    ranef_full = ranef * P_col'
     μadd = μ .+ ranef_full
     μadd
 end

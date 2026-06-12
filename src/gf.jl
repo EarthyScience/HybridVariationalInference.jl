@@ -157,7 +157,7 @@ end
 
 function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, n_θM, ζP, 
     pbm_covar_indices::AbstractVector{<:Integer}; 
-    ranef::AbstractRandomEffects, ϕq_ranef, i_sites,
+    ranef::AbstractRandomEffectsComputer, ϕq_ranef, i_sites,
     cdev, is_testmode)
     # @show first(xM,5)
     # @show first(ϕg,5)
@@ -186,7 +186,7 @@ composition transM ∘ g: transformation after machine learning parameter predic
 Provide a `transMs = StackedArray(transM, n_batch)`
 """
 function gtrans(g, transMs, xMP, ϕg, n_θM; 
-    ranef::AbstractRandomEffects, ϕq_ranef, i_sites,
+    ranef::AbstractRandomEffectsComputer, ϕq_ranef, i_sites,
     cdev, is_testmode
     )
     ϕg = g(xMP, ϕg; is_testmode)
@@ -244,7 +244,7 @@ function get_loss_gf(g, transM, transP, f, py,
     priorsP, priorsM, 
     is_omit_priors::Val{omit_priors} = Val(false),
     #intθP, intθM,
-    ranef::AbstractRandomEffects,
+    ranef::AbstractRandomEffectsComputer,
     frac_cluster_all,
     kwargs...) where omit_priors
 

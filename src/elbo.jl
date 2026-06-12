@@ -34,7 +34,7 @@ function neg_elbo_gtf(args...; kwargs...)
         #nLmean_θ
         ) = neg_elbo_gtf_components(args...; kwargs...)
     # negative of log_joint - need to subtract entropy_ζ
-    nL = nLjoint + loss_penalty - entropy_ζ + nLRanef #+ nLmean_θ
+    nL = nLjoint - entropy_ζ + loss_penalty + nLRanef #+ nLmean_θ
     # if !isfinite(nL) 
     #     @show nL
     #     @show nLjoint, entropy_ζ, loss_penalty, nLy, 
@@ -65,21 +65,22 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
     zero_prior_logdensity,
     approx::AbstractHVIApproximation,
     intθP, intθMs,
-    ranef::AbstractRandomEffects,
+    ranef::AbstractRandomEffectsComputer,
     frac_cluster_all,
 ) where {FT}
     ϕc = int_ϕg_ϕq(ϕ)
     VT= typeof(@view(ϕ[1:1]))
-    ϕg = CA.getdata(ϕc.ϕg)::VT
-    ϕq = CA.getdata(ϕc.ϕq)::VT
+    ϕg = CA.getdata(ϕc[Val(:ϕq)])
+    ϕqc = ϕc[Val(:ϕq)]
+    #ϕq = CA.getdata(ϕqc)::VT
     if(!all(isfinite.(ϕ)))
-        @show ϕq
+        @show ϕqc
         @show ϕg
         error("encountered non-finite optimized parameters")
     end
     n_MCr = isempty(priors_θP_mean) ? n_MC : max(n_MC, n_MC_mean)
     ζsP, ζsMs_tr, σ = generate_ζ(approx, rng, g, ϕ, xM; n_MC=n_MCr, cor_ends, pbm_covar_indices,
-        int_ϕq, int_ϕg_ϕq, is_testmode, i_sites)
+        int_ϕq, int_ϕg_ϕq, is_testmode, i_sites, ranef)
     ζsP_cpu = cdev(ζsP) # fetch to CPU, because for <1000 sites (n_batch) this is faster
     ζsMs_tr_cpu = cdev(ζsMs_tr) # fetch to CPU, because for <1000 sites (n_batch) this is faster
     #
@@ -87,7 +88,7 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
     loss_comps = neg_elbo_ζtf(
         ζsP_cpu[:,1:n_MC], ζsMs_tr_cpu[:,:,1:n_MC], σ, f, py, xP, y_ob, y_unc;
         n_MC_cap, transP, transMs, priorsP, priorsM, 
-        penalty_computer, ϕg, ϕq, is_omit_priors, zero_prior_logdensity, 
+        penalty_computer, ϕg, ϕqc, is_omit_priors, zero_prior_logdensity, 
         i_sites, intθMs, intθP, ranef, frac_cluster_all)
     #
     # maybe: provide trans_mP and trans_mMs with creating cost function
@@ -144,11 +145,11 @@ function neg_elbo_ζtf(ζsP::AbstractArray{T}, ζsMs_tr, σ, f, py, xP, y_ob, y_
     transP,
     transMs=StackedArray(transM, size(ζsMs_tr, 2)),
     priorsP, priorsM,
-    penalty_computer, ϕg, ϕq,
+    penalty_computer, ϕg, ϕqc,
     is_omit_priors::Val,
     zero_prior_logdensity,
     i_sites, intθP, intθMs,
-    ranef::AbstractRandomEffects,
+    ranef::AbstractRandomEffectsComputer,
     frac_cluster_all, 
 ) where T
     n_MC = size(ζsP,2)
@@ -181,7 +182,7 @@ function neg_elbo_ζtf(ζsP::AbstractArray{T}, ζsMs_tr, σ, f, py, xP, y_ob, y_
             # loss_penalty_i = convert.(typeof(nLy_i),first(compute_penalty(penalty_computer,
             #     y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), i_sites, ϕg, ϕq)))
             loss_penalty_i = compute_penalty(penalty_computer,
-                y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), i_sites, ϕg, ϕq)[1]
+                y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), i_sites, ϕg, ϕqc)[1]
             nLprior_P_i, nLprior_M_is = compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr,
                 is_omit_priors, zero_prior_logdensity)
             # make sure names to not match outer, otherwise Box type instability
@@ -240,7 +241,7 @@ function neg_elbo_ζtf(ζsP::AbstractArray{T}, ζsMs_tr, σ, f, py, xP, y_ob, y_
     #     @show std(nLys_smallest), std(nLys_smallest)/abs(nLy)
     # end
     nLjoint = nLy + nLprior_P + nLprior_M + neg_log_jac
-    nLRanef = -compute_nLranef(ranef, ϕq(Val(:ranef)))
+    nLRanef = -compute_nLranef(ranef, ϕqc[Val(:ranef)])
     (;nLjoint, entropy_ζ, loss_penalty, 
         nLy, nLprior_P, nLprior_M, neg_log_jac, nLRanef)
 end
@@ -477,10 +478,11 @@ function sample_posterior(rng, g, ϕ::AbstractVector, xM::AbstractMatrix;
     is_testmode,
     approx::AbstractHVIApproximation,
     i_sites,
+    ranef::AbstractRandomEffectsComputer,
 ) where is_infer
     ζsP_gpu, ζsMs_tr_gpu, σ = generate_ζ(approx, rng, g, CA.getdata(ϕ), CA.getdata(xM);
         int_ϕg_ϕq, int_ϕq,
-        n_MC=n_sample_pred, cor_ends, pbm_covar_indices, is_testmode, i_sites)
+        n_MC=n_sample_pred, cor_ends, pbm_covar_indices, is_testmode, i_sites, ranef)
     ζsP = cdev(ζsP_gpu)
     ζsMs_tr = cdev(ζsMs_tr_gpu)
     logdetΣ = 2 * sum(log.(σ))
@@ -512,6 +514,7 @@ function generate_ζ(
     g, ϕ::AbstractVector{FT}, xM::MT;
     int_ϕg_ϕq::AbstractComponentArrayInterpreter,
     int_ϕq::AbstractComponentArrayInterpreter,
+    ranef::AbstractRandomEffectsComputer,
     n_MC=3, cor_ends, pbm_covar_indices,
     is_testmode,
     i_sites, # = 1:size(xM,2),
@@ -531,7 +534,7 @@ function generate_ζ(
         i_sites, ϕm0, ϕq; n_MC, cor_ends, int_ϕq)
     n_θm = size(ζMs_parfirst_resids, 1)
     μ_ζMs_g0 = ϕm0[1:n_θm, :]
-    μ_ζMs0 = add_ranef(ranef, μ_ζMs_g0, ϕq[Val(:ranef)], i_sites) 
+    μ_ζMs0_tr = add_ranef(ranef, μ_ζMs_g0', ϕqc[Val(:ranef)], i_sites) 
     # if !all(isfinite.(μ_ζMs0))
     #     @show μ_ζMs0
     #     is_infinite_ϕg = !all(isfinite.(ϕg))
@@ -542,7 +545,7 @@ function generate_ζ(
     if pbm_covar_indices isa SA.SVector{0}
         # do not need to predict again but just add the residuals to μ_ζP and μ_ζMs
         #ζsP = μ_ζP .+ ζP_resids  # n_par x n_MC # .+ on empty view does not work
-        ζsMs_tr = permutedims(μ_ζMs0 .+ ζMs_parfirst_resids, (2, 1, 3)) # n_site x n_par x n_MC
+        ζsMs_tr = μ_ζMs0_tr .+ permutedims(ζMs_parfirst_resids, (2, 1, 3)) # n_site x n_par x n_MC
         # if any(ζsMs[:,2,:] .> 80.0)
         #     @show ζsMs
         #     @show ζMs_parfirst_resids
@@ -550,13 +553,14 @@ function generate_ζ(
         #     error("encountered scaled residual outside envisoned range. Debug") 
         # end
     else
-        #rP, rMs = first(zip(eachcol(ζP_resids), eachslice(ζMs_parfirst_resids;dims=3)))
+        #ζP, rMs = first(zip(eachcol(ζsP), eachslice(ζMs_parfirst_resids;dims=3)))
         ζsMs_vec = map(eachcol(ζsP), eachslice(ζMs_parfirst_resids; dims=3)) do ζP, rMs
             # second pass: append ζP rather than μ_ζP to covars to xM
             xMP = _append_each_covars(xM, CA.getdata(ζP), pbm_covar_indices)
-            μ_ζMs_gt = ϕm = g(xMP, ϕg; is_testmode)
-            μ_ζMst = add_ranef(ranef, μ_ζMs_gt, ϕq[Val(:ranef)], i_sites) 
-            ζMs = (μ_ζMst .+ rMs)'  # already transform to par-last form
+            ϕm = g(xMP, ϕg; is_testmode)
+            μ_ζMs_gt = ϕm[1:n_θm, :]
+            μ_ζMst_tr = add_ranef(ranef, μ_ζMs_gt', ϕqc[Val(:ranef)], i_sites) 
+            ζMs = (μ_ζMst_tr .+ rMs')  # already transform to par-last form
             ζMs
         end
         # ζsP = stack(map(first, ζst); dims=1)  # n_MC x n_par
@@ -586,7 +590,7 @@ function _append_each_covars(xM, ζP::AbstractVector, pbm_covar_indices::Abstrac
 end
 function _append_each_covars(xM, ζP_covar::AbstractVector)
     isempty(ζP_covar) && return(xM)
-    @show ζP_covar, typeof(ζP_covar), typeof(xM)
+    #@show ζP_covar, typeof(ζP_covar), typeof(xM)
     @assert eltype(xM) == eltype(ζP_covar)
     #Main.@infiltrate_main
     ζP_rep = reduce(hcat, fill(ζP_covar, size(xM, 2)))

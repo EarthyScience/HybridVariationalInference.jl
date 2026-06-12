@@ -87,10 +87,12 @@ function init_hybrid_ϕq(
     transP::Stacked,
     cor_ends::NamedTuple = (P = [length(θP)], M = [length(θM)]);
     n_site::Integer,
+    ϕq_ranef::CA.ComponentVector = CA.ComponentVector{eltype(θM)}(),
     kwargs...,
 )
     FT = promote_type(eltype(θP), eltype(θM))
     (;ϕqc, approx) = init_hybrid_ϕunc(approx, cor_ends, zero(FT); θM, n_site, kwargs...)
+    ϕqc = CA.ComponentVector(ϕqc; ranef = ϕq_ranef)
     ϕqP = update_μP_by_θP(ϕqc, θP, transP)
     (;ϕqc = ϕqP, approx)
 end

@@ -46,9 +46,9 @@ VERSION >= v"1.11.0-DEV.469" && eval(Meta.parse("public Exp"))
 VERSION >= v"1.11.0-DEV.469" && eval(Meta.parse("public Logistic")) 
 include("bijectors_utils.jl")
 
-export AbstractRandomEffects, RandomEffects, NullRandomEffects
+export AbstractRandomEffects, RandomEffects, NullRandomEffects, NullRandomEffectsComputer
 export AbstractCovariancePrior, CVPrior_LKJ_Cauchy
-export compute_nLranef, add_ranef, setup_ϕq_ranef
+export compute_nLranef, add_ranef, setup_ϕq_ranef, get_ranef_computer
 include("RandomEffects.jl")
 
 export AbstractHVIApproximation, AbstractMeanHVIApproximation

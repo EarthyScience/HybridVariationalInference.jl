@@ -1,6 +1,7 @@
 using Test
 using HybridVariationalInference
 using HybridVariationalInference: HybridVariationalInference as HVI
+using HybridVariationalInference: HybridVariationalInference as CP
 using LinearAlgebra
 using StaticArrays: StaticArrays as SA
 using ComponentArrays: ComponentArrays as CA
@@ -47,7 +48,7 @@ end
     n_site = 200
     ranef = HVI.get_ranef_computer(nre, (:_,), n_site)
     ϕq_ranef = setup_ϕq_ranef(ranef)
-    @test size(ϕq_ranef) == (0, n_site)
+    @test size(ϕq_ranef.β) == (0, n_site)
     @test eltype(ϕq_ranef) == Float64
     μ = randn(0,n_site)
     μ2 = add_ranef(ranef, μ, ϕq_ranef, 1:n_site)
@@ -55,7 +56,7 @@ end
     #
     ranef = HVI.get_ranef_computer(nre, (:_,), n_site, one(Float32))
     ϕq_ranef = setup_ϕq_ranef(ranef)
-    @test ϕq_ranef isa AbstractMatrix{Float32}
+    @test ϕq_ranef.β isa AbstractMatrix{Float32}
     μ = randn(Float32, 0,n_site)
     μ2 = add_ranef(ranef, μ, ϕq_ranef, 1:n_site)
     @test μ2 == μ

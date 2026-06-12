@@ -282,9 +282,11 @@ end
     priorsP = Tuple(priors[k] for k in keys(par_templates.θP))
     priorsM = Tuple(priors[k] for k in keys(par_templates.θM))
 
-    ranef = RandomEffects(SA.SVector{1}([1]), ϕg0[1])
-    #ranef = NullRandomEffects()
-    ϕq_ranef = setup_ϕq_ranef(ranef, n_site)
+    par_ranef = (:r1, :K1)
+    ranef_spec = RandomEffects(par_ranef)
+    #ranef = NullRandomEffectsComputer{eltype(pt.θM)}(n_site)
+    ranef = get_ranef_computer(ranef_spec, keys(pt.θM), n_site, one(eltype(pt.θM)))
+    ϕq_ranef = setup_ϕq_ranef(ranef)
     intϕ = ComponentArrayInterpreter(CA.ComponentVector(
         ϕg = 1:length(ϕg0), 
         ϕq = CA.ComponentVector(
