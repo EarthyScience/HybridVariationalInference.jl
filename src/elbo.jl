@@ -301,6 +301,7 @@ Prediction function for hybrid variational inference parameter model.
 ## Keyword arguments
 - `scenario`
 - `n_sample_pred`
+- `n_sample_ranef`: how many samples shall share the same random effect
 - `xM`: covariates for the machine-learning model (ML): Matrix (n_θM x n_site_pred).
   Possibility to override the default from `get_hybridproblem_train_dataloader`.
 - `xP`: model drivers for process based model (PBM): Matrix with (n_site_pred) rows.
@@ -333,21 +334,23 @@ function predict_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()),
     gdevs = get_gdev_MP(scenario), 
     xM = nothing, xP = nothing,
     is_testmode = true,
-    i_sites = nothing,
+    i_sites = Int[],
     n_sample_pred = 200,
+    n_sample_ranef = n_sample_pred ÷ 10,
     kwargs...
     )
     if isnothing(xM) || isnothing(xP)
         dl = get_hybridproblem_train_dataloader(prob; scenario)
         dl_dev = gdev_hybridproblem_dataloader(dl; gdevs)
         xM_dl, xP_dl = dl_dev.data[1:2]
-        i_sites = isnothing(i_sites) ? (1:size(xM_dl, 2)) : i_sites
+        i_sites = isempty(i_sites) ? (1:size(xM_dl, 2)) : i_sites
         xP = isnothing(xP) ? xP_dl[:,i_sites] : xP
         xM = isnothing(xM) ? xM_dl[:,i_sites] : xM
     end
     # sample_posterior required consistent prob.ϕq and xM
     (; θsP, θsMs_tr, entropy_ζ, ζsP, ζsMs_tr) = sample_posterior(
-        rng, prob, xM; scenario, gdevs, is_testmode, i_sites, n_sample_pred, kwargs...)
+        rng, prob, xM; scenario, gdevs, is_testmode, i_sites, n_sample_pred, n_sample_ranef,
+        kwargs...)
     #
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     n_site_pred = size(θsMs_tr,1) # determined by size(xM)
@@ -411,17 +414,17 @@ Returns an NamedTuple `(; θsP, θsMs_tr, entropy_ζ)` with entries
 - `entropy_ζ`: The entropy of the log-determinant of the transformation of 
   the set of model parameters, which is involved in uncertainty quantification.
 """
-function sample_posterior(rng, prob::AbstractHybridProblem; i_sites=nothing, scenario=Val(()), 
+function sample_posterior(rng, prob::AbstractHybridProblem; i_sites=Int[], scenario=Val(()), 
     gdevs = get_gdev_MP(scenario),
     kwargs...)
     dl = get_hybridproblem_train_dataloader(prob; scenario)
     dl_dev = gdev_hybridproblem_dataloader(dl; gdevs)
     xM_all = dl_dev.data[1]
-    if !isnothing(i_sites)
-        xM = xM_all[:,i_sites]
-    else
+    if isnothing(i_sites) || isempty(i_sites)
         xM = xM_all
         i_sites = 1:size(xM, 2)
+    else
+        xM = xM_all[:,i_sites]
     end
     sample_posterior(rng, prob, xM; scenario, gdevs, i_sites,kwargs...)
 end
@@ -429,7 +432,8 @@ end
 
 function sample_posterior(rng, prob::AbstractHybridProblem, xM::AbstractMatrix;
     scenario=Val(()),
-    n_sample_pred=200,
+    n_sample_pred = 200,
+    n_sample_ranef = n_sample_pred ÷ 10,
     gdevs = get_gdev_MP(scenario),
     approx = nothing,
     kwargs...
@@ -449,12 +453,16 @@ function sample_posterior(rng, prob::AbstractHybridProblem, xM::AbstractMatrix;
     int_ϕq = interpreters.ϕq
     transMs = StackedArray(transM, n_batch)        
     g_dev, ϕ_dev = gdevs.gdev_M(g), gdevs.gdev_M(ϕ)
+    ranef_spec = get_hybridproblem_ranef(prob; scenario)
+    ranef = get_ranef_computer(ranef_spec, keys(par_templates.θM),n_site, one(eltype(ϕq)))
     if isnothing(approx) 
         approx = prob.approx  # assuming has field approx, e.g. if its a HybridProblem
     end
     (; θsP, θsMs_tr, entropy_ζ, ζsP, ζsMs_tr) = sample_posterior(rng, g_dev, ϕ_dev, xM;
         int_ϕg_ϕq, int_ϕq, transP, transM, 
-        n_sample_pred, cdev=infer_cdev(gdevs), cor_ends, pbm_covar_indices, approx,
+        n_sample_pred, n_sample_ranef,
+        cdev=infer_cdev(gdevs), cor_ends, pbm_covar_indices, approx,
+        ranef,
         kwargs...)
     # attach ComponentArray structure
     intP = ComponentArrayInterpreter(par_templates.θP, (n_sample_pred,))
@@ -471,6 +479,7 @@ function sample_posterior(rng, g, ϕ::AbstractVector, xM::AbstractMatrix;
     int_ϕq::AbstractComponentArrayInterpreter,
     transP, transM,
     n_sample_pred,
+    n_sample_ranef,
     cdev,
     cor_ends,
     pbm_covar_indices,
@@ -482,7 +491,8 @@ function sample_posterior(rng, g, ϕ::AbstractVector, xM::AbstractMatrix;
 ) where is_infer
     ζsP_gpu, ζsMs_tr_gpu, σ = generate_ζ(approx, rng, g, CA.getdata(ϕ), CA.getdata(xM);
         int_ϕg_ϕq, int_ϕq,
-        n_MC=n_sample_pred, cor_ends, pbm_covar_indices, is_testmode, i_sites, ranef)
+        n_MC=n_sample_pred, n_sample_ranef,
+        cor_ends, pbm_covar_indices, is_testmode, i_sites, ranef)
     ζsP = cdev(ζsP_gpu)
     ζsMs_tr = cdev(ζsMs_tr_gpu)
     logdetΣ = 2 * sum(log.(σ))
@@ -515,7 +525,8 @@ function generate_ζ(
     int_ϕg_ϕq::AbstractComponentArrayInterpreter,
     int_ϕq::AbstractComponentArrayInterpreter,
     ranef::AbstractRandomEffectsComputer,
-    n_MC=3, cor_ends, pbm_covar_indices,
+    n_MC=3, n_sample_ranef = n_MC,
+    cor_ends, pbm_covar_indices,
     is_testmode,
     i_sites, # = 1:size(xM,2),
     ) where {FT,MT}
@@ -528,13 +539,31 @@ function generate_ζ(
     μ_ζP = CA.getdata(ϕqc[Val(:μP)])
     # first pass only : append μ_ζP_to covars, need ML prediction for magnitude of ζMs
     # TODO replace pbm_covar_indices by ComponentArray? dimensions to be type-inferred?
+    n_site_pred = size(xM, 2) 
     xMP0 = _append_each_covars(xM, CA.getdata(μ_ζP), pbm_covar_indices)
     ϕm0 = g(xMP0, ϕg; is_testmode)
     ζP_resids, ζMs_parfirst_resids, σ = sample_ζresid_norm(approx, rng, 
         i_sites, ϕm0, ϕq; n_MC, cor_ends, int_ϕq)
+    # if i_sites is given add known random effect to μ_ζMs_g0
+    #    if random effect is unknown, sample for each group in ζMs_parfirst_resids
+    ϕq_ranef = ϕqc[Val(:ranef)]
     n_θm = size(ζMs_parfirst_resids, 1)
-    μ_ζMs_g0 = ϕm0[1:n_θm, :]
-    μ_ζMs0_tr = add_ranef(ranef, μ_ζMs_g0', ϕqc[Val(:ranef)], i_sites) 
+    μ_ζMs0_tr = ϕm0[1:n_θm, :]'
+    # if random effect is kown, i.e. i_sites is provided, add to ζMs_resids
+    #    otherwise add the same sampled random effect for n_sample_ranef sites to ζMs_resids
+    if !isempty(i_sites)
+        # random effect (same for all samples, in 3rd dimenstion) is recycled
+        #   adding it to μ is not valid, becase μ may be resampled given ζPi covariates
+        ζMs_parfirst_resids = add_ranef(ranef, ζMs_parfirst_resids, ϕq_ranef, i_sites) 
+    else
+        # TODO move n_distict_ranef and i_col out of the loop
+        n_distict_ranef = ceil(Int, n_MC / n_sample_ranef)
+        i_col = generate_repeated_integers(n_site_pred, n_sample_ranef)
+        β_distinct = sample_ranef(ranef, ϕq_ranef, n_distict_ranef, n_MC)
+        β = β_distinct[:,i_col,:]
+        @assert size(β) == size(ζMs_parfirst_resids)
+        ζMs_parfirst_resids = ζMs_parfirst_resids .+ β
+    end         
     # if !all(isfinite.(μ_ζMs0))
     #     @show μ_ζMs0
     #     is_infinite_ϕg = !all(isfinite.(ϕg))

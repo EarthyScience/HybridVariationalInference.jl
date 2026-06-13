@@ -16,10 +16,12 @@ using OptimizationOptimisers
 using Lux  # in order to load extension
 
 # scenario = Val(()); scen=()
+# scenario = Val((:ranef,)); scen=(:ranef,)
 function test_no_globals(scenario::Val{scen})  where scen
     scenario = Val((scen..., :no_globals))
     prob = HybridProblem(DoubleMM.DoubleMMCase(); scenario);
     θP0, θM0 = get_hybridproblem_par_templates(prob)
+    #ranef_spec = get_hybridproblem_ranef(prob; scenario)     
     @test isempty(θP0)
     solver_point = HybridPointSolver(; alg=Adam(0.02))
     rng = StableRNG(111)

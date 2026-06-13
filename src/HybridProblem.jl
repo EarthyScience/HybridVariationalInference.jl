@@ -162,7 +162,7 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
     end
     HybridProblem(θM, ϕq, g, ϕg, f_batch, priors, py, transM, transP, train_dataloader,
         test_data, n_site, n_batch; cor_ends = cor_ends_new, pbm_covars, 
-        approx, penalty_computer)
+        approx, penalty_computer, ranef)
 end
 
 function HybridProblem(prob::HybridProblem; kwargs... )

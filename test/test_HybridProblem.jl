@@ -109,10 +109,12 @@ function construct_problem(; scenario::Val{scen}) where scen
         xPvec=xP[:,1])
     (; ϕqc, approx) = init_hybrid_ϕunc(approx, cor_ends, zero(FT); θM, transM, n_site) 
     ϕq = CP.update_μP_by_θP(ϕqc, θP, transP)
+    ranef = RandomEffects((:r1,))     
+    #ranef = NullRandomEffects()
     HybridProblem(θM, ϕq, g_chain_scaled, ϕg0, 
         f_batch, priors_dict, py,
         transM, transP, train_dataloader, test_data, n_site, n_batch; 
-        cor_ends, pbm_covars, approx,
+        cor_ends, pbm_covars, approx, ranef = ranef
         #ϕunc0, 
         )
 end 
@@ -274,10 +276,24 @@ test_with_flux = (scenario) -> begin
             is_inferred = Val(true),
         )
         θPt = get_hybridproblem_par_templates(prob; scenario).θP
+        ϕ.ϕq.ranef
         @test θP.r0 < 1.5 * θPt.r0
         @test exp(ϕ.ϕq.μP.K2) == θP.K2 < 1.5 * θP.K2
         n_sample_pred = 12
-        (; y, addq, θsP, θsMs_tr, entropy_ζ) = predict_hvi(rng, probo; scenario, n_sample_pred);
+        (; y, addq, θsP, θsMs_tr, entropy_ζ) = predict_hvi(rng, probo; 
+            scenario, n_sample_pred,
+            );
+        # test prediction without known random effects
+        testdata = get_hybridproblem_test_data(prob; scenario)
+        () -> begin
+            n_MC = 5
+            n_sample_ranef = 8
+            P_col = CP.generate_repeated_integers(n_MC, n_sample_ranef)
+        end
+        (; y, addq, θsP, θsMs_tr, entropy_ζ) = predict_hvi(rng, probo; 
+            xM = testdata.xM, xP = testdata.xP, 
+            scenario, n_sample_pred,
+            );
         _,_,y_obs,_ = get_hybridproblem_train_dataloader(prob; scenario).data
         @test size(y) == (size(y_obs)..., n_sample_pred)
         yc = cdev(y)

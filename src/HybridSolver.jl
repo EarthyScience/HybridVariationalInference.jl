@@ -24,13 +24,24 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     gdevs = isnothing(gdevs) ? get_gdev_MP(scenario) : gdevs
     pt = get_hybridproblem_par_templates(prob; scenario)
     g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
-    (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
+    # TODO: separate parameters from problem description - right now optimized
     ϕq0 = get_hybridproblem_ϕq(prob; scenario)
-    ϕP0 = ϕq0[Val(:μP)]
-    intϕ = ComponentArrayInterpreter(CA.ComponentVector(ϕg=1:length(ϕg0), ϕP=ϕP0))
-    #ϕ0_cpu = vcat(ϕg0, pt.θP .* FT(0.9))  # slightly disturb θP_true
-    ϕ0_cpu = vcat(ϕg0, ϕP0)
+    (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    ranef_spec = get_hybridproblem_ranef(prob; scenario)     
+    ranef = get_ranef_computer(
+        ranef_spec, keys(pt.θM), n_site, one(eltype(ϕq0)))
+    ϕq_ranef = setup_ϕq_ranef(ranef)
+    if :ranef ∉ keys(ϕq0)
+        ϕq0 = CA.ComponentVector(ϕq0, ranef = ϕq_ranef)
+    else
+        @assert size(ϕq0[Val(:ranef)]) == size(ϕq_ranef)
+    end
+    ϕP0 = ϕq0[Val(:μP)]
+    #intϕ = ComponentArrayInterpreter(CA.ComponentVector(ϕg=1:length(ϕg0), ϕq=ϕq0))
+    #ϕ0_cpu = vcat(ϕg0, pt.θP .* FT(0.9))  # slightly disturb θP_true
+    ϕ0_cpu = CA.ComponentVector(ϕg=ϕg0, ϕq=ϕq0)
+    intϕ = ComponentArrayInterpreter(ϕ0_cpu)
     n_sites_cluster = [count(==(element),clusters) for element in 1:maximum(clusters)]
     frac_cluster_all = (1 / cluster_rep) ./ n_sites_cluster[clusters] 
     train_loader = get_hybridproblem_train_dataloader(prob; scenario)
@@ -77,7 +88,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
         cdev=infer_cdev(gdevs), pbm_covars, 
         priorsP, priorsM, is_omit_priors, penalty_computer,
         #intθM, intθP, 
-        frac_cluster_all,
+        frac_cluster_all, ranef,
         )
     loss_gf_test = get_loss_gf(g_dev, transM, transP, ftest_dev,  py, intϕ;
         n_site_batch=n_site_test,
@@ -85,7 +96,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
         cdev=infer_cdev(gdevs), pbm_covars, 
         priorsP, priorsM, is_omit_priors, penalty_computer,
         #intθM, intθP, 
-        frac_cluster_all,
+        frac_cluster_all, ranef,
         )
     # call loss function once
     l1 = is_infer ? 
@@ -154,8 +165,10 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
             epochs, callback = callback_epochs, kwargs...)
         ϕ = intϕ(res.u)
     # end
-    θP = !isempty(ϕ.ϕP) ? cpu_ca(apply_preserve_axes(transP, cpu_ca(ϕ).ϕP)) : CA.ComponentVector{eltype(ϕ)}()
-    probo = HybridProblem(prob; ϕg=cpu_ca(ϕ).ϕg, θP)
+    #θP = !isempty(ϕ.ϕP) ? cpu_ca(apply_preserve_axes(transP, cpu_ca(ϕ).ϕq.μP)) : CA.ComponentVector{eltype(ϕ)}()
+    # TODO check which components live on gpu and which on cpu
+    ϕq_opt = ComponentArrayInterpreter(ϕq0)(gdevs.gdev_P(ϕ.ϕq))
+    probo = HybridProblem(prob; ϕg=cpu_ca(ϕ).ϕg, ϕq=ϕq_opt)
     (; ϕ, resopt=res, probo)
 end
 
@@ -248,9 +261,11 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     n_sites_cluster = [count(==(element),clusters) for element in 1:maximum(clusters)]
     frac_cluster_all = (1 / cluster_rep) ./ n_sites_cluster[clusters] 
-    ranef = get_hybridproblem_ranef(prob; scenario)     
-    ϕq_ranef = setup_ϕq_ranef(ranef, n_site)
-    ϕq = (;get_hybridproblem_ϕq(prob; scenario)..., ranef = ϕq_ranef)
+    ranef_spec = get_hybridproblem_ranef(prob; scenario)     
+    ranef = get_ranef_computer(
+        ranef_spec, keys(pt.θM), n_site, one(eltype(pt.θM)))
+    ϕq_ranef = setup_ϕq_ranef(ranef)
+    ϕq = CA.ComponentVector(get_hybridproblem_ϕq(prob; scenario), ranef = ϕq_ranef)
     (; ϕ, interpreters) = init_hybrid_params(ϕg0, ϕq)
     int_ϕq = interpreters.ϕq
     int_ϕg_ϕq = interpreters.ϕg_ϕq
@@ -303,7 +318,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
 
     priors_θP_mean, priors_θMs_mean = construct_priors_θ_mean(
         prob, ϕ0_dev.ϕg, keys(pt.θM), pt.θP, θmean_quant, g_dev, transM, transP;
-        scenario, gdevs, pbm_covars)
+        scenario, gdevs, pbm_covars, ranef, ϕq_ranef = ϕq[Val(:ranef)])
     loss_elbo = get_loss_elbo(
         g_dev, transP, transM, f_dev, py, n_batch;
         n_MC = solver.n_MC, n_MC_cap = solver.n_MC_cap, cor_ends, priors_θP_mean, priors_θMs_mean, 
@@ -391,7 +406,7 @@ function get_loss_elbo(g, transP, transM, f, py, n_batch;
     int_ϕq, int_ϕg_ϕq,
     priorsP, priorsM, penalty_computer = ZeroPenaltyComputer(),
     is_omit_priors, zero_prior_logdensity, approx,
-    ranef::AbstractRandomEffects,
+    ranef::AbstractRandomEffectsComputer,
     #intθMs, intθP,
     frac_cluster_all,
 ) 
@@ -494,6 +509,8 @@ construct a prior on mean θ to a Normal around initial prediction.
 """
 function construct_priors_θ_mean(prob, ϕg, keysθM, θP, θmean_quant, g_dev, transM, transP;
     scenario::Val{scen}, gdevs, pbm_covars,
+    ranef::AbstractRandomEffectsComputer,
+    ϕq_ranef::CA.ComponentVector,
     ) where {scen}
     iszero(θmean_quant) ? ([],[]) :
     begin
@@ -516,7 +533,8 @@ function construct_priors_θ_mean(prob, ϕg, keysθM, θP, θmean_quant, g_dev, 
         # ζMs_cpu = cdev(ζMs)
         # θMs_tr = transMs(ζMs_cpu)
         θMs_tr = gtrans(
-            g_dev, transMs, xMP_all, CA.getdata(ϕg), n_θM; cdev=cpu_device(), is_testmode = true)
+            g_dev, transMs, xMP_all, CA.getdata(ϕg), n_θM; 
+            cdev=cpu_device(), is_testmode = true, ranef, ϕq_ranef, i_sites=1:n_site_train)
         priors_dict = get_hybridproblem_priors(prob; scenario)
         priorsP = [priors_dict[k] for k in keys(θP)]
         priors_θP_mean = map(priorsP, θP) do priorsP, θPi

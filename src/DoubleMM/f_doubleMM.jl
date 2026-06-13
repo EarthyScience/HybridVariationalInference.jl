@@ -463,3 +463,12 @@ function HVI.get_hybridproblem_HVIApproximation(prob::DoubleMMCase; scenario::Va
         MeanHVIApproximationMat()
     end
 end
+
+function HVI.get_hybridproblem_ranef(prob::DoubleMMCase; scenario::Val{scen}) where {scen}
+    ranef_spec = if any((:ranef) .∈ Ref(scen))
+        par_ranef = (:r1, :K1)
+        RandomEffects(par_ranef)
+    else
+        NullRandomEffects()
+    end
+end

@@ -11,6 +11,9 @@ add_ranef(re::NullRandomEffectsComputer, μ, ϕq_ranef, i_sites) = μ
 function setup_ϕq_ranef(re::NullRandomEffectsComputer{T}) where T 
     res = CA.ComponentVector(β=reshape( T[], 0, re.n_site))
 end
+function sample_ranef(re::NullRandomEffectsComputer{T}, ϕq_ranef, n_sample) where T
+    res = reshape( T[], 0, re.n_site, n_sample)
+end
 struct NullRandomEffects <: AbstractRandomEffects; end
 function get_ranef_computer(
     rn::NullRandomEffects, 
@@ -70,9 +73,7 @@ end
 
 function compute_nLranef(re::RandomEffectsComputer{N,T}, ϕq_ranef) where {N,T}
     # get cholesky factor of covariance matrix from optimized parameters
-    coef_Ucorr = ϕq_ranef[Val(:coef_U)] # parameterization of cholesky of correlation 
-    σ = max.(T(1e-10), ϕq_ranef[Val(:σ)])  # main diagonal of cholesky factor of covariance
-    U = transformU_cholesky1(coef_Ucorr; n=N) * diagm(σ)
+    U = get_cholesky_from_parameters(re, ϕq_ranef)
     # compute the logdensity of the random effects given the covariance
     β = ϕq_ranef[Val(:β)]
     # βi = first(eachrow(β))
@@ -85,6 +86,12 @@ function compute_nLranef(re::RandomEffectsComputer{N,T}, ϕq_ranef) where {N,T}
     -(logden_rm + logden_Σ)
 end
 
+function get_cholesky_from_parameters(re::RandomEffectsComputer{N,T}, ϕq_ranef) where {N,T}
+    coef_Ucorr = ϕq_ranef[Val(:coef_U)] # parameterization of cholesky of correlation 
+    σ = max.(T(1e-10), ϕq_ranef[Val(:σ)])  # main diagonal of cholesky factor of covariance
+    U = transformU_cholesky1(coef_Ucorr; n=N) * diagm(σ)
+end
+
 """
 Assume μ to bin in n_site x n_par
 """
@@ -92,7 +99,8 @@ function add_ranef(re::RandomEffectsComputer, μ, ϕq_ranef, i_sites)
     ranef = CA.getdata(ϕq_ranef[Val(:β)][i_sites,:])
     # moved construction of projection matrix to RandomEffectsComputer
     P_col = re.P_col
-    ranef_full = ranef * P_col'
+    #ranef_full = ranef * P_col'
+    ranef_full = P_col * ranef' # par-first format
     μadd = μ .+ ranef_full
     μadd
 end
@@ -106,6 +114,37 @@ function setup_ϕq_ranef(re::RandomEffectsComputer{N,T}) where {N,T}
         σ = fill(T(0.1), N)
     )
 end
+
+"""
+provide a sample n_par x n_site x n_sample, where
+n_par is the dimension of parameters including those columns that have no 
+random effect.
+"""
+function sample_ranef_nonmut(re::RandomEffectsComputer{N,T}, ϕq_ranef, n_site, n_sample) where {N,T}
+    U = get_cholesky_from_parameters(re, ϕq_ranef)
+    rn =  randn(N, n_site * n_sample )
+    r0 = U' * rn
+    r = reshape(r0, N, n_site, n_sample)
+    #r1 = first(eachslice(r, dims=3))
+    # resv = map(eachslice(r, dims=3)) do r1
+    #     r1' * re.P_col'
+    # end
+    # res = stack(resv)
+    resr = reshape(re.P_col * r0, size(re.P_col, 1), n_site, n_sample)
+    #res2 = permutedims(resr, (2,1,3))
+    res, res2
+end
+function sample_ranef(re::RandomEffectsComputer{N,T}, ϕq_ranef, n_site, n_sample) where {N,T}
+    U = get_cholesky_from_parameters(re, ϕq_ranef)
+    rn = randn(N, n_site * n_sample)
+    r0 = similar(rn)
+    mul!(r0, U', rn)
+    out = similar(rn, size(re.P_col, 1), n_site * n_sample)
+    mul!(out, re.P_col, r0)
+    res = reshape(out, size(re.P_col, 1), n_site, n_sample)
+end
+
+
 
 
 
@@ -143,6 +182,9 @@ function convert_prior(prior::CVPrior_LKJ_Cauchy{N,T}, float_template::TN) where
     
     CVPrior_LKJ_Cauchy(γ, η)
 end
+
+# function rand_prior(d::CVPrior_LKJ_Cauchy{N,T}, n_sample)
+# end
 
 
 function Distributions.logpdf(d::CVPrior_LKJ_Cauchy{N,T}, cm) where {N,T}

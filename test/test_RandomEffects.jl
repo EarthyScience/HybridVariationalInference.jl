@@ -105,10 +105,16 @@ end
     l1 = compute_nLranef(re32, ϕq_ranef)
     @test l1 isa Float32
     i_sites = 1:20
-    μ = randn(Float32, length(i_sites), length(θM))
+    μ = randn(Float32, length(θM), length(i_sites))
     μ_updated = add_ranef(re32, μ, ϕq_ranef, i_sites)
     @test eltype(μ_updated) == Float32
-    @test all((μ_updated .- μ)[:,2] .== 0)
-    @test all((μ_updated .- μ)[:,[3,1]] .≈ ϕq_ranef.β[i_sites,:])
+    @test all((μ_updated .- μ)[2,:] .== 0)
+    @test all((μ_updated .- μ)[[3,1],:] .≈ ϕq_ranef.β[i_sites,:]')
+    #
+    # test sampling
+    n_site_pred = 5
+    n_MC = 4
+    res = HVI.sample_ranef(re32, ϕq_ranef, n_site_pred, n_MC)
+    @test size(res) == (length(θM), n_site_pred, n_MC)
 end
 

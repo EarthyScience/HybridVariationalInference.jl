@@ -316,3 +316,37 @@ function replace_columns_matrix(x::AbstractMatrix{T}, col_indices::AbstractVecto
     result = x * (LinearAlgebra.I - P_col * P_col') .+ y * P_col'
     return result
 end
+
+"""
+    generate_repeated_integers(n_MC::Int, n_sample_ranef::Int) -> Vector{Int}
+
+Generate a vector of increasing integers where each integer is repeated `n_sample_ranef`
+times, except possibly the last one, such that the total length of the vector is exactly
+`n_MC`.
+
+# Arguments
+- `n_MC::Int`: The total length of the output vector. Must be a positive integer.
+- `n_sample_ranef::Int`: The number of times each integer is repeated. Must be a positive integer.
+
+# Returns
+- `Vector{Int}`: A vector of length `n_MC` where each integer `i` appears `n_sample_ranef`
+  times, except for the last integer which appears `mod(n_MC, n_sample_ranef)` times if
+  `n_MC` is not a multiple of `n_sample_ranef`, and `n_sample_ranef` times otherwise.
+
+# Examples
+```julia-repl
+julia> generate_repeated_integers(8, 5)
+8-element Vector{Int64}:
+ 1, 1, 1, 1, 1, 2, 2, 2
+ ```
+ """
+function generate_repeated_integers(n_MC::Integer, n_sample_ranef::Integer)
+    # Calculate how many complete groups we need
+    n_groups = ceil(Int, n_MC / n_sample_ranef)
+    # Generate the full repeated vector
+    full_vec = repeat(1:n_groups, inner = n_sample_ranef)
+    # Trim to exactly n_MC elements
+    return full_vec[1:n_MC]
+end
+
+

@@ -76,6 +76,7 @@ function predict_point_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()),
     gdevs = get_gdev_MP(scenario), 
     xM = nothing, xP = nothing,
     is_testmode = true,
+    i_sites = Int[],
     kwargs...
     )
     if isnothing(xM) || isnothing(xP)
@@ -84,8 +85,9 @@ function predict_point_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()),
         xM_dl, xP_dl = dl_dev.data[1:2]
         xM = isnothing(xM) ? xM_dl : xM
         xP = isnothing(xP) ? xP_dl : xP
+        i_sites = 1:size(xM,2)
     end
-    y_pred, addq_pred, θMs_tr, θP = gf(prob, xM, xP; scenario, gdevs, is_testmode, kwargs...)    
+    y_pred, addq_pred, θMs_tr, θP = gf(prob, xM, xP; scenario, gdevs, is_testmode, i_sites, kwargs...)    
     pt = get_hybridproblem_par_templates(prob)
     θPc = ComponentArrayInterpreter(pt.θP)(θP)
     θMsc = ComponentArrayInterpreter((size(θMs_tr,1),), pt.θM)(θMs_tr)
@@ -135,9 +137,10 @@ function gf(prob::AbstractHybridProblem, xM::AbstractMatrix, xP::AbstractMatrix;
     g_dev, ϕg_dev, xM_dev, ζP_dev =  gdev(g), gdev(ϕg), gdev(CA.getdata(xM)), gdev(CA.getdata(ζP))
     # most of the properties of prob are not type-inferred
     # hence result is not type-inferred, but may test at this context
-    ranef = get_hybridproblem_ranef(prob; scenario)
+    ranef_spec = get_hybridproblem_ranef(prob; scenario)     
+    ranef = get_ranef_computer(
+        ranef_spec, keys(pt.θM), n_site, one(eltype(ϕq)))
     ϕq_ranef = ϕq[Val(:ranef)]
-    i_sites = 
     res = is_infer ? 
         Test.@inferred( gf(
             g_dev, transMs, transP, f_dev, xM_dev, xP, ϕg_dev, n_θM, ζP_dev, pbm_covar_indices; 
@@ -272,9 +275,8 @@ function get_loss_gf(g, transM, transP, f, py,
 
         function loss_gf(ϕ::AbstractVector{T}, xM, xP, y_o, y_unc, i_sites; is_testmode) where T
             ϕc = intϕ(ϕ)
-            #ϕq = ϕc[Val(:ϕg)]  # looses structure
-            ϕq = ϕc.ϕq
-            ϕq_ranef = ϕq[Val(:ranef)]
+            ϕqc = ϕc[Val(:ϕq)]  # looses structure
+            ϕq_ranef = ϕqc[Val(:ranef)]
             # GPUArraysCore.allowscalar(() -> if !all(isfinite.(ϕ))
             #     @show ϕc.ϕP
             #     error("invokded loss function loss_gf with non-finite parameters")
@@ -288,12 +290,12 @@ function get_loss_gf(g, transM, transP, f, py,
             # y_pred, _, _ = apply_f_trans(ζP_cpu, ζMs_cpu, f, xP; transM, transP)
             if !all(isfinite.(ϕ)) 
                 @info "loss_gf: encountered non-finite ϕ"
-                @show ϕq.ϕP
+                @show ϕqc.ϕP
                 #Main.@infiltrate_main
             end
             y_pred, addq_pred, θMs_tr_pred, θP_pred = gf(
                 g, transMs, transP, f, xM, xP, CA.getdata(ϕc[Val(:ϕg)]), n_θM,
-                CA.getdata(ϕq[Val(:ϕP)]), 
+                ϕqc[Val(:μP)], 
                 pbm_covar_indices; cdev, is_testmode, 
                 ranef, ϕq_ranef, i_sites,
                 kwargs...)
@@ -318,11 +320,11 @@ function get_loss_gf(g, transM, transP, f, py,
             end
             loss_penalties = first(compute_penalty(penalty_computer,
                 y_pred, addq_pred, intθMs(θMs_tr_pred), intθP(θP_pred), 
-                i_sites, ϕc[Val(:ϕg)], ϕq))
+                i_sites, ϕc[Val(:ϕg)], ϕqc))
             #loss_penalty = sum(loss_penalties .* frac_cluster)
             loss_penalty = sum(loss_penalties)
             #@show nLy, neg_log_prior, loss_penalty
-            nLRanef = compute_nLranef(ranef, ϕq[Val(:ranef)])
+            nLRanef = compute_nLranef(ranef, ϕqc[Val(:ranef)])
             nLjoint_pen = nLy + nLprior_P + nLprior_M + loss_penalty + nLRanef
             return (;nLjoint_pen, y_pred, θMs_tr_pred, θP_pred, nLy, nLprior_P, 
                 nLprior_M, loss_penalty, nLRanef)
