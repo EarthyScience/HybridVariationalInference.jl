@@ -6,6 +6,7 @@ using StableRNGs
 using Random
 using Statistics
 using ComponentArrays: ComponentArrays as CA
+using StaticArrays: StaticArrays as SA
 using Bijectors
 using DistributionFits
 using StatsFuns: logistic
@@ -27,9 +28,11 @@ cdev = cpu_device()
 #scenario = Val((:default, ))
 #scenario = Val((:MeanHVIApproxMat,))
 #scenario = Val((:covarK2,))
+#scenario = Val((:covarK2,:ranef))
 #scen = CP._val_value(scenario)
 #scenario = Val((:clustered_sites, ))
 #scenario = Val((:scalingall, ))   
+#scenario = Val((:scalingall, :ranef))   
 
 function construct_problem(; scenario::Val{scen}) where scen
     FT = Float32
@@ -109,8 +112,11 @@ function construct_problem(; scenario::Val{scen}) where scen
         xPvec=xP[:,1])
     (; ϕqc, approx) = init_hybrid_ϕunc(approx, cor_ends, zero(FT); θM, transM, n_site) 
     ϕq = CP.update_μP_by_θP(ϕqc, θP, transP)
-    ranef = RandomEffects((:r1,))     
-    #ranef = NullRandomEffects()
+    ranef = if (:ranef ∈ scen) 
+        RandomEffects((:r1,))     
+    else
+        NullRandomEffects()
+    end
     HybridProblem(θM, ϕq, g_chain_scaled, ϕg0, 
         f_batch, priors_dict, py,
         transM, transP, train_dataloader, test_data, n_site, n_batch; 
@@ -168,23 +174,33 @@ test_without_flux = (scenario) -> begin
         (xM, xP, y_o, y_unc, i_sites) = first(train_loader)
         f = get_hybridproblem_PBmodel(prob; scenario)
         py = get_hybridproblem_neg_logden_obs(prob; scenario)
-        par_templates = get_hybridproblem_par_templates(prob; scenario)
         #f(par_templates.θP, hcat(par_templates.θM, par_templates.θM), xP[1:2])
         (; transM, transP) = get_hybridproblem_transforms(prob; scenario)
         pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
-        intϕ = ComponentArrayInterpreter(CA.ComponentVector(
-            ϕg=1:length(ϕg0), ϕP=par_templates.θP))
         priors = get_hybridproblem_priors(prob; scenario)
-        priorsP = Tuple(priors[k] for k in keys(par_templates.θP))
-        priorsM = Tuple(priors[k] for k in keys(par_templates.θM))
+        priorsP = Tuple(priors[k] for k in keys(pt.θP))
+        priorsM = Tuple(priors[k] for k in keys(pt.θM))
         # slightly disturb θP_true
-        p = p0 = vcat(ϕg0, par_templates.θP .* convert(eltype(ϕg0), 0.8))  
+
+        ranef_spec = get_hybridproblem_ranef(prob; scenario)     
+        ranef = get_ranef_computer(
+            ranef_spec, keys(pt.θM), n_site, one(eltype(pt.θM)))
+        ϕq_ranef = setup_ϕq_ranef(ranef)
+        pc = CA.ComponentVector(
+            ϕg = ϕg0,
+            ϕq = CA.ComponentVector(
+                μP = pt.θP .* convert(eltype(ϕg0), 0.8),
+                ranef = ϕq_ranef
+            )
+        )
+        p = p0 = CA.getdata(pc)
+        intϕ = ComponentArrayInterpreter(pc)
 
         # Pass the site-data for the batches as separate vectors wrapped in a tuple
         loss_gf = get_loss_gf(g, transM, transP, f, py, intϕ; 
             par_templates = pt,
             pbm_covars, n_site_batch = n_batch, priorsP, priorsM, 
-            frac_cluster_all,
+            frac_cluster_all, ranef, 
             )
         (_xM, _xP, _y_o, _y_unc, _i_sites) = first(train_loader)
         #l1 = loss_gf(p0, _xM, _xP, _y_o, _y_unc, _i_sites; is_testmode = false)
@@ -215,7 +231,7 @@ test_without_flux = (scenario) -> begin
                 pbm_covars, n_site_batch = n_site)
             l1, y_pred, θMs_pred, θP, nLy, neg_log_prior = loss_gf_sites(
                 res.u, train_loader.data...)
-            @test isapprox(par_templates.θP, transP(intϕ(res.u).ϕP), rtol=0.5)
+            @test isapprox(pt.θP, transP(intϕ(res.u).ϕP), rtol=0.5)
         end
     end
 end
@@ -224,7 +240,9 @@ end
 #scenario=Val((:default,))
 test_without_flux(Val((:default,)))
 test_without_flux(Val((:covarK2,)))
+test_without_flux(Val((:ranef, :covarK2,)))
 test_without_flux(Val((:clustered_sites,)))
+test_without_flux(Val((:ranef, :clustered_sites)))
 
 import CUDA, cuDNN
 using GPUArraysCore
@@ -255,7 +273,7 @@ test_with_flux = (scenario) -> begin
             θP
         end)()
         @test θPo.r0 < 1.5 * θP.r0
-        @test ϕ.ϕP.K2 < 1.5 * log(θP.K2)
+        @test ϕ.ϕq.μP.K2 < 1.5 * log(θP.K2)
         (;y_pred, θMs_tr, θP) = tmp = predict_point_hvi(rng, probo; scenario)
         _,_,y_obs,_ = get_hybridproblem_train_dataloader(prob; scenario).data
         @test size(y_pred) == size(y_obs)
@@ -283,18 +301,19 @@ test_with_flux = (scenario) -> begin
         (; y, addq, θsP, θsMs_tr, entropy_ζ) = predict_hvi(rng, probo; 
             scenario, n_sample_pred,
             );
-        # test prediction without known random effects
-        testdata = get_hybridproblem_test_data(prob; scenario)
-        () -> begin
-            n_MC = 5
-            n_sample_ranef = 8
-            P_col = CP.generate_repeated_integers(n_MC, n_sample_ranef)
+        _,_,y_obs,_ = get_hybridproblem_train_dataloader(probo; scenario).data
+        @test size(y) == (size(y_obs)..., n_sample_pred)
+        yc = cdev(y)
+        _ = map(eachslice(yc; dims = 3)) do ycs
+            @test all(isfinite.(ycs[isfinite.(y_obs)]))    
         end
+        # test prediction without known random effects
+        testdata = get_hybridproblem_test_data(probo; scenario)
         (; y, addq, θsP, θsMs_tr, entropy_ζ) = predict_hvi(rng, probo; 
             xM = testdata.xM, xP = testdata.xP, 
             scenario, n_sample_pred,
             );
-        _,_,y_obs,_ = get_hybridproblem_train_dataloader(prob; scenario).data
+        _,_,y_obs,_ = get_hybridproblem_test_data(prob; scenario)
         @test size(y) == (size(y_obs)..., n_sample_pred)
         yc = cdev(y)
         _ = map(eachslice(yc; dims = 3)) do ycs
@@ -305,6 +324,9 @@ end # test_with flux
 
 test_with_flux(Val((:default,)))
 test_with_flux(Val((:covarK2,)))
+test_with_flux(Val((:ranef, :covarK2,)))
+test_without_flux(Val((:ranef, :clustered_sites)))
+
 
 #scenario = Val((:default,:useSitePBM))
 test_with_flux_gpu = (scenario) -> begin
@@ -428,7 +450,7 @@ end # test_with flux
 #test_with_flux_gpu(Val((:MeanHVIApproxBlocks,))) # do not test any more, its slower
 #scenario = Val(())
 #test_with_flux_gpu(Val((:default,)))
-test_with_flux_gpu(Val((:scalingall,)))
-test_with_flux_gpu(Val((:covarK2,)))
+test_with_flux_gpu(Val((:scalingall)))
+test_with_flux_gpu(Val((:covarK2)))
 test_with_flux_gpu(Val((:useSitePBM,)))
 

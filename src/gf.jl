@@ -193,11 +193,11 @@ function gtrans(g, transMs, xMP, ϕg, n_θM;
     cdev, is_testmode
     )
     ϕg = g(xMP, ϕg; is_testmode)
-    ζMs_tr = ϕg[1:n_θM,:]' # ignore the uncertainty-related parameters
-    ζMs_tr_cpu0 = cdev(ζMs_tr)
-    ζMs_tr_cpu = add_ranef(ranef, ζMs_tr_cpu0, ϕq_ranef, i_sites)
+    ζMs = ϕg[1:n_θM,:] # ignore the uncertainty-related parameters
+    ζMs_cpu0 = cdev(ζMs)
+    ζMs_ranef_tr_cpu = add_ranef(ranef, ζMs_cpu0, ϕq_ranef, i_sites)'
     #@show ζMs_tr_cpu .- ζMs_tr_cpu0
-    θMs_tr = transMs(ζMs_tr_cpu)
+    θMs_tr = transMs(ζMs_ranef_tr_cpu)
     if !all(isfinite.(θMs_tr))
         @info "gtrans: encountered non-finite parameters"
         #@show θMs_tr, ζMs_cpu, transMs
@@ -213,8 +213,7 @@ Create a loss function for given
 - transM: transformation of parameters at unconstrained space
 - f(θMs_tr, θP): mechanistic model 
 - py: `function(y_pred, y_obs, y_unc)` to compute negative log-likelihood, i.e. cost
-- intϕ: interpreter attaching axis with components ϕg and ϕP
-- intP: interpreter attaching axis to ζP = ϕP with components used by f,
+- intϕ: interpreter attaching axis with components ϕg and ϕq
   The default, uses `intϕ(ϕ)` as a template
 - kwargs: additional keyword arguments passed to `gf`, such as `gdev` or `pbm_covars`
 
@@ -315,7 +314,7 @@ function get_loss_gf(g, transM, transP, f, py,
             nLprior_M = sum(nLprior_Ms .* frac_cluster)
             if !isfinite(nLprior_P) || !isfinite(nLprior_M)
                 @info "loss_gf: encountered non-finite prior density"
-                @show θP_pred, θMs_tr_pred, ϕc.ϕP
+                @show θP_pred, θMs_tr_pred, ϕc.ϕq.μP
                 error("debug get_loss_gf")
             end
             loss_penalties = first(compute_penalty(penalty_computer,

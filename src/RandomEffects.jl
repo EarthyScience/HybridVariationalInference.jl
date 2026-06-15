@@ -4,22 +4,23 @@ abstract type AbstractRandomEffectsComputer{T} end
 abstract type AbstractCovariancePrior{N,T} end 
 
 struct NullRandomEffectsComputer{T} <: AbstractRandomEffectsComputer{T}
-        n_site::Int
+    n_par::Int
+    n_site::Int
 end
 compute_nLranef(re::NullRandomEffectsComputer{T}, rm) where T = zero(T)
 add_ranef(re::NullRandomEffectsComputer, μ, ϕq_ranef, i_sites) = μ
 function setup_ϕq_ranef(re::NullRandomEffectsComputer{T}) where T 
     res = CA.ComponentVector(β=reshape( T[], 0, re.n_site))
 end
-function sample_ranef(re::NullRandomEffectsComputer{T}, ϕq_ranef, n_sample) where T
-    res = reshape( T[], 0, re.n_site, n_sample)
+function sample_ranef(re::NullRandomEffectsComputer{T}, ϕq_ranef, n_site, n_sample) where T
+    res = fill( zero(T), re.n_par, n_site, n_sample)
 end
 struct NullRandomEffects <: AbstractRandomEffects; end
 function get_ranef_computer(
     rn::NullRandomEffects, 
     θM_keys::NTuple{NM,Symbol}, n_site::Integer, float_template::T=1.0,
     ) where {NM,T}
-    NullRandomEffectsComputer{T}(convert(Int,n_site))
+    NullRandomEffectsComputer{T}(length(θM_keys), Int(n_site))
 end
 
 
@@ -93,7 +94,7 @@ function get_cholesky_from_parameters(re::RandomEffectsComputer{N,T}, ϕq_ranef)
 end
 
 """
-Assume μ to bin in n_site x n_par
+Assume μ of size n_par x n_site
 """
 function add_ranef(re::RandomEffectsComputer, μ, ϕq_ranef, i_sites)
     ranef = CA.getdata(ϕq_ranef[Val(:β)][i_sites,:])
@@ -120,6 +121,15 @@ provide a sample n_par x n_site x n_sample, where
 n_par is the dimension of parameters including those columns that have no 
 random effect.
 """
+function sample_ranef(re::RandomEffectsComputer{N,T}, ϕq_ranef, n_site, n_sample) where {N,T}
+    U = get_cholesky_from_parameters(re, ϕq_ranef)
+    rn = randn(T, N, n_site * n_sample)
+    r0 = similar(rn)
+    mul!(r0, U', rn)
+    out = similar(rn, size(re.P_col, 1), n_site * n_sample)
+    mul!(out, re.P_col, r0)
+    res = reshape(out, size(re.P_col, 1), n_site, n_sample)
+end
 function sample_ranef_nonmut(re::RandomEffectsComputer{N,T}, ϕq_ranef, n_site, n_sample) where {N,T}
     U = get_cholesky_from_parameters(re, ϕq_ranef)
     rn =  randn(N, n_site * n_sample )
@@ -133,15 +143,6 @@ function sample_ranef_nonmut(re::RandomEffectsComputer{N,T}, ϕq_ranef, n_site, 
     resr = reshape(re.P_col * r0, size(re.P_col, 1), n_site, n_sample)
     #res2 = permutedims(resr, (2,1,3))
     res, res2
-end
-function sample_ranef(re::RandomEffectsComputer{N,T}, ϕq_ranef, n_site, n_sample) where {N,T}
-    U = get_cholesky_from_parameters(re, ϕq_ranef)
-    rn = randn(N, n_site * n_sample)
-    r0 = similar(rn)
-    mul!(r0, U', rn)
-    out = similar(rn, size(re.P_col, 1), n_site * n_sample)
-    mul!(out, re.P_col, r0)
-    res = reshape(out, size(re.P_col, 1), n_site, n_sample)
 end
 
 

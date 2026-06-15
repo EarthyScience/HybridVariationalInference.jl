@@ -290,7 +290,7 @@ end
     intϕ = ComponentArrayInterpreter(CA.ComponentVector(
         ϕg = 1:length(ϕg0), 
         ϕq = CA.ComponentVector(
-            ϕP=par_templates.θP,
+            μP=par_templates.θP,
             ranef=ϕq_ranef
             )
         ))
@@ -353,22 +353,22 @@ end
     ϕq_opt.ranef
     intϕ(p0).ϕq.ranef
     θMs_tr_pred = CA.ComponentArray(θMs_tr_pred, CA.getaxes(θMs_true'))
-    #TODO @test isapprox(par_templates.θP, intϕ(res.u).ϕP, rtol = 0.15)
+    #TODO @test isapprox(par_templates.θP, intϕ(res.u).μP, rtol = 0.15)
     #@test cor(vec(θMs_true), vec(θMs_tr_pred)) > 0.8
     @test cor(θMs_true'[i_sites_train, 1], θMs_tr_pred[:, 1]) > 0.8
     @test cor(θMs_true'[i_sites_train, 2], θMs_tr_pred[:, 2]) > 0.8
     # started from low values -> increased but not too much above true values
     # logpdf.(priorsP, θP_pred)
     # logpdf.(priorsP, par_templates.θP)
-    @test all(transP(intϕ(p0).ϕq.ϕP) .< θP_pred .< (1.2 .* θP_true))
+    @test all(transP(intϕ(p0).ϕq.μP) .< θP_pred .< (1.2 .* θP_true))
     @test all(0.8 .* θP_true .< θP_pred .< (1.2 .* θP_true))
 
     () -> begin
         #@usingany UnicodePlots
         pdf(priorsP[1], θP_pred[1])
         pdf(priorsP[1], θP_true[1])
-        pdf(priorsP[1], transP(intϕ(p0).ϕP)[1])
-        #pdf(priorsM[1], transP(intϕ(p0).ϕP)[1])
+        pdf(priorsP[1], transP(intϕ(p0).μP)[1])
+        #pdf(priorsM[1], transP(intϕ(p0).μP)[1])
 
         quantile.(priorsM[2], [0.05, 0.5, 0.95])
         loss_gf(p0, xM, xP, y_o, y_unc, i_sites)
@@ -377,7 +377,7 @@ end
         scatterplot(θMs_true'[:,2], θMs_tr_pred[:,2])
         scatterplot(log.(vec(θMs_true')), log.(vec(θMs_tr_pred)))
         scatterplot(vec(y_pred), vec(y_o))
-        hcat(par_templates.θP, intϕ(p0).ϕP, intϕ(res.u).ϕP, transP(intϕ(p0).ϕP), θP_pred)
+        hcat(par_templates.θP, intϕ(p0).μP, intϕ(res.u).μP, transP(intϕ(p0).μP), θP_pred)
     end
 end
 

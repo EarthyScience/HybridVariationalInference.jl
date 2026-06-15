@@ -60,6 +60,10 @@ end
     μ = randn(Float32, 0,n_site)
     μ2 = add_ranef(ranef, μ, ϕq_ranef, 1:n_site)
     @test μ2 == μ
+    #
+    β = HVI.sample_ranef(ranef, ϕq_ranef, 4, 3)
+    @test eltype(β) == Float32
+    @test β == zeros(1,4,3)  # one parameter in construction
 end
 
 

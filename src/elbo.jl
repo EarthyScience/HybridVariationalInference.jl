@@ -525,11 +525,13 @@ function generate_ζ(
     int_ϕg_ϕq::AbstractComponentArrayInterpreter,
     int_ϕq::AbstractComponentArrayInterpreter,
     ranef::AbstractRandomEffectsComputer,
-    n_MC=3, n_sample_ranef = n_MC,
+    n_MC=3, 
+    n_sample_ranef = size(xM,2) ÷ 10,
     cor_ends, pbm_covar_indices,
     is_testmode,
     i_sites, # = 1:size(xM,2),
     ) where {FT,MT}
+    n_site = size(xM,2)
     # see documentation of neg_elbo_gtf
     ϕc = int_ϕg_ϕq(CA.getdata(ϕ))
     #VT= typeof(@view(ϕ[1:1]))
@@ -551,18 +553,18 @@ function generate_ζ(
     μ_ζMs0_tr = ϕm0[1:n_θm, :]'
     # if random effect is kown, i.e. i_sites is provided, add to ζMs_resids
     #    otherwise add the same sampled random effect for n_sample_ranef sites to ζMs_resids
-    if !isempty(i_sites)
+    ζMs_parfirst_ranef_resids = if !isempty(i_sites)
         # random effect (same for all samples, in 3rd dimenstion) is recycled
         #   adding it to μ is not valid, becase μ may be resampled given ζPi covariates
-        ζMs_parfirst_resids = add_ranef(ranef, ζMs_parfirst_resids, ϕq_ranef, i_sites) 
+        add_ranef(ranef, ζMs_parfirst_resids, ϕq_ranef, i_sites) 
     else
         # TODO move n_distict_ranef and i_col out of the loop
-        n_distict_ranef = ceil(Int, n_MC / n_sample_ranef)
+        n_distict_ranef = ceil(Int, n_site / n_sample_ranef)
         i_col = generate_repeated_integers(n_site_pred, n_sample_ranef)
         β_distinct = sample_ranef(ranef, ϕq_ranef, n_distict_ranef, n_MC)
         β = β_distinct[:,i_col,:]
         @assert size(β) == size(ζMs_parfirst_resids)
-        ζMs_parfirst_resids = ζMs_parfirst_resids .+ β
+        ζMs_parfirst_resids .+ β
     end         
     # if !all(isfinite.(μ_ζMs0))
     #     @show μ_ζMs0
@@ -574,27 +576,27 @@ function generate_ζ(
     if pbm_covar_indices isa SA.SVector{0}
         # do not need to predict again but just add the residuals to μ_ζP and μ_ζMs
         #ζsP = μ_ζP .+ ζP_resids  # n_par x n_MC # .+ on empty view does not work
-        ζsMs_tr = μ_ζMs0_tr .+ permutedims(ζMs_parfirst_resids, (2, 1, 3)) # n_site x n_par x n_MC
+        ζsMs_tr = μ_ζMs0_tr .+ permutedims(ζMs_parfirst_ranef_resids, (2, 1, 3)) # n_site x n_par x n_MC
         # if any(ζsMs[:,2,:] .> 80.0)
         #     @show ζsMs
-        #     @show ζMs_parfirst_resids
+        #     @show ζMs_parfirst_ranef_resids
         #     @show ϕc.ϕq.coef_logσ2_ζMs
         #     error("encountered scaled residual outside envisoned range. Debug") 
         # end
     else
-        #ζP, rMs = first(zip(eachcol(ζsP), eachslice(ζMs_parfirst_resids;dims=3)))
-        ζsMs_vec = map(eachcol(ζsP), eachslice(ζMs_parfirst_resids; dims=3)) do ζP, rMs
+        #ζP, rMs = first(zip(eachcol(ζsP), eachslice(ζMs_parfirst_ranef_resids;dims=3)))
+        ζsMs_tr_vec = map(eachcol(ζsP), eachslice(ζMs_parfirst_ranef_resids; dims=3)) do ζP, rMs
             # second pass: append ζP rather than μ_ζP to covars to xM
             xMP = _append_each_covars(xM, CA.getdata(ζP), pbm_covar_indices)
             ϕm = g(xMP, ϕg; is_testmode)
             μ_ζMs_gt = ϕm[1:n_θm, :]
-            μ_ζMst_tr = add_ranef(ranef, μ_ζMs_gt', ϕqc[Val(:ranef)], i_sites) 
-            ζMs = (μ_ζMst_tr .+ rMs')  # already transform to par-last form
-            ζMs
+            # randeom effect already in rMs
+            ζMs_tr = (μ_ζMs_gt' .+ rMs')  # already transform to par-last form
+            ζMs_tr
         end
         # ζsP = stack(map(first, ζst); dims=1)  # n_MC x n_par
         # ζsMs = stack(map(x -> x[2], ζst); dims=1) # n_MC x n_site x n_par
-        ζsMs_tr = stack(ζsMs_vec) # n_site x n_par x n_MC
+        ζsMs_tr = stack(ζsMs_tr_vec) # n_site x n_par x n_MC
     end
     ζsP, ζsMs_tr, σ
 end

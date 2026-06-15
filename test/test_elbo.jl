@@ -42,10 +42,11 @@ scenario = Val((:sepvar,))
 scenario = Val((:default,))
 scenario = Val((:ranef,))
 scenario = Val((:clustered_sites,))
+scenario = Val((:clustered_sites,:ranef))
 #scenario = Val((:scalingall,))  # Also in clustered_sites One site uncertainty-scaling factor predicted by ML
 
-pt = get_hybridproblem_par_templates(prob; scenario)
-FT = eltype(pt.θM)
+_pt = get_hybridproblem_par_templates(prob; scenario)
+FT = eltype(_pt.θM)
 #approx = MeanHVIApproximationMat()
 #approx = MeanVarSepHVIApproximation()
 #approx = MeanScalingHVIApproximation([length(pt.θM)], FT(2) .* log.([FT(0.1) * pt.θM[end]]))
@@ -93,14 +94,13 @@ test_scenario = (scenario) -> begin
     priorsP = [priors[k] for k in keys(par_templates.θP)]
     priorsM = [priors[k] for k in keys(par_templates.θM)]
 
-    ranef = if (:ranef ∈ scen)
-        par_ranef = (:r1, :K1)
-        ranef_spec = RandomEffects(par_ranef)
-        ranef = get_ranef_computer(
-            ranef_spec, keys(par_templates.θM), n_site, one(eltype(par_templates.θM)))
+    ranef_spec = if (:ranef ∈ scen)
+        RandomEffects((:r1, :K1))
     else
-        NullRandomEffectsComputer{eltype(par_templates.θM)}(n_site)
+        NullRandomEffects()
     end
+    ranef = get_ranef_computer(
+            ranef_spec, keys(par_templates.θM), n_site, one(eltype(par_templates.θM)))
     ϕq_ranef = setup_ϕq_ranef(ranef)
 
     n_MC = 3
@@ -460,15 +460,17 @@ test_scenario = (scenario) -> begin
         # @test length(intm_PMs_gen) == 402
         # @test trans_PMs_gen.length_in == 402
         n_sample_pred = 30
+        n_sample_ranef = 5
         (; θsP, θsMs_tr, entropy_ζ) =
-        #Cthulhu.@descend_code_warntype (
             @inferred (
+                #Cthulhu.@descend_code_warntype (
                 sample_posterior(rng, g, ϕ_ini, xM;
                 i_sites = 1:size(xM, 2),
+                #i_sites = Int[],
                 int_ϕg_ϕq, int_ϕq,
                 transP, transM,
                 cdev = identity,
-                n_sample_pred, cor_ends, pbm_covar_indices,
+                n_sample_pred, n_sample_ranef, cor_ends, pbm_covar_indices,
                 is_testmode = true,
                 probc.approx, ranef,
                 )
