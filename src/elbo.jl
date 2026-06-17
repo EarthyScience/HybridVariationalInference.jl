@@ -241,7 +241,7 @@ function neg_elbo_ζtf(ζsP::AbstractArray{T}, ζsMs_tr, σ, f, py, xP, y_ob, y_
     #     @show std(nLys_smallest), std(nLys_smallest)/abs(nLy)
     # end
     nLjoint = nLy + nLprior_P + nLprior_M + neg_log_jac
-    nLRanef = -compute_nLranef(ranef, ϕqc[Val(:ranef)])
+    nLRanef = compute_nLranef(ranef, ϕqc[Val(:ranef)])
     (;nLjoint, entropy_ζ, loss_penalty, 
         nLy, nLprior_P, nLprior_M, neg_log_jac, nLRanef)
 end
@@ -347,6 +347,7 @@ function predict_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()),
         xP = isnothing(xP) ? xP_dl[:,i_sites] : xP
         xM = isnothing(xM) ? xM_dl[:,i_sites] : xM
     end
+
     # sample_posterior required consistent prob.ϕq and xM
     (; θsP, θsMs_tr, entropy_ζ, ζsP, ζsMs_tr) = sample_posterior(
         rng, prob, xM; scenario, gdevs, is_testmode, i_sites, n_sample_pred, n_sample_ranef,

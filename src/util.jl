@@ -173,14 +173,14 @@ end
 using LinearAlgebra
 
 """
-    log_density_mvn_cholesky(x, U)
+    log_density_mvn_cholesky(U,x)
 
 Compute the log-density of a zero-mean multivariate normal distribution
 with covariance matrix C = U' * U, where U is the upper Cholesky factor.
 
 Arguments:
-- x: vector of length n (the sample)
 - U: upper triangular Cholesky factor of the covariance matrix (n × n)
+- x: vector of length n (the sample)
 
 Returns:
 - log p(x) ∈ ℝ: log-density at x

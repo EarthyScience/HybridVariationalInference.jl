@@ -93,16 +93,22 @@ function extract_MLpred(probo, xM; scenario = Val(()))
     (; X, σMs)
 end
 
-function cluster_records(X_matrix::AbstractMatrix, Ucor::AbstractMatrix{T}, σM::AbstractVector; n_cluster_sub=4, cluster_ids = 1:n_cluster_sub, ) where T
+function cluster_records(X_matrix::AbstractMatrix, Ucor::AbstractMatrix, σM::AbstractVector; kwargs... ) 
+    UΣ = Ucor * diagm(σM)
+    cluster_records(X_matrix::AbstractMatrix, UΣ; kwargs...)
+end
+
+function cluster_records(X_matrix::AbstractMatrix, UΣ::AbstractMatrix{T}; n_cluster_sub=4, cluster_ids = 1:n_cluster_sub, ) where T
     # x_i -x_j are distributed N(0, 2Σ) 
     #Σ = 2 * HybridVariationalInference.compute_cov(Ucor, σM)    
     @assert n_cluster_sub == length(cluster_ids) "Length of cluster_ids must match n_cluster"
-    invΣ = HybridVariationalInference.compute_invcov(Ucor, σM) / T(2)
+    #invΣ = HybridVariationalInference.compute_invcov(Ucor, σM) / T(2)
+    invΣ = inv(UΣ) * inv(UΣ')
     # Precompute differences: (X_i - X_j) for all i, j
     # Use broadcasting to compute all pairwise differences
     #diffs = X_matrix' .- X_matrix  # Shape: (n_vars, n_rows, n_rows)
     n_rows, n_vars = size(X_matrix)  # e.g., 2000×10
-    n_rows < n_cluster_sub && error("Cannot cluster $nrows records into $n_cluster_sub clusters.")
+    n_rows < n_cluster_sub && error("Cannot cluster $n_rows records into $n_cluster_sub clusters.")
     if n_rows == n_cluster_sub
         # assign each record to its own cluster
         clusters0 = 1:n_rows

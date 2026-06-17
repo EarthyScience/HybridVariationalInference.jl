@@ -15,6 +15,13 @@ end
 function sample_ranef(re::NullRandomEffectsComputer{T}, ϕq_ranef, n_site, n_sample) where T
     res = fill( zero(T), re.n_par, n_site, n_sample)
 end
+function get_choleskyΣ_ranef(re::NullRandomEffectsComputer{T}, ϕq_ranef) where T
+    zeros(T, 0, 0) # empty subset of parameters that have a randon effect
+end
+function get_choleskyΣ_par(re::NullRandomEffectsComputer{T}, ϕq_ranef) where T
+    zeros(T, re.n_par, re.n_par) 
+end
+
 struct NullRandomEffects <: AbstractRandomEffects; end
 function get_ranef_computer(
     rn::NullRandomEffects, 
@@ -25,6 +32,8 @@ end
 
 
 """
+ RandomEffects(parameters; γ=0.5), η=5.0, γv = SA.SVector(γ,γ,...)) 
+
 Each site-predicted parameter-sub-vector can have a site-specific random effect
 θ_i = θ_i_ml + β_i
 The random effects are estimated with the global parameters.
@@ -34,6 +43,7 @@ estimated as global parameters.
 In order to encourage low variance and low correlation, a prior of 
 zero-centered Cauchy distribution (default scale 0.5) is applied to main diagonal,
 and a LKJ prior (default scale 5) is applied to the correlation matrix.
+Scale of the Cauchy distribution defines the MAD.
 """
 struct RandomEffects{N,T} <: AbstractRandomEffects
     parameters::NTuple{N, Symbol}
@@ -74,23 +84,36 @@ end
 
 function compute_nLranef(re::RandomEffectsComputer{N,T}, ϕq_ranef) where {N,T}
     # get cholesky factor of covariance matrix from optimized parameters
-    U = get_cholesky_from_parameters(re, ϕq_ranef)
+    U = get_choleskyΣ_ranef(re, ϕq_ranef)
     # compute the logdensity of the random effects given the covariance
     β = ϕq_ranef[Val(:β)]
     # βi = first(eachrow(β))
+    # TODO compute for entire array (solve required only once)
     logden_rm = sum(eachrow(β)) do βi
         #log_density_mvn_cholesky(UpperTriangular(U), βi) does not work with Zygote
         log_density_mvn_cholesky(U, βi)
     end
     # compute the prior of the estimated covariance matrix
     logden_Σ = logpdf(re.prior_Σ, U)
-    -(logden_rm + logden_Σ)
+    cost = -(logden_rm + logden_Σ)
+    #@show ϕq_ranef.σ, cost
+    cost
 end
 
-function get_cholesky_from_parameters(re::RandomEffectsComputer{N,T}, ϕq_ranef) where {N,T}
+"""
+    get_choleskyΣ_ranef(re::AbstractRandomEffectsComputer, ϕq_ranef::ComponentVector)
+
+Return the upper cholesky factor of Covariance of the Random effects. 
+"""
+function get_choleskyΣ_ranef(re::RandomEffectsComputer{N,T}, ϕq_ranef) where {N,T}
     coef_Ucorr = ϕq_ranef[Val(:coef_U)] # parameterization of cholesky of correlation 
     σ = max.(T(1e-10), ϕq_ranef[Val(:σ)])  # main diagonal of cholesky factor of covariance
     U = transformU_cholesky1(coef_Ucorr; n=N) * diagm(σ)
+end
+function get_choleskyΣ_par(re::RandomEffectsComputer{N,T}, ϕq_ranef) where {N,T}
+    U = get_choleskyΣ_ranef(re, ϕq_ranef) 
+    U_full = re.P_col * U * re.P_col'
+    U_full
 end
 
 """
@@ -106,6 +129,10 @@ function add_ranef(re::RandomEffectsComputer, μ, ϕq_ranef, i_sites)
     μadd
 end
 
+"""
+Provide an initial estimate of the correct structure for the parameters to 
+estimae for given random effects computer.
+"""
 function setup_ϕq_ranef(re::RandomEffectsComputer{N,T}) where {N,T}
     coef_Ucorr = uutri2vec(cholesky(I(N).*one(T)).U)
     # U = vec2utri(coef_U; n = N); U' * U
@@ -122,7 +149,7 @@ n_par is the dimension of parameters including those columns that have no
 random effect.
 """
 function sample_ranef(re::RandomEffectsComputer{N,T}, ϕq_ranef, n_site, n_sample) where {N,T}
-    U = get_cholesky_from_parameters(re, ϕq_ranef)
+    U = get_choleskyΣ_ranef(re, ϕq_ranef)
     rn = randn(T, N, n_site * n_sample)
     r0 = similar(rn)
     mul!(r0, U', rn)
@@ -131,7 +158,7 @@ function sample_ranef(re::RandomEffectsComputer{N,T}, ϕq_ranef, n_site, n_sampl
     res = reshape(out, size(re.P_col, 1), n_site, n_sample)
 end
 function sample_ranef_nonmut(re::RandomEffectsComputer{N,T}, ϕq_ranef, n_site, n_sample) where {N,T}
-    U = get_cholesky_from_parameters(re, ϕq_ranef)
+    U = get_choleskyΣ_ranef(re, ϕq_ranef)
     rn =  randn(N, n_site * n_sample )
     r0 = U' * rn
     r = reshape(r0, N, n_site, n_sample)

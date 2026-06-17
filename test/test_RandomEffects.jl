@@ -84,6 +84,7 @@ end
     #
     θM = CA.ComponentVector(a=1.0, b=2.0, c=3.0)
     par_ranef = (:c, :a) # positions (3,1)
+    pos_ranef = [findfirst(==(s),keys(θM)) for s in par_ranef]
     prior_Σ = CVPrior_LKJ_Cauchy(length(par_ranef), η=η)
     re0 = RandomEffects(par_ranef; η=η)
     @test re0.prior_Σ == prior_Σ
@@ -104,7 +105,20 @@ end
     # 
     re32 = HVI.get_ranef_computer(re0, keys(θM), n_site, one(Float32))
     ϕq_ranef = setup_ϕq_ranef(re32)
-    ϕq_ranef.β .= randn(Float32, size(ϕq_ranef.β)...)
+    @test eltype(ϕq_ranef) == Float32
+    ϕq_ranef.coef_U .= 0.1f0
+    ϕq_ranef.σ .= [0.2, 0.5]
+    U_exp = HVI.get_choleskyΣ_ranef(re32, ϕq_ranef)
+    Σ_exp = U_exp' * U_exp
+    P_col = [j == k for j in 1:3, k in pos_ranef]
+    Σ_full = P_col * Σ_exp * P_col'
+    β = HVI.sample_ranef(re32, ϕq_ranef, n_site, 60)[pos_ranef,:,:]
+    @test eltype(β) == Float32
+    @test size(β) == (2, n_site, 60)
+    βstacked = reshape(β, size(β,1),:)
+    @test cov(βstacked') ≈ Σ_exp atol=0.05
+    ϕq_ranef.β = β[:,:,1]'
+    #
     @test eltype(ϕq_ranef) == Float32
     l1 = compute_nLranef(re32, ϕq_ranef)
     @test l1 isa Float32
@@ -115,10 +129,9 @@ end
     @test all((μ_updated .- μ)[2,:] .== 0)
     @test all((μ_updated .- μ)[[3,1],:] .≈ ϕq_ranef.β[i_sites,:]')
     #
-    # test sampling
-    n_site_pred = 5
-    n_MC = 4
-    res = HVI.sample_ranef(re32, ϕq_ranef, n_site_pred, n_MC)
-    @test size(res) == (length(θM), n_site_pred, n_MC)
+    # test extending cholesky fator to all parameter
+    U_par = HVI.get_choleskyΣ_par(re32, ϕq_ranef)
+    Σ = U_par' * U_par
+    @test Σ ≈ Σ_full
 end
 

@@ -87,7 +87,8 @@ function init_hybrid_ϕq(
     transP::Stacked,
     cor_ends::NamedTuple = (P = [length(θP)], M = [length(θM)]);
     n_site::Integer,
-    ϕq_ranef::CA.ComponentVector = CA.ComponentVector{eltype(θM)}(),
+    # need dummy, so that ϕq.ranef is a ComponentVector rather than plain Array
+    ϕq_ranef::CA.ComponentVector = CA.ComponentVector{eltype(θM)}(dummy=θM[1:0]),
     kwargs...,
 )
     FT = promote_type(eltype(θP), eltype(θM))
@@ -153,6 +154,12 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
     end
     if !isnothing(ϕunc)
         ϕq = CA.ComponentVector(ϕq; ϕunc...)
+    end
+    if ranef != get_hybridproblem_ranef(prob; scenario)
+        # when ranef has been updated, create new default parameter vector
+        ranefc = get_ranef_computer(ranef, keys(θM), n_site, one(eltype(ϕq)))
+        ϕq_ranef = setup_ϕq_ranef(ranefc)
+        ϕq = CA.ComponentVector((;ϕq..., ranef = ϕq_ranef))
     end
     if n_batch != n_batch_before
         # if updating n_btach, then need to adjust f_batch and train_dataloader
