@@ -316,12 +316,9 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     # intθP = ComponentArrayInterpreter(pt.θP)
     # intθMs = ComponentArrayInterpreter((n_batch,), pt.θM)
 
-    priors_θP_mean, priors_θMs_mean = construct_priors_θ_mean(
-        prob, ϕ0_dev.ϕg, keys(pt.θM), pt.θP, θmean_quant, g_dev, transM, transP;
-        scenario, gdevs, pbm_covars, ranef, ϕq_ranef = ϕq[Val(:ranef)])
     loss_elbo = get_loss_elbo(
         g_dev, transP, transM, f_dev, py, n_batch;
-        n_MC = solver.n_MC, n_MC_cap = solver.n_MC_cap, cor_ends, priors_θP_mean, priors_θMs_mean, 
+        n_MC = solver.n_MC, n_MC_cap = solver.n_MC_cap, cor_ends,  
         cdev=infer_cdev(gdevs), pbm_covars, 
         par_templates = pt,
         #pt.θP, 
@@ -333,7 +330,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
         )
     loss_elbo_test = get_loss_elbo(
         g_dev, transP, transM, f_test_dev, py, n_batch_test;
-        solver.n_MC, solver.n_MC_cap, cor_ends, priors_θP_mean, priors_θMs_mean, 
+        solver.n_MC, solver.n_MC_cap, cor_ends, 
         cdev=infer_cdev(gdevs), pbm_covars, 
         par_templates = pt,
         #pt.θP, 
@@ -400,7 +397,7 @@ The loss function takes in addition to ϕ, data that changes with minibatch
 """
 function get_loss_elbo(g, transP, transM, f, py, n_batch;
     n_MC, n_MC_mean = max(n_MC,20), n_MC_cap=n_MC, 
-    cor_ends, priors_θP_mean, priors_θMs_mean, cdev, pbm_covars, 
+    cor_ends, cdev, pbm_covars, 
     par_templates, 
     #θP::AbstractVector{T},
     int_ϕq, int_ϕg_ϕq,
@@ -419,7 +416,7 @@ function get_loss_elbo(g, transP, transM, f, py, n_batch;
         n_MC = n_MC, n_MC_cap = n_MC_cap, n_MC_mean = n_MC_mean,
         cor_ends = cor_ends,
         int_ϕq = get_concrete(int_ϕq), int_ϕg_ϕq = get_concrete(int_ϕg_ϕq),
-        priors_θP_mean = priors_θP_mean, priors_θMs_mean = priors_θMs_mean, cdev = cdev,
+        cdev = cdev,
         pbm_covar_indices = get_pbm_covar_indices(par_templates.θP, pbm_covars),
         trans_mP=StackedArray(transP, n_MC_mean), 
         trans_mMs=StackedArray(transMs.stacked, n_MC_mean),
@@ -436,7 +433,7 @@ function get_loss_elbo(g, transP, transM, f, py, n_batch;
             neg_elbo_gtf(
                 rng, ϕ, g, f, py, xM, xP, y_o, y_unc, i_sites;
                 int_ϕq, int_ϕg_ϕq,
-                n_MC, n_MC_cap, n_MC_mean, cor_ends, priors_θP_mean, priors_θMs_mean,
+                n_MC, n_MC_cap, n_MC_mean, cor_ends, 
                 cdev, pbm_covar_indices, transP, transMs, trans_mP, trans_mMs,
                 priorsP, priorsM, penalty_computer, #ϕg = ϕc.ϕg, ϕq = ϕc.ϕq,
                 is_testmode, is_omit_priors, zero_prior_logdensity, approx,
@@ -503,53 +500,3 @@ function compute_elbo_components(
         solver.n_MC, solver.n_MC_cap, cor_ends, priors_θ_mean)
 end
 
-"""
-In order to let mean of θ stay close to initial point parameter estimates 
-construct a prior on mean θ to a Normal around initial prediction.
-"""
-function construct_priors_θ_mean(prob, ϕg, keysθM, θP, θmean_quant, g_dev, transM, transP;
-    scenario::Val{scen}, gdevs, pbm_covars,
-    ranef::AbstractRandomEffectsComputer,
-    ϕq_ranef::CA.ComponentVector,
-    ) where {scen}
-    iszero(θmean_quant) ? ([],[]) :
-    begin
-        n_θM = length(keysθM)
-        gdev=gdevs.gdev_M
-        #cdev=infer_cdev(gdevs)
-        n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-        # all_loader = MLUtils.DataLoader(
-        #     get_hybridproblem_train_dataloader(prob; scenario).data, batchsize = n_site)
-        # xM_all = first(all_loader)[1]
-        is_gpu = :use_gpu ∈ scen
-        xM_all_cpu = get_hybridproblem_train_dataloader(prob; scenario).data[1]
-        xM_all = is_gpu ? gdev(xM_all_cpu) : xM_all_cpu
-        ζP = apply_preserve_axes(inverse(transP), θP)
-        pbm_covar_indices = get_pbm_covar_indices(θP, pbm_covars)
-        xMP_all = _append_each_covars(xM_all, CA.getdata(ζP), pbm_covar_indices)
-        n_site_train = size(xM_all, 2)
-        transMs = StackedArray(transM, n_site_train)
-        # ζMs = g_dev(xMP_all, CA.getdata(ϕg))'  # transpose to par-last for StackedArray
-        # ζMs_cpu = cdev(ζMs)
-        # θMs_tr = transMs(ζMs_cpu)
-        θMs_tr = gtrans(
-            g_dev, transMs, xMP_all, CA.getdata(ϕg), n_θM; 
-            cdev=cpu_device(), is_testmode = true, ranef, ϕq_ranef, i_sites=1:n_site_train)
-        priors_dict = get_hybridproblem_priors(prob; scenario)
-        priorsP = [priors_dict[k] for k in keys(θP)]
-        priors_θP_mean = map(priorsP, θP) do priorsP, θPi
-            fit_narrow_normal(θPi, priorsP, θmean_quant)
-        end
-        priorsM = Tuple(priors_dict[k] for k in keysθM) 
-        i_par = 1
-        i_site = 1
-        priors_θMs_mean = map(Iterators.product(axes(θMs_tr)...)) do (i_site, i_par)
-            #@show i_par, i_site
-            fit_narrow_normal(θMs_tr[i_site, i_par], priorsM[i_par], θmean_quant)
-        end
-        # # concatenate to a flat vector
-        # int_n_site = get_ca_int_PMs(n_site)
-        # int_n_site(vcat(priors_θP_mean, vec(priors_θMs_mean)))
-        priors_θP_mean, priors_θMs_mean
-    end
-end

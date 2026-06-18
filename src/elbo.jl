@@ -50,9 +50,6 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
     int_ϕq::AbstractComponentArrayInterpreter,
     n_MC=12, n_MC_mean=n_MC, n_MC_cap=n_MC,
     cdev=cpu_device(),
-    priors_θP_mean=[], 
-    priors_θMs_mean=[],
-    #priors_θ_mean=[],
     cor_ends, # =(P=(1,),M=(1,))
     pbm_covar_indices,
     transP, transMs, 
@@ -78,8 +75,7 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
         @show ϕg
         error("encountered non-finite optimized parameters")
     end
-    n_MCr = isempty(priors_θP_mean) ? n_MC : max(n_MC, n_MC_mean)
-    ζsP, ζsMs_tr, σ = generate_ζ(approx, rng, g, ϕ, xM; n_MC=n_MCr, cor_ends, pbm_covar_indices,
+    ζsP, ζsMs_tr, σ = generate_ζ(approx, rng, g, ϕ, xM; n_MC, cor_ends, pbm_covar_indices,
         int_ϕq, int_ϕg_ϕq, is_testmode, i_sites, ranef)
     ζsP_cpu = cdev(ζsP) # fetch to CPU, because for <1000 sites (n_batch) this is faster
     ζsMs_tr_cpu = cdev(ζsMs_tr) # fetch to CPU, because for <1000 sites (n_batch) this is faster
@@ -90,27 +86,6 @@ function neg_elbo_gtf_components(rng, ϕ::AbstractVector{FT}, g, f, py,
         n_MC_cap, transP, transMs, priorsP, priorsM, 
         penalty_computer, ϕg, ϕqc, is_omit_priors, zero_prior_logdensity, 
         i_sites, intθMs, intθP, ranef, frac_cluster_all)
-    #
-    # maybe: provide trans_mP and trans_mMs with creating cost function
-    # not used any more and merging named tuples takes long
-    # nLmean_θ = _compute_negloglik_meanθ(ζsP_cpu, ζsMs_cpu; 
-    #     trans_mP, trans_mMs, priors_θP_mean, priors_θMs_mean, i_sites, )
-    # (;loss_comps..., nLmean_θ)
-end
-
-function _compute_negloglik_meanθ(ζsP::AbstractMatrix{FT}, ζsMs_tr; 
-    priors_θP_mean, priors_θMs_mean, i_sites, trans_mP, trans_mMs, 
-) where FT
-    if isempty(priors_θP_mean) 
-        return zero(FT)
-    end
-    θsP, θsMs_tr = transform_ζs(ζsP, ζsMs_tr; trans_mP, trans_mMs)
-    mean_θP = mean(CA.getdata(θsP); dims=(2))[:, 1]
-    nLmean_θP = map((d, θi) -> -logpdf(d, θi), priors_θP_mean, mean_θP)
-    mean_θMs = mean(θsMs_tr; dims=(3))[:, :, 1]
-    nLmean_θMs = map((d, θi) -> -logpdf(d, θi), priors_θMs_mean[i_sites], mean_θMs)
-    nLmean_θ = sum(nLmean_θP) + sum(nLmean_θMs)
-    convert(FT,nLmean_θ)::FT
 end
 
 """
@@ -245,6 +220,7 @@ function neg_elbo_ζtf(ζsP::AbstractArray{T}, ζsMs_tr, σ, f, py, xP, y_ob, y_
     (;nLjoint, entropy_ζ, loss_penalty, 
         nLy, nLprior_P, nLprior_M, neg_log_jac, nLRanef)
 end
+
 
 function compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr,
         ::Val{omit_priors}, zero_prior_logdensity) where {omit_priors}
