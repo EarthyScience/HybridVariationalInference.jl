@@ -112,7 +112,7 @@ test_scenario = (scenario) -> begin
     (;ϕqc, approx) = tmp = init_hybrid_ϕq(
         probc.approx, par_templates.θP, par_templates.θM, transP, cor_ends; 
         transM, n_site, ϕq_ranef)
-    probc = HybridProblem(probc; approx) # update approx in probc
+    probc = HybridProblem(probc; approx, ϕq = ϕqc) # update approx in probc
     # (ϕunc0, approx) = init_hybrid_ϕunc(cor_ends, zero(FT))
     # ϕq0 = CP.update_μP_by_θP(ϕunc0, θP_true, transP)
     (; ϕ, interpreters) = init_hybrid_params(ϕg0, ϕqc)
@@ -164,6 +164,26 @@ test_scenario = (scenario) -> begin
             end, CA.getdata(ϕ_ini))
         @test gr[1] isa Vector
     end
+
+    @testset "predict_hvi" begin
+        n_sample_pred = 200 # 10_000 #2_400
+        ans_predict = predict_hvi(rng, probc; 
+            scenario, n_sample_pred,
+            #is_inferred = Val(true),
+            );
+        (; y, θsP, θsMs_tr, entropy_ζ, logjacs_P, logjacs_Ms) = ans_predict
+        n_site_pred = size(θsMs_tr,1)
+        @test size(logjacs_P) == (n_sample_pred,)
+        @test size(logjacs_Ms) == (n_site_pred, n_sample_pred)
+        # check jacobian against transformation of a single (backtransformed) par_vector 
+        @test logjacs_P[1] ≈ with_logabsdet_jacobian(transP, inverse(transP)(θsP[:,1]))[2]
+        @test logjacs_Ms[1,1] ≈ with_logabsdet_jacobian(
+            transM, inverse(transM)(θsMs_tr[1,:,1]))[2]
+        #size(_ζsMs), size(θsMs)
+        #size(_ζsP), size(θsP)
+        #
+        # below test that generated sample matches specified distribution 
+    end;
 
     if !(:covarK2 ∈ CP._val_value(scenario)) && (probc.approx isa MeanHVIApproximation)
         # can only test distribution if g is not repeated
