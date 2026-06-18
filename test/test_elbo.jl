@@ -395,6 +395,7 @@ test_scenario = (scenario) -> begin
         n_sites_cluster, clusters = CP.get_clusters(n_site; scenario)
         frac_cluster_all = convert.(eltype(ϕ_ini), 1 ./ n_sites_cluster[clusters])
         cost = @inferred (
+            #@usingany Cthulhu
         #@descend_code_warntype (
             neg_elbo_gtf(rng, ϕ_ini, g, f, py,
             xM[:, i_sites], xP[:, i_sites], y_o[:, i_sites], y_unc[:, i_sites], i_sites;

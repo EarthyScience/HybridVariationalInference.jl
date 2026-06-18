@@ -129,12 +129,19 @@ function neg_elbo_ζtf(ζsP::AbstractArray{T}, ζsMs_tr, σ, f, py, xP, y_ob, y_
 ) where T
     n_MC = size(ζsP,2)
     #@show ζsMs_tr[1,4,:] # fourth component goes to NaN at some time
+    frac_cluster = frac_cluster_all[i_sites]
+    _entropy_ζ = compute_entropyζ_from_σ(σ; 
+        frac_cluster,
+        n_θP = size(ζsP,1),
+        n_θM = size(ζsMs_tr,2), 
+        n_site = size(ζsMs_tr,1),
+    )   
     if !all(isfinite.(ζsMs_tr))
+        # TODO return a result from calling X
         return (;
             nLjoint=T(1e9), entropy_ζ=zero(T), loss_penalty=zero(T), nLy=zero(T),
             neg_log_prior=T(1e9), neg_log_jac=zero(T))
     end
-    frac_cluster = frac_cluster_all[i_sites]
     f_sample = (ζP, ζMs_tr) -> begin
             θP, θMs_tr, logjac_P, logjac_Ms = transform_and_logjac_ζ(ζP, ζMs_tr; transP, transMs)
             if !all(isfinite.(θMs_tr))
@@ -196,19 +203,8 @@ function neg_elbo_ζtf(ζsP::AbstractArray{T}, ζsMs_tr, σ, f, py, xP, y_ob, y_
         nLys_smallest = partialsort(nLys, 1:n_MC_cap)
         nLy = sum(nLys_smallest) / n_MC_cap
     end
-    #  sum_log_σ = sum(log.(σ))
-    # logdet_jacT2 = -sum_log_σ # log Prod(1/σ_i) = -sum log σ_i 
-    #logdetΣ = 2 * sum(log.(σ)) # det(Σ) = Prod(σ_i^2)
-    # also scale entropy (that depends on logdetΣ) for only a fraction of sites in btach
-    n_θP = size(ζsP,1)
-    n_θM, n_site = size(ζsMs_tr)[1:2]
-    n_θ = n_θP + n_θM * n_site
-    @assert length(σ) == n_θ
-    σP = σ[1:n_θP]
-    σMs = reshape(σ[(n_θP+1):end], :, n_site)
-    #logdetΣ = 2 * (sum(log.(σ))) # det(Σ) = Prod(σ_i^2)
-    logdetΣ = 2 * (sum(log.(σP)) + sum(frac_cluster .* log.(σMs))) # det(Σ) = Prod(σ_i^2)
-    entropy_ζ = entropy_MvNormal(n_θ, logdetΣ)  # defined in logden_normal
+    #n_θM, n_site = size(ζsMs_tr)[1:2]
+    # why without underscore boxed and type instability?
     # if i_sites[1] == 1
     #     #Main.@infiltrate_main
     #     @show nLy, entropy_ζ, nLmean_θ, n_MC, n_MC_cap, i_sites[1:3]
@@ -217,9 +213,28 @@ function neg_elbo_ζtf(ζsP::AbstractArray{T}, ζsMs_tr, σ, f, py, xP, y_ob, y_
     # end
     nLjoint = nLy + nLprior_P + nLprior_M + neg_log_jac
     nLRanef = compute_nLranef(ranef, ϕqc[Val(:ranef)])
-    (;nLjoint, entropy_ζ, loss_penalty, 
+    (;nLjoint, entropy_ζ = _entropy_ζ, loss_penalty, 
         nLy, nLprior_P, nLprior_M, neg_log_jac, nLRanef)
 end
+
+"""
+construct log-determinant of covariance matrix.
+which depends on the σ = sqrt(diag(cov)).
+The part for for θMs is reduced by considering that a minibatch contains
+only a fraction of the data.
+"""
+function compute_entropyζ_from_σ(σ::AbstractVector{T}; frac_cluster, n_θP, n_θM, n_site) where T
+        n_θ = n_θP + n_θM * n_site
+        @assert length(σ) == n_θ
+        σP = σ[1:n_θP]
+        # n_site is last dimension: blocks in cov. 
+        σMs = reshape(σ[(n_θP+1):end], :, n_site) 
+        #logdetΣ = 2 * (sum(log.(σ))) # det(Σ) = Prod(σ_i^2)
+        logdetΣ = (T(2) * (sum(log.(σP)) + sum(frac_cluster .* log.(σMs')))) # det(Σ) = Prod(σ_i^2)
+        entropy_MvNormal(n_θ, logdetΣ)  # defined in logden_normal
+end
+
+
 
 
 function compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr,
