@@ -434,6 +434,7 @@ function HVI.get_hybridproblem_cor_ends(prob::DoubleMMCase; scenario::Val{scen})
     end
 end
 
+# TODO: separate parameters and computing tools from specification of the Problem
 function HVI.get_hybridproblem_ϕq(prob::DoubleMMCase; scenario::Val{scen}) where {scen}
     approx = get_hybridproblem_HVIApproximation(prob; scenario)
     FT = get_hybridproblem_float_type(prob; scenario) 
@@ -441,7 +442,12 @@ function HVI.get_hybridproblem_ϕq(prob::DoubleMMCase; scenario::Val{scen}) wher
     (;θP, θM)  = get_hybridproblem_par_templates(prob; scenario)
     n_site, _ = get_hybridproblem_n_site_and_batch(prob; scenario)
     (;transP, transM)  = get_hybridproblem_transforms(prob; scenario)
-    (;ϕqc, approx) = tmp = init_hybrid_ϕunc(approx, cor_ends, zero(FT); θM, transM, n_site)    
+    (;ϕqc, approx) = init_hybrid_ϕunc(approx, cor_ends, zero(FT); θM, transM, n_site)    
+    ranef_spec = get_hybridproblem_ranef(prob; scenario)
+    ranef = get_ranef_computer(
+        ranef_spec, keys(pt.θM), n_site, one(eltype(ϕq0)))
+    ϕq_ranef = setup_ϕq_ranef(ranef)
+    ϕqc = CA.ComponentVector(ϕqc, ranef = ϕq_ranef)
     # for DoubleMMCase templates gives the correct values
     ϕqP = HVI.update_μP_by_θP(ϕqc, θP, transP)
 end

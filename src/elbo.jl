@@ -160,18 +160,18 @@ function neg_elbo_ζtf(ζsP::AbstractArray{T}, ζsMs_tr, σ, f, py, xP, y_ob, y_
             # @descend_code_warntype f(θP, θMs, xP)
             f_sample_pre(logjac_P, logjac_Ms, θP, θMs_tr, y_pred_i, addq_pred_i; 
                 py, y_ob, y_unc,
-                penalty_computer, i_sites, ϕg, ϕqc,
+                penalty_computer, i_sites, ϕqc,
                 intθMs, intθP,
                 priorsP, priorsM, is_omit_priors, zero_prior_logdensity,
                 frac_cluster,
                 ) 
             # nLy_i = py(y_ob, y_pred_i, y_unc)
             # # MAYBE avoid convert by making sure penalty_computer returns proper type
-            # # Test.@inferred compute_penalty(penalty_computer, y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), i_sites, ϕg, ϕq)[1]
+            # # Test.@inferred compute_penalty(penalty_computer, y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), i_sites, ϕq)[1]
             # # loss_penalty_i = convert.(typeof(nLy_i),first(compute_penalty(penalty_computer,
-            # #     y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), i_sites, ϕg, ϕq)))
+            # #     y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), i_sites, ϕq)))
             # loss_penalty_i = compute_penalty(penalty_computer,
-            #     y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), i_sites, ϕg, ϕqc)[1]
+            #     y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), i_sites, ϕqc)[1]
             # nLprior_P_i, nLprior_M_is = compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr,
             #     is_omit_priors, zero_prior_logdensity)
             # # make sure names to not match outer, otherwise Box type instability
@@ -205,14 +205,14 @@ compute the elbo components for a single sample,
 """    
 function f_sample_pre(logjac_P, logjac_Ms, θP, θMs_tr, y_pred_i, addq_pred_i; 
     py, y_ob, y_unc,
-    penalty_computer, i_sites, ϕg, ϕqc,
+    penalty_computer, i_sites, ϕqc,
     intθMs, intθP,
     priorsP, priorsM, is_omit_priors, zero_prior_logdensity,
     frac_cluster,
     ) 
     nLy_i = py(y_ob, y_pred_i, y_unc)
     loss_penalty_i = compute_penalty(penalty_computer,
-        y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), i_sites, ϕg, ϕqc)[1]
+        y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), i_sites, ϕqc)[1]
     nLprior_P_i, nLprior_M_is = compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr,
         is_omit_priors, zero_prior_logdensity)
     loss_penalty_if = sum(loss_penalty_i)
@@ -316,7 +316,7 @@ function compute_penalty(
     ::ZeroPenaltyComputer,
     y_pred::AbstractMatrix, addq_pred::AbstractMatrix, θMs_tr::AbstractMatrix, θP::AbstractVector, 
     i_sites::AbstractVector,
-    ϕg, ϕq::AbstractVector)
+    ϕq::AbstractVector)
     return (; penalty = fill(zero(eltype(θMs_tr)), size(θMs_tr,1)))
 end
 
@@ -378,19 +378,9 @@ function predict_hvi(rng::AbstractRNG, prob::AbstractHybridProblem; scenario=Val
     frac_cluster = ones(eltype(prob.ϕg), 0),
     kwargs...
     )
-    if isnothing(xM) || isnothing(xP)
-        dl = get_hybridproblem_train_dataloader(prob; scenario)
-        dl_dev = gdev_hybridproblem_dataloader(dl; gdevs)
-        xM_dl, xP_dl = dl_dev.data[1:2]
-        i_sites = isempty(i_sites) ? (1:size(xM_dl, 2)) : i_sites
-        xP = isnothing(xP) ? xP_dl[:,i_sites] : xP
-        xM = isnothing(xM) ? xM_dl[:,i_sites] : xM
-    end
-    n_site_pred = size(xM,2) 
-    if isempty(frac_cluster)
-        frac_cluster = ones(eltype(frac_cluster), n_site_pred)
-    end
-
+    # update to HybridProblem, if empty defaults were used
+    xM, xP, i_sites, frac_cluster = initX_from_prob(prob; scenario, gdevs,  
+        xM, xP, i_sites, frac_cluster)
     # sample_posterior required consistent prob.ϕq and xM
     (; θsP, θsMs_tr, entropy_ζ, ζsP, ζsMs_tr, logjacs_P, logjacs_Ms) = sample_posterior(
         rng, prob, xM; 
@@ -399,7 +389,7 @@ function predict_hvi(rng::AbstractRNG, prob::AbstractHybridProblem; scenario=Val
         kwargs...)
     #
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-    @assert size(xP, 2) == n_site_pred
+    n_site_pred = size(xP, 2)
     f_batch = get_hybridproblem_PBmodel(prob; scenario)
     f = n_site_pred == n_batch ? f_batch : create_nsite_applicator(f_batch, n_site_pred)
     if gdevs.gdev_P isa MLDataDevices.AbstractGPUDevice
@@ -420,7 +410,7 @@ function predict_hvi(rng::AbstractRNG, prob::AbstractHybridProblem; scenario=Val
         CA.ComponentVector(
             compute_penalty(penalty_computer,
             y[:,:,i_MC], addq[:,:,i_MC], intθMs(θsMs_tr[:,:,i_MC]), intθP(θsP[:,i_MC]), i_sites, 
-            prob.ϕg, prob.ϕq)
+            prob.ϕq)
             ) # TODO separate from prob
     end
     # reshape into ComponentMatrix with site rows
@@ -431,6 +421,121 @@ function predict_hvi(rng::AbstractRNG, prob::AbstractHybridProblem; scenario=Val
     penalties = reshape_penalty_matrix(penalties_sum) ./ n_sample_pred
     (; y, addq, θsP, θsMs_tr, entropy_ζ, ζsP, ζsMs_tr, penalties, logjacs_P, logjacs_Ms)
 end
+
+function initX_from_prob(prob; scenario, gdevs, xM, xP, i_sites, frac_cluster)
+    if isnothing(xM) || isnothing(xP)
+        dl = get_hybridproblem_train_dataloader(prob; scenario)
+        dl_dev = gdev_hybridproblem_dataloader(dl; gdevs)
+        xM_dl, xP_dl = dl_dev.data[1:2]
+        i_sites = isempty(i_sites) ? (1:size(xM_dl, 2)) : i_sites
+        xP = isnothing(xP) ? xP_dl[:,i_sites] : xP
+        xM = isnothing(xM) ? xM_dl[:,i_sites] : xM
+    end
+    n_site_pred = size(xM,2) 
+    if isempty(frac_cluster)
+        frac_cluster = ones(eltype(frac_cluster), n_site_pred)
+    end
+    xM, xP, i_sites, frac_cluster
+end
+
+
+"""
+Compute the elbo components based on precomputed parameters and predictions,
+as returned by predict_hvi.
+"""
+function predict_hvi_and_compute_elbo_components(
+rng::AbstractRNG, prob::AbstractHybridProblem; scenario=Val(()), 
+    gdevs = get_gdev_MP(scenario), 
+    is_testmode = true,
+    i_sites = get_hybridproblem_train_dataloader(prob; scenario).data[5],
+    n_sample_pred = 200,
+    n_sample_ranef = n_sample_pred ÷ 10,
+    frac_cluster_all = 
+        ones(eltype(prob.ϕg), get_hybridproblem_n_site_and_batch(prob; scenario)[1]),
+    is_omit_priors = Val(false),
+)        
+    pt = get_hybridproblem_par_templates(prob; scenario)
+    priors = get_hybridproblem_priors(prob; scenario)
+    priorsP = Tuple(priors[k] for k in keys(pt.θP))
+    priorsM = Tuple(priors[k] for k in keys(pt.θM))
+    penalty_computer = get_hybridproblem_penalty_computer(prob; scenario)
+    ranef_spec = get_hybridproblem_ranef(prob; scenario)
+    py = get_hybridproblem_neg_logden_obs(prob; scenario)
+    ϕqc = prob.ϕq
+    frac_cluster = frac_cluster_all[i_sites]
+    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    dl = get_hybridproblem_train_dataloader(prob; scenario)
+    dl_dev = gdev_hybridproblem_dataloader(dl; gdevs)
+    xM_dl, xP_dl = dl_dev.data[1:2]
+    i_sites_train = dl_dev.data[5]
+    ii_sites = map(x -> findfirst(==(x), i_sites_train), i_sites)
+    xP = xP_dl[:,ii_sites]
+    xM = xM_dl[:,ii_sites]
+    y_ob = dl_dev.data[3][:,ii_sites]
+    y_unc = dl_dev.data[4][:,ii_sites]   
+    a = predict_hvi(rng, prob; 
+            scenario, gdevs, xP, xM, is_testmode, i_sites, 
+            n_sample_pred, n_sample_ranef, frac_cluster,
+            );
+    ranef = get_ranef_computer(
+        ranef_spec, keys(pt.θM), n_site, one(eltype(pt.θM)))
+    res = compute_elbo_components(
+        a.entropy_ζ, a.logjacs_P, a.logjacs_Ms, a.θsP, a.θsMs_tr, a.y, a.addq,
+        i_sites, y_ob, y_unc;
+        py,
+        penalty_computer,
+        ranef, 
+        ϕqc,
+        frac_cluster,
+        is_omit_priors, priorsP, priorsM,
+    )
+end
+
+
+function compute_elbo_components(
+    entropy_ζ,
+    logjacs_P::AbstractVector{T}, logjacs_Ms::AbstractMatrix{T},
+    θsP::AbstractMatrix{T}, θsMs_tr::AbstractArray{T,3}, 
+    y, addq,
+    i_sites, y_ob, y_unc;
+    py,
+    priorsP, priorsM,
+    penalty_computer,
+    ranef::AbstractRandomEffectsComputer, ϕqc,
+    frac_cluster,
+    is_omit_priors::Val{omit_priors} = Val(false), 
+    n_MC_cap=size(θsP,2),
+    intθP = ComponentArrayInterpreter(θsP[:,1]), 
+    intθMs = ComponentArrayInterpreter(θsMs_tr[:,:,1]),
+) where {T, omit_priors}
+    n_MC = size(θsP,2)
+    if !all(isfinite.(θsMs_tr))
+        return (;
+            nLjoint=T(1e9), entropy_ζ=zero(T), loss_penalty=zero(T), nLy=zero(T),
+            neg_log_prior=T(1e9), neg_log_jac=zero(T))
+    end
+    zero_prior_logdensity = omit_priors ? zero(T) : get_zero_prior_logdensity(
+        priorsP, priorsM, intθP(CA.getdata(θsP[:,1])), intθMs(CA.getdata(θsMs_tr[:,:,1])))
+    # call f_sample_pre with all the keyword arguments that do not change across samples
+    f_sample_pre_wrapper = (args...) -> begin
+            f_sample_pre(args...;
+                        py, y_ob, y_unc,
+                        penalty_computer, i_sites, ϕqc,
+                        intθMs, intθP,
+                        priorsP, priorsM, is_omit_priors, zero_prior_logdensity,
+                        frac_cluster,
+            )
+    end
+    map_res = map(f_sample_pre_wrapper, 
+        logjacs_P, eachcol(logjacs_Ms),
+        eachcol(θsP), eachslice(θsMs_tr; dims=3),
+        eachslice(y; dims=3), eachslice(addq; dims=3)
+    )
+    nLys, nLpriors_P, nLpriors_M, neglogjacs, loss_penalties = vectuptotupvec(map_res)
+    res0 = compute_elbo_components(nLys, nLpriors_P, nLpriors_M, neglogjacs, loss_penalties; 
+        n_MC_cap, ranef, ϕqc, entropy_ζ)
+end
+
 
 """
     sample_posterior(rng, prob, [xM::AbstractMatrix]; scenario=Val(()), kwargs...)

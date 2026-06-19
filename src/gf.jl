@@ -319,7 +319,7 @@ function get_loss_gf(g, transM, transP, f, py,
             end
             loss_penalties = first(compute_penalty(penalty_computer,
                 y_pred, addq_pred, intθMs(θMs_tr_pred), intθP(θP_pred), 
-                i_sites, ϕc[Val(:ϕg)], ϕqc))
+                i_sites, ϕqc))
             #loss_penalty = sum(loss_penalties .* frac_cluster)
             loss_penalty = sum(loss_penalties)
             #@show nLy, neg_log_prior, loss_penalty

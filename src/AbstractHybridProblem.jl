@@ -46,7 +46,7 @@ end
             y_pred::AbstractMatrix, addq_pred::AbstractMatrix, 
             θMs::AbstractMatrix, θP::AbstractVector, 
             i_sites::AbstractVector{<:Int}, 
-            ϕg, ϕq::AbstractVector)
+            ϕq::AbstractVector)
 Add additional loss terms during the HVI fit.
 
 The basic cost in HVI is the negative log of the joint probability, i.e.
@@ -63,7 +63,6 @@ Arguments
 - θMs_tr::AbstractMatrix: site parameters (with sites in rows and parameters in columns)
 - θP::AbstractVector: global parameters
 - i_sites: indices of sites in the minibatch, useful for using precoputed quantities
-- ϕg: ML-model parameters, 
 - ϕq::AbstractVector, additional parameters of the posterior
 
 Returns a NamedTuple
