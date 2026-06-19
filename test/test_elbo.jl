@@ -46,10 +46,10 @@ scenario = Val((:clustered_sites,:ranef))
 #scenario = Val((:scalingall,))  # Also in clustered_sites One site uncertainty-scaling factor predicted by ML
 
 _pt = get_hybridproblem_par_templates(prob; scenario)
-FT = eltype(_pt.θM)
+_FT = eltype(_pt.θM)
 #approx = MeanHVIApproximationMat()
 #approx = MeanVarSepHVIApproximation()
-#approx = MeanScalingHVIApproximation([length(pt.θM)], FT(2) .* log.([FT(0.1) * pt.θM[end]]))
+#approx = MeanScalingHVIApproximation([length(pt.θM)], _FT(2) .* log.([_FT(0.1) * pt.θM[end]]))
 
 test_scenario = (scenario) -> begin
     scen = CP._val_value(scenario)
@@ -167,9 +167,10 @@ test_scenario = (scenario) -> begin
 
     @testset "predict_hvi" begin
         n_sample_pred = 200 # 10_000 #2_400
+        # not type stable, because of probc - check type stabiliy inside
         ans_predict = predict_hvi(rng, probc; 
             scenario, n_sample_pred,
-            #is_inferred = Val(true),
+            is_inferred = Val(true),
             );
         (; y, θsP, θsMs_tr, entropy_ζ, logjacs_P, logjacs_Ms) = ans_predict
         n_site_pred = size(θsMs_tr,1)
@@ -482,6 +483,8 @@ test_scenario = (scenario) -> begin
         # @test trans_PMs_gen.length_in == 402
         n_sample_pred = 30
         n_sample_ranef = 5
+        n_site_pred = size(xM,2) 
+        frac_cluster = ones(eltype(ϕ_ini), n_site_pred)
         (; θsP, θsMs_tr, entropy_ζ) =
             @inferred (
                 #Cthulhu.@descend_code_warntype (
@@ -493,7 +496,7 @@ test_scenario = (scenario) -> begin
                 cdev = identity,
                 n_sample_pred, n_sample_ranef, cor_ends, pbm_covar_indices,
                 is_testmode = true,
-                probc.approx, ranef,
+                probc.approx, ranef, frac_cluster,
                 )
             )
         @test θsP isa AbstractMatrix
@@ -512,6 +515,8 @@ test_scenario = (scenario) -> begin
             ϕ_ini_g = ggdev(CA.getdata(ϕ_ini))
             xMg = ggdev(xM)
             n_sample_pred = 30
+            n_site_pred = size(xM,2) 
+            frac_cluster = ones(eltype(ϕ_ini), n_site_pred)
             (; θsP, θsMs_tr, entropy_ζ) =
             #Cthulhu.@descend_code_warntype (
                 @inferred (
@@ -522,7 +527,7 @@ test_scenario = (scenario) -> begin
                     cdev = identity, # do not transfer to CPU
                     n_sample_pred, cor_ends, pbm_covar_indices,
                     is_testmode = true,
-                    probc.approx, ranef,
+                    probc.approx, ranef, frac_cluster,
                     )
                 )
             # this variant without the problem, does not attach axes

@@ -337,6 +337,9 @@ Prediction function for hybrid variational inference parameter model.
   Possibility to override the default from `get_hybridproblem_train_dataloader`.
 - `xP`: model drivers for process based model (PBM): Matrix with (n_site_pred) rows.
   Possibility to override the default from `get_hybridproblem_train_dataloader`.
+- `frac_cluster`: how many sites in a cluster does each site in xP represent?
+  Default one, does not regards clusters. If influences the value of returned `entropy_ζ`.
+  Hence, it should be adjuter, for recomputing elbo components of observed sites.
 
 Returns an NamedTuple `(; y, θsP, θsMs_tr, entropy_ζ)` with entries
 - `y`: Array `(n_obs, n_site, n_sample_pred)` of model predictions.
@@ -365,13 +368,14 @@ For a proper prediction for new sites, update `prob.ϕq` before appropriately.
 If xM and xP is unspecified, the problem's sites are used and `prob.ϕq` is consistent.
 If predicting for a subset of sites, specify keyword argument `i_sites` .
 """
-function predict_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()), 
+function predict_hvi(rng::AbstractRNG, prob::AbstractHybridProblem; scenario=Val(()), 
     gdevs = get_gdev_MP(scenario), 
     xM = nothing, xP = nothing,
     is_testmode = true,
     i_sites = Int[],
     n_sample_pred = 200,
     n_sample_ranef = n_sample_pred ÷ 10,
+    frac_cluster = ones(eltype(prob.ϕg), 0),
     kwargs...
     )
     if isnothing(xM) || isnothing(xP)
@@ -382,14 +386,19 @@ function predict_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()),
         xP = isnothing(xP) ? xP_dl[:,i_sites] : xP
         xM = isnothing(xM) ? xM_dl[:,i_sites] : xM
     end
+    n_site_pred = size(xM,2) 
+    if isempty(frac_cluster)
+        frac_cluster = ones(eltype(frac_cluster), n_site_pred)
+    end
 
     # sample_posterior required consistent prob.ϕq and xM
     (; θsP, θsMs_tr, entropy_ζ, ζsP, ζsMs_tr, logjacs_P, logjacs_Ms) = sample_posterior(
-        rng, prob, xM; scenario, gdevs, is_testmode, i_sites, n_sample_pred, n_sample_ranef,
+        rng, prob, xM; 
+        scenario, gdevs, is_testmode, i_sites, n_sample_pred, n_sample_ranef,
+        frac_cluster,
         kwargs...)
     #
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-    n_site_pred = size(θsMs_tr,1) # determined by size(xM)
     @assert size(xP, 2) == n_site_pred
     f_batch = get_hybridproblem_PBmodel(prob; scenario)
     f = n_site_pred == n_batch ? f_batch : create_nsite_applicator(f_batch, n_site_pred)
@@ -440,7 +449,7 @@ Optional keyword arguments
 - `n_sample_pred`: number of samples to draw, defaults to 200
 - `gdevs`: `NamedTuple(gdev_M, gdev_P)`: GPU devices for machine learning model 
   and parameter transformtation, default to [`get_gdev_MP`](@ref)`(scenario)`.
-- `is_inferred`: set to `Val(true)` to activate type stabilicy check for transformation
+- `is_inferred`: set to `Val(true)` to activate type stability check for transformation
 
 Returns an NamedTuple `(; θsP, θsMs_tr, entropy_ζ)` with entries
 - `θsP`: ComponentArray `(n_θP, n_sample_pred)` of PBM model parameters
@@ -450,9 +459,11 @@ Returns an NamedTuple `(; θsP, θsMs_tr, entropy_ζ)` with entries
 - `entropy_ζ`: The entropy of the log-determinant of the transformation of 
   the set of model parameters, which is involved in uncertainty quantification.
 """
-function sample_posterior(rng, prob::AbstractHybridProblem; i_sites=Int[], scenario=Val(()), 
+function sample_posterior(rng::AbstractRNG, prob::AbstractHybridProblem; 
+    i_sites=Int[], scenario=Val(()), 
     gdevs = get_gdev_MP(scenario),
-    kwargs...)
+    kwargs...
+    )
     dl = get_hybridproblem_train_dataloader(prob; scenario)
     dl_dev = gdev_hybridproblem_dataloader(dl; gdevs)
     xM_all = dl_dev.data[1]
@@ -466,7 +477,7 @@ function sample_posterior(rng, prob::AbstractHybridProblem; i_sites=Int[], scena
 end
 
 
-function sample_posterior(rng, prob::AbstractHybridProblem, xM::AbstractMatrix;
+function sample_posterior(rng::AbstractRNG, prob::AbstractHybridProblem, xM::AbstractMatrix;
     scenario=Val(()),
     n_sample_pred = 200,
     n_sample_ranef = n_sample_pred ÷ 10,
@@ -498,7 +509,7 @@ function sample_posterior(rng, prob::AbstractHybridProblem, xM::AbstractMatrix;
         int_ϕg_ϕq, int_ϕq, transP, transM, 
         n_sample_pred, n_sample_ranef,
         cdev=infer_cdev(gdevs), cor_ends, pbm_covar_indices, approx,
-        ranef,
+        ranef, 
         kwargs...)
     # attach ComponentArray structure
     intP = ComponentArrayInterpreter(par_templates.θP, (n_sample_pred,))
@@ -510,7 +521,7 @@ function sample_posterior(rng, prob::AbstractHybridProblem, xM::AbstractMatrix;
     (; θsP=θsPc, θsMs_tr=θsMsc_tr, entropy_ζ, ζsP=ζsPc, ζsMs_tr=ζsMsc_tr, logjacs_P, logjacs_Ms)
 end
 
-function sample_posterior(rng, g, ϕ::AbstractVector, xM::AbstractMatrix;
+function sample_posterior(rng::AbstractRNG, g, ϕ::AbstractVector, xM::AbstractMatrix;
     int_ϕg_ϕq::AbstractComponentArrayInterpreter,
     int_ϕq::AbstractComponentArrayInterpreter,
     transP, transM,
@@ -524,15 +535,29 @@ function sample_posterior(rng, g, ϕ::AbstractVector, xM::AbstractMatrix;
     approx::AbstractHVIApproximation,
     i_sites,
     ranef::AbstractRandomEffectsComputer,
+    frac_cluster::AbstractVector,
 ) where is_infer
-    ζsP_gpu, ζsMs_tr_gpu, σ = generate_ζ(approx, rng, g, CA.getdata(ϕ), CA.getdata(xM);
+    ζsP_gpu, ζsMs_tr_gpu, σ = is_infer ? 
+    Test.@inferred(generate_ζ(approx, rng, g, CA.getdata(ϕ), CA.getdata(xM);
         int_ϕg_ϕq, int_ϕq,
         n_MC=n_sample_pred, n_sample_ranef,
-        cor_ends, pbm_covar_indices, is_testmode, i_sites, ranef)
+        cor_ends, pbm_covar_indices, is_testmode, i_sites, ranef,
+        )) :
+    generate_ζ(approx, rng, g, CA.getdata(ϕ), CA.getdata(xM);
+        int_ϕg_ϕq, int_ϕq,
+        n_MC=n_sample_pred, n_sample_ranef,
+        cor_ends, pbm_covar_indices, is_testmode, i_sites, ranef,
+        ) 
     ζsP = cdev(ζsP_gpu)
     ζsMs_tr = cdev(ζsMs_tr_gpu)
-    logdetΣ = 2 * sum(log.(σ))
-    entropy_ζ = entropy_MvNormal(length(σ), logdetΣ)
+    # logdetΣ = 2 * sum(log.(σ))
+    # entropy_ζ = entropy_MvNormal(length(σ), logdetΣ)
+    n_θP = size(ζsP,1)
+    n_θM = size(ζsMs_tr, 2)
+    n_site = size(ζsMs_tr, 1)
+    entropy_ζ = is_infer ? 
+        Test.@inferred(compute_entropyζ_from_σ(σ; frac_cluster, n_θP, n_θM, n_site)) :
+        compute_entropyζ_from_σ(σ; frac_cluster, n_θP, n_θM, n_site)
     trans_mP = StackedArray(transP, size(ζsP, 2))
     trans_mMs = StackedArray(transM, size(ζsMs_tr, 1) * size(ζsMs_tr, 3))
     θsP, θsMs_tr, logjacs_P, logjacs_Ms = is_infer ? 
