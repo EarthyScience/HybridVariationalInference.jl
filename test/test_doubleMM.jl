@@ -193,7 +193,7 @@ end
             θc = intθ(θ)
             y = CP.DoubleMM.f_doubleMM_sites(θc, xPM)[1]
             #y = CP.DoubleMM.f_doubleMM(θ, xPM, θpos)
-            res = fneglogden(y_o, y, y_unc)
+            res = sum(fneglogden(y_o, y, y_unc)) # sum across sites
             res
         end
     end

@@ -187,10 +187,10 @@ test_scenario = (scenario) -> begin
         #
         # n_site_pred = size(xM,2)
         # train_data = NamedTuple{(:xM, :xP, :y, :y_unc, :i_site)}(probc.train_dataloader.data)        
-        res = CP.predict_hvi_and_compute_elbo_components(rng, probc; 
+        (;res_predict, res_elbo) = predict_hvi_and_compute_elbo_components(rng, probc; 
                     scenario, n_sample_pred,
                     )
-        @test res.nLjoint isa Float32
+        @test res_elbo.nLjoint isa AbstractVector{Float32}
     end;
 
     if !(:covarK2 ∈ CP._val_value(scenario)) && (probc.approx isa MeanHVIApproximation)

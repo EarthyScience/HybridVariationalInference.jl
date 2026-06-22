@@ -34,7 +34,8 @@ function neg_elbo_gtf(args...; kwargs...)
         #nLmean_θ
         ) = neg_elbo_gtf_components(args...; kwargs...)
     # negative of log_joint - need to subtract entropy_ζ
-    nL = nLjoint - entropy_ζ + loss_penalty + nLRanef #+ nLmean_θ
+    nL_sites = nLjoint .- entropy_ζ .+ loss_penalty .+ nLRanef #+ nLmean_θ
+    nL = sum(nL_sites)
     # if !isfinite(nL) 
     #     @show nL
     #     @show nLjoint, entropy_ζ, loss_penalty, nLy, 
@@ -129,17 +130,18 @@ function neg_elbo_ζtf(ζsP::AbstractArray{T}, ζsMs_tr, σ, f, py, xP, y_ob, y_
 ) where T
     n_MC = size(ζsP,2)
     #@show ζsMs_tr[1,4,:] # fourth component goes to NaN at some time
+    n_site = size(ζsMs_tr,1)
     frac_cluster = frac_cluster_all[i_sites]
     _entropy_ζ = compute_entropyζ_from_σ(σ; 
         frac_cluster,
         n_θP = size(ζsP,1),
         n_θM = size(ζsMs_tr,2), 
-        n_site = size(ζsMs_tr,1),
+        n_site,
     )   
     if !all(isfinite.(ζsMs_tr))
         # TODO return a result from calling X
         return (;
-            nLjoint=T(1e9), entropy_ζ=zero(T), loss_penalty=zero(T), nLy=zero(T),
+            nLjoint=fill(T(1e9),n_site), entropy_ζ=zero(T), loss_penalty=zero(T), nLy=zero(T),
             neg_log_prior=T(1e9), neg_log_jac=zero(T))
     end
     f_sample = (ζP, ζMs_tr) -> begin
@@ -158,13 +160,14 @@ function neg_elbo_ζtf(ζsP::AbstractArray{T}, ζsMs_tr, σ, f, py, xP, y_ob, y_
             # using ShareAdd
             # @usingany Cthulhu
             # @descend_code_warntype f(θP, θMs, xP)
+            # sum across sites
             f_sample_pre(logjac_P, logjac_Ms, θP, θMs_tr, y_pred_i, addq_pred_i; 
                 py, y_ob, y_unc,
                 penalty_computer, i_sites, ϕqc,
                 intθMs, intθP,
                 priorsP, priorsM, is_omit_priors, zero_prior_logdensity,
                 frac_cluster,
-                ) 
+                )
             # nLy_i = py(y_ob, y_pred_i, y_unc)
             # # MAYBE avoid convert by making sure penalty_computer returns proper type
             # # Test.@inferred compute_penalty(penalty_computer, y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), i_sites, ϕq)[1]
@@ -196,12 +199,15 @@ function neg_elbo_ζtf(ζsP::AbstractArray{T}, ζsMs_tr, σ, f, py, xP, y_ob, y_
     #Test.@inferred map(f_sample, eachcol(ζsP), eachslice(ζsMs_tr; dims=3))
     map_res = map(f_sample, eachcol(ζsP), eachslice(ζsMs_tr; dims=3))
     nLys, nLpriors_P, nLpriors_M, neglogjacs, loss_penalties = vectuptotupvec(map_res)
-    res0 = compute_elbo_components(nLys, nLpriors_P, nLpriors_M, neglogjacs, loss_penalties; 
+    ndims(nLpriors_P .+ nLpriors_M .+ neglogjacs .+ loss_penalties) != 1 && error(
+        "adapt changed dimension of nLpriors_P, nLpriors_M, neglogjacs, loss_penalties")
+    nLysA = VectorOfArray(nLys)
+    res0_sites = average_elbo_components_across_samples(nLysA, nLpriors_P, nLpriors_M, neglogjacs, loss_penalties; 
         n_MC_cap, ranef, ϕqc, entropy_ζ = _entropy_ζ)
 end
 
 """
-compute the elbo components for a single sample,
+compute the elbo components for a single parameter sample,
 """    
 function f_sample_pre(logjac_P, logjac_Ms, θP, θMs_tr, y_pred_i, addq_pred_i; 
     py, y_ob, y_unc,
@@ -210,7 +216,8 @@ function f_sample_pre(logjac_P, logjac_Ms, θP, θMs_tr, y_pred_i, addq_pred_i;
     priorsP, priorsM, is_omit_priors, zero_prior_logdensity,
     frac_cluster,
     ) 
-    nLy_i = py(y_ob, y_pred_i, y_unc)
+    nLy_i = py(y_ob, y_pred_i, y_unc) # n_site
+    # TODO return by site
     loss_penalty_i = compute_penalty(penalty_computer,
         y_pred_i, addq_pred_i, intθMs(θMs_tr), intθP(θP), i_sites, ϕqc)[1]
     nLprior_P_i, nLprior_M_is = compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr,
@@ -221,6 +228,92 @@ function f_sample_pre(logjac_P, logjac_Ms, θP, θMs_tr, y_pred_i, addq_pred_i;
     (nLy_i, nLprior_P_i, nLprior_M_if, neg_log_jac_if, loss_penalty_if)
 end
 
+
+function average_elbo_components_across_samples(nLys, nLpriors_P, nLpriors_M, neglogjacs, loss_penalties; 
+    n_MC_cap, 
+    ranef::AbstractRandomEffectsComputer, ϕqc::CA.ComponentVector,
+    entropy_ζ
+    )
+    n_MC, n_site = size(nLys)
+    # For robustness may compute the expectation only on the n_smallest values
+    # because its very sensitive to few large outliers
+    #nLys_smallest = nsmallest(n_MC_cap, nLys) # does not work with Zygote
+    if n_MC_cap == n_MC
+                @warn "neg_elbo_ζtf: TPDP n_MC_cap: implement for for logjac, loss_penalty, and neg_log_prior not capped"
+        #nLys_smallest = partialsort(nLys, 1:n_MC_cap)
+    end
+    nLy = sum_voa(nLys; dim_ret=2) ./ n_MC
+    # distribute cross-site cost equally across sites
+    nLprior_P = nLpriors_P / n_site / n_MC
+    nLprior_M = nLpriors_M / n_site / n_MC
+    neg_log_jac = neglogjacs / n_site / n_MC
+    loss_penalty = loss_penalties / n_site / n_MC
+    #n_θM, n_site = size(ζsMs_tr)[1:2]
+    # why without underscore boxed and type instability?
+    # if i_sites[1] == 1
+    #     #Main.@infiltrate_main
+    #     @show nLy, entropy_ζ, nLmean_θ, n_MC, n_MC_cap, i_sites[1:3]
+    #     @show std(nLys), std(nLys)/abs(nLy)
+    #     @show std(nLys_smallest), std(nLys_smallest)/abs(nLy)
+    # end
+    nLjoint = vec(nLy .+ nLprior_P .+ nLprior_M .+ neg_log_jac)
+    nLRanef = compute_nLranef(ranef, ϕqc[Val(:ranef)])
+    (;nLjoint, entropy_ζ, loss_penalty, 
+        nLy, nLprior_P, nLprior_M, neg_log_jac, nLRanef)
+end
+
+"""
+sum x across subarray for each entry in dim_ret. This is opposite of the
+dims argument in sum.
+"""
+function sum_voa(x::Union{AbstractArray{T},AbstractVectorOfArray{T}}; 
+    dim_ret::Integer
+    ) where T
+    # sum_voa(x; dims=1)  is mutating for VectorOfArray -> implement by indexing
+    # i = first(axes(x, dim_ret))
+    map(axes(x, dim_ret)) do i
+        sum(fix_dim(x, dim_ret, i))::T
+    end
+end
+
+function fix_dim(A::Union{AbstractArray, AbstractVectorOfArray}, dim::Int, i::Int)
+    indices = ntuple(d -> d == dim ? i : Colon(), ndims(A))
+    return @view A[indices...]
+end
+
+function compute_summed_elbo_components(nLys, nLpriors_P, nLpriors_M, neglogjacs, loss_penalties; 
+    n_MC_cap, 
+    ranef::AbstractRandomEffectsComputer, ϕqc::CA.ComponentVector,
+    entropy_ζ
+    )
+    n_MC = length(nLys)
+    # For robustness may compute the expectation only on the n_smallest values
+    # because its very sensitive to few large outliers
+    #nLys_smallest = nsmallest(n_MC_cap, nLys) # does not work with Zygote
+    if n_MC_cap == n_MC
+        nLy = sum(nLys) / n_MC
+        nLprior_P = sum(nLpriors_P) / n_MC
+        nLprior_M = sum(nLpriors_M) / n_MC
+        neg_log_jac = sum(neglogjacs) / n_MC
+        loss_penalty = sum(loss_penalties) / n_MC
+    else
+        @warn "neg_elbo_ζtf: TPDP n_MC_cap: implement for for logjac, loss_penalty, and neg_log_prior not capped"
+        nLys_smallest = partialsort(nLys, 1:n_MC_cap)
+        nLy = sum(nLys_smallest) / n_MC_cap
+    end
+    #n_θM, n_site = size(ζsMs_tr)[1:2]
+    # why without underscore boxed and type instability?
+    # if i_sites[1] == 1
+    #     #Main.@infiltrate_main
+    #     @show nLy, entropy_ζ, nLmean_θ, n_MC, n_MC_cap, i_sites[1:3]
+    #     @show std(nLys), std(nLys)/abs(nLy)
+    #     @show std(nLys_smallest), std(nLys_smallest)/abs(nLy)
+    # end
+    nLjoint = nLy + nLprior_P + nLprior_M + neg_log_jac
+    nLRanef = compute_nLranef(ranef, ϕqc[Val(:ranef)])
+    (;nLjoint, entropy_ζ, loss_penalty, 
+        nLy, nLprior_P, nLprior_M, neg_log_jac, nLRanef)
+end
 
 function compute_elbo_components(nLys, nLpriors_P, nLpriors_M, neglogjacs, loss_penalties; 
     n_MC_cap, 
@@ -255,6 +348,7 @@ function compute_elbo_components(nLys, nLpriors_P, nLpriors_M, neglogjacs, loss_
     (;nLjoint, entropy_ζ, loss_penalty, 
         nLy, nLprior_P, nLprior_M, neg_log_jac, nLRanef)
 end
+
 
 
 """
@@ -473,13 +567,13 @@ rng::AbstractRNG, prob::AbstractHybridProblem; scenario=Val(()),
     xM = xM_dl[:,ii_sites]
     y_ob = dl_dev.data[3][:,ii_sites]
     y_unc = dl_dev.data[4][:,ii_sites]   
-    a = predict_hvi(rng, prob; 
+    res_predict = a = predict_hvi(rng, prob; 
             scenario, gdevs, xP, xM, is_testmode, i_sites, 
             n_sample_pred, n_sample_ranef, frac_cluster,
             );
     ranef = get_ranef_computer(
         ranef_spec, keys(pt.θM), n_site, one(eltype(pt.θM)))
-    res = compute_elbo_components(
+    res_elbo = compute_elbo_components_sites(
         a.entropy_ζ, a.logjacs_P, a.logjacs_Ms, a.θsP, a.θsMs_tr, a.y, a.addq,
         i_sites, y_ob, y_unc;
         py,
@@ -489,10 +583,11 @@ rng::AbstractRNG, prob::AbstractHybridProblem; scenario=Val(()),
         frac_cluster,
         is_omit_priors, priorsP, priorsM,
     )
+    (;res_predict, res_elbo)
 end
 
 
-function compute_elbo_components(
+function compute_elbo_components_sites(
     entropy_ζ,
     logjacs_P::AbstractVector{T}, logjacs_Ms::AbstractMatrix{T},
     θsP::AbstractMatrix{T}, θsMs_tr::AbstractArray{T,3}, 
@@ -505,7 +600,7 @@ function compute_elbo_components(
     frac_cluster,
     is_omit_priors::Val{omit_priors} = Val(false), 
     n_MC_cap=size(θsP,2),
-    intθP = ComponentArrayInterpreter(θsP[:,1]), 
+    intθP = ComponentArrayInterpreter(isempty(θsP) ? CA.ComponentVector{T}() : θsP[:,1]), 
     intθMs = ComponentArrayInterpreter(θsMs_tr[:,:,1]),
 ) where {T, omit_priors}
     n_MC = size(θsP,2)
@@ -531,9 +626,17 @@ function compute_elbo_components(
         eachcol(θsP), eachslice(θsMs_tr; dims=3),
         eachslice(y; dims=3), eachslice(addq; dims=3)
     )
-    nLys, nLpriors_P, nLpriors_M, neglogjacs, loss_penalties = vectuptotupvec(map_res)
-    res0 = compute_elbo_components(nLys, nLpriors_P, nLpriors_M, neglogjacs, loss_penalties; 
-        n_MC_cap, ranef, ϕqc, entropy_ζ)
+    nLys, nLprior_P, nLprior_M, neglogjac, loss_penalty = vectuptotupvec(map_res)
+    # mean for each site across samples (ignore n_mc_cat for now)
+    ndims(nLprior_P .+ nLprior_M .+ neglogjac .+ entropy_ζ .+ loss_penalty .+ neglogjac) != 1 && error(
+        "returning site-based nLprior_P .+ nLprior_M .+ neglogjac: adjust computing nLjoint")
+    nLjoint = map(axes(map_res,1)) do ii_site
+        mean(VectorOfArray(nLys)[ii_site,:] .+ nLprior_P .+ nLprior_M .+ neglogjac)
+    end
+    #nLjoint = nLys .+ nLprior_P .+ nLprior_M .+ neglogjac
+    nLRanef = compute_nLranef(ranef, ϕqc[Val(:ranef)])
+    (;nLjoint, entropy_ζ, loss_penalty, 
+        nLys, nLprior_P, nLprior_M, neglogjac, nLRanef)    
 end
 
 

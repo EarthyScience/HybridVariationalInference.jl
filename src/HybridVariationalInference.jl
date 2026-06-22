@@ -32,6 +32,7 @@ using IterTools: IterTools
 using PDMats
 using Distances, Clustering
 #using OptimizationOptimisers
+using RecursiveArrayTools: VectorOfArray, AbstractVectorOfArray
 
 export DoubleMM
 
@@ -130,6 +131,7 @@ export get_ca_starts, get_ca_ends, get_cor_count
 include("cholesky.jl")
 
 export neg_elbo_gtf, sample_posterior, predict_hvi, ZeroPenaltyComputer
+export predict_hvi_and_compute_elbo_components
 export get_hybridproblem_correlation_Ms, get_hybridproblem_cholesky_correlation_Ms
 export get_marginal_std
 include("elbo_dev.jl")

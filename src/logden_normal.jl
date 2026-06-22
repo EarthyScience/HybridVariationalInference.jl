@@ -5,7 +5,9 @@ Compute the negative Log-density of `obs` for multiple independent normal distri
 given estimated means `μ` and estimated log of variance parameters `logσ2s`.
 
 All the arguments should be vectors of the same length.
-If `obs`,  `μ` are given as a matrix of several column-vectors, their summed
+If `obs`,  `μ` are given as a matrix of several column-vectors, 
+the likelihood of each column is returned, assuming each column having the same `logσ2s`.
+depr: If `obs`,  `μ` are given as a matrix of several column-vectors, their summed
 Likelihood is computed, assuming each column having the same `logσ2s`.
 
 Keyword argument `σfac` can be increased to put more weight on achieving
@@ -35,10 +37,10 @@ function neg_logden_indep_normal(obs::AbstractArray, μ::AbstractArray, logσ2::
     obs_data = CA.getdata(obs)[i_finobs]
     μ_data = CA.getdata(μ)[i_finobs]
     logσ2_fin = logσ2[i_finobs]
-    nlogL = sum(  # observations might by NaN for missing
-        σfac .* logσ2_fin .+ abs2.(obs_data .- μ_data) .* exp.(.-logσ2_fin)) / convert(eltype(μ),2)
-    #Main.@infiltrate_main
-
+    # nlogL = sum(  # observations might by NaN for missing
+    #     σfac .* logσ2_fin .+ abs2.(obs_data .- μ_data) .* exp.(.-logσ2_fin)) / convert(eltype(μ),2)
+    nlogL = 
+        (σfac .* logσ2_fin .+ abs2.(obs_data .- μ_data) .* exp.(.-logσ2_fin)) ./ convert(eltype(μ),2)
     return (nlogL)
 end
 

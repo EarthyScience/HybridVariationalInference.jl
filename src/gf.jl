@@ -324,7 +324,12 @@ function get_loss_gf(g, transM, transP, f, py,
             loss_penalty = sum(loss_penalties)
             #@show nLy, neg_log_prior, loss_penalty
             nLRanef = compute_nLranef(ranef, ϕqc[Val(:ranef)])
-            nLjoint_pen = nLy + nLprior_P + nLprior_M + loss_penalty + nLRanef
+            ndims(nLprior_P .+ nLprior_M .+ loss_penalty) != 0 && error(
+                "adapt changed dimension of nLpriors_P, nLpriors_M, neglogjacs, loss_penalties")
+            # divide scalar cost equally across sites
+            n_site = length(nLy)
+            nLjoint_pen_sites = nLy .+ nLprior_P/n_site .+ nLprior_M/n_site .+ loss_penalty/n_site .+ nLRanef/n_site
+            nLjoint_pen = sum(nLjoint_pen_sites)
             return (;nLjoint_pen, y_pred, θMs_tr_pred, θP_pred, nLy, nLprior_P, 
                 nLprior_M, loss_penalty, nLRanef)
         end

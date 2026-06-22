@@ -443,9 +443,10 @@ function HVI.get_hybridproblem_ϕq(prob::DoubleMMCase; scenario::Val{scen}) wher
     n_site, _ = get_hybridproblem_n_site_and_batch(prob; scenario)
     (;transP, transM)  = get_hybridproblem_transforms(prob; scenario)
     (;ϕqc, approx) = init_hybrid_ϕunc(approx, cor_ends, zero(FT); θM, transM, n_site)    
+    pt = get_hybridproblem_par_templates(prob; scenario)
     ranef_spec = get_hybridproblem_ranef(prob; scenario)
-    ranef = get_ranef_computer(
-        ranef_spec, keys(pt.θM), n_site, one(eltype(ϕq0)))
+    #ranef = get_ranef_computer(ranef_spec, keys(pt.θM), n_site, one(eltype(ϕq0)))
+    ranef = get_ranef_computer(ranef_spec, keys(pt.θM), n_site, one(FT))
     ϕq_ranef = setup_ϕq_ranef(ranef)
     ϕqc = CA.ComponentVector(ϕqc, ranef = ϕq_ranef)
     # for DoubleMMCase templates gives the correct values
