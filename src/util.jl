@@ -350,3 +350,40 @@ function generate_repeated_integers(n_MC::Integer, n_sample_ranef::Integer)
 end
 
 
+"""
+    colsum_finite_obs(X::AbstractMatrix, obs::AbstractMatrix)
+
+Return the column sums of `X`, using `obs` as a finiteness mask.
+Equivalently, entries of `X` are treated as zero whenever the corresponding
+entry of `obs` is not finite.
+
+Important: this function does **not** check whether entries of `X` are finite.
+If `X[i, j]` is `NaN`, `Inf`, or `-Inf` and `obs[i, j]` is finite, then that
+value is included in the sum.
+
+`X` and `obs` must have the same axes. For ordinary Julia `Matrix` objects,
+this means they must have the same size.
+"""
+function colsum_finite_obs(X::AbstractMatrix, obs::AbstractMatrix)
+    # The implementation avoids constructing a cleaned copy of `X` and does not use
+    # explicit mutation.
+    axes(X) == axes(obs) ||
+        throw(DimensionMismatch("X and obs must have the same axes"))
+
+    [ 
+        sum(
+            isfinite(obs[i, j]) ? X[i, j] : zero(eltype(X))
+            for i in axes(X, 1);
+            init = zero(eltype(X))
+        )
+        for j in axes(X, 2)
+    ]
+end
+
+function colsum_finite_obs(X::AbstractVector, obs::AbstractVector)
+        sum(
+            isfinite(obs[i]) ? X[i] : zero(eltype(X))
+            for i in axes(X, 1);
+            init = zero(eltype(X))
+        )
+end

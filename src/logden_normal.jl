@@ -33,19 +33,27 @@ function neg_logden_indep_normal(obs::AbstractArray, μ::AbstractArray, logσ2::
     #     σfac .* logσ2 .+ abs2.(obs_data .- μ_data) .* exp.(.-logσ2)) / convert(eltype(μ),2)
     # return (nlogL)
     #
-    i_finobs = .! isnan.(obs)
-    obs_data = CA.getdata(obs)[i_finobs]
-    μ_data = CA.getdata(μ)[i_finobs]
-    logσ2_fin = logσ2[i_finobs]
-    # nlogL = sum(  # observations might by NaN for missing
-    #     σfac .* logσ2_fin .+ abs2.(obs_data .- μ_data) .* exp.(.-logσ2_fin)) / convert(eltype(μ),2)
+    # i_finobs = .! isnan.(obs)
+    # obs_data = CA.getdata(obs)[i_finobs]
+    # μ_data = CA.getdata(μ)[i_finobs]
+    # logσ2_fin = logσ2[i_finobs]
+    # # nlogL = sum(  # observations might by NaN for missing
+    # #     σfac .* logσ2_fin .+ abs2.(obs_data .- μ_data) .* exp.(.-logσ2_fin)) / convert(eltype(μ),2)
+    # nlogL = 
+    #     (σfac .* logσ2_fin .+ abs2.(obs_data .- μ_data) .* exp.(.-logσ2_fin)) ./ eltype(μ)(2)
     nlogL = 
-        (σfac .* logσ2_fin .+ abs2.(obs_data .- μ_data) .* exp.(.-logσ2_fin)) ./ convert(eltype(μ),2)
-    return (nlogL)
+        (σfac .* logσ2 .+ abs2.(obs .- μ) .* exp.(.-logσ2)) ./ eltype(μ)(2)
+    nlogL_sites = colsum_finite_obs(nlogL, obs)
+    if !all(isfinite.(nlogL_sites))
+        @show nlogL_sites, μ
+        error("encountered non-finite loglikelihood in neg_logden_indep_normal")
+    end
+    return (nlogL_sites)
 end
 
 function neg_logden_indep_normal(obs::AbstractGPUArray, μ::AbstractGPUArray, logσ2::AbstractGPUArray{ET}; 
     σfac=one(ET)) where ET
+    error("update neg_logden_indep_normal for GPU to each solsum rather than total sum")
     #cannot use NaNMath.sum on gpu, allocate vectors  of non-NAN
     i_finobs = .! isnan.(obs)
     obs_data = CA.getdata(obs)[i_finobs]

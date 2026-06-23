@@ -27,7 +27,7 @@ using LinearAlgebra
     @test isapprox(tmp .- tmp[1], -dlogpdf)
 
     # next test that the sum of neg_logden_norm_l2 corresponds to tested
-    @test neg_logden_indep_normal(y, μ, logσ2) ≈ tmp
+    @test neg_logden_indep_normal(y, μ, logσ2) ≈ sum(tmp)
 end;
 
 @testset "entropy_MvNormal" begin

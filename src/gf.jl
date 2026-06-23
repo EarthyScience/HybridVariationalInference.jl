@@ -272,7 +272,9 @@ function get_loss_gf(g, transM, transP, f, py,
         #, intP = get_concrete(intP)
         #inv_transP = inverse(transP), kwargs = kwargs
 
-        function loss_gf(ϕ::AbstractVector{T}, xM, xP, y_o, y_unc, i_sites; is_testmode) where T
+        function loss_gf(ϕ::AbstractVector{T}, xM, xP, y_o, y_unc, i_sites; 
+            is_testmode, ignore_ranef::Val{ignore_ranef_val} = Val(false),
+            ) where {T, ignore_ranef_val}
             ϕc = intϕ(ϕ)
             ϕqc = ϕc[Val(:ϕq)]  # looses structure
             ϕq_ranef = ϕqc[Val(:ranef)]
@@ -292,16 +294,19 @@ function get_loss_gf(g, transM, transP, f, py,
                 @show ϕqc.ϕP
                 #Main.@infiltrate_main
             end
+            n_site = size(xM,2)
+            ranef1 = ignore_ranef_val ? NullRandomEffectsComputer{T}(n_θM, n_site) : ranef
             y_pred, addq_pred, θMs_tr_pred, θP_pred = gf(
                 g, transMs, transP, f, xM, xP, CA.getdata(ϕc[Val(:ϕg)]), n_θM,
                 ϕqc[Val(:μP)], 
                 pbm_covar_indices; cdev, is_testmode, 
-                ranef, ϕq_ranef, i_sites,
+                ranef = ranef1, ϕq_ranef, i_sites,
                 kwargs...)
             frac_cluster = frac_cluster_all[i_sites]
             #σ = exp.(y_unc ./ 2)
             #nLy = sum(abs2, (y_pred .- y_o) ./ σ) 
-            nLy = py(y_o, y_pred, y_unc)
+            #nLy = sum(py(y_o, y_pred, y_unc))
+            nLy = sum(py(y_o, y_pred, y_unc))
             # logpdf is not typestable for Distribution{Univariate, Continuous}
             # logpdf_t = (prior, θ) -> logpdf(prior, θ)::eltype(θP_pred)
             # logpdf_tv = (prior, θ::AbstractVector) -> begin
@@ -323,13 +328,17 @@ function get_loss_gf(g, transM, transP, f, py,
             #loss_penalty = sum(loss_penalties .* frac_cluster)
             loss_penalty = sum(loss_penalties)
             #@show nLy, neg_log_prior, loss_penalty
-            nLRanef = compute_nLranef(ranef, ϕqc[Val(:ranef)])
-            ndims(nLprior_P .+ nLprior_M .+ loss_penalty) != 0 && error(
+            nLRanef = compute_nLranef(ranef1, ϕqc[Val(:ranef)])
+            ndims(nLprior_P) != 0 && error(
                 "adapt changed dimension of nLpriors_P, nLpriors_M, neglogjacs, loss_penalties")
             # divide scalar cost equally across sites
-            n_site = length(nLy)
-            nLjoint_pen_sites = nLy .+ nLprior_P/n_site .+ nLprior_M/n_site .+ loss_penalty/n_site .+ nLRanef/n_site
-            nLjoint_pen = sum(nLjoint_pen_sites)
+            # n_site = length(nLy)
+            nLjoint_pen = nLy + nLprior_M + nLprior_P + loss_penalty + nLRanef
+            if !isfinite(nLjoint_pen)
+                @show (;nLjoint_pen, nLy, nLprior_M, nLprior_P, loss_penalty, nLRanef)
+                error("encountered non-finite nLjoint_pen in loss_gf")
+            end
+
             return (;nLjoint_pen, y_pred, θMs_tr_pred, θP_pred, nLy, nLprior_P, 
                 nLprior_M, loss_penalty, nLRanef)
         end

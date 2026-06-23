@@ -131,7 +131,7 @@ end
 
 """
 Provide an initial estimate of the correct structure for the parameters to 
-estimae for given random effects computer.
+estimate for given random effects computer.
 """
 function setup_ϕq_ranef(re::RandomEffectsComputer{N,T}) where {N,T}
     coef_Ucorr = uutri2vec(cholesky(I(N).*one(T)).U)
@@ -139,7 +139,7 @@ function setup_ϕq_ranef(re::RandomEffectsComputer{N,T}) where {N,T}
     CA.ComponentVector(
         β = zeros(T, re.n_site, N),
         coef_U = coef_Ucorr,
-        σ = fill(T(0.1), N)
+        σ = fill(T(0.01), N)
     )
 end
 

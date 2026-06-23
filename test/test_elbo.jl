@@ -190,7 +190,18 @@ test_scenario = (scenario) -> begin
         (;res_predict, res_elbo) = predict_hvi_and_compute_elbo_components(rng, probc; 
                     scenario, n_sample_pred,
                     )
-        @test res_elbo.nLjoint isa AbstractVector{Float32}
+        @test res_elbo.nLjoint isa Float32
+        @test res_elbo.entropy_ζ isa Float32
+        @test res_elbo.nLprior_P isa Float32
+        @test res_elbo.loss_penalty isa Float32
+        @test res_elbo.nLRanef isa Float32
+        @test res_elbo.neglogjac_P isa Float32
+        @test res_elbo.nLy isa AbstractVector{Float32}
+        @test res_elbo.nLprior_Ms isa AbstractVector{Float32}
+        @test res_elbo.loss_penalty_sites isa AbstractVector{Float32}
+        @test res_elbo.neglogjac_Ms isa AbstractVector{Float32}
+        @test res_elbo.nLsites isa AbstractVector{Float32}
+        @test length(res_elbo.nLsites) == n_site_pred
     end;
 
     if !(:covarK2 ∈ CP._val_value(scenario)) && (probc.approx isa MeanHVIApproximation)

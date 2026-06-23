@@ -21,6 +21,8 @@ using CUDA: CUDA
 using Flux
 using GPUArraysCore
 
+using Suppressor
+
 gdev = gpu_device()
 cdev = cpu_device()
 
@@ -283,8 +285,9 @@ end
     priorsM = Tuple(priors[k] for k in keys(par_templates.θM))
 
     par_ranef = (:r1, :K1)
-    ranef_spec = RandomEffects(par_ranef)
-    #ranef = NullRandomEffectsComputer{eltype(pt.θM)}(n_site)
+    ranef_spec = get_hybridproblem_ranef(prob; scenario)
+    #ranef_spec = RandomEffects(par_ranef)
+    #ranef_spec = NullRandomEffects()
     ranef = get_ranef_computer(ranef_spec, keys(pt.θM), n_site, one(eltype(pt.θM)))
     ϕq_ranef = setup_ϕq_ranef(ranef)
     intϕ = ComponentArrayInterpreter(CA.ComponentVector(
@@ -316,42 +319,82 @@ end
     #loss_gf = get_loss_gf(g, transM, f,  intϕ; gdev = identity)
     loss_gf = get_loss_gf(g, transM, transP, f,  py, intϕ;
         pbm_covars, n_site_batch = n_batch, priorsP, priorsM, par_templates,
-        ranef, frac_cluster_all)
+        ranef, frac_cluster_all,
+        is_omit_priors = Val(true),
+        )
     f2 = create_nsite_applicator(f, n_site_train)
     loss_gf_site = get_loss_gf(g, transM, transP, f2, py, intϕ;
         pbm_covars, n_site_batch = n_site_train, priorsP, priorsM, par_templates,
-        ranef, frac_cluster_all)
-    nLjoint = @inferred first(loss_gf(p0, first(train_loader)...; is_testmode=true))
+        ranef, frac_cluster_all, is_omit_priors = Val(true))
+    nLcomponents = @inferred loss_gf(p0, first(train_loader)...; is_testmode=true)
+    nLjoint = @inferred first(nLcomponents)
     # p01 = copy(p0); p01[end] = 5.0 
-    p01 = copy(p0); p01[intϕ(1:length(p01)).ϕq.ranef.β[1:5]] .= 2.0 # one of the beta
+    p01 = copy(p0); 
+    if ranef_spec isa RandomEffects 
+        p01[intϕ(1:length(p01)).ϕq.ranef.β[1:5]] .= 2.0 # one of the beta
+    end
     nLjoint2 = @inferred first(loss_gf(p01, first(train_loader)...; is_testmode=true))
-    @test nLjoint < nLjoint2
+    @test nLjoint2 >= nLjoint
+    nLcomponents3 = loss_gf(p01, first(train_loader)...; is_testmode=true, ignore_ranef=Val(true))
+    nLjoint3 = @inferred first(nLcomponents3)
+    @test nLjoint3 ≈ nLjoint - nLcomponents.nLRanef
     (xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch) = first(train_loader)
     # @usingany Cthulhu
     # @descend_code_warntype loss_gf(p0, xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch)
     tmp = Zygote.gradient(
         p0 -> first(loss_gf(
             p0, xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch; is_testmode=false)), CA.getdata(p0))
-    # tmp = Zygote.gradient(
-    #     p0 -> first(loss_gf(
-    #         p0, xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch; is_testmode=false)), CA.getdata(p01))
+    #intϕ(tmp[1]).ϕq.ranef.β[i_sites_batch,:]
+    tmp = Zygote.gradient(
+        p0 -> first(loss_gf(
+            p0, xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch; is_testmode=false)), CA.getdata(p01))
+    # test that gradient of all random effects is zero with argument ignore_ranef=Val(true)
+    tmp3 = Zygote.gradient(
+        p0 -> first(loss_gf(
+            p0, xM_batch, xP_batch, y_o_batch, y_unc_batch, i_sites_batch; 
+            is_testmode=false,ignore_ranef=Val(true))), CA.getdata(p0))
+    @test all(intϕ(tmp3[1]).ϕq.ranef .== zero(eltype(p0)))
     intϕ(first(tmp)).ϕq
+    p0_norand = if !(ranef_spec isa NullRandomEffects)
+        # first optimized without random effects, to start from good parameter set
+        optf0 = Optimization.OptimizationFunction((ϕ, data) -> first(loss_gf(
+            ϕ, data...; is_testmode=false, ignore_ranef = Val(true))),
+            Optimization.AutoZygote())
+            #Optimization.AutoFiniteDiff())
+        optprob0 = OptimizationProblem(optf0, CA.getdata(p0), train_loader)
+        res0 = Optimization.solve(
+            #optprob, Adam(0.02), callback = callback_loss(100), maxiters = 5000);
+            optprob0, Adam(0.02),
+            epochs = 30,
+            )
+        intϕ(res0.u).ϕq.ranef
+        intϕ(p00).ϕq.ranef
+        res0.u
+    else
+        p0    
+    end
+
     optf = Optimization.OptimizationFunction((ϕ, data) -> first(loss_gf(ϕ, data...; is_testmode=false)),
         Optimization.AutoZygote())
         #Optimization.AutoFiniteDiff())
-    optprob = OptimizationProblem(optf, CA.getdata(p0), train_loader)
-    #optprob = OptimizationProblem(optf, CA.getdata(p01), train_loader)
+    optprob = OptimizationProblem(optf, CA.getdata(p0_norand), train_loader)
 
-    res = Optimization.solve(
-        #optprob, Adam(0.02), callback = callback_loss(100), maxiters = 5000);
-        optprob, Adam(0.02), epochs = 40)
-
+    res = @suppress begin
+        Optimization.solve(optprob, Adam(0.02),
+        #Optim.Options(checkfinite = false),
+        callback = callback_loss(100), 
+        #epochs = 40,
+        epochs = 90,
+        )
+    end
     (;nLjoint_pen, y_pred, θMs_tr_pred, θP_pred, nLy, nLprior_P, nLprior_M, loss_penalty) = loss_gf_site(
         res.u, train_loader.data...; is_testmode=true)
     #(nLjoint,  y_pred, θMs_tr_pred, θP, nLy, nLprior_P, nLprior_M, loss_penalty) = loss_gf(p0, xM, xP, y_o, y_unc);
     ϕq_opt = intϕ(res.u).ϕq
     ϕq_opt.ranef
     intϕ(p0).ϕq.ranef
+    #ϕq_opt.ranef.β[i_sites_train,:]
+
     θMs_tr_pred = CA.ComponentArray(θMs_tr_pred, CA.getaxes(θMs_true'))
     #TODO @test isapprox(par_templates.θP, intϕ(res.u).μP, rtol = 0.15)
     #@test cor(vec(θMs_true), vec(θMs_tr_pred)) > 0.8
@@ -371,12 +414,25 @@ end
         #pdf(priorsM[1], transP(intϕ(p0).μP)[1])
 
         quantile.(priorsM[2], [0.05, 0.5, 0.95])
-        loss_gf(p0, xM, xP, y_o, y_unc, i_sites)
+        train_data = NamedTuple{(:xM, :xP, :y, :y_unc, :i_site)}(train_loader.data)        
+        l0 = loss_gf_site(p0, train_data...; is_testmode=true)
+        lopt = loss_gf_site(res.u, train_data...; is_testmode=true)
+        _yt = f2(θP_true, θMs_true[:,i_sites_train]', train_data.xP)[1]
+        _yt == y_true[:,i_sites_train]
+        yp = f2(lopt.θP_pred, lopt.θMs_tr_pred, train_data.xP)[1]
+        yp == lopt.y_pred
+        scatterplot(vec(y_true[:,i_sites_train]), vec(train_data.y))
+        scatterplot(vec(lopt.y_pred), vec(train_data.y))
+        sum(py(train_data.y, lopt.y_pred, train_data.y_unc))
+        sum(py(train_data.y, y_true[:,i_sites_train], train_data.y_unc))
+        # better loglik with true ϕP2? no, wrong θMs cause wrong better θP
+        θP_test = [lopt.θP_pred[1], θP_true[2]] 
+        ymod = f2(θP_test, lopt.θMs_tr_pred, train_data.xP)[1]
+        sum(py(train_data.y, ymod, train_data.y_unc))
         #
-        scatterplot(θMs_true'[:,1], θMs_tr_pred[:,1])
-        scatterplot(θMs_true'[:,2], θMs_tr_pred[:,2])
-        scatterplot(log.(vec(θMs_true')), log.(vec(θMs_tr_pred)))
-        scatterplot(vec(y_pred), vec(y_o))
+        scatterplot(θMs_true'[i_sites_train,1], θMs_tr_pred[:,1])
+        scatterplot(θMs_true'[i_sites_train,2], θMs_tr_pred[:,2])
+        scatterplot(vec(y_o[:,i_sites_train]), vec(y_pred))
         hcat(par_templates.θP, intϕ(p0).μP, intϕ(res.u).μP, transP(intϕ(p0).μP), θP_pred)
     end
 end
