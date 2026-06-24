@@ -379,14 +379,14 @@ end
         #Optimization.AutoFiniteDiff())
     optprob = OptimizationProblem(optf, CA.getdata(p0_norand), train_loader)
 
-    res = @suppress begin
+    res = #@suppress begin
         Optimization.solve(optprob, Adam(0.02),
         #Optim.Options(checkfinite = false),
         callback = callback_loss(100), 
         #epochs = 40,
         epochs = 90,
         )
-    end
+    #end
     (;nLjoint_pen, y_pred, θMs_tr_pred, θP_pred, nLy, nLprior_P, nLprior_M, loss_penalty) = loss_gf_site(
         res.u, train_loader.data...; is_testmode=true)
     #(nLjoint,  y_pred, θMs_tr_pred, θP, nLy, nLprior_P, nLprior_M, loss_penalty) = loss_gf(p0, xM, xP, y_o, y_unc);

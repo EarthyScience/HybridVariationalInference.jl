@@ -131,10 +131,18 @@ function f_doubleMM_sites(θc_tr::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
     #     #(rep_fac .* p1')    # move to computation below to save allocation
     # end
     #
-    r0 = is_valid .* CA.getdata(θc_tr[:, Val(:r0)])'
-    r1 = is_valid .* CA.getdata(θc_tr[:, Val(:r1)])'
-    K1 = is_valid .* CA.getdata(θc_tr[:, Val(:K1)])'
-    K2 = is_valid .* CA.getdata(θc_tr[:, Val(:K2)])'
+    # inline function to fuse all into one dot-expression
+
+    #@inline θ(par::Val) = is_valid .* CA.getdata(view(θc_tr,:, par))'
+
+    # r0 = is_valid .* CA.getdata(θc_tr[:, Val(:r0)])'
+    # r1 = is_valid .* CA.getdata(θc_tr[:, Val(:r1)])'
+    # K1 = is_valid .* CA.getdata(θc_tr[:, Val(:K1)])'
+    # K2 = is_valid .* CA.getdata(θc_tr[:, Val(:K2)])'
+    r0 = CA.getdata(θc_tr[:, Val(:r0)])'
+    r1 = CA.getdata(θc_tr[:, Val(:r1)])'
+    K1 = CA.getdata(θc_tr[:, Val(:K1)])'
+    K2 = CA.getdata(θc_tr[:, Val(:K2)])'
     #
     #, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
 
@@ -142,7 +150,7 @@ function f_doubleMM_sites(θc_tr::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
     #r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
     lim1 = S1 ./ (K1 .+ S1)
     lim2 = S2 ./ (K2 .+ S2)
-    y = r0 .+ r1 .* lim1 .* lim2
+    y = is_valid .* (r0 .+ r1 .* lim1 .* lim2)
     return (y, vcat(lim1, lim2)) # in addition to y return the limitations as a vector
     #(rep_fac .* r0') .+ (rep_fac .* r1') .* S1 ./ ((rep_fac .* K1') .+ S1) .* S2 ./ ((rep_fac .* K2') .+ S2)
 end
