@@ -40,6 +40,9 @@ include("OneBasedVectorWithZero.jl")
 export cat_namedtuple_lastdim, index_at_dim
 include("util.jl")
 
+export WeightedDataLoader
+include("WeightedDataLoader.jl")
+
 export extend_stacked_nrow, StackedArray
 #public Exp 
 #julia 1.10 public: https://github.com/JuliaLang/julia/pull/55097

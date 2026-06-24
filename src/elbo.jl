@@ -421,11 +421,17 @@ function compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr, zero_prior_lo
     # aggregate across vars, for each site
     nLprior_Ms = reduce(+, nLprior_Ms_pars)
     if !isfinite(nlP0) || !all(isfinite.(nLprior_Ms))
-        @show nlP0, sum(nLprior_Ms)
-        @show priorsM
-        @show θMs_tr
-        @show nLprior_Ms
-        error("inspect non-finite priors")
+        #Main.@infiltrate_main
+        () -> begin
+        #@usingany UnicodePlots
+            histogram(θMs_tr[:,4])
+        end
+        #error("inspect non-finite priors")
+        @warn("inspect non-finite priors")
+        # @show nlP0, sum(nLprior_Ms)
+        # @show priorsM
+        # @show θMs_tr
+        # @show nLprior_Ms
     end
     (; nLprior_P = nlP0, nLprior_Ms)
 end

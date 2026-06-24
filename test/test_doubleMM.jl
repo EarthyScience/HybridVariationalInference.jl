@@ -382,9 +382,9 @@ end
     res = #@suppress begin
         Optimization.solve(optprob, Adam(0.02),
         #Optim.Options(checkfinite = false),
-        callback = callback_loss(100), 
-        #epochs = 40,
-        epochs = 90,
+        #callback = callback_loss(100), 
+        epochs = 40,
+        #epochs = 90,
         )
     #end
     (;nLjoint_pen, y_pred, θMs_tr_pred, θP_pred, nLy, nLprior_P, nLprior_M, loss_penalty) = loss_gf_site(

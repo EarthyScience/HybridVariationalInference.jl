@@ -428,7 +428,7 @@ function get_loss_elbo(g, transP, transM, f, py, n_batch;
         frac_cluster_all = convert.(T, frac_cluster_all)
 
 
-        function loss_elbo(ϕ, rng, xM, xP, y_o, y_unc, i_sites; is_testmode)
+        function loss_elbo(ϕ, rng::Random.AbstractRNG, xM, xP, y_o, y_unc, i_sites; is_testmode)
             #ϕc = int_ϕg_ϕq(ϕ)
             neg_elbo_gtf(
                 rng, ϕ, g, f, py, xM, xP, y_o, y_unc, i_sites;

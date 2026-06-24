@@ -11,7 +11,7 @@ Fields:
 - `py`: Likelihood function
 - `transM::Stacked`, `transP::Stacked`: bijectors transforming from unconstrained to 
   constrained scale for site-specific and global parameters respectively.
-- `train_dataloader::MLUtils.DataLoader`: providing Tuple of matrices 
+- `train_dataloader`: e.g. `MLUtils.DataLoader` providing Tuple of matrices 
   `(xM, xP, y_o, y_unc, i_sites)`: covariates, model drivers, observations, 
   observation uncertainties and index of provided sites.
 - `test_data::Tuple of the same form as with `train_dataloader` for testset data.
@@ -38,7 +38,7 @@ struct HybridProblem <: AbstractHybridProblem
     transM::Stacked
     transP::Stacked
     cor_ends::@NamedTuple{P::Vector{Int}, M::Vector{Int}} # = (P=(1,),M=(1,))
-    train_dataloader::MLUtils.DataLoader
+    train_dataloader::Any   # MLUtils.DataLoader, but may be different such as WeightedDataLoader
     test_data::NamedTuple
     n_site::Int
     n_batch::Int
@@ -58,7 +58,7 @@ struct HybridProblem <: AbstractHybridProblem
             py,
             transM::Stacked,
             transP::Stacked,
-            train_dataloader::MLUtils.DataLoader,
+            train_dataloader,
             test_data::NamedTuple,
             n_site::Int,
             n_batch::Int;
@@ -164,7 +164,7 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
     if n_batch != n_batch_before
         # if updating n_btach, then need to adjust f_batch and train_dataloader
         train_dataloader = MLUtils.DataLoader(
-           train_dataloader.data, batchsize=n_batch, partial=train_dataloader.partial, shuffle=train_dataloader.shuffle)  
+           train_dataloader.data, batchsize=n_batch)  
         f_batch = create_nsite_applicator(f_batch, n_batch)
     end
     HybridProblem(θM, ϕq, g, ϕg, f_batch, priors, py, transM, transP, train_dataloader,

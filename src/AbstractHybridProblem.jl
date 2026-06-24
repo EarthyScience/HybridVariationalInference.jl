@@ -290,9 +290,7 @@ end
 
 
 """
-    gdev_hybridproblem_dataloader(dataloader::MLUtils.DataLoader; gdev_M, gdev_P,
-        batchsize = dataloader.batchsize,
-        partial = dataloader.partial
+    gdev_hybridproblem_dataloader(dataloader; gdev_M, gdev_P,
         )
 
 Put relevant parts of the DataLoader to gpu, depending on scenario.
@@ -304,15 +302,20 @@ function gdev_hybridproblem_dataloader(dataloader::MLUtils.DataLoader; gdevs = n
     # gdev = gpu_device(),
     # gdev_M = :use_gpu ∈ _val_value(scenario) ? gdev : identity,
     # gdev_P = :f_on_gpu ∈ _val_value(scenario) ? gdev : identity,
-    batchsize = dataloader.batchsize,
-    partial = dataloader.partial
     ) 
+    batchsize = dataloader.batchsize
+    partial = dataloader.partial
     # xM, xP, y_o, y_unc, i_sites = dataloader.data
     # xM_dev = gdev_M(xM)
     # xP_dev, y_o_dev, y_unc_dev = (gdev_P(xP), gdev_P(y_o), gdev_P(y_unc)) 
     data_dev = gdev_hybridproblem_data(dataloader.data; gdev_M, gdev_P)
     train_loader_dev = MLUtils.DataLoader(data_dev; batchsize, partial)
     return(train_loader_dev)
+end
+
+function gdev_hybridproblem_data(view::WeightedObsView; kwargs...) 
+    data = gdev_hybridproblem_data(view.data; kwargs...)
+    WeightedObsView(data, view.weights)
 end
 
 function gdev_hybridproblem_data(data::Tuple; gdevs = nothing,
