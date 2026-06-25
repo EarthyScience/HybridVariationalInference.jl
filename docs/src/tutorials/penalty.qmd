@@ -46,7 +46,7 @@ function assuming observation error to be distributed independently normal.
 ```{julia}
 fname = "intermediate/basic_cpu_results.jld2"
 print(abspath(fname))
-prob = probo_normal = load(fname, "probo");
+prob = load(fname, "probo");
 ```
 
 ## Write function to compute the penalty loss
@@ -57,23 +57,29 @@ In this example we want to avoid local minima when parameter, `r1`, is larger th
 70% of the maximum observation.
 
 ```{julia}
-# compute the maximum of observed rates at each site
+# compute the maximum of observed rates at each traiing site
 y_obs = get_hybridproblem_train_dataloader(prob).data[3]
 const y_obs_max = map(col -> maximum(x -> isfinite(x) ? x : zero(x), col), eachcol(y_obs))
 
 function compute_penalty_r1(y_pred::AbstractMatrix, addq_pred::AbstractMatrix, 
-            θMs_tr::AbstractMatrix, θP::AbstractVector, i_sites,
-            ϕg, ϕq::AbstractVector)
-    # get the maximum of current batch from closure of this function
-    y_obs_max_sites = y_obs_max[i_sites]
-    # add a penalty if r1 is larger than 0.95 times the maximum
-    penalty = max.(zero(eltype(θMs_tr)), θMs_tr[:,:r1] .- 0.95 .* y_obs_max_sites)
+            θMs_tr::AbstractMatrix{T}, θP::AbstractVector, i_sites_train,
+            ϕq::AbstractVector) where T
+    penalty = if isempty(i_sites_train) || iszero(i_sites_train[1])
+        # for unobserved sites (or test data), assign zero penalty
+        n_site = size(θMs_tr,1)
+        zeros(T, n_site)
+    else 
+        # get the maximum of current batch from closure of this function
+        y_obs_max_sites = y_obs_max[i_sites_train]
+        # add a penalty if r1 is larger than 0.95 times the maximum
+        penalty = max.(zero(eltype(θMs_tr)), θMs_tr[:,:r1] .- 0.95 .* y_obs_max_sites)
+    end
     (; penalty)
 end
 ```
 
 The penalty is computed for each site in the batch separately.
-Here, the `i_sites` argument is used to index into precomputed observation maxima.
+Here, the `i_sites_train` argument is used to index into precomputed observation maxima.
 
 ## Update the problem and redo the inversion
 
@@ -114,7 +120,8 @@ solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)
 ## Inspect the computed maxima
 The [`predict_hvi`](@ref) function also evaluates the penalties. 
 Internally, the penalty function is 
-called for each sample, but predict_hvi computes and returns the average.
+called for each sample, but predict_hvi computes and returns the average
+for each site.
 
 ```{julia}
 rng = StableRNGs.StableRNG(112)
@@ -123,8 +130,8 @@ n_sample_pred = 200
 size(penalties)
 ```
 
-The penalties object is a ComponentMatrix, and we can look at a specific site
-and a named component returned by 
+The penalties object is a ComponentMatrix, and we can look at a specific site (rows)
+and a named component (column) returned by 
 
 ```{julia}
 i_site = 3
@@ -150,14 +157,21 @@ function R1PenaltyComputer(ys::AbstractMatrix)
   R1PenaltyComputer(r_max)
 end
 function HybridVariationalInference.compute_penalty(
-    pc::R1PenaltyComputer,
+    pc::R1PenaltyComputer{T},
     y_pred::AbstractMatrix, addq_pred::AbstractMatrix, θMs_tr::AbstractMatrix, θP::AbstractVector, 
-    i_sites::AbstractVector, 
-    ϕg, ϕq::AbstractVector
-    )
-    # @assert pc.r_max[i_sites] == 0.95 .* map(col -> maximum(x -> isfinite(x) ? x : zero(x), col), eachcol(y_obs))
-    # add a penalty if r1 is larger r_max
-    penalty = max.(zero(eltype(θMs_tr)), θMs_tr[:,:r1] .- pc.r_max[i_sites])
+    i_sites_train::AbstractVector, 
+    ϕq::AbstractVector
+    ) where T
+    penalty = if isempty(i_sites_train) || iszero(i_sites_train[1])
+        # for unobserved sites (or test data), assign zero penalty
+        n_site = size(θMs_tr,1)
+        zeros(T, n_site)
+    else 
+        # get the maximum of current batch from struct
+        r_max_sites = pc.r_max[i_sites_train]
+        # add a penalty if r1 is larger than the precomputed threshold
+        penalty = max.(zero(eltype(θMs_tr)), θMs_tr[:,:r1] .- r_max_sites)
+    end
     (;penalty)
 end
 

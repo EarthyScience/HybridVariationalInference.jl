@@ -48,7 +48,7 @@ Lets look at the results.
 size(θsP), size(θsMs_tr)
 ```
 
-    ((1, 400), (800, 2, 400))
+    ((1, 400), (740, 2, 400))
 
 The last dimension is the number of samples, the second-last dimension is
 the respective parameter. `θsMs_tr` has an additional dimension denoting
@@ -139,7 +139,7 @@ sampling the posterior and predictive posterior and returns the additional
 size(y)
 ```
 
-    (8, 800, 400)
+    (8, 740, 400)
 
 Again, the last dimension is the sample.
 The other dimensions correspond to the observations we provided for the fitting:
