@@ -306,8 +306,8 @@ function get_loss_gf(g, transM, transP, f, py,
                 pbm_covar_indices; cdev, is_testmode, 
                 ranef = ranef1, ϕq_ranef, i_sites_train,
                 kwargs...)
-            frac_cluster = if iszero(i_sites_train[1])
-                ones(T, length(i_sites_train))
+            frac_cluster = if isempty(i_sites_train) || iszero(i_sites_train[1])
+                ones(T, n_site)
             else
                 frac_cluster_all[i_sites_train]
             end
