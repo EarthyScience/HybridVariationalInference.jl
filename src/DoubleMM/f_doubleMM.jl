@@ -135,22 +135,17 @@ function f_doubleMM_sites(θc_tr::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
 
     #@inline θ(par::Val) = is_valid .* CA.getdata(view(θc_tr,:, par))'
 
-    # r0 = is_valid .* CA.getdata(θc_tr[:, Val(:r0)])'
-    # r1 = is_valid .* CA.getdata(θc_tr[:, Val(:r1)])'
-    # K1 = is_valid .* CA.getdata(θc_tr[:, Val(:K1)])'
-    # K2 = is_valid .* CA.getdata(θc_tr[:, Val(:K2)])'
-    r0 = CA.getdata(θc_tr[:, Val(:r0)])'
-    r1 = CA.getdata(θc_tr[:, Val(:r1)])'
-    K1 = CA.getdata(θc_tr[:, Val(:K1)])'
-    K2 = CA.getdata(θc_tr[:, Val(:K2)])'
-    #
-    #, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
+    # need to multiply already each parameter by is_valid to prevent nan_inf_gradients
+    r0 = is_valid .* CA.getdata(θc_tr[:, Val(:r0)])'
+    r1 = is_valid .* CA.getdata(θc_tr[:, Val(:r1)])'
+    K1 = is_valid .* CA.getdata(θc_tr[:, Val(:K1)])'
+    K2 = is_valid .* CA.getdata(θc_tr[:, Val(:K2)])'
 
     # each variable is a matrix (n_obs x n_site)
     #r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
     lim1 = S1 ./ (K1 .+ S1)
     lim2 = S2 ./ (K2 .+ S2)
-    y = is_valid .* (r0 .+ r1 .* lim1 .* lim2)
+    y = r0 .+ r1 .* lim1 .* lim2
     return (y, vcat(lim1, lim2)) # in addition to y return the limitations as a vector
     #(rep_fac .* r0') .+ (rep_fac .* r1') .* S1 ./ ((rep_fac .* K1') .+ S1) .* S2 ./ ((rep_fac .* K2') .+ S2)
 end
@@ -360,13 +355,13 @@ function HVI.get_hybridproblem_train_dataloader(prob::DoubleMMCase; scenario::Va
     #    HVI.get_hybridproblem_n_covar, which be default relies on the train_dataloader
     dl = construct_dataloader_from_synthetic(rng, prob; scenario, n_batch, kwargs...) 
     if (:driverNAN ∈ scen)
-        (xM, xP, y_o, y_unc, i_sites) = dl.data
+        (xM, xP, y_o, y_unc, i_sites_train) = dl.data
         # set the last two entries of the S1 drivers and observations of the second site NaN
         is_obs = 7:8
         i_site = 2
         xP[is_obs,i_site] .= NaN
         y_o[is_obs,i_site] .= NaN
-        train_loader = MLUtils.DataLoader((CA.getdata(xM), CA.getdata(xP), y_o, y_unc, i_sites);
+        train_loader = MLUtils.DataLoader((CA.getdata(xM), CA.getdata(xP), y_o, y_unc, i_sites_train);
             batchsize = n_batch, partial = false)
     else
         dl
@@ -377,16 +372,17 @@ function HVI.get_hybridproblem_test_data(prob::DoubleMMCase; scenario::Val{scen}
         rng::AbstractRNG = StableRNG(111), kwargs...
 ) where {scen}
     (; xM, xP, y_o, y_unc) = gen_hybridproblem_synthetic(rng, prob; scenario)
-    i_sites_test = HVI.get_hybridproblem_i_sites_test(prob; scenario) 
+    i_sites_test = HVI.get_i_sites_test(prob; scenario) 
+    i_sites_train = zeros(length(i_sites_test)) # index into training data
     (; xM = xM[:, i_sites_test], xP = xP[:, i_sites_test], y_o = y_o[:, i_sites_test],
-        y_unc = y_unc[:, i_sites_test], i_sites = i_sites_test)
+        y_unc = y_unc[:, i_sites_test], i_sites_train)
 end
 
-function HVI.get_hybridproblem_i_sites_test(prob::DoubleMMCase; scenario::Val{scen}) where {scen}
+function HVI.get_i_sites_test(prob::DoubleMMCase; scenario::Val{scen}) where {scen}
     rng = StableRNG(222)
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     n_site_test = n_site ÷ 10
-    i_sites = sample(rng, 1:n_site, n_site_test, replace=false)
+    i_sites_test = sample(rng, 1:n_site, n_site_test, replace=false)
 end
 
 function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
@@ -416,7 +412,6 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     σ_o = FloatType(0.01)
     #σ_o = FloatType(0.002)
     logσ2_o = FloatType(2) .* log.(σ_o)
-    #σ_o = 0.002
     y_o = y_true .+ randn(rng, FloatType, size(y_true)) .* σ_o
     (;
         xM,

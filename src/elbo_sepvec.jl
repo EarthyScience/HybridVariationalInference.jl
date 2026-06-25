@@ -1,7 +1,7 @@
 # Similar to MeanHVIApproximationMat 
 # but own variance parameter for each predicted parameter
 function sample_ζresid_norm(approx::MeanVarSepHVIApproximation,
-    i_sites,
+    i_sites_train,
     zP::AbstractMatrix, zMs::AbstractMatrix, 
     ϕm::TM, ϕq::AbstractVector{T};
     int_ϕq=get_concrete(ComponentArrayInterpreter(ϕq)),
@@ -20,7 +20,7 @@ function sample_ζresid_norm(approx::MeanVarSepHVIApproximation,
     UM = transformU_block_cholesky1(ρsM, cor_ends.M)
     #
     # make that ϕuncc[:logσ2_ζMs] stores the uncertainty for each site currently predicted
-    logσ2_logMs = ϕuncc[Val(:logσ2_ζMs)][:,i_sites]
+    logσ2_logMs = ϕuncc[Val(:logσ2_ζMs)][:,i_sites_train]
     logσ2_ζP = vec(CA.getdata(ϕuncc[Val(:logσ2_ζP)]))
     # CUDA cannot multiply BlockDiagonal * Diagonal, construct already those blocks
     σMs = reshape(exp.(logσ2_logMs ./ 2), n_θM, :)

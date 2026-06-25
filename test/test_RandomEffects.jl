@@ -122,12 +122,12 @@ end
     @test eltype(ϕq_ranef) == Float32
     l1 = compute_nLranef(re32, ϕq_ranef)
     @test l1 isa Float32
-    i_sites = 1:20
-    μ = randn(Float32, length(θM), length(i_sites))
-    μ_updated = add_ranef(re32, μ, ϕq_ranef, i_sites)
+    i_sites_train = 1:20
+    μ = randn(Float32, length(θM), length(i_sites_train))
+    μ_updated = add_ranef(re32, μ, ϕq_ranef, i_sites_train)
     @test eltype(μ_updated) == Float32
     @test all((μ_updated .- μ)[2,:] .== 0)
-    @test all((μ_updated .- μ)[[3,1],:] .≈ ϕq_ranef.β[i_sites,:]')
+    @test all((μ_updated .- μ)[[3,1],:] .≈ ϕq_ranef.β[i_sites_train,:]')
     #
     # test extending cholesky fator to all parameter
     U_par = HVI.get_choleskyΣ_par(re32, ϕq_ranef)

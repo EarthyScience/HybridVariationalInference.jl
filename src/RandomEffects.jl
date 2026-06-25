@@ -8,7 +8,7 @@ struct NullRandomEffectsComputer{T} <: AbstractRandomEffectsComputer{T}
     n_site::Int
 end
 compute_nLranef(re::NullRandomEffectsComputer{T}, rm) where T = zero(T)
-add_ranef(re::NullRandomEffectsComputer, μ, ϕq_ranef, i_sites) = μ
+add_ranef(re::NullRandomEffectsComputer, μ, ϕq_ranef, i_sites_train) = μ
 function setup_ϕq_ranef(re::NullRandomEffectsComputer{T}) where T 
     res = CA.ComponentVector(β=reshape( T[], 0, re.n_site))
 end
@@ -119,8 +119,8 @@ end
 """
 Assume μ of size n_par x n_site
 """
-function add_ranef(re::RandomEffectsComputer, μ, ϕq_ranef, i_sites)
-    ranef = CA.getdata(ϕq_ranef[Val(:β)][i_sites,:])
+function add_ranef(re::RandomEffectsComputer, μ, ϕq_ranef, i_sites_train)
+    ranef = CA.getdata(ϕq_ranef[Val(:β)][i_sites_train,:])
     # moved construction of projection matrix to RandomEffectsComputer
     P_col = re.P_col
     #ranef_full = ranef * P_col'

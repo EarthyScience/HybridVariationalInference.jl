@@ -310,7 +310,8 @@ end
     train_loader = get_hybridproblem_train_dataloader(prob; scenario)
     i_sites_train = train_loader.data[5]
     n_site_train = length(i_sites_train)
-    @assert train_loader.data[1:4] == (xM[:,i_sites_train], xP[:,i_sites_train], y_o[:,i_sites_train], y_unc[:,i_sites_train])
+    i_sites_train_all = setdiff(1:size(xM,2),CP.get_i_sites_test(prob; scenario))
+    @assert train_loader.data[1:4] == (xM[:,i_sites_train_all], xP[:,i_sites_train_all], y_o[:,i_sites_train_all], y_unc[:,i_sites_train_all])
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
     #intθP = ComponentArrayInterpreter(pt.θP)
     #intθMs_batch = ComponentArrayInterpreter((n_batch,), pt.θM)
@@ -327,6 +328,15 @@ end
         pbm_covars, n_site_batch = n_site_train, priorsP, priorsM, par_templates,
         ranef, frac_cluster_all, is_omit_priors = Val(true))
     nLcomponents = @inferred loss_gf(p0, first(train_loader)...; is_testmode=true)
+    () -> begin
+        ref_loss_gf = get_loss_gf(g, transM, transP, f,  py, intϕ;
+            pbm_covars, n_site_batch = n_batch, priorsP, priorsM, par_templates,
+            ranef, frac_cluster_all,
+            is_omit_priors = Val(true),
+            )
+        ref_nLcomponents = ref_loss_gf(p0, first(train_loader)...; is_testmode=true)
+        
+    end
     nLjoint = @inferred first(nLcomponents)
     # p01 = copy(p0); p01[end] = 5.0 
     p01 = copy(p0); 
@@ -398,8 +408,8 @@ end
     θMs_tr_pred = CA.ComponentArray(θMs_tr_pred, CA.getaxes(θMs_true'))
     #TODO @test isapprox(par_templates.θP, intϕ(res.u).μP, rtol = 0.15)
     #@test cor(vec(θMs_true), vec(θMs_tr_pred)) > 0.8
-    @test cor(θMs_true'[i_sites_train, 1], θMs_tr_pred[:, 1]) > 0.8
-    @test cor(θMs_true'[i_sites_train, 2], θMs_tr_pred[:, 2]) > 0.8
+    @test cor(θMs_true'[i_sites_train_all, 1], θMs_tr_pred[:, 1]) > 0.8
+    @test cor(θMs_true'[i_sites_train_all, 2], θMs_tr_pred[:, 2]) > 0.8
     # started from low values -> increased but not too much above true values
     # logpdf.(priorsP, θP_pred)
     # logpdf.(priorsP, par_templates.θP)
@@ -417,22 +427,22 @@ end
         train_data = NamedTuple{(:xM, :xP, :y, :y_unc, :i_site)}(train_loader.data)        
         l0 = loss_gf_site(p0, train_data...; is_testmode=true)
         lopt = loss_gf_site(res.u, train_data...; is_testmode=true)
-        _yt = f2(θP_true, θMs_true[:,i_sites_train]', train_data.xP)[1]
-        _yt == y_true[:,i_sites_train]
+        _yt = f2(θP_true, θMs_true[:,i_sites_train_all]', train_data.xP)[1]
+        _yt == y_true[:,i_sites_train_all]
         yp = f2(lopt.θP_pred, lopt.θMs_tr_pred, train_data.xP)[1]
         yp == lopt.y_pred
-        scatterplot(vec(y_true[:,i_sites_train]), vec(train_data.y))
+        scatterplot(vec(y_true[:,i_sites_train_all]), vec(train_data.y))
         scatterplot(vec(lopt.y_pred), vec(train_data.y))
         sum(py(train_data.y, lopt.y_pred, train_data.y_unc))
-        sum(py(train_data.y, y_true[:,i_sites_train], train_data.y_unc))
+        sum(py(train_data.y, y_true[:,i_sites_train_all], train_data.y_unc))
         # better loglik with true ϕP2? no, wrong θMs cause wrong better θP
         θP_test = [lopt.θP_pred[1], θP_true[2]] 
         ymod = f2(θP_test, lopt.θMs_tr_pred, train_data.xP)[1]
         sum(py(train_data.y, ymod, train_data.y_unc))
         #
-        scatterplot(θMs_true'[i_sites_train,1], θMs_tr_pred[:,1])
-        scatterplot(θMs_true'[i_sites_train,2], θMs_tr_pred[:,2])
-        scatterplot(vec(y_o[:,i_sites_train]), vec(y_pred))
+        scatterplot(θMs_true'[i_sites_train_all,1], θMs_tr_pred[:,1])
+        scatterplot(θMs_true'[i_sites_train_all,2], θMs_tr_pred[:,2])
+        scatterplot(vec(y_o[:,i_sites_train_all]), vec(y_pred))
         hcat(par_templates.θP, intϕ(p0).μP, intϕ(res.u).μP, transP(intϕ(p0).μP), θP_pred)
     end
 end

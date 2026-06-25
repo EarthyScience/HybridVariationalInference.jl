@@ -1,4 +1,12 @@
 using Test, SafeTestsets
+() -> begin
+    #@usingany ReferenceRevision
+    refmain = open_process(rev = "main")
+    refmain = open_process(rev = "main", instantiate = true)
+    refmain.eval(:(using CommonSolve))
+    refmain = open_process(rev = "main", instantiate = true)
+    close(refmain)
+end
 const GROUP = get(ENV, "GROUP", "All") # defined in in CI.yml
 
 @time begin

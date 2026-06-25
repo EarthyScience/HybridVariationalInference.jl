@@ -61,7 +61,7 @@ function construct_problem(; scenario::Val{scen}) where scen
     i_sites_test = sample(rng, 1:n_site, n_site_test, replace=false)
     test_data = (; xM = xM[:, i_sites_test], xP = xP[:, i_sites_test], 
         y_o = y_o[:, i_sites_test], y_unc = y_unc[:, i_sites_test],
-        i_sites = i_sites_test)
+        i_sites_train = zeros(length(i_sites_test)))
     approx = if (:scalingall ∈ scen) 
         block_ends = [length(θM)]
         MeanScalingHVIApproximation(block_ends, FT(2) .* log.(FT(0.1) .* θM[block_ends]))
@@ -84,17 +84,17 @@ function construct_problem(; scenario::Val{scen}) where scen
     # g, ϕg = construct_SimpleChainsApplicator(g_chain)
     #
     py = neg_logden_indep_normal
-    i_sites = 1:n_site
-    # get_train_loader = let xM = xM, xP = xP, y_o = y_o, y_unc = y_unc, i_sites = i_sites
+    i_sites_train = 1:n_site
+    # get_train_loader = let xM = xM, xP = xP, y_o = y_o, y_unc = y_unc, i_sites_train = i_sites_train
     #     function inner_get_train_loader(; n_batch, kwargs...)
-    #         MLUtils.DataLoader((xM, xP, y_o, y_unc, i_sites), batchsize=n_batch, partial=false)
+    #         MLUtils.DataLoader((xM, xP, y_o, y_unc, i_sites_train), batchsize=n_batch, partial=false)
     #     end
     # end
     i_train = setdiff(1:n_site, i_sites_test)
     @assert sort(vcat(i_sites_test, i_train)) == 1:n_site
     train_dataloader = MLUtils.DataLoader(
         (CA.getdata(xM[:,i_train]), CA.getdata(xP[:,i_train]), y_o[:,i_train], 
-        y_unc[:,i_train], i_sites[i_train]), batchsize=n_batch, partial=false)
+        y_unc[:,i_train], i_sites_train[i_train]), batchsize=n_batch, partial=false)
     θall = vcat(θP, θM)
     priors_dict = Dict{Symbol, Distribution}(
         keys(θall) .=> fit.(LogNormal, θall, QuantilePoint.(θall .* 3, 0.95)))
@@ -171,7 +171,7 @@ test_without_flux = (scenario) -> begin
         n_sites_cluster, clusters = CP.get_clusters(n_site; scenario)
         frac_cluster_all = 1 ./ n_sites_cluster[clusters] 
         train_loader = get_hybridproblem_train_dataloader(prob; scenario)
-        (xM, xP, y_o, y_unc, i_sites) = first(train_loader)
+        (xM, xP, y_o, y_unc, i_sites_train) = first(train_loader)
         f = get_hybridproblem_PBmodel(prob; scenario)
         py = get_hybridproblem_neg_logden_obs(prob; scenario)
         #f(par_templates.θP, hcat(par_templates.θM, par_templates.θM), xP[1:2])
@@ -267,6 +267,18 @@ test_with_flux = (scenario) -> begin
             #gpu_handler = NullGPUDataHandler
             is_inferred = Val(true),
         )
+        () -> begin
+            ref_solver = refmain.HybridPointSolver(; alg=Adam(0.02))
+            ref_ans_solve = refmain.solve(prob, ref_solver; scenario, rng,
+                #callback = callback_loss(100), 
+                epochs = 2,
+                #epochs_callback = 1, # print every epoch
+                epochs_callback = 0, # do not evaluate test and do not print
+                gdevs = (; gdev_M=identity, gdev_P=identity),
+                #gpu_handler = NullGPUDataHandler
+                is_inferred = Val(true),
+            )
+        end
         (; θP) = get_hybridproblem_par_templates(prob; scenario)
         θPo = (() -> begin
             (; θP) = get_hybridproblem_par_templates(probo; scenario); 
@@ -405,9 +417,9 @@ test_with_flux_gpu = (scenario) -> begin
 
                 cr = cor(CA.getdata(residθs'))
                 pos_P = get_positions(ComponentArrayInterpreter(θs[:P,1]))
-                i_sites = [1,2,3]
+                i_sites_train = [1,2,3]
                 #ax = map(x -> axes(x,1), get_hybridproblem_par_templates(probo; scenario = scenf))
-                is = vcat(pos.P, vec(pos.Ms[i_sites,:]))
+                is = vcat(pos.P, vec(pos.Ms[i_sites_train,:]))
                 cr[is,is]
             end
         end;
