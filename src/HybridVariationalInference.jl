@@ -28,6 +28,7 @@ using KernelAbstractions
 import NaNMath # ignore missing observations in logDensity
 using DifferentiationInterface: DifferentiationInterface as DI
 import Zygote
+import ForwardDiff, PreallocationTools
 using IterTools: IterTools
 using PDMats
 using Distances, Clustering
@@ -142,6 +143,9 @@ include("elbo_sepvec.jl")
 include("elbo_scaling.jl")
 include("elbo.jl")
 include("elbo2.jl")
+
+#export get_loss_ran_tr_f
+include("fit_ranef_site.jl")
 
 export init_hybrid_params, init_hybrid_ϕunc
 include("init_hybrid_params.jl")

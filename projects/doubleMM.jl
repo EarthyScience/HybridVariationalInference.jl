@@ -36,7 +36,7 @@ prob0_ = HybridProblem(DoubleMM.DoubleMMCase(); scenario);
 ) = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); scenario);
 n_site, n_batch = get_hybridproblem_n_site_and_batch(prob0_; scenario)
 ζP_true, ζMs_true = log.(θP_true), log.(θMs_true)
-i_sites_train = 1:n_site
+itrain_sites = 1:n_site
 n_site, n_batch = get_hybridproblem_n_site_and_batch(prob0_; scenario)
 train_dataloader = MLUtils.DataLoader(
     (xM, xP, y_o, y_unc, 1:n_site);
@@ -138,10 +138,10 @@ end
         int_ϕθP = ComponentArrayInterpreter(CA.ComponentVector(
             ϕg = 1:length(prob0.ϕg), θP = prob0.θP))
         loss_gf = get_loss_gf(prob0.g, prob0.transM, prob0.transP, prob0.f, Float32[], py, int_ϕθP)
-        loss_gf(vcat(prob3.ϕg, prob3.θP), xM, xP, y_o, y_unc, i_sites_train)[1]
-        loss_gf(vcat(prob3o.ϕg, prob3o.θP), xM, xP, y_o, y_unc, i_sites_train)[1]
+        loss_gf(vcat(prob3.ϕg, prob3.θP), xM, xP, y_o, y_unc, itrain_sites)[1]
+        loss_gf(vcat(prob3o.ϕg, prob3o.θP), xM, xP, y_o, y_unc, itrain_sites)[1]
         #
-        loss_gf(vcat(prob2o.ϕg, prob2o.θP), xM, xP, y_o, y_unc, i_sites_train)[1]
+        loss_gf(vcat(prob2o.ϕg, prob2o.θP), xM, xP, y_o, y_unc, itrain_sites)[1]
     end
 end
 
@@ -662,10 +662,10 @@ lineplot!(plt, 0, 1)
     ζsMs_hmc = log.(θsMs_hmc)
     # int_pms = interpreters.PMs
     # par_pos = int_pms(1:length(int_pms))
-    #i_sites_train = 1:10
-    i_sites_train = 1:5
-    #i_sites_train = 6:10
-    #i_sites_train = 11:15
+    #itrain_sites = 1:10
+    itrain_sites = 1:5
+    #itrain_sites = 6:10
+    #itrain_sites = 11:15
     scen = vcat(
         fill(:hvi,size(ζsP_hvi,2)),
         fill(:hmc,size(ζsP_hmc,2)),
@@ -679,11 +679,11 @@ lineplot!(plt, 0, 1)
                 ζsP_hvi[i_par, :], ζsP_hmc[i_par,:], 
                 ζsP_hvi_indep[i_par,:], ζsP_hvi_neglect_cor[i_par,:]), 
             variable = lower_lastdigits.(keys(θP_true)[i_par]),
-            site = "site $(i_sites_train[1])",
+            site = "site $(itrain_sites[1])",
             Method = scen
         )
     end 
-    dfMs = mapreduce(vcat, i_sites_train) do i_site 
+    dfMs = mapreduce(vcat, itrain_sites) do i_site 
         mapreduce(vcat, axes(θM,1)) do i_par
             #pos = par_pos.Ms[i_par, i_site]
             DataFrame(
@@ -704,11 +704,11 @@ lineplot!(plt, 0, 1)
             DataFrame(
                 value = ζP_true[i_par],
                 variable = lower_lastdigits.(keys(θP)[i_par]),
-                site = "site $(i_sites_train[1])",
+                site = "site $(itrain_sites[1])",
                 Method = :true
             )
         end,
-        mapreduce(vcat, i_sites_train) do i_site 
+        mapreduce(vcat, itrain_sites) do i_site 
             mapreduce(vcat, axes(θM,1)) do i_par
                 DataFrame(
                     value = ζMs_true[i_par, i_site],
@@ -733,7 +733,7 @@ lineplot!(plt, 0, 1)
             axis=(xlabelvisible=false,yticklabelsvisible=false),
             scales(Color = (; palette = color_methods)),
             );
-        legend!(fig[length(i_sites_train),1], ffig, ; tellwidth=false, halign=:left, valign=:bottom , margin=(10, 10, 10, 10))
+        legend!(fig[length(itrain_sites),1], ffig, ; tellwidth=false, halign=:left, valign=:bottom , margin=(10, 10, 10, 10))
         fig
     end
     () -> begin
@@ -758,7 +758,7 @@ lineplot!(plt, 0, 1)
     i_obss = [1,4,8]
     #i_obss = 1:8
     dfy = mapreduce(vcat, i_obss) do i_obs
-            mapreduce(vcat, i_sites_train) do i_site
+            mapreduce(vcat, itrain_sites) do i_site
                 vcat(
                     DataFrame(
                         value = y_hmc[i_obs,i_site,:], 
@@ -780,7 +780,7 @@ lineplot!(plt, 0, 1)
             end
     end
     dfyt = mapreduce(vcat, i_obss) do i_obs
-            mapreduce(vcat, i_sites_train) do i_site
+            mapreduce(vcat, itrain_sites) do i_site
                 vcat(
                     DataFrame(
                         value = y_true[i_obs,i_site], 
@@ -839,7 +839,7 @@ Compute standard deviation and correlation for predicted parameters on unconstra
 _ζsP: n_P x n_pred matrix of draws of predicted cross-sites parameters
 _ζsMs: n_site x n_M x n_pred of draws of predicted physical parameters
 
-returns sdP (n_P), sdMs (n_site x n_M), cor_PMs n_P + (n_M * length(i_sites_train)) square matrix
+returns sdP (n_P), sdMs (n_site x n_M), cor_PMs n_P + (n_M * length(itrain_sites)) square matrix
 """
 function compute_sd_cor_PMs(_ζsP, _ζsMs; i_sites_inspect = [1,2,3])
     mP = mean(_ζsP; dims=2)

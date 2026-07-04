@@ -62,15 +62,15 @@ y_obs = get_hybridproblem_train_dataloader(prob).data[3]
 const y_obs_max = map(col -> maximum(x -> isfinite(x) ? x : zero(x), col), eachcol(y_obs))
 
 function compute_penalty_r1(y_pred::AbstractMatrix, addq_pred::AbstractMatrix, 
-            θMs_tr::AbstractMatrix{T}, θP::AbstractVector, i_sites_train,
+            θMs_tr::AbstractMatrix{T}, θP::AbstractVector, itrain_sites,
             ϕq::AbstractVector) where T
-    penalty = if isempty(i_sites_train) || iszero(i_sites_train[1])
+    penalty = if isempty(itrain_sites) || iszero(itrain_sites[1])
         # for unobserved sites (or test data), assign zero penalty
         n_site = size(θMs_tr,1)
         zeros(T, n_site)
     else 
         # get the maximum of current batch from closure of this function
-        y_obs_max_sites = y_obs_max[i_sites_train]
+        y_obs_max_sites = y_obs_max[itrain_sites]
         # add a penalty if r1 is larger than 0.95 times the maximum
         penalty = max.(zero(eltype(θMs_tr)), θMs_tr[:,:r1] .- 0.95 .* y_obs_max_sites)
     end
@@ -79,7 +79,7 @@ end
 ```
 
 The penalty is computed for each site in the batch separately.
-Here, the `i_sites_train` argument is used to index into precomputed observation maxima.
+Here, the `itrain_sites` argument is used to index into precomputed observation maxima.
 
 ## Update the problem and redo the inversion
 
@@ -159,16 +159,16 @@ end
 function HybridVariationalInference.compute_penalty(
     pc::R1PenaltyComputer{T},
     y_pred::AbstractMatrix, addq_pred::AbstractMatrix, θMs_tr::AbstractMatrix, θP::AbstractVector, 
-    i_sites_train::AbstractVector, 
+    itrain_sites::AbstractVector, 
     ϕq::AbstractVector
     ) where T
-    penalty = if isempty(i_sites_train) || iszero(i_sites_train[1])
+    penalty = if isempty(itrain_sites) || iszero(itrain_sites[1])
         # for unobserved sites (or test data), assign zero penalty
         n_site = size(θMs_tr,1)
         zeros(T, n_site)
     else 
         # get the maximum of current batch from struct
-        r_max_sites = pc.r_max[i_sites_train]
+        r_max_sites = pc.r_max[itrain_sites]
         # add a penalty if r1 is larger than the precomputed threshold
         penalty = max.(zero(eltype(θMs_tr)), θMs_tr[:,:r1] .- r_max_sites)
     end

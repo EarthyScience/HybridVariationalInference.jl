@@ -6,7 +6,7 @@ CurrentModule = HybridVariationalInference
 ```
 
 This guide shows how to configure providing certain global parameters as
-covariates to the ML model.
+covariates to the ML model.-hybr
 
 ## Motivation
 

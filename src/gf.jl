@@ -62,8 +62,13 @@ the sampling step but returns the prediction at the mean in unconstrained space.
 - `gdevs`
 - `xM`: covariates for the machine-learning model (ML): Matrix (n_θM x n_site_pred).
   Possibility to override the default from `get_hybridproblem_train_dataloader`.
+  If the default it used, assume random effects are added.
 - `xP`: model drivers for process based model (PBM): Matrix with (n_site_pred) rows.
   Possibility to override the default from `get_hybridproblem_train_dataloader`.
+- `itrain_sites`: Integer vector of known sites to predict. If positive length and not zero
+  then random effects for those sites are added. If `xM` is nothing, this defaults to 
+  index in training dataset. If xM is provided, the default `itrain_sites = Int[]` results
+  in not adding random effects.
 
 Returns an NamedTuple `(; y, θMs_tr, θP)` with entries
 - `y`: Matrix `(n_obs, n_site)` of model predictions.
@@ -76,18 +81,21 @@ function predict_point_hvi(rng, prob::AbstractHybridProblem; scenario=Val(()),
     gdevs = get_gdev_MP(scenario), 
     xM = nothing, xP = nothing,
     is_testmode = true,
-    i_sites_train = Int[],
+    itrain_sites = Int[],
     kwargs...
     )
     if isnothing(xM) || isnothing(xP)
+        is_sites_known = isnothing(xM) # predict for known problem training sites
         dl = get_hybridproblem_train_dataloader(prob; scenario)
         dl_dev = gdev_hybridproblem_dataloader(dl; gdevs)
         xM_dl, xP_dl = dl_dev.data[1:2]
         xM = isnothing(xM) ? xM_dl : xM
         xP = isnothing(xP) ? xP_dl : xP
-        i_sites_train = 1:size(xM,2)
+        if is_sites_known
+            itrain_sites = 1:size(xM,2) 
+        end
     end
-    y_pred, addq_pred, θMs_tr, θP = gf(prob, xM, xP; scenario, gdevs, is_testmode, i_sites_train, kwargs...)    
+    y_pred, addq_pred, θMs_tr, θP = gf(prob, xM, xP; scenario, gdevs, is_testmode, itrain_sites, kwargs...)    
     pt = get_hybridproblem_par_templates(prob)
     θPc = ComponentArrayInterpreter(pt.θP)(θP)
     θMsc = ComponentArrayInterpreter((size(θMs_tr,1),), pt.θM)(θMs_tr)
@@ -109,7 +117,7 @@ function gf(prob::AbstractHybridProblem, xM::AbstractMatrix, xP::AbstractMatrix;
     scenario = Val(()), 
     gdevs = nothing, #get_gdev_MP(scenario), 
     is_inferred::Val{is_infer} = Val(false),
-    i_sites_train,
+    itrain_sites,
     kwargs...
 ) where is_infer
     gdevs = isnothing(gdevs) ? get_gdev_MP(scenario) : gdevs
@@ -144,9 +152,9 @@ function gf(prob::AbstractHybridProblem, xM::AbstractMatrix, xP::AbstractMatrix;
     res = is_infer ? 
         Test.@inferred( gf(
             g_dev, transMs, transP, f_dev, xM_dev, xP, ϕg_dev, n_θM, ζP_dev, pbm_covar_indices; 
-            cdev, ranef, ϕq_ranef, i_sites_train, kwargs...)) :
+            cdev, ranef, ϕq_ranef, itrain_sites, kwargs...)) :
         gf(g_dev, transMs, transP, f_dev, xM_dev, xP, ϕg_dev, n_θM, ζP_dev, pbm_covar_indices; 
-            cdev, ranef, ϕq_ranef, i_sites_train, kwargs...)
+            cdev, ranef, ϕq_ranef, itrain_sites, kwargs...)
 end
 
 function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, n_θM, ζP; 
@@ -160,7 +168,7 @@ end
 
 function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, n_θM, ζP, 
     pbm_covar_indices::AbstractVector{<:Integer}; 
-    ranef::AbstractRandomEffectsComputer, ϕq_ranef, i_sites_train,
+    ranef::AbstractRandomEffectsComputer, ϕq_ranef, itrain_sites,
     cdev, is_testmode)
     # @show first(xM,5)
     # @show first(ϕg,5)
@@ -171,7 +179,7 @@ function gf(g::AbstractModelApplicator, transMs, transP, f, xM, xP, ϕg, n_θM, 
     # end
     #xMP = _append_PBM_covars(xM, intP(ζP), pbm_covars) 
     xMP = _append_each_covars(xM, CA.getdata(ζP), pbm_covar_indices)
-    θMs_tr = gtrans(g, transMs, xMP, ϕg, n_θM; ranef, ϕq_ranef, i_sites_train, cdev, is_testmode)
+    θMs_tr = gtrans(g, transMs, xMP, ϕg, n_θM; ranef, ϕq_ranef, itrain_sites, cdev, is_testmode)
     # transPM = RRuleMonitor("transP", ζP -> transP(ζP))
     # θP = transPM(CA.getdata(ζP))
     θP = transP(CA.getdata(ζP))
@@ -189,14 +197,14 @@ composition transM ∘ g: transformation after machine learning parameter predic
 Provide a `transMs = StackedArray(transM, n_batch)`
 """
 function gtrans(g, transMs, xMP, ϕg, n_θM; 
-    ranef::AbstractRandomEffectsComputer, ϕq_ranef, i_sites_train,
+    ranef::AbstractRandomEffectsComputer, ϕq_ranef, itrain_sites,
     cdev, is_testmode
     )
     ϕg = g(xMP, ϕg; is_testmode)
     ζMs = ϕg[1:n_θM,:] # ignore the uncertainty-related parameters
     ζMs_cpu0 = cdev(ζMs)
-    ζMs_ranef_tr_cpu = if !isempty(i_sites_train) && !iszero(i_sites_train[1])
-        add_ranef(ranef, ζMs_cpu0, ϕq_ranef, i_sites_train)'
+    ζMs_ranef_tr_cpu = if !isempty(itrain_sites) && !iszero(itrain_sites[1])
+        add_ranef(ranef, ζMs_cpu0, ϕq_ranef, itrain_sites)'
     else
         ζMs_cpu0'
     end
@@ -221,7 +229,7 @@ Create a loss function for given
   The default, uses `intϕ(ϕ)` as a template
 - kwargs: additional keyword arguments passed to `gf`, such as `gdev` or `pbm_covars`
 
-The loss function `loss_gf(ϕ, xM, xP, y_o, y_unc, i_sites_train)` takes   
+The loss function `loss_gf(ϕ, xM, xP, y_o, y_unc, itrain_sites)` takes   
 - parameter vector ϕ
 - xM: matrix of covariate, sites in the batch are in columns
 - xP: iteration of drivers for each site
@@ -229,7 +237,7 @@ The loss function `loss_gf(ϕ, xM, xP, y_o, y_unc, i_sites_train)` takes
 - y_unc: vector of uncertainty information for each observation
   Currently, hardcoes squared error loss of `(y_pred .- y_o) ./ σ`, 
   with `σ = exp.(y_unc ./ 2)`.
-- i_sites_train: index of sites in the batch
+- itrain_sites: index of sites in the batch
 
 and returns a NamedTuple of 
 - `nLjoint`: the negative-log of the joint parameter probability (Likelihood * prior)
@@ -276,7 +284,7 @@ function get_loss_gf(g, transM, transP, f, py,
         #, intP = get_concrete(intP)
         #inv_transP = inverse(transP), kwargs = kwargs
 
-        function loss_gf(ϕ::AbstractVector{T}, xM, xP, y_o, y_unc, i_sites_train; 
+        function loss_gf(ϕ::AbstractVector{T}, xM, xP, y_o, y_unc, itrain_sites; 
             is_testmode, ignore_ranef::Val{ignore_ranef_val} = Val(false),
             ) where {T, ignore_ranef_val}
             ϕc = intϕ(ϕ)
@@ -304,12 +312,12 @@ function get_loss_gf(g, transM, transP, f, py,
                 g, transMs, transP, f, xM, xP, CA.getdata(ϕc[Val(:ϕg)]), n_θM,
                 ϕqc[Val(:μP)], 
                 pbm_covar_indices; cdev, is_testmode, 
-                ranef = ranef1, ϕq_ranef, i_sites_train,
+                ranef = ranef1, ϕq_ranef, itrain_sites,
                 kwargs...)
-            frac_cluster = if isempty(i_sites_train) || iszero(i_sites_train[1])
+            frac_cluster = if isempty(itrain_sites) || iszero(itrain_sites[1])
                 ones(T, n_site)
             else
-                frac_cluster_all[i_sites_train]
+                frac_cluster_all[itrain_sites]
             end
             #σ = exp.(y_unc ./ 2)
             #nLy = sum(abs2, (y_pred .- y_o) ./ σ) 
@@ -332,7 +340,7 @@ function get_loss_gf(g, transM, transP, f, py,
             end
             loss_penalties = first(compute_penalty(penalty_computer,
                 y_pred, addq_pred, intθMs(θMs_tr_pred), intθP(θP_pred), 
-                i_sites_train, ϕqc))
+                itrain_sites, ϕqc))
             #loss_penalty = sum(loss_penalties .* frac_cluster)
             loss_penalty = sum(loss_penalties)
             #@show nLy, neg_log_prior, loss_penalty

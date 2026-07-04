@@ -45,7 +45,7 @@ end
         compute_penalty(::PenaltyComputerOrFunction, 
             y_pred::AbstractMatrix, addq_pred::AbstractMatrix, 
             θMs::AbstractMatrix, θP::AbstractVector, 
-            i_sites_train::AbstractVector{<:Int}, 
+            itrain_sites::AbstractVector{<:Int}, 
             ϕq::AbstractVector)
 Add additional loss terms during the HVI fit.
 
@@ -62,7 +62,7 @@ Arguments
 - addq_pred::AbstractMatrix: Additional quantities computed by the PBM
 - θMs_tr::AbstractMatrix: site parameters (with sites in rows and parameters in columns)
 - θP::AbstractVector: global parameters
-- i_sites_train: indices of sites in the minibatch, useful for using precoputed quantities
+- itrain_sites: indices of sites in the minibatch, useful for using precoputed quantities
   Note, that this refers to index of the site within the training dataset
   rather than some global identifier.
 - ϕq::AbstractVector, additional parameters of the posterior
@@ -260,7 +260,7 @@ Return a DataLoader that provides a tuple of
 - `xP`: Iterator of process-model drivers, with one element per site
 - `y_o`: matrix of observations with added noise, with one column per site
 - `y_unc`: matrix `sizeof(y_o)` of uncertainty information 
-- `i_sites_train`: Vector of indices of sites in the minibatch
+- `itrain_sites`: Vector of indices of sites in the minibatch
 """
 function get_hybridproblem_train_dataloader end
 function get_hybridproblem_test_data end
@@ -283,10 +283,10 @@ function construct_dataloader_from_synthetic(rng::AbstractRNG, prob::AbstractHyb
     @assert size(y_o,2) == n_site
     @assert size(y_unc,2) == n_site
     i_sites = setdiff(1:n_site, i_sites_test)
-    i_sites_train = 1:length(i_sites) # index into training data
+    itrain_sites = 1:length(i_sites) # index into training data
     train_loader = MLUtils.DataLoader((
         CA.getdata(xM)[:,i_sites], CA.getdata(xP)[:,i_sites], 
-        y_o[:,i_sites], y_unc[:,i_sites], i_sites_train);
+        y_o[:,i_sites], y_unc[:,i_sites], itrain_sites);
         batchsize = n_batch, partial = false)
     return (train_loader)
 end
@@ -308,7 +308,7 @@ function gdev_hybridproblem_dataloader(dataloader::MLUtils.DataLoader; gdevs = n
     ) 
     batchsize = dataloader.batchsize
     partial = dataloader.partial
-    # xM, xP, y_o, y_unc, i_sites_train = dataloader.data
+    # xM, xP, y_o, y_unc, itrain_sites = dataloader.data
     # xM_dev = gdev_M(xM)
     # xP_dev, y_o_dev, y_unc_dev = (gdev_P(xP), gdev_P(y_o), gdev_P(y_unc)) 
     data_dev = gdev_hybridproblem_data(dataloader.data; gdev_M, gdev_P)
@@ -329,10 +329,10 @@ function gdev_hybridproblem_data(data::Tuple; gdevs = nothing,
     # gdev_M = :use_gpu ∈ _val_value(scenario) ? gdev : identity,
     # gdev_P = :f_on_gpu ∈ _val_value(scenario) ? gdev : identity,
     ) 
-    xM, xP, y_o, y_unc, i_sites_train = data
+    xM, xP, y_o, y_unc, itrain_sites = data
     xM_dev = gdev_M(xM)
     xP_dev, y_o_dev, y_unc_dev = (gdev_P(xP), gdev_P(y_o), gdev_P(y_unc)) 
-    (xM_dev, xP_dev, y_o_dev, y_unc_dev, i_sites_train)
+    (xM_dev, xP_dev, y_o_dev, y_unc_dev, itrain_sites)
 end
 
 """

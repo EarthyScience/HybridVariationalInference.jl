@@ -134,14 +134,14 @@ test_scenario = (scenario) -> begin
         g_gpu = ggdev(g_flux)
     end
 
-    i_sites_train = 1:n_batch
+    itrain_sites = 1:n_batch
     ζsP, ζsMs_tr, σ = @inferred (
         # @usingany Cthulhu
     # @descend_code_warntype (
         CP.generate_ζ(
-        probc.approx, rng, g, ϕ_ini, xM[:, i_sites_train];
+        probc.approx, rng, g, ϕ_ini, xM[:, itrain_sites];
         n_MC, cor_ends, pbm_covar_indices,
-        i_sites_train, ranef,
+        itrain_sites, ranef,
         int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq, is_testmode = false)
     )
 
@@ -157,8 +157,8 @@ test_scenario = (scenario) -> begin
         gr = Zygote.gradient(
             ϕ -> begin
                 _ζsP, _ζsMs_tr, _σ = CP.generate_ζ(
-                    probc.approx, rng, g, ϕ, xM[:, i_sites_train];
-                    i_sites_train, ranef,
+                    probc.approx, rng, g, ϕ, xM[:, itrain_sites];
+                    itrain_sites, ranef,
                     n_MC=8, cor_ends, pbm_covar_indices,
                     int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq,
                      is_testmode = true)
@@ -238,13 +238,13 @@ test_scenario = (scenario) -> begin
             #hcat(ϕ_ini, ϕ, _ϕ)[1:4,:]
             #hcat(ϕ_ini, ϕ, _ϕ)[(end-20):end,:]
             n_predict = 10_000 #8_000
-            i_sites_train = 1:n_batch
-            xM_batch = xM[:, i_sites_train]
+            itrain_sites = 1:n_batch
+            xM_batch = xM[:, itrain_sites]
             _ζsP, _ζsMs_tr, _σ = @inferred (
                 # @descend_code_warntype (
                     CP.generate_ζ(
                     probc.approx, rng, g, _ϕ, xM_batch;
-                    i_sites_train,
+                    itrain_sites,
                     n_MC = n_predict, cor_ends, pbm_covar_indices,
                     int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq,
                     is_testmode = true)
@@ -326,12 +326,12 @@ test_scenario = (scenario) -> begin
             ϕ = ggdev(CA.getdata(ϕ_ini))
             @test g_gpu.μ isa GPUArraysCore.AbstractGPUArray
             # @test g_gpu.app isa HybridVariationalInferenceFluxExt.FluxApplicator
-            xMg_batch = ggdev(xM[:, i_sites_train])
+            xMg_batch = ggdev(xM[:, itrain_sites])
             ζsP_d, ζsMs_tr_d, σ_d = @inferred (
             # @descend_code_warntype (
                 CP.generate_ζ(
                 probc.approx, rng, g_gpu, ϕ, xMg_batch;
-                i_sites_train,
+                itrain_sites,
                 n_MC, cor_ends, pbm_covar_indices,
                 int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq,
                 is_testmode = true))
@@ -346,7 +346,7 @@ test_scenario = (scenario) -> begin
                 ϕ -> begin
                     _ζsP, _ζsMs_tr, _σ = CP.generate_ζ(
                         probc.approx, rng, g_gpu, ϕ, xMg_batch;
-                        i_sites_train,
+                        itrain_sites,
                         n_MC, cor_ends, pbm_covar_indices,
                         int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq,
                         is_testmode = false)
@@ -429,7 +429,7 @@ test_scenario = (scenario) -> begin
 
     @testset "neg_elbo_gtf cpu $(last(CP._val_value(scenario)))" begin
         scen = CP._val_value(scenario)
-        i_sites_train = 1:n_batch
+        itrain_sites = 1:n_batch
         transMs = StackedArray(transM, size(ζsMs_tr, 1))
         #intθMs = ComponentArrayInterpreter((n_batch,), int_M)
         intθMs = get_concrete(ComponentArrayInterpreter((n_batch,), int_M))
@@ -439,7 +439,7 @@ test_scenario = (scenario) -> begin
             #@usingany Cthulhu
         #@descend_code_warntype (
             neg_elbo_gtf(rng, ϕ_ini, g, f, py,
-            xM[:, i_sites_train], xP[:, i_sites_train], y_o[:, i_sites_train], y_unc[:, i_sites_train], i_sites_train;
+            xM[:, itrain_sites], xP[:, itrain_sites], y_o[:, itrain_sites], y_unc[:, itrain_sites], itrain_sites;
             int_ϕq, int_ϕg_ϕq,
             cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
             is_testmode = true, 
@@ -451,7 +451,7 @@ test_scenario = (scenario) -> begin
         @test cost isa promote_type(eltype(xM), eltype(y_o), eltype(ϕ_ini))
         gr = Zygote.gradient(
             ϕ -> neg_elbo_gtf(rng, ϕ, g, f, py,
-                xM[:, i_sites_train], xP[:, i_sites_train], y_o[:, i_sites_train], y_unc[:, i_sites_train], i_sites_train;
+                xM[:, itrain_sites], xP[:, itrain_sites], y_o[:, itrain_sites], y_unc[:, itrain_sites], itrain_sites;
                 int_ϕq, int_ϕg_ϕq,
                 cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
                 is_testmode = false, 
@@ -464,15 +464,15 @@ test_scenario = (scenario) -> begin
 
     if ggdev isa MLDataDevices.AbstractGPUDevice
         @testset "neg_elbo_gtf gpu $(last(CP._val_value(scenario)))" begin
-            i_sites_train = 1:n_batch
+            itrain_sites = 1:n_batch
             transMs = StackedArray(transM, size(ζsMs_tr, 1))
             ϕ = ggdev(CA.getdata(ϕ_ini))
-            xMg_batch = ggdev(xM[:, i_sites_train])
-            xP_batch = xP[:, i_sites_train] # used in f which runs on CPU
+            xMg_batch = ggdev(xM[:, itrain_sites])
+            xP_batch = xP[:, itrain_sites] # used in f which runs on CPU
             cost = @inferred (
             #@descend_code_warntype (
                 neg_elbo_gtf(rng, ϕ, g_gpu, f, py,
-                xMg_batch, xP_batch, y_o[:, i_sites_train], y_unc[:, i_sites_train], i_sites_train;
+                xMg_batch, xP_batch, y_o[:, itrain_sites], y_unc[:, itrain_sites], itrain_sites;
                 int_ϕq, int_ϕg_ϕq,
                 n_MC=3, cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
                 is_testmode = true,
@@ -483,7 +483,7 @@ test_scenario = (scenario) -> begin
             @test cost isa Float64
             gr = Zygote.gradient(
                 ϕ -> neg_elbo_gtf(rng, ϕ, g_gpu, f, py,
-                    xMg_batch, xP_batch, y_o[:, i_sites_train], y_unc[:, i_sites_train], i_sites_train;
+                    xMg_batch, xP_batch, y_o[:, itrain_sites], y_unc[:, itrain_sites], itrain_sites;
                     int_ϕq, int_ϕg_ϕq,
                     n_MC=3, cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
                     is_testmode = false,
@@ -509,8 +509,8 @@ test_scenario = (scenario) -> begin
             @inferred (
                 #Cthulhu.@descend_code_warntype (
                 sample_posterior(rng, g, ϕ_ini, xM;
-                i_sites_train = 1:size(xM, 2),
-                #i_sites_train = Int[],
+                itrain_sites = 1:size(xM, 2),
+                #itrain_sites = Int[],
                 int_ϕg_ϕq, int_ϕq,
                 transP, transM,
                 cdev = identity,

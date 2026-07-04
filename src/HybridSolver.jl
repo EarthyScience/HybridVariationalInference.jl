@@ -428,10 +428,10 @@ function get_loss_elbo(g, transP, transM, f, py, n_batch;
         frac_cluster_all = convert.(T, frac_cluster_all)
 
 
-        function loss_elbo(ϕ, rng::Random.AbstractRNG, xM, xP, y_o, y_unc, i_sites_train; is_testmode)
+        function loss_elbo(ϕ, rng::Random.AbstractRNG, xM, xP, y_o, y_unc, itrain_sites; is_testmode)
             #ϕc = int_ϕg_ϕq(ϕ)
             neg_elbo_gtf(
-                rng, ϕ, g, f, py, xM, xP, y_o, y_unc, i_sites_train;
+                rng, ϕ, g, f, py, xM, xP, y_o, y_unc, itrain_sites;
                 int_ϕq, int_ϕg_ϕq,
                 n_MC, n_MC_cap, n_MC_mean, cor_ends, 
                 cdev, pbm_covar_indices, transP, transMs, trans_mP, trans_mMs,
@@ -482,12 +482,12 @@ function compute_elbo_components(
         g_dev = g
         data_dev = data
     end
-    (xM, xP, y_o, y_unc, i_sites_train) = data_dev
+    (xM, xP, y_o, y_unc, itrain_sites) = data_dev
     n_site_pred = size(xP,2)
     @assert size(xM, 2) == n_site_pred
     @assert size(y_o, 2) == n_site_pred
     @assert size(y_unc, 2) == n_site_pred
-    @assert length(i_sites_train) == n_site_pred
+    @assert length(itrain_sites) == n_site_pred
     f_batch = get_hybridproblem_PBmodel(prob; scenario)
     f = (n_site_pred == n_batch) ? f : create_nsite_applicator(f_batch, n_site_pred)
     py = get_hybridproblem_neg_logden_obs(prob; scenario)
@@ -496,7 +496,7 @@ function compute_elbo_components(
     #     prob, ϕ0_dev.ϕg, keys(θM), θP, θmean_quant, g_dev, transM;
     #     scenario, gdev, cdev, pbm_covars)
     neg_elbo_gtf_components(
-        rng, ϕ0_dev, g_dev, transPMs_batch, f, py, xM, xP, y_o, y_unc, i_sites_train, interpreters;
+        rng, ϕ0_dev, g_dev, transPMs_batch, f, py, xM, xP, y_o, y_unc, itrain_sites, interpreters;
         solver.n_MC, solver.n_MC_cap, cor_ends, priors_θ_mean)
 end
 

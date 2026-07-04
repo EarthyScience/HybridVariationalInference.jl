@@ -355,13 +355,13 @@ function HVI.get_hybridproblem_train_dataloader(prob::DoubleMMCase; scenario::Va
     #    HVI.get_hybridproblem_n_covar, which be default relies on the train_dataloader
     dl = construct_dataloader_from_synthetic(rng, prob; scenario, n_batch, kwargs...) 
     if (:driverNAN ∈ scen)
-        (xM, xP, y_o, y_unc, i_sites_train) = dl.data
+        (xM, xP, y_o, y_unc, itrain_sites) = dl.data
         # set the last two entries of the S1 drivers and observations of the second site NaN
         is_obs = 7:8
         i_site = 2
         xP[is_obs,i_site] .= NaN
         y_o[is_obs,i_site] .= NaN
-        train_loader = MLUtils.DataLoader((CA.getdata(xM), CA.getdata(xP), y_o, y_unc, i_sites_train);
+        train_loader = MLUtils.DataLoader((CA.getdata(xM), CA.getdata(xP), y_o, y_unc, itrain_sites);
             batchsize = n_batch, partial = false)
     else
         dl
@@ -373,9 +373,9 @@ function HVI.get_hybridproblem_test_data(prob::DoubleMMCase; scenario::Val{scen}
 ) where {scen}
     (; xM, xP, y_o, y_unc) = gen_hybridproblem_synthetic(rng, prob; scenario)
     i_sites_test = HVI.get_i_sites_test(prob; scenario) 
-    i_sites_train = zeros(length(i_sites_test)) # index into training data
+    itrain_sites = zeros(length(i_sites_test)) # index into training data
     (; xM = xM[:, i_sites_test], xP = xP[:, i_sites_test], y_o = y_o[:, i_sites_test],
-        y_unc = y_unc[:, i_sites_test], i_sites_train)
+        y_unc = y_unc[:, i_sites_test], itrain_sites)
 end
 
 function HVI.get_i_sites_test(prob::DoubleMMCase; scenario::Val{scen}) where {scen}

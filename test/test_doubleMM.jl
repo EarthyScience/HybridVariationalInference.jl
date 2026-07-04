@@ -308,8 +308,8 @@ end
     # train_loader = MLUtils.DataLoader(
     #     (xM, xP, y_o, y_unc, i_sites), batchsize = n_site_batch)
     train_loader = get_hybridproblem_train_dataloader(prob; scenario)
-    i_sites_train = train_loader.data[5]
-    n_site_train = length(i_sites_train)
+    itrain_sites = train_loader.data[5]
+    n_site_train = length(itrain_sites)
     i_sites_train_all = setdiff(1:size(xM,2),CP.get_i_sites_test(prob; scenario))
     @assert train_loader.data[1:4] == (xM[:,i_sites_train_all], xP[:,i_sites_train_all], y_o[:,i_sites_train_all], y_unc[:,i_sites_train_all])
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
@@ -403,7 +403,7 @@ end
     ϕq_opt = intϕ(res.u).ϕq
     ϕq_opt.ranef
     intϕ(p0).ϕq.ranef
-    #ϕq_opt.ranef.β[i_sites_train,:]
+    #ϕq_opt.ranef.β[itrain_sites,:]
 
     θMs_tr_pred = CA.ComponentArray(θMs_tr_pred, CA.getaxes(θMs_true'))
     #TODO @test isapprox(par_templates.θP, intϕ(res.u).μP, rtol = 0.15)

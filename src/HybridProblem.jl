@@ -12,7 +12,7 @@ Fields:
 - `transM::Stacked`, `transP::Stacked`: bijectors transforming from unconstrained to 
   constrained scale for site-specific and global parameters respectively.
 - `train_dataloader`: e.g. `MLUtils.DataLoader` providing Tuple of matrices 
-  `(xM, xP, y_o, y_unc, i_sites_train)`: covariates, model drivers, observations, 
+  `(xM, xP, y_o, y_unc, itrain_sites)`: covariates, model drivers, observations, 
   observation uncertainties and index of provided sites.
 - `test_data::Tuple of the same form as with `train_dataloader` for testset data.
 - `n_covar::Int`, `n_site::Int`, `n_batch::Int`: number covariates,

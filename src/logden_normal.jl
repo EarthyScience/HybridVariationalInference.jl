@@ -52,10 +52,11 @@ function neg_logden_indep_normal(obs::AbstractArray{TO,D}, μ::AbstractArray{TP,
             "but got array of dimension $D")
     end
     #nlogL_sites = colsum_finite_obs(nlogL, obs)
-    if !all(isfinite.(nlogL_sites))
-        @show nlogL_sites, μ
-        error("encountered non-finite loglikelihood in neg_logden_indep_normal")
-    end
+    # if !all(isfinite.(nlogL_sites))
+    #     @show nlogL_sites, μ
+    #     @warn("encountered non-finite loglikelihood in neg_logden_indep_normal")
+    #     Main.@infiltrate_main
+    # end
     return (nlogL_sites)
     # function fcol(logσ2, obs, μ) 
     #     nlogL = sum(isfinite(obs[i]) ? X[i] : zero(eltype(X))  # observations might by NaN for missing
