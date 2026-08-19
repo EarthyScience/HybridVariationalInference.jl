@@ -72,13 +72,13 @@ function get_loss_ran_tr_f(rng, prob, itrain_site; scenario = Val((:default,)),
                 θMs_tr_ranef
             end
             nLy = if !all(isfinite.(y_pred[isfinite.(y_o)]))                
-                #@warn "ecountered non-finite y_pred"
-                # random effect so large, taht infinite after transformation
+                #@warn "encountered non-finite y_pred"
+                # random effect so large, that infinite after transformation
                 T(1e6)
             else
                 res_py = py(y_o, y_pred, y_unc)[1]
                 # if !isfinite(res_py)
-                #     @warn "ecountered non-finite res_py"
+                #     @warn "encountered non-finite res_py"
                 #     Main.@infiltrate_main
                 # end 
                 res_py

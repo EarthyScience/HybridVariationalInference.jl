@@ -209,7 +209,7 @@ end
 
 Perform the inversion of HVI Problem.
 
-Arguemtns
+Arguments
 - `prob`: The AbstractHybridProblem to solve.
 - `scenario`: Scenario to query prob, defaults to `Val(())`.
 - `epochs`: number of epochs to train, i.e. number of passes through the whole dataset.

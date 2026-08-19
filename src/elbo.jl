@@ -132,7 +132,7 @@ function neg_elbo_ζtf(ζsP::AbstractArray{T}, ζsMs_tr, σ, f, py, xP, y_ob, y_
     n_site_pred = size(ζsMs_tr,1)
     @assert length(itrain_sites) == n_site_pred
     frac_cluster = if iszero(itrain_sites[1]) 
-        # unknonw site indices, e.g. test deata
+        # unknown site indices, e.g. test deata
          zeros(eltype(frac_cluster_all),length(itrain_sites)) 
     else
         frac_cluster_all[itrain_sites]
@@ -422,7 +422,7 @@ function compute_priors_logdensity(priorsP, priorsM, θP, θMs_tr, zero_prior_lo
     # prior for each parameter across vector (therefore Base.Fix1) of site
     #nLprior_Ms_pars = map(i_par -> -logpdf(priorsM[i_par], θMs_tr[:,i_par])::Vector{typeof(nlP0)}, 1:length(priorsM))
     nLprior_Ms_pars = map(i_par -> -map(
-        # asserting the type fails wiht ForwardDiff and empty priorsP
+        # asserting the type fails with ForwardDiff and empty priorsP
         # but otherwise not typestable
         Base.Fix1(logpdf, priorsM[i_par]), θMs_tr[:,i_par])::Vector{typeof(nlP0)}, 
         1:length(priorsM))
@@ -875,17 +875,17 @@ function generate_ζ(
     ϕq_ranef = ϕqc[Val(:ranef)]
     n_θm = size(ζMs_parfirst_resids, 1)
     μ_ζMs0_tr = ϕm0[1:n_θm, :]'
-    # if random effect is kown, i.e. itrain_sites is provided, add to ζMs_resids
+    # if random effect is known, i.e. itrain_sites is provided, add to ζMs_resids
     #    otherwise add the same sampled random effect for n_sample_ranef sites to ζMs_resids
     ζMs_parfirst_ranef_resids = if !isempty(itrain_sites) && !iszero(itrain_sites[1])
-        # random effect (same for all samples, in 3rd dimenstion) is recycled
-        #   adding it to μ is not valid, becase μ may be resampled given ζPi covariates
+        # random effect (same for all samples, in 3rd dimension) is recycled
+        #   adding it to μ is not valid, because μ may be resampled given ζPi covariates
         add_ranef(ranef, ζMs_parfirst_resids, ϕq_ranef, itrain_sites) 
     else
-        # TODO move n_distict_ranef and i_col out of the loop
-        n_distict_ranef = ceil(Int, n_site / n_sample_ranef)
+        # TODO move n_distinct_ranef and i_col out of the loop
+        n_distinct_ranef = ceil(Int, n_site / n_sample_ranef)
         i_col = generate_repeated_integers(n_site_pred, n_sample_ranef)
-        β_distinct = sample_ranef(ranef, ϕq_ranef, n_distict_ranef, n_MC)
+        β_distinct = sample_ranef(ranef, ϕq_ranef, n_distinct_ranef, n_MC)
         β = β_distinct[:,i_col,:]
         @assert size(β) == size(ζMs_parfirst_resids)
         ζMs_parfirst_resids .+ β

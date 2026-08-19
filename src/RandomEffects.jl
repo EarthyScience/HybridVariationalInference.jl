@@ -63,7 +63,7 @@ struct RandomEffectsComputer{N,T,NM,NNM} <: AbstractRandomEffectsComputer{T}
     parameters::NTuple{N, Symbol}
     prior_Σ::AbstractCovariancePrior{N,T} # changed type to float_template
     ncomp_U::Int8                         # number of components to describe correlation
-    P_col::SA.SMatrix{NM, N, Bool, NNM}   # projection matrix of subset of randam to all
+    P_col::SA.SMatrix{NM, N, Bool, NNM}   # projection matrix of subset of random to all
     n_site::Int                           # number of sites to setup parameter vector
 end
 function get_ranef_computer(

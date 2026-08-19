@@ -48,7 +48,7 @@ In this example we want to avoid local minima when parameter, `r1`, is larger th
 70% of the maximum observation.
 
 ``` julia
-# compute the maximum of observed rates at each traiing site
+# compute the maximum of observed rates at each training site
 y_obs = get_hybridproblem_train_dataloader(prob).data[3]
 const y_obs_max = map(col -> maximum(x -> isfinite(x) ? x : zero(x), col), eachcol(y_obs))
 
