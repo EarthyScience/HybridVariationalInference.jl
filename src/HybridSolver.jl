@@ -1,5 +1,16 @@
 abstract type AbstractHybridSolver end
 
+"""
+A Solver that solves for the mode of hybrid variational inference problem
+([`AbstractHybridProblem`](@ref)).
+
+
+It does not perform the full posterior inference, 
+but only finds the optimal parameters of the variational distribution. 
+This is useful for initializing the full posterior inference.
+
+- `alg`: The optimization algorithm to use for solving the problem, e.g. `Adam()`
+"""
 struct HybridPointSolver{A} <: AbstractHybridSolver
     alg::A
 end
@@ -188,7 +199,14 @@ function get_callback_epochs(epochs_callback;
     end
 end
 
+"""
+A Solver that solves for the full posterior of a variational inference problem
+([`AbstractHybridProblem`](@ref)).
 
+Parameters
+- `alg`: The optimization algorithm to use for solving the problem, e.g. `Adam()`
+- `n_MC`: The number of Monte Carlo samples to use for estimating the gradients of the loss function. 
+"""
 struct HybridPosteriorSolver{A} <: AbstractHybridSolver
     alg::A
     n_MC::Int
