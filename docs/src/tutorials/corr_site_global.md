@@ -6,7 +6,7 @@ CurrentModule = HybridVariationalInference
 ```
 
 This guide shows how to configure providing certain global parameters as
-covariates to the ML model.-hybr
+covariates to the ML model.
 
 ## Motivation
 
@@ -99,6 +99,7 @@ prob_cond = HybridProblem(probo_uncond; g=g_chain_scaled, ϕg=ϕg0, pbm_covars)
 
 ``` julia
 using OptimizationOptimisers
+import CommonSolve: solve
 import Zygote
 
 solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)

@@ -108,6 +108,7 @@ HybridProblem has keyword argument `py` to specify the function of negative Log-
 prob_lognormal = HybridProblem(prob; py = neg_logden_lognormalep_lognormal)
 
 using OptimizationOptimisers
+import CommonSolve: solve
 import Zygote
 
 solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)

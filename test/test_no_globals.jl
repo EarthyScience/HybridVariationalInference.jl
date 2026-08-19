@@ -14,6 +14,7 @@ cdev = cpu_device()
 
 using OptimizationOptimisers
 using Lux  # in order to load extension
+import CommonSolve: solve
 
 # scenario = Val(()); scen=()
 # scenario = Val((:ranef,)); scen=(:ranef,)

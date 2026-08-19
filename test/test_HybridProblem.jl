@@ -16,6 +16,7 @@ using MLUtils
 import Zygote
 
 using OptimizationOptimisers
+import CommonSolve: solve
 using MLDataDevices
 using Suppressor
 

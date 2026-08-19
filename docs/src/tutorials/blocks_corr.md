@@ -90,6 +90,7 @@ length(get_hybridproblem_ϕq(prob)), length(get_hybridproblem_ϕq(prob_ind))
 
 ``` julia
 using OptimizationOptimisers
+import CommonSolve: solve
 import Zygote
 
 solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)

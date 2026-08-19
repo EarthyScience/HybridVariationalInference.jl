@@ -27,3 +27,4 @@ docs/src/tutorials/intermediate/clustered_sites_probo_allsites.jld2
 projects/clustered_sites/intermediate/*
 
 build/*
+intermediate/*

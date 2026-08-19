@@ -371,7 +371,7 @@ end
             ϕ, data...; is_testmode=false, ignore_ranef = Val(true))),
             Optimization.AutoZygote())
             #Optimization.AutoFiniteDiff())
-        optprob0 = OptimizationProblem(optf0, CA.getdata(p0), train_loader)
+        optprob0 = Optimization.OptimizationProblem(optf0, CA.getdata(p0), train_loader)
         res0 = Optimization.solve(
             #optprob, Adam(0.02), callback = callback_loss(100), maxiters = 5000);
             optprob0, Adam(0.02),
@@ -387,7 +387,7 @@ end
     optf = Optimization.OptimizationFunction((ϕ, data) -> first(loss_gf(ϕ, data...; is_testmode=false)),
         Optimization.AutoZygote())
         #Optimization.AutoFiniteDiff())
-    optprob = OptimizationProblem(optf, CA.getdata(p0_norand), train_loader)
+    optprob = Optimization.OptimizationProblem(optf, CA.getdata(p0_norand), train_loader)
 
     res = #@suppress begin
         Optimization.solve(optprob, Adam(0.02),

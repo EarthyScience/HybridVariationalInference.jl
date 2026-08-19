@@ -331,6 +331,7 @@ ENV["MLDATADEVICES_SILENCE_WARN_NO_GPU"] = 1
 ```{julia}
 using OptimizationOptimisers
 import Zygote
+import CommonSolve: solve
 
 solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)
 

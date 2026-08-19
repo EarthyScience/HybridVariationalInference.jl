@@ -104,6 +104,7 @@ Currently, only CUDA is tested with this `HybridVariationalInference` package.
 import CUDA, cuDNN # so that gpu_device() returns a CUDADevice
 
 using OptimizationOptimisers
+import CommonSolve: solve
 import Zygote
 solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)
 

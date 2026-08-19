@@ -13,6 +13,7 @@ gdev = gpu_device()
 cdev = cpu_device()
 
 using OptimizationOptimisers
+import CommonSolve: solve
 using Lux  # in order to load extension
 
 
