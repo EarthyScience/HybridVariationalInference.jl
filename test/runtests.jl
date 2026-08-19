@@ -1,4 +1,12 @@
 using Test, SafeTestsets
+() -> begin
+    #@usingany ReferenceRevision
+    refmain = open_process(rev = "main")
+    refmain = open_process(rev = "main", instantiate = true)
+    refmain.eval(:(using CommonSolve))
+    refmain = open_process(rev = "main", instantiate = true)
+    close(refmain)
+end
 const GROUP = get(ENV, "GROUP", "All") # defined in in CI.yml
 
 @time begin
@@ -15,6 +23,8 @@ const GROUP = get(ENV, "GROUP", "All") # defined in in CI.yml
         @time @safetestset "test_util_gpu" include("test_util_gpu.jl")
         #@safetestset "test" include("test/test_ComponentArrayInterpreter.jl")
         @time @safetestset "test_ComponentArrayInterpreter" include("test_ComponentArrayInterpreter.jl")
+        #@safetestset "test" include("test/test_RandomEffects.jl")
+        @time @safetestset "test_PBMApplicator" include("test_RandomEffects.jl")
         #@safetestset "test" include("test/test_PBMApplicator.jl")
         @time @safetestset "test_PBMApplicator" include("test_PBMApplicator.jl")
         #@safetestset "test" include("test/test_ModelApplicator.jl")

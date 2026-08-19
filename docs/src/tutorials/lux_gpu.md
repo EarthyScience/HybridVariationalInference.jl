@@ -104,6 +104,7 @@ Currently, only CUDA is tested with this `HybridVariationalInference` package.
 import CUDA, cuDNN # so that gpu_device() returns a CUDADevice
 
 using OptimizationOptimisers
+import CommonSolve: solve
 import Zygote
 solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)
 
@@ -126,7 +127,7 @@ n_sample_pred = 400
 ```
 
 If `gdev_P` is not an `AbstractGPUDevice` then all the results are on CPU.
-This is the case, if running this tutorial on a machine without GPU/CUDA setup.
+This is the case when running this tutorial on a machine without GPU/CUDA setup.
 If `gdev_P` is an `AbstractGPUDevice` then the results are GPUArrays
 and need to be transferred to CPU.
 
@@ -134,7 +135,7 @@ and need to be transferred to CPU.
 typeof(θsMs_dev)
 ```
 
-    ComponentArrays.ComponentArray{Float32, 3, Array{Float32, 3}, Tuple{ComponentArrays.Shaped1DAxis{(800,)}, ComponentArrays.Axis{(r1 = 1, K1 = 2)}, ComponentArrays.Shaped1DAxis{(400,)}}}
+    ComponentArrays.ComponentArray{Float32, 3, Array{Float32, 3}, Tuple{ComponentArrays.Shaped1DAxis{(740,)}, ComponentArrays.Axis{(r1 = 1, K1 = 2)}, ComponentArrays.Shaped1DAxis{(400,)}}}
 
 Handling of a `ComponentArrays` backed by GPUArrays can result
 in errors of scalar indexing. Therefore, use a semicolon

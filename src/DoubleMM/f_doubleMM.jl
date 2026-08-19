@@ -131,12 +131,15 @@ function f_doubleMM_sites(θc_tr::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
     #     #(rep_fac .* p1')    # move to computation below to save allocation
     # end
     #
+    # inline function to fuse all into one dot-expression
+
+    #@inline θ(par::Val) = is_valid .* CA.getdata(view(θc_tr,:, par))'
+
+    # need to multiply already each parameter by is_valid to prevent nan_inf_gradients
     r0 = is_valid .* CA.getdata(θc_tr[:, Val(:r0)])'
     r1 = is_valid .* CA.getdata(θc_tr[:, Val(:r1)])'
     K1 = is_valid .* CA.getdata(θc_tr[:, Val(:K1)])'
     K2 = is_valid .* CA.getdata(θc_tr[:, Val(:K2)])'
-    #
-    #, r1, K1, K2) = map((:r0, :r1, :K1, :K2)) do par
 
     # each variable is a matrix (n_obs x n_site)
     #r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
@@ -352,13 +355,13 @@ function HVI.get_hybridproblem_train_dataloader(prob::DoubleMMCase; scenario::Va
     #    HVI.get_hybridproblem_n_covar, which be default relies on the train_dataloader
     dl = construct_dataloader_from_synthetic(rng, prob; scenario, n_batch, kwargs...) 
     if (:driverNAN ∈ scen)
-        (xM, xP, y_o, y_unc, i_sites) = dl.data
+        (xM, xP, y_o, y_unc, itrain_sites) = dl.data
         # set the last two entries of the S1 drivers and observations of the second site NaN
         is_obs = 7:8
         i_site = 2
         xP[is_obs,i_site] .= NaN
         y_o[is_obs,i_site] .= NaN
-        train_loader = MLUtils.DataLoader((CA.getdata(xM), CA.getdata(xP), y_o, y_unc, i_sites);
+        train_loader = MLUtils.DataLoader((CA.getdata(xM), CA.getdata(xP), y_o, y_unc, itrain_sites);
             batchsize = n_batch, partial = false)
     else
         dl
@@ -366,38 +369,42 @@ function HVI.get_hybridproblem_train_dataloader(prob::DoubleMMCase; scenario::Va
 end
 
 function HVI.get_hybridproblem_test_data(prob::DoubleMMCase; scenario::Val{scen},
-        rng::AbstractRNG = StableRNG(211), kwargs...
+        rng::AbstractRNG = StableRNG(111), kwargs...
 ) where {scen}
-    n_site_test = 60
-    (; xM, xP, y_o, y_unc) = gen_hybridproblem_synthetic(
-        rng, prob; scenario, n_site_test)
-    n_site_all = size(xM,2)
-    i_test = (n_site_all - n_site_test + 1):n_site_all
-    (; xM = xM[:, i_test], xP = xP[:, i_test], y_o = y_o[:, i_test],
-        y_unc = y_unc[:, i_test], i_sites = i_test)
+    (; xM, xP, y_o, y_unc) = gen_hybridproblem_synthetic(rng, prob; scenario)
+    i_sites_test = HVI.get_i_sites_test(prob; scenario) 
+    itrain_sites = zeros(length(i_sites_test)) # index into training data
+    (; xM = xM[:, i_sites_test], xP = xP[:, i_sites_test], y_o = y_o[:, i_sites_test],
+        y_unc = y_unc[:, i_sites_test], itrain_sites)
+end
+
+function HVI.get_i_sites_test(prob::DoubleMMCase; scenario::Val{scen}) where {scen}
+    rng = StableRNG(222)
+    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    n_site_test = n_site ÷ 10
+    i_sites_test = sample(rng, 1:n_site, n_site_test, replace=false)
 end
 
 function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
-        scenario::Val{scen}, n_site_test = 0) where {scen}
+        scenario::Val{scen}) where {scen}
     n_covar_pc = 2
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
     pt = get_hybridproblem_par_templates(prob; scenario)
-    n_siteall = n_site + n_site_test
     n_covar = get_hybridproblem_n_covar(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     n_θM = length(pt.θM)
     FloatType = get_hybridproblem_float_type(prob; scenario)
-    (; xM, ζMs_true) = gen_cov_pred(rng, FloatType, n_covar_pc, n_covar, n_siteall, 
+    (; xM, ζMs_true) = gen_cov_pred(rng, FloatType, n_covar_pc, n_covar, n_site, 
         inverse(transM)(pt.θM);
         scenario, rhodec = 8, is_using_dropout = false)
-    int_θMs_sites = ComponentArrayInterpreter(pt.θM, (n_siteall,))
-    transM_sites = StackedArray(transM, n_siteall)
+    int_θMs_sites = ComponentArrayInterpreter(pt.θM, (n_site,))
+    transM_sites = StackedArray(transM, n_site)
     θMs_true = int_θMs_sites(transM_sites(ζMs_true))
     f_batch = get_hybridproblem_PBmodel(prob; scenario)
-    f = create_nsite_applicator(f_batch, n_siteall)
+    f = create_nsite_applicator(f_batch, n_site)
     #xP = fill((; S1 = xP_S1, S2 = xP_S2), n_siteall)
-    int_xP_sites = ComponentArrayInterpreter(int_xP1, (n_siteall,))
-    xP = int_xP_sites(vcat(repeat(xP_S1, 1, n_siteall), repeat(xP_S2, 1, n_siteall)))
+    int_xP_sites = ComponentArrayInterpreter(int_xP1, (n_site,))
+    xP = int_xP_sites(vcat(repeat(xP_S1, 1, n_site), repeat(xP_S2, 1, n_site)))
     #xP[:S1,:]
     #θP = get_θP(prob) # for DoubleMMCase par_templates gives correct θP
     θP = get_hybridproblem_θP(prob; scenario)
@@ -405,7 +412,6 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     σ_o = FloatType(0.01)
     #σ_o = FloatType(0.002)
     logσ2_o = FloatType(2) .* log.(σ_o)
-    #σ_o = 0.002
     y_o = y_true .+ randn(rng, FloatType, size(y_true)) .* σ_o
     (;
         xM,
@@ -431,6 +437,7 @@ function HVI.get_hybridproblem_cor_ends(prob::DoubleMMCase; scenario::Val{scen})
     end
 end
 
+# TODO: separate parameters and computing tools from specification of the Problem
 function HVI.get_hybridproblem_ϕq(prob::DoubleMMCase; scenario::Val{scen}) where {scen}
     approx = get_hybridproblem_HVIApproximation(prob; scenario)
     FT = get_hybridproblem_float_type(prob; scenario) 
@@ -438,7 +445,13 @@ function HVI.get_hybridproblem_ϕq(prob::DoubleMMCase; scenario::Val{scen}) wher
     (;θP, θM)  = get_hybridproblem_par_templates(prob; scenario)
     n_site, _ = get_hybridproblem_n_site_and_batch(prob; scenario)
     (;transP, transM)  = get_hybridproblem_transforms(prob; scenario)
-    (;ϕqc, approx) = tmp = init_hybrid_ϕunc(approx, cor_ends, zero(FT); θM, transM, n_site)    
+    (;ϕqc, approx) = init_hybrid_ϕunc(approx, cor_ends, zero(FT); θM, transM, n_site)    
+    pt = get_hybridproblem_par_templates(prob; scenario)
+    ranef_spec = get_hybridproblem_ranef(prob; scenario)
+    #ranef = get_ranef_computer(ranef_spec, keys(pt.θM), n_site, one(eltype(ϕq0)))
+    ranef = get_ranef_computer(ranef_spec, keys(pt.θM), n_site, one(FT))
+    ϕq_ranef = setup_ϕq_ranef(ranef)
+    ϕqc = CA.ComponentVector(ϕqc, ranef = ϕq_ranef)
     # for DoubleMMCase templates gives the correct values
     ϕqP = HVI.update_μP_by_θP(ϕqc, θP, transP)
 end
@@ -453,10 +466,19 @@ function HVI.get_hybridproblem_HVIApproximation(prob::DoubleMMCase; scenario::Va
         (;θP, θM)  = get_hybridproblem_par_templates(prob; scenario)
         FT = eltype(θM)
         block_ends = [length(θM)]
-        MeanScalingHVIApproximation(block_ends,FT(2) .* log.(FT(0.1) .* θM[block_ends]))
+        MeanScalingHVIApproximation(block_ends, FT(2) .* log.(FT(0.1) .* θM[block_ends]))
     elseif (:sepvar ∈ scen) 
         MeanVarSepHVIApproximation() 
     else
         MeanHVIApproximationMat()
+    end
+end
+
+function HVI.get_hybridproblem_ranef(prob::DoubleMMCase; scenario::Val{scen}) where {scen}
+    ranef_spec = if any((:ranef) .∈ Ref(scen))
+        par_ranef = (:r1, :K1)
+        RandomEffects(par_ranef)
+    else
+        NullRandomEffects()
     end
 end

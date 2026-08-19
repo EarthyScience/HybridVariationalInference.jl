@@ -142,6 +142,14 @@ end
     Xt2 = @inferred bse(copy(X')') # works also for adjoint
     @test Xt2 == Xt
     @inferred bse(X)
+    #
+    # with_logabsdet_jacobians
+    Xt3, logjac = with_logabsdet_jacobian(bse, X) # single value
+    Xt3, logjacs = CP.with_logabsdet_jacobians(bse, X)
+    @test Xt3 == Xt
+    @test sum(logjacs) == logjac
+    @test size(logjacs) == size(Xt3) # logjac for all components
+    #
     if gdev isa MLDataDevices.AbstractGPUDevice
         Xd = gdev(X)
         bse(Xd)
@@ -158,6 +166,10 @@ end
         dys = Zygote.gradient(X -> tmpf(X', bs), Xd')[1]
         @test all(dys[2:end,:] .== 1.0)
     end
+end
+
+@testset "with_logabsdet_jacobians" begin
+
 end
 
 

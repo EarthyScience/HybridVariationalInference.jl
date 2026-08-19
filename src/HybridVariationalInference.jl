@@ -28,15 +28,21 @@ using KernelAbstractions
 import NaNMath # ignore missing observations in logDensity
 using DifferentiationInterface: DifferentiationInterface as DI
 import Zygote
+import ForwardDiff, PreallocationTools
 using IterTools: IterTools
 using PDMats
 using Distances, Clustering
 #using OptimizationOptimisers
+using RecursiveArrayTools: VectorOfArray, AbstractVectorOfArray
 
 export DoubleMM
 
 include("OneBasedVectorWithZero.jl")
+export cat_namedtuple_lastdim, index_at_dim
 include("util.jl")
+
+export WeightedDataLoader
+include("WeightedDataLoader.jl")
 
 export extend_stacked_nrow, StackedArray
 #public Exp 
@@ -44,6 +50,11 @@ export extend_stacked_nrow, StackedArray
 VERSION >= v"1.11.0-DEV.469" && eval(Meta.parse("public Exp")) 
 VERSION >= v"1.11.0-DEV.469" && eval(Meta.parse("public Logistic")) 
 include("bijectors_utils.jl")
+
+export AbstractRandomEffects, RandomEffects, NullRandomEffects, NullRandomEffectsComputer
+export AbstractCovariancePrior, CVPrior_LKJ_Cauchy
+export compute_nLranef, add_ranef, setup_ϕq_ranef, get_ranef_computer
+include("RandomEffects.jl")
 
 export AbstractHVIApproximation, AbstractMeanHVIApproximation
 export get_numberof_MLinputs
@@ -74,19 +85,20 @@ include("PBMApplicator.jl")
 
 export AbstractHybridProblem, AbstractPenaltyComputer, CustomPenaltyComputer,
         compute_penalty,
-       get_hybridproblem_MLapplicator, get_hybridproblem_PBmodel,
-       get_hybridproblem_penalty_computer,
-       get_hybridproblem_ϕq, get_hybridproblem_θP,
-       get_hybridproblem_float_type, gen_hybridproblem_synthetic,
-       get_hybridproblem_par_templates, get_hybridproblem_transforms,
-       get_hybridproblem_train_dataloader,
-       get_hybridproblem_test_data,
-       get_hybridproblem_neg_logden_obs,
-       get_hybridproblem_n_covar, # default
-       get_hybridproblem_n_site_and_batch,
-       get_hybridproblem_cor_ends,
-       get_hybridproblem_priors,
-       get_hybridproblem_pbmpar_covars,
+        get_hybridproblem_MLapplicator, get_hybridproblem_PBmodel,
+        get_hybridproblem_penalty_computer,
+        get_hybridproblem_ϕq, get_hybridproblem_θP,
+        get_hybridproblem_float_type, gen_hybridproblem_synthetic,
+        get_hybridproblem_par_templates, get_hybridproblem_transforms,
+        get_hybridproblem_train_dataloader,
+        get_hybridproblem_test_data,
+        get_hybridproblem_neg_logden_obs,
+        get_hybridproblem_n_covar, # default
+        get_hybridproblem_n_site_and_batch,
+        get_hybridproblem_cor_ends,
+        get_hybridproblem_priors,
+        get_hybridproblem_pbmpar_covars,
+        get_hybridproblem_ranef,
        gen_cov_pred,
        construct_dataloader_from_synthetic,
        gdev_hybridproblem_dataloader, gdev_hybridproblem_data,
@@ -123,6 +135,7 @@ export get_ca_starts, get_ca_ends, get_cor_count
 include("cholesky.jl")
 
 export neg_elbo_gtf, sample_posterior, predict_hvi, ZeroPenaltyComputer
+export predict_hvi_and_compute_elbo_components
 export get_hybridproblem_correlation_Ms, get_hybridproblem_cholesky_correlation_Ms
 export get_marginal_std
 include("elbo_dev.jl")
@@ -130,6 +143,9 @@ include("elbo_sepvec.jl")
 include("elbo_scaling.jl")
 include("elbo.jl")
 include("elbo2.jl")
+
+#export get_loss_ran_tr_f
+include("fit_ranef_site.jl")
 
 export init_hybrid_params, init_hybrid_ϕunc
 include("init_hybrid_params.jl")

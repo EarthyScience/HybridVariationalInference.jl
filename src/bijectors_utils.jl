@@ -169,9 +169,10 @@ Return a Jacobian for each row in x.
 function with_logabsdet_jacobians(sb::StackedArray, x::AbstractArray)
     (y, logjacs_vec) = with_logabsdet_jacobians(sb.stacked, vec(x))
     ym = reshape(y, size(x))
-    # move sum to elbo, here return all components
+    # move (weighted) sum to elbo, here return all components
     #logjacs = sum(reshape(logjacs_vec, sb.nrow, :); dims = 2)[:,1]
-    logjacs = reshape(logjacs_vec, sb.nrow, :)
+    logjacs = reshape(logjacs_vec, size(ym))
+    #Main.@infiltrate_main
     return (ym, logjacs)
 end
 

@@ -6,6 +6,7 @@ using StableRNGs
 using Random
 using Statistics
 using ComponentArrays: ComponentArrays as CA
+using StaticArrays: StaticArrays as SA
 using Bijectors
 using DistributionFits
 using StatsFuns: logistic
@@ -15,6 +16,7 @@ using MLUtils
 import Zygote
 
 using OptimizationOptimisers
+import CommonSolve: solve
 using MLDataDevices
 using Suppressor
 
@@ -27,8 +29,11 @@ cdev = cpu_device()
 #scenario = Val((:default, ))
 #scenario = Val((:MeanHVIApproxMat,))
 #scenario = Val((:covarK2,))
+#scenario = Val((:covarK2,:ranef))
 #scen = CP._val_value(scenario)
 #scenario = Val((:clustered_sites, ))
+#scenario = Val((:scalingall, ))   
+#scenario = Val((:scalingall, :ranef))   
 
 function construct_problem(; scenario::Val{scen}) where scen
     FT = Float32
@@ -53,12 +58,14 @@ function construct_problem(; scenario::Val{scen}) where scen
     n_site_test = 60
     # dependency on DeoubleMMCase -> take care of changes in covariates
     (; xM, θP_true, θMs_true, xP, y_true,  y_o, y_unc
-    ) = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); n_site_test,scenario)
-    i_test = n_site .+ (1:n_site_test)
-    test_data = (; xM = xM[:, i_test], xP = xP[:, i_test], y_true = y_true[:, i_test],
-        y_o = y_o[:, i_test], y_unc = y_unc[:, i_test])
+    ) = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); scenario)
+    i_sites_test = sample(rng, 1:n_site, n_site_test, replace=false)
+    test_data = (; xM = xM[:, i_sites_test], xP = xP[:, i_sites_test], 
+        y_o = y_o[:, i_sites_test], y_unc = y_unc[:, i_sites_test],
+        itrain_sites = zeros(length(i_sites_test)))
     approx = if (:scalingall ∈ scen) 
-        MeanHVIApproximationMat([length(θM)])
+        block_ends = [length(θM)]
+        MeanScalingHVIApproximation(block_ends, FT(2) .* log.(FT(0.1) .* θM[block_ends]))
     elseif (:MeanHVIApproxBlocks ∈ scen) 
         MeanHVIApproximationMat() 
     else
@@ -66,7 +73,7 @@ function construct_problem(; scenario::Val{scen}) where scen
     end
     n_covar = size(xM,1) 
     n_input = (:covarK2 ∈ scen) ? n_covar +1 : n_covar
-    n_out =  get_numberof_MLinputs(approx, θM)
+    n_out = get_numberof_MLinputs(approx, θM)    
     g_chain = SimpleChain(
         static(n_input), # input dimension (optional)
         # dense layer with bias that maps to 8 outputs and applies `tanh` activation
@@ -78,16 +85,17 @@ function construct_problem(; scenario::Val{scen}) where scen
     # g, ϕg = construct_SimpleChainsApplicator(g_chain)
     #
     py = neg_logden_indep_normal
-    i_sites = 1:n_site
-    # get_train_loader = let xM = xM, xP = xP, y_o = y_o, y_unc = y_unc, i_sites = i_sites
+    itrain_sites = 1:n_site
+    # get_train_loader = let xM = xM, xP = xP, y_o = y_o, y_unc = y_unc, itrain_sites = itrain_sites
     #     function inner_get_train_loader(; n_batch, kwargs...)
-    #         MLUtils.DataLoader((xM, xP, y_o, y_unc, i_sites), batchsize=n_batch, partial=false)
+    #         MLUtils.DataLoader((xM, xP, y_o, y_unc, itrain_sites), batchsize=n_batch, partial=false)
     #     end
     # end
-    i_train = 1:n_site
+    i_train = setdiff(1:n_site, i_sites_test)
+    @assert sort(vcat(i_sites_test, i_train)) == 1:n_site
     train_dataloader = MLUtils.DataLoader(
         (CA.getdata(xM[:,i_train]), CA.getdata(xP[:,i_train]), y_o[:,i_train], 
-        y_unc[:,i_train], i_sites[i_train]), batchsize=n_batch, partial=false)
+        y_unc[:,i_train], itrain_sites[i_train]), batchsize=n_batch, partial=false)
     θall = vcat(θP, θM)
     priors_dict = Dict{Symbol, Distribution}(
         keys(θall) .=> fit.(LogNormal, θall, QuantilePoint.(θall .* 3, 0.95)))
@@ -95,9 +103,9 @@ function construct_problem(; scenario::Val{scen}) where scen
     # scale (0,1) outputs MLmodel to normal distribution fitted to priors translated to ζ
     priorsM = Tuple(priors_dict[k] for k in keys(θM))
     lowers, uppers = get_quantile_transformed(priorsM, transM)
-    
+    range_scaled = 1:length(lowers) # do only scale means, but not the uncertainty factor
     app, ϕg0 = construct_ChainsApplicator(rng, g_chain, FT)
-    g_chain_scaled = NormalScalingModelApplicator(app, lowers, uppers, FT)
+    g_chain_scaled = NormalScalingModelApplicator(app, lowers, uppers, FT; range_scaled)
     #g_chain_scaled = app
     pbm_covars = (:covarK2 ∈ scen) ? (:K2,) : ()
     f_batch = PBMSiteApplicator(
@@ -105,10 +113,15 @@ function construct_problem(; scenario::Val{scen}) where scen
         xPvec=xP[:,1])
     (; ϕqc, approx) = init_hybrid_ϕunc(approx, cor_ends, zero(FT); θM, transM, n_site) 
     ϕq = CP.update_μP_by_θP(ϕqc, θP, transP)
+    ranef = if (:ranef ∈ scen) 
+        RandomEffects((:r1,))     
+    else
+        NullRandomEffects()
+    end
     HybridProblem(θM, ϕq, g_chain_scaled, ϕg0, 
         f_batch, priors_dict, py,
         transM, transP, train_dataloader, test_data, n_site, n_batch; 
-        cor_ends, pbm_covars, approx,
+        cor_ends, pbm_covars, approx, ranef = ranef
         #ϕunc0, 
         )
 end 
@@ -159,28 +172,36 @@ test_without_flux = (scenario) -> begin
         n_sites_cluster, clusters = CP.get_clusters(n_site; scenario)
         frac_cluster_all = 1 ./ n_sites_cluster[clusters] 
         train_loader = get_hybridproblem_train_dataloader(prob; scenario)
-        (xM, xP, y_o, y_unc, i_sites) = first(train_loader)
+        (xM, xP, y_o, y_unc, itrain_sites) = first(train_loader)
         f = get_hybridproblem_PBmodel(prob; scenario)
         py = get_hybridproblem_neg_logden_obs(prob; scenario)
-        par_templates = get_hybridproblem_par_templates(prob; scenario)
         #f(par_templates.θP, hcat(par_templates.θM, par_templates.θM), xP[1:2])
         (; transM, transP) = get_hybridproblem_transforms(prob; scenario)
         pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
-        intϕ = ComponentArrayInterpreter(CA.ComponentVector(
-            ϕg=1:length(ϕg0), ϕP=par_templates.θP))
         priors = get_hybridproblem_priors(prob; scenario)
-        priorsP = Tuple(priors[k] for k in keys(par_templates.θP))
-        priorsM = Tuple(priors[k] for k in keys(par_templates.θM))
+        priorsP = Tuple(priors[k] for k in keys(pt.θP))
+        priorsM = Tuple(priors[k] for k in keys(pt.θM))
         # slightly disturb θP_true
-        p = p0 = vcat(ϕg0, par_templates.θP .* convert(eltype(ϕg0), 0.8))  
-        intθP = ComponentArrayInterpreter(pt.θP)
-        intθMs = ComponentArrayInterpreter((n_batch,), pt.θM)
+
+        ranef_spec = get_hybridproblem_ranef(prob; scenario)     
+        ranef = get_ranef_computer(
+            ranef_spec, keys(pt.θM), n_site, one(eltype(pt.θM)))
+        ϕq_ranef = setup_ϕq_ranef(ranef)
+        pc = CA.ComponentVector(
+            ϕg = ϕg0,
+            ϕq = CA.ComponentVector(
+                μP = pt.θP .* convert(eltype(ϕg0), 0.8),
+                ranef = ϕq_ranef
+            )
+        )
+        p = p0 = CA.getdata(pc)
+        intϕ = ComponentArrayInterpreter(pc)
 
         # Pass the site-data for the batches as separate vectors wrapped in a tuple
         loss_gf = get_loss_gf(g, transM, transP, f, py, intϕ; 
             par_templates = pt,
             pbm_covars, n_site_batch = n_batch, priorsP, priorsM, 
-            intθMs, intθP, frac_cluster_all,
+            frac_cluster_all, ranef, 
             )
         (_xM, _xP, _y_o, _y_unc, _i_sites) = first(train_loader)
         #l1 = loss_gf(p0, _xM, _xP, _y_o, _y_unc, _i_sites; is_testmode = false)
@@ -211,7 +232,7 @@ test_without_flux = (scenario) -> begin
                 pbm_covars, n_site_batch = n_site)
             l1, y_pred, θMs_pred, θP, nLy, neg_log_prior = loss_gf_sites(
                 res.u, train_loader.data...)
-            @test isapprox(par_templates.θP, transP(intϕ(res.u).ϕP), rtol=0.5)
+            @test isapprox(pt.θP, transP(intϕ(res.u).ϕP), rtol=0.5)
         end
     end
 end
@@ -220,7 +241,9 @@ end
 #scenario=Val((:default,))
 test_without_flux(Val((:default,)))
 test_without_flux(Val((:covarK2,)))
+test_without_flux(Val((:ranef, :covarK2,)))
 test_without_flux(Val((:clustered_sites,)))
+test_without_flux(Val((:ranef, :clustered_sites)))
 
 import CUDA, cuDNN
 using GPUArraysCore
@@ -237,22 +260,33 @@ test_with_flux = (scenario) -> begin
         rng = StableRNG(111)
         solver = HybridPointSolver(; alg=Adam(0.02))
         (; ϕ, resopt, probo) = solve(prob, solver; scenario, rng,
-            #callback = callback_loss(100), maxiters = 1200
-            #maxiters = 1200
-            #maxiters = 20
-            #maxiters=200,
+            #callback = callback_loss(100), 
             epochs = 2,
+            #epochs_callback = 1, # print every epoch
+            epochs_callback = 0, # do not evaluate test and do not print
             gdevs = (; gdev_M=identity, gdev_P=identity),
             #gpu_handler = NullGPUDataHandler
             is_inferred = Val(true),
         )
+        () -> begin
+            ref_solver = refmain.HybridPointSolver(; alg=Adam(0.02))
+            ref_ans_solve = refmain.solve(prob, ref_solver; scenario, rng,
+                #callback = callback_loss(100), 
+                epochs = 2,
+                #epochs_callback = 1, # print every epoch
+                epochs_callback = 0, # do not evaluate test and do not print
+                gdevs = (; gdev_M=identity, gdev_P=identity),
+                #gpu_handler = NullGPUDataHandler
+                is_inferred = Val(true),
+            )
+        end
         (; θP) = get_hybridproblem_par_templates(prob; scenario)
         θPo = (() -> begin
             (; θP) = get_hybridproblem_par_templates(probo; scenario); 
             θP
         end)()
         @test θPo.r0 < 1.5 * θP.r0
-        @test ϕ.ϕP.K2 < 1.5 * log(θP.K2)
+        @test ϕ.ϕq.μP.K2 < 1.5 * log(θP.K2)
         (;y_pred, θMs_tr, θP) = tmp = predict_point_hvi(rng, probo; scenario)
         _,_,y_obs,_ = get_hybridproblem_train_dataloader(prob; scenario).data
         @test size(y_pred) == size(y_obs)
@@ -265,17 +299,34 @@ test_with_flux = (scenario) -> begin
             #callback = callback_loss(100), maxiters = 1200,
             #maxiters = 20 # too small so that it yields error
             #maxiters=37, # still complains "need to specify maxiters or epochs"
-            epochs = 1,
+            epochs = 2,
+            epochs_callback = 1, # print every epoch
+            #epochs_callback = 0, # not progress output
             θmean_quant = 0.01,   # test constraining mean to initial prediction     
             gdevs = (; gdev_M=identity, gdev_P=identity),
             is_inferred = Val(true),
         )
         θPt = get_hybridproblem_par_templates(prob; scenario).θP
+        ϕ.ϕq.ranef
         @test θP.r0 < 1.5 * θPt.r0
         @test exp(ϕ.ϕq.μP.K2) == θP.K2 < 1.5 * θP.K2
         n_sample_pred = 12
-        (; y, addq, θsP, θsMs_tr, entropy_ζ) = predict_hvi(rng, probo; scenario, n_sample_pred);
-        _,_,y_obs,_ = get_hybridproblem_train_dataloader(prob; scenario).data
+        (; y, addq, θsP, θsMs_tr, entropy_ζ) = predict_hvi(rng, probo; 
+            scenario, n_sample_pred,
+            );
+        _,_,y_obs,_ = get_hybridproblem_train_dataloader(probo; scenario).data
+        @test size(y) == (size(y_obs)..., n_sample_pred)
+        yc = cdev(y)
+        _ = map(eachslice(yc; dims = 3)) do ycs
+            @test all(isfinite.(ycs[isfinite.(y_obs)]))    
+        end
+        # test prediction without known random effects
+        testdata = get_hybridproblem_test_data(probo; scenario)
+        (; y, addq, θsP, θsMs_tr, entropy_ζ) = predict_hvi(rng, probo; 
+            xM = testdata.xM, xP = testdata.xP, 
+            scenario, n_sample_pred,
+            );
+        _,_,y_obs,_ = get_hybridproblem_test_data(prob; scenario)
         @test size(y) == (size(y_obs)..., n_sample_pred)
         yc = cdev(y)
         _ = map(eachslice(yc; dims = 3)) do ycs
@@ -286,6 +337,9 @@ end # test_with flux
 
 test_with_flux(Val((:default,)))
 test_with_flux(Val((:covarK2,)))
+test_with_flux(Val((:ranef, :covarK2,)))
+test_without_flux(Val((:ranef, :clustered_sites)))
+
 
 #scenario = Val((:default,:useSitePBM))
 test_with_flux_gpu = (scenario) -> begin
@@ -304,6 +358,7 @@ test_with_flux_gpu = (scenario) -> begin
                 #maxiters = 37, # smallest value by trial and error
                 #maxiters = 20 # too small so that it yields error
                 epochs = 2,
+                epochs_callback = 0, # not progress output
                 θmean_quant = 0.01,   # test constraining mean to initial prediction     
                 is_inferred = Val(true),
                 gdevs = (; gdev_M=gpu_device(), gdev_P=identity),);
@@ -315,6 +370,7 @@ test_with_flux_gpu = (scenario) -> begin
             (; probo, ϕ, resopt) = solve(prob, solver; scenario = scenf,
                 #maxiters = 37, 
                 epochs = 2,
+                epochs_callback = 0, # not progress output
                 gdevs = (; gdev_M=gpu_device(), gdev_P=identity),
                 is_inferred = Val(true),
             );
@@ -332,7 +388,8 @@ test_with_flux_gpu = (scenario) -> begin
             test_correlation = () -> begin
                 n_epoch = 20 # requires 
                 (; ϕ, resopt, probo) = solve(prob, solver; scenario = scenf,
-                    maxiters = n_batches_in_epoch * n_epoch, 
+                    epochs = n_epoch,
+                    epochs_callback = 2, # not progress output
                     gdevs = (; gdev_M=gpu_device(), gdev_P=identity),
                     callback = callback_loss(n_batches_in_epoch*5)
                 );
@@ -361,9 +418,9 @@ test_with_flux_gpu = (scenario) -> begin
 
                 cr = cor(CA.getdata(residθs'))
                 pos_P = get_positions(ComponentArrayInterpreter(θs[:P,1]))
-                i_sites = [1,2,3]
+                itrain_sites = [1,2,3]
                 #ax = map(x -> axes(x,1), get_hybridproblem_par_templates(probo; scenario = scenf))
-                is = vcat(pos.P, vec(pos.Ms[i_sites,:]))
+                is = vcat(pos.P, vec(pos.Ms[itrain_sites,:]))
                 cr[is,is]
             end
         end;
@@ -387,6 +444,7 @@ test_with_flux_gpu = (scenario) -> begin
                     #maxiters = 37, # smallest value by trial and error
                     #maxiters = 20, # too small so that it yields error
                     epochs = 1,
+                    epochs_callback = 0, # not progress output
                     #θmean_quant = 0.01,   # TODO make possible on gpu
                     gdevs = (; gdev_M=gpu_device(), gdev_P=gpu_device()),
                     is_inferred = Val(true),
@@ -404,7 +462,8 @@ end # test_with flux
 
 #test_with_flux_gpu(Val((:MeanHVIApproxBlocks,))) # do not test any more, its slower
 #scenario = Val(())
-test_with_flux_gpu(Val((:default,)))
-test_with_flux_gpu(Val((:covarK2,)))
+#test_with_flux_gpu(Val((:default,)))
+test_with_flux_gpu(Val((:scalingall)))
+test_with_flux_gpu(Val((:covarK2)))
 test_with_flux_gpu(Val((:useSitePBM,)))
 

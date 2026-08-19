@@ -38,18 +38,22 @@ end
 
 const prob = DoubleMM.DoubleMMCase()
 scenario = Val((:covarK2,))
-scenario = Val((:scalingall,))
 scenario = Val((:sepvar,))
 scenario = Val((:default,))
+scenario = Val((:ranef,))
 scenario = Val((:clustered_sites,))
+scenario = Val((:clustered_sites,:ranef))
+#scenario = Val((:scalingall,))  # Also in clustered_sites One site uncertainty-scaling factor predicted by ML
 
-pt = get_hybridproblem_par_templates(prob; scenario)
-FT = eltype(pt.θM)
+_pt = get_hybridproblem_par_templates(prob; scenario)
+_FT = eltype(_pt.θM)
 #approx = MeanHVIApproximationMat()
 #approx = MeanVarSepHVIApproximation()
-#approx = MeanScalingHVIApproximation([length(pt.θM)], FT(2) .* log.([FT(0.1) * pt.θM[end]]))
+#approx = MeanScalingHVIApproximation([length(pt.θM)], _FT(2) .* log.([_FT(0.1) * pt.θM[end]]))
 
 test_scenario = (scenario) -> begin
+    scen = CP._val_value(scenario)
+    #@show scen
     #probc = HybridProblem(prob; scenario, approx);
     probc = HybridProblem(prob; scenario);
     # tmp = first(get_hybridproblem_train_dataloader(prob; scenario))[1]
@@ -72,8 +76,10 @@ test_scenario = (scenario) -> begin
         # wrap inside function to not define(pollute) variables in level up
         _trainloader = get_hybridproblem_train_dataloader(probc; scenario)
         (_xM, _xP, _y_o, _y_unc, _i_sites) = _trainloader.data
-        @test _xM == xM
-        @test _y_o == y_o
+        i_sites_test_all = CP.get_i_sites_test(prob; scenario)
+        i_sites_train_all = setdiff(1:size(xM,2), i_sites_test_all)
+        @test _xM == xM[:,i_sites_train_all]
+        @test _y_o == y_o[:,i_sites_train_all]
     end; tmpf()
 
     # prediction by g(ϕg, XM) does not correspond to θMs_true, randomly initialized
@@ -90,6 +96,15 @@ test_scenario = (scenario) -> begin
     priorsP = [priors[k] for k in keys(par_templates.θP)]
     priorsM = [priors[k] for k in keys(par_templates.θM)]
 
+    ranef_spec = if (:ranef ∈ scen)
+        RandomEffects((:r1, :K1))
+    else
+        NullRandomEffects()
+    end
+    ranef = get_ranef_computer(
+            ranef_spec, keys(par_templates.θM), n_site, one(eltype(par_templates.θM)))
+    ϕq_ranef = setup_ϕq_ranef(ranef)
+
     n_MC = 3
     (; transP, transM) = get_hybridproblem_transforms(probc; scenario)
     cor_ends = get_hybridproblem_cor_ends(probc; scenario)
@@ -97,8 +112,9 @@ test_scenario = (scenario) -> begin
     # transM = Stacked(elementwise(identity), elementwise(exp))
     #transM = Stacked(elementwise(identity), elementwise(exp), elementwise(exp)) # test mismatch
     (;ϕqc, approx) = tmp = init_hybrid_ϕq(
-        probc.approx, par_templates.θP, par_templates.θM, transP, cor_ends; transM, n_site)
-    probc = HybridProblem(probc; approx) # update approx in probc
+        probc.approx, par_templates.θP, par_templates.θM, transP, cor_ends; 
+        transM, n_site, ϕq_ranef)
+    probc = HybridProblem(probc; approx, ϕq = ϕqc) # update approx in probc
     # (ϕunc0, approx) = init_hybrid_ϕunc(cor_ends, zero(FT))
     # ϕq0 = CP.update_μP_by_θP(ϕunc0, θP_true, transP)
     (; ϕ, interpreters) = init_hybrid_params(ϕg0, ϕqc)
@@ -118,14 +134,14 @@ test_scenario = (scenario) -> begin
         g_gpu = ggdev(g_flux)
     end
 
-    i_sites = 1:n_batch
+    itrain_sites = 1:n_batch
     ζsP, ζsMs_tr, σ = @inferred (
         # @usingany Cthulhu
     # @descend_code_warntype (
         CP.generate_ζ(
-        probc.approx, rng, g, ϕ_ini, xM[:, i_sites];
+        probc.approx, rng, g, ϕ_ini, xM[:, itrain_sites];
         n_MC, cor_ends, pbm_covar_indices,
-        i_sites,
+        itrain_sites, ranef,
         int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq, is_testmode = false)
     )
 
@@ -141,8 +157,8 @@ test_scenario = (scenario) -> begin
         gr = Zygote.gradient(
             ϕ -> begin
                 _ζsP, _ζsMs_tr, _σ = CP.generate_ζ(
-                    probc.approx, rng, g, ϕ, xM[:, i_sites];
-                    i_sites,
+                    probc.approx, rng, g, ϕ, xM[:, itrain_sites];
+                    itrain_sites, ranef,
                     n_MC=8, cor_ends, pbm_covar_indices,
                     int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq,
                      is_testmode = true)
@@ -150,6 +166,45 @@ test_scenario = (scenario) -> begin
             end, CA.getdata(ϕ_ini))
         @test gr[1] isa Vector
     end
+
+    @testset "predict_hvi" begin
+        n_sample_pred = 200 # 10_000 #2_400
+        # not type stable, because of probc - check type stabiliy inside
+        ans_predict = predict_hvi(rng, probc; 
+            scenario, n_sample_pred,
+            is_inferred = Val(true),
+            );
+        (; y, θsP, θsMs_tr, entropy_ζ, logjacs_P, logjacs_Ms) = ans_predict
+        n_site_pred = size(θsMs_tr,1)
+        @test size(logjacs_P) == (n_sample_pred,)
+        @test size(logjacs_Ms) == (n_site_pred, n_sample_pred)
+        # check jacobian against transformation of a single (backtransformed) par_vector 
+        @test logjacs_P[1] ≈ with_logabsdet_jacobian(transP, inverse(transP)(θsP[:,1]))[2]
+        @test logjacs_Ms[1,1] ≈ with_logabsdet_jacobian(
+            transM, inverse(transM)(θsMs_tr[1,:,1]))[2]
+        #size(_ζsMs), size(θsMs)
+        #size(_ζsP), size(θsP)
+        #
+        # below test that generated sample matches specified distribution 
+        #
+        # n_site_pred = size(xM,2)
+        # train_data = NamedTuple{(:xM, :xP, :y, :y_unc, :i_site)}(probc.train_dataloader.data)        
+        (;res_predict, res_elbo) = predict_hvi_and_compute_elbo_components(rng, probc; 
+                    scenario, n_sample_pred,
+                    )
+        @test res_elbo.nLjoint isa Float32
+        @test res_elbo.entropy_ζ isa Float32
+        @test res_elbo.nLprior_P isa Float32
+        @test res_elbo.loss_penalty isa Float32
+        @test res_elbo.nLRanef isa Float32
+        @test res_elbo.neglogjac_P isa Float32
+        @test res_elbo.nLy isa AbstractVector{Float32}
+        @test res_elbo.nLprior_Ms isa AbstractVector{Float32}
+        @test res_elbo.loss_penalty_sites isa AbstractVector{Float32}
+        @test res_elbo.neglogjac_Ms isa AbstractVector{Float32}
+        @test res_elbo.nLsites isa AbstractVector{Float32}
+        @test length(res_elbo.nLsites) == n_site_pred
+    end;
 
     if !(:covarK2 ∈ CP._val_value(scenario)) && (probc.approx isa MeanHVIApproximation)
         # can only test distribution if g is not repeated
@@ -183,13 +238,13 @@ test_scenario = (scenario) -> begin
             #hcat(ϕ_ini, ϕ, _ϕ)[1:4,:]
             #hcat(ϕ_ini, ϕ, _ϕ)[(end-20):end,:]
             n_predict = 10_000 #8_000
-            i_sites = 1:n_batch
-            xM_batch = xM[:, i_sites]
+            itrain_sites = 1:n_batch
+            xM_batch = xM[:, itrain_sites]
             _ζsP, _ζsMs_tr, _σ = @inferred (
                 # @descend_code_warntype (
                     CP.generate_ζ(
                     probc.approx, rng, g, _ϕ, xM_batch;
-                    i_sites,
+                    itrain_sites,
                     n_MC = n_predict, cor_ends, pbm_covar_indices,
                     int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq,
                     is_testmode = true)
@@ -271,12 +326,12 @@ test_scenario = (scenario) -> begin
             ϕ = ggdev(CA.getdata(ϕ_ini))
             @test g_gpu.μ isa GPUArraysCore.AbstractGPUArray
             # @test g_gpu.app isa HybridVariationalInferenceFluxExt.FluxApplicator
-            xMg_batch = ggdev(xM[:, i_sites])
+            xMg_batch = ggdev(xM[:, itrain_sites])
             ζsP_d, ζsMs_tr_d, σ_d = @inferred (
             # @descend_code_warntype (
                 CP.generate_ζ(
                 probc.approx, rng, g_gpu, ϕ, xMg_batch;
-                i_sites,
+                itrain_sites,
                 n_MC, cor_ends, pbm_covar_indices,
                 int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq,
                 is_testmode = true))
@@ -291,7 +346,7 @@ test_scenario = (scenario) -> begin
                 ϕ -> begin
                     _ζsP, _ζsMs_tr, _σ = CP.generate_ζ(
                         probc.approx, rng, g_gpu, ϕ, xMg_batch;
-                        i_sites,
+                        itrain_sites,
                         n_MC, cor_ends, pbm_covar_indices,
                         int_ϕq=interpreters.ϕq, int_ϕg_ϕq=interpreters.ϕg_ϕq,
                         is_testmode = false)
@@ -374,33 +429,34 @@ test_scenario = (scenario) -> begin
 
     @testset "neg_elbo_gtf cpu $(last(CP._val_value(scenario)))" begin
         scen = CP._val_value(scenario)
-        i_sites = 1:n_batch
+        itrain_sites = 1:n_batch
         transMs = StackedArray(transM, size(ζsMs_tr, 1))
         #intθMs = ComponentArrayInterpreter((n_batch,), int_M)
         intθMs = get_concrete(ComponentArrayInterpreter((n_batch,), int_M))
         n_sites_cluster, clusters = CP.get_clusters(n_site; scenario)
         frac_cluster_all = convert.(eltype(ϕ_ini), 1 ./ n_sites_cluster[clusters])
         cost = @inferred (
+            #@usingany Cthulhu
         #@descend_code_warntype (
             neg_elbo_gtf(rng, ϕ_ini, g, f, py,
-            xM[:, i_sites], xP[:, i_sites], y_o[:, i_sites], y_unc[:, i_sites], i_sites;
+            xM[:, itrain_sites], xP[:, itrain_sites], y_o[:, itrain_sites], y_unc[:, itrain_sites], itrain_sites;
             int_ϕq, int_ϕg_ϕq,
             cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
             is_testmode = true, 
             is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini)),
-            probc.approx, intθMs, intθP = int_P, frac_cluster_all 
+            probc.approx, intθMs, intθP = int_P, frac_cluster_all, ranef
             )
         )
         #@test cost isa Float64
         @test cost isa promote_type(eltype(xM), eltype(y_o), eltype(ϕ_ini))
         gr = Zygote.gradient(
             ϕ -> neg_elbo_gtf(rng, ϕ, g, f, py,
-                xM[:, i_sites], xP[:, i_sites], y_o[:, i_sites], y_unc[:, i_sites], i_sites;
+                xM[:, itrain_sites], xP[:, itrain_sites], y_o[:, itrain_sites], y_unc[:, itrain_sites], itrain_sites;
                 int_ϕq, int_ϕg_ϕq,
                 cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
                 is_testmode = false, 
                 is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini)),
-                probc.approx, intθMs, intθP = int_P, frac_cluster_all 
+                probc.approx, intθMs, intθP = int_P, frac_cluster_all, ranef 
                 ),
             CA.getdata(ϕ_ini))
         @test gr[1] isa Vector
@@ -408,31 +464,31 @@ test_scenario = (scenario) -> begin
 
     if ggdev isa MLDataDevices.AbstractGPUDevice
         @testset "neg_elbo_gtf gpu $(last(CP._val_value(scenario)))" begin
-            i_sites = 1:n_batch
+            itrain_sites = 1:n_batch
             transMs = StackedArray(transM, size(ζsMs_tr, 1))
             ϕ = ggdev(CA.getdata(ϕ_ini))
-            xMg_batch = ggdev(xM[:, i_sites])
-            xP_batch = xP[:, i_sites] # used in f which runs on CPU
+            xMg_batch = ggdev(xM[:, itrain_sites])
+            xP_batch = xP[:, itrain_sites] # used in f which runs on CPU
             cost = @inferred (
             #@descend_code_warntype (
                 neg_elbo_gtf(rng, ϕ, g_gpu, f, py,
-                xMg_batch, xP_batch, y_o[:, i_sites], y_unc[:, i_sites], i_sites;
+                xMg_batch, xP_batch, y_o[:, itrain_sites], y_unc[:, itrain_sites], itrain_sites;
                 int_ϕq, int_ϕg_ϕq,
                 n_MC=3, cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
                 is_testmode = true,
                 is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini)),
-                probc.approx,
+                probc.approx, ranef,
                 )
             )
             @test cost isa Float64
             gr = Zygote.gradient(
                 ϕ -> neg_elbo_gtf(rng, ϕ, g_gpu, f, py,
-                    xMg_batch, xP_batch, y_o[:, i_sites], y_unc[:, i_sites], i_sites;
+                    xMg_batch, xP_batch, y_o[:, itrain_sites], y_unc[:, itrain_sites], itrain_sites;
                     int_ϕq, int_ϕg_ϕq,
                     n_MC=3, cor_ends, pbm_covar_indices, transP, transMs, priorsP, priorsM,
                     is_testmode = false,
                     is_omit_priors = Val(false), zero_prior_logdensity=zero(eltype(ϕ_ini)),
-                    probc.approx,
+                    probc.approx, ranef,
                     ),
                 ϕ)
             @test gr[1] isa GPUArraysCore.AbstractGPUVector
@@ -446,17 +502,21 @@ test_scenario = (scenario) -> begin
         # @test length(intm_PMs_gen) == 402
         # @test trans_PMs_gen.length_in == 402
         n_sample_pred = 30
+        n_sample_ranef = 5
+        n_site_pred = size(xM,2) 
+        frac_cluster = ones(eltype(ϕ_ini), n_site_pred)
         (; θsP, θsMs_tr, entropy_ζ) =
-        #Cthulhu.@descend_code_warntype (
             @inferred (
+                #Cthulhu.@descend_code_warntype (
                 sample_posterior(rng, g, ϕ_ini, xM;
-                i_sites = 1:size(xM, 2),
+                itrain_sites = 1:size(xM, 2),
+                #itrain_sites = Int[],
                 int_ϕg_ϕq, int_ϕq,
                 transP, transM,
                 cdev = identity,
-                n_sample_pred, cor_ends, pbm_covar_indices,
+                n_sample_pred, n_sample_ranef, cor_ends, pbm_covar_indices,
                 is_testmode = true,
-                probc.approx,
+                probc.approx, ranef, frac_cluster,
                 )
             )
         @test θsP isa AbstractMatrix
@@ -475,6 +535,8 @@ test_scenario = (scenario) -> begin
             ϕ_ini_g = ggdev(CA.getdata(ϕ_ini))
             xMg = ggdev(xM)
             n_sample_pred = 30
+            n_site_pred = size(xM,2) 
+            frac_cluster = ones(eltype(ϕ_ini), n_site_pred)
             (; θsP, θsMs_tr, entropy_ζ) =
             #Cthulhu.@descend_code_warntype (
                 @inferred (
@@ -485,7 +547,7 @@ test_scenario = (scenario) -> begin
                     cdev = identity, # do not transfer to CPU
                     n_sample_pred, cor_ends, pbm_covar_indices,
                     is_testmode = true,
-                    probc.approx,
+                    probc.approx, ranef, frac_cluster,
                     )
                 )
             # this variant without the problem, does not attach axes
@@ -531,6 +593,7 @@ end # test_scenario
 
 #test_scenario(Val((:scalingall,)))
 test_scenario(Val((:clustered_sites,)))
+test_scenario(Val((:clustered_sites, :ranef,)))  # with random effects in all parameters
 test_scenario(Val((:default,)))
 test_scenario(Val((:sepvar,)))
 

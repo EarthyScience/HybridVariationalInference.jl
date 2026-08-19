@@ -11,8 +11,8 @@ Fields:
 - `py`: Likelihood function
 - `transM::Stacked`, `transP::Stacked`: bijectors transforming from unconstrained to 
   constrained scale for site-specific and global parameters respectively.
-- `train_dataloader::MLUtils.DataLoader`: providing Tuple of matrices 
-  `(xM, xP, y_o, y_unc, i_sites)`: covariates, model drivers, observations, 
+- `train_dataloader`: e.g. `MLUtils.DataLoader` providing Tuple of matrices 
+  `(xM, xP, y_o, y_unc, itrain_sites)`: covariates, model drivers, observations, 
   observation uncertainties and index of provided sites.
 - `test_data::Tuple of the same form as with `train_dataloader` for testset data.
 - `n_covar::Int`, `n_site::Int`, `n_batch::Int`: number covariates,
@@ -38,13 +38,14 @@ struct HybridProblem <: AbstractHybridProblem
     transM::Stacked
     transP::Stacked
     cor_ends::@NamedTuple{P::Vector{Int}, M::Vector{Int}} # = (P=(1,),M=(1,))
-    train_dataloader::MLUtils.DataLoader
+    train_dataloader::Any   # MLUtils.DataLoader, but may be different such as WeightedDataLoader
     test_data::NamedTuple
     n_site::Int
     n_batch::Int
     pbm_covars::NTuple{_N, Symbol} where _N
     approx::AbstractHVIApproximation
     penalty_computer::PenaltyComputerOrFunction
+    ranef::AbstractRandomEffects
     #penalty_computer::
     #inner constructor to constrain the types
     function HybridProblem(
@@ -57,7 +58,7 @@ struct HybridProblem <: AbstractHybridProblem
             py,
             transM::Stacked,
             transP::Stacked,
-            train_dataloader::MLUtils.DataLoader,
+            train_dataloader,
             test_data::NamedTuple,
             n_site::Int,
             n_batch::Int;
@@ -65,11 +66,12 @@ struct HybridProblem <: AbstractHybridProblem
             pbm_covars::NTuple{N,Symbol} = (),
             approx::AbstractHVIApproximation = MeanHVIApproximationMat(),
             penalty_computer::PenaltyComputerOrFunction = ZeroPenaltyComputer(),
+            ranef::AbstractRandomEffects = NullRandomEffects(),
     ) where N
         new(
             θM, f_batch, g, ϕg, ϕq, priors, py, transM, transP, cor_ends, 
             train_dataloader, test_data, n_site, n_batch, pbm_covars, 
-            approx, penalty_computer)
+            approx, penalty_computer, ranef)
     end
 end
 
@@ -85,10 +87,13 @@ function init_hybrid_ϕq(
     transP::Stacked,
     cor_ends::NamedTuple = (P = [length(θP)], M = [length(θM)]);
     n_site::Integer,
+    # need dummy, so that ϕq.ranef is a ComponentVector rather than plain Array
+    ϕq_ranef::CA.ComponentVector = CA.ComponentVector{eltype(θM)}(dummy=θM[1:0]),
     kwargs...,
 )
     FT = promote_type(eltype(θP), eltype(θM))
     (;ϕqc, approx) = init_hybrid_ϕunc(approx, cor_ends, zero(FT); θM, n_site, kwargs...)
+    ϕqc = CA.ComponentVector(ϕqc; ranef = ϕq_ranef)
     ϕqP = update_μP_by_θP(ϕqc, θP, transP)
     (;ϕqc = ϕqP, approx)
 end
@@ -133,6 +138,7 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
     ϕunc = nothing,
     approx::AbstractHVIApproximation = get_hybridproblem_HVIApproximation(prob; scenario),
     penalty_computer::PenaltyComputerOrFunction = get_hybridproblem_penalty_computer(prob; scenario),  
+    ranef = get_hybridproblem_ranef(prob; scenario),
     )
     n_batch_before = get_hybridproblem_n_site_and_batch(prob; scenario)[2]
     cor_ends_new = if !isnothing(cor_ends)
@@ -149,15 +155,21 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
     if !isnothing(ϕunc)
         ϕq = CA.ComponentVector(ϕq; ϕunc...)
     end
+    if ranef != get_hybridproblem_ranef(prob; scenario)
+        # when ranef has been updated, create new default parameter vector
+        ranefc = get_ranef_computer(ranef, keys(θM), n_site, one(eltype(ϕq)))
+        ϕq_ranef = setup_ϕq_ranef(ranefc)
+        ϕq = CA.ComponentVector((;ϕq..., ranef = ϕq_ranef))
+    end
     if n_batch != n_batch_before
         # if updating n_btach, then need to adjust f_batch and train_dataloader
         train_dataloader = MLUtils.DataLoader(
-           train_dataloader.data, batchsize=n_batch, partial=train_dataloader.partial, shuffle=train_dataloader.shuffle)  
+           train_dataloader.data, batchsize=n_batch)  
         f_batch = create_nsite_applicator(f_batch, n_batch)
     end
     HybridProblem(θM, ϕq, g, ϕg, f_batch, priors, py, transM, transP, train_dataloader,
         test_data, n_site, n_batch; cor_ends = cor_ends_new, pbm_covars, 
-        approx, penalty_computer)
+        approx, penalty_computer, ranef)
 end
 
 function HybridProblem(prob::HybridProblem; kwargs... )
@@ -307,4 +319,8 @@ end
 
 function get_hybridproblem_HVIApproximation(prob::HybridProblem; scenario = ())
     prob.approx
+end
+
+function get_hybridproblem_ranef(prob::HybridProblem; scenario = ())
+    prob.ranef
 end

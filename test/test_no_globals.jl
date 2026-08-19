@@ -14,12 +14,15 @@ cdev = cpu_device()
 
 using OptimizationOptimisers
 using Lux  # in order to load extension
+import CommonSolve: solve
 
 # scenario = Val(()); scen=()
+# scenario = Val((:ranef,)); scen=(:ranef,)
 function test_no_globals(scenario::Val{scen})  where scen
     scenario = Val((scen..., :no_globals))
     prob = HybridProblem(DoubleMM.DoubleMMCase(); scenario);
     θP0, θM0 = get_hybridproblem_par_templates(prob)
+    #ranef_spec = get_hybridproblem_ranef(prob; scenario)     
     @test isempty(θP0)
     solver_point = HybridPointSolver(; alg=Adam(0.02))
     rng = StableRNG(111)
@@ -27,6 +30,7 @@ function test_no_globals(scenario::Val{scen})  where scen
         #callback = callback_loss(100), # output during fitting
         #callback = callback_loss(10), # output during fitting
         epochs = 2,
+        epochs_callback = 0, # no progress output
         is_omit_priors = Val(:f_on_gpu ∈ scen), # prior computation does not work on gpu
         scenario,
     );
@@ -44,6 +48,7 @@ function test_no_globals(scenario::Val{scen})  where scen
             #callback = callback_loss(10), # output during fitting
             is_omit_priors = Val(:f_on_gpu ∈ scen), # prior computation does not work on gpu
             epochs = 2,
+            epochs_callback = 0, # no progress output
             scenario,
         );    
         @test all(isfinite.(CP.get_hybridproblem_θP(probo)))

@@ -18,7 +18,8 @@ by predicting different (transformed) site parameters, $\zeta_{Ms}$
 , given the sampled (transformed) global parameters, $\zeta_P$.
 
 $$
-p(\zeta_{Ms}, \zeta_P) = p(\zeta_{Ms} | \zeta_P) p(\zeta_P)$$
+p(\zeta_{Ms}, \zeta_P) = p(\zeta_{Ms} | \zeta_P) p(\zeta_P)
+$$
 
 This comes at the cost of running the ML model forward for each sampled
 global parameter, rather than just once in each sampling of the posterior.
@@ -98,6 +99,7 @@ prob_cond = HybridProblem(probo_uncond; g=g_chain_scaled, ϕg=ϕg0, pbm_covars)
 
 ``` julia
 using OptimizationOptimisers
+import CommonSolve: solve
 import Zygote
 
 solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)
@@ -135,7 +137,7 @@ it has only very weak correlations with the site parameters, $r_1$ and $K_1$.
 
 ``` julia
 i_out = 4
-fig = Figure(); ax = Axis(fig[1,1], xlabel="mean(y)",ylabel="sd(y)")
+fig = Figure(); ax = Axis(fig[1,1], xlabel="mean(y_pred)",ylabel="sd(y_pred)")
 ymean_cond = [mean(y_cond[i_out,s,:]) for s in axes(y_cond, 2)]
 ysd_cond = [std(y_cond[i_out,s,:]) for s in axes(y_cond, 2)]
 scatter!(ax, ymean_cond, ysd_cond, label="conditional") 

@@ -74,22 +74,31 @@ $$
 Negating and dropping the constants $-\frac{1}{2} ln (2 \pi)$ and $-\frac{1}{2} ln \sigma^2$
 
 $$
- ln x + \frac{1}{2} \left(\frac{ (\ln x-\mu)^2 }{\sigma^2} \right)$$
+ ln x + \frac{1}{2} \left(\frac{ (\ln x-\mu)^2 }{\sigma^2} \right)
+ $$
 
 ``` julia
 function neg_logden_lognormalep_lognormal(y_pred, y_obs::AbstractArray{ET}, y_unc; 
-  σ2 = log(abs2(ET(0.02)) + ET(1))) where ET
+  σ2 = log(abs2(ET(0.01)/ET(0.5)) + ET(1))) where ET
     lnx = log.(CA.getdata(y_obs))
     μ = log.(CA.getdata(y_pred))
-    nlogL = sum(lnx .+ abs2.(lnx .- μ) ./ (ET(2) .* σ2))  
-    #nlogL = sum(lnx + (log(σ2) .+ abs2.(lnx .- μ) ./ σ2) ./ ET(2)) # nonconstant σ2
-    return (nlogL)
+    nlogL_sites = vec(sum(
+      lnx .+ abs2.(lnx .- μ) ./ (ET(2) .* σ2)
+      #lnx + (log(σ2) .+ abs2.(lnx .- μ) ./ σ2) ./ ET(2) # nonconstant σ2
+      ; dims=1))  
+ 
+    #nlogL = sum(lnx + (log(σ2) .+ abs2.(lnx .- μ) ./ σ2) ./ ET(2)) # nonconstant σ2    
+    return (nlogL_sites)
 end
 ```
 
+The σ2 parameters used here is computed according to log(cv + 1) (Wutzler et al. 2020).
 If information on the different relative error by observation was available,
 we could pass that information using the DataLoader with `y_unc`, rather than
 assuming a constant relative error across observations.
+
+Note, that we sum across observations (in rows), to return a vector of logdensities for
+each site (in columns).
 
 ## Update the problem and redo the inversion
 
@@ -99,6 +108,7 @@ HybridProblem has keyword argument `py` to specify the function of negative Log-
 prob_lognormal = HybridProblem(prob; py = neg_logden_lognormalep_lognormal)
 
 using OptimizationOptimisers
+import CommonSolve: solve
 import Zygote
 
 solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)
@@ -186,7 +196,7 @@ looks similar and shows correlations between site parameters, $r_1$ and $K_1$.
 
 ``` julia
 i_out = 4
-fig = Figure(); ax = Axis(fig[1,1], xlabel="mean(y)",ylabel="sd(y)")
+fig = Figure(); ax = Axis(fig[1,1], xlabel="mean(y_pred)",ylabel="sd(y_pred)")
 ymean_normal = [mean(y_normal[i_out,s,:]) for s in axes(y_normal, 2)]
 ysd_normal = [std(y_normal[i_out,s,:]) for s in axes(y_normal, 2)]
 scatter!(ax, ymean_normal, ysd_normal, label="normal") 

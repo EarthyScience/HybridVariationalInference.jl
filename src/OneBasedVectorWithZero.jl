@@ -3,7 +3,9 @@
 
 A thin wrapper over an `AbstractVector` that exposes a linear 1-based indexing API
 mapping `v[i]` to `data[axes(data, 1)[i]]` on the underlying storage
-and provides a value at index 0 (defaulting to zero) that is not stored in the underlying vector.
+and provides a value at index 0 (defaulting to zero) that is not stored in 
+the underlying vector.
+The zero is not counted in the length of the vector, so `length(v)` is the same as `length(data)`.
 
 Example usage:
 ```jldoctest; output=false

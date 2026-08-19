@@ -144,7 +144,7 @@ and transforms it to an UpperTriangular that satisfies
 diag(U' * U) = 1.
 
 This can be used to fit parameters that yield an upper Cholesky-Factor
-of a Covariance matrix.
+of a correlation matrix.
 
 It uses the upper triangular matrix rather than the lower because it
 involves a sum across columns, whereas the alternative of a lower triangular

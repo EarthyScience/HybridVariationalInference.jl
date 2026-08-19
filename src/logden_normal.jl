@@ -5,7 +5,9 @@ Compute the negative Log-density of `obs` for multiple independent normal distri
 given estimated means `μ` and estimated log of variance parameters `logσ2s`.
 
 All the arguments should be vectors of the same length.
-If `obs`,  `μ` are given as a matrix of several column-vectors, their summed
+If `obs`,  `μ` are given as a matrix of several column-vectors, 
+the likelihood of each column is returned, assuming each column having the same `logσ2s`.
+depr: If `obs`,  `μ` are given as a matrix of several column-vectors, their summed
 Likelihood is computed, assuming each column having the same `logσ2s`.
 
 Keyword argument `σfac` can be increased to put more weight on achieving
@@ -13,8 +15,9 @@ a low uncertainty estimate and means closer to the observations to help
 an initial fit. The obtained parameters then can be used as starting values
 for a the proper fit with `σfac=1.0`.
 """
-function neg_logden_indep_normal(obs::AbstractArray, μ::AbstractArray, logσ2::AbstractArray{ET}; 
-    σfac=one(ET)) where ET
+function neg_logden_indep_normal(obs::AbstractArray{TO,D}, μ::AbstractArray{TP,D}, logσ2::AbstractArray{TO}; 
+    i_finobs = .! isnan.(obs),
+    σfac=one(TO)) where {TO, TP, D}
     # log of independent Normal distributions 
     # estimate independent uncertainty of each θM, rather than full covariance
     #nlogL = sum(σfac .* log.(σs) .+ 1 / 2 .* abs2.((obs .- μ) ./ σs))
@@ -31,19 +34,42 @@ function neg_logden_indep_normal(obs::AbstractArray, μ::AbstractArray, logσ2::
     #     σfac .* logσ2 .+ abs2.(obs_data .- μ_data) .* exp.(.-logσ2)) / convert(eltype(μ),2)
     # return (nlogL)
     #
-    i_finobs = .! isnan.(obs)
-    obs_data = CA.getdata(obs)[i_finobs]
-    μ_data = CA.getdata(μ)[i_finobs]
-    logσ2_fin = logσ2[i_finobs]
-    nlogL = sum(  # observations might by NaN for missing
-        σfac .* logσ2_fin .+ abs2.(obs_data .- μ_data) .* exp.(.-logσ2_fin)) / convert(eltype(μ),2)
-    #Main.@infiltrate_main
+    # obs_data = CA.getdata(obs)[i_finobs]
+    # μ_data = CA.getdata(μ)[i_finobs]
+    # logσ2_fin = logσ2[i_finobs]
+    # # nlogL = sum(  # observations might by NaN for missing
+    # #     σfac .* logσ2_fin .+ abs2.(obs_data .- μ_data) .* exp.(.-logσ2_fin)) / convert(eltype(μ),2)
+    # nlogL = 
+    #     (σfac .* logσ2_fin .+ abs2.(obs_data .- μ_data) .* exp.(.-logσ2_fin)) ./ eltype(μ)(2)
+    nlogL = 
+        i_finobs .* (σfac .* logσ2 .+ abs2.(obs .- μ) .* exp.(.-logσ2)) ./ eltype(μ)(2)
+    nlogL_sites = if D == 1
+        sum(nlogL) # provided a single-site vector
+    elseif D == 2    
+        vec(sum(nlogL;dims=1))
+    else 
+        error("need to provide a matrix with observations with one column per site, " *
+            "but got array of dimension $D")
+    end
+    #nlogL_sites = colsum_finite_obs(nlogL, obs)
+    # if !all(isfinite.(nlogL_sites))
+    #     @show nlogL_sites, μ
+    #     @warn("encountered non-finite loglikelihood in neg_logden_indep_normal")
+    #     Main.@infiltrate_main
+    # end
+    return (nlogL_sites)
+    # function fcol(logσ2, obs, μ) 
+    #     nlogL = sum(isfinite(obs[i]) ? X[i] : zero(eltype(X))  # observations might by NaN for missing
+    #         σfac .* logσ2 .+ abs2.(obs .- μ) .* exp.(.-logσ2)) / convert(eltype(μ),2)
+    # end
+    # map(fcol, eachdol(obs), eachcol(μ), eachcol(logσ2)) 
 
-    return (nlogL)
+
 end
 
 function neg_logden_indep_normal(obs::AbstractGPUArray, μ::AbstractGPUArray, logσ2::AbstractGPUArray{ET}; 
     σfac=one(ET)) where ET
+    error("update neg_logden_indep_normal for GPU to each solsum rather than total sum")
     #cannot use NaNMath.sum on gpu, allocate vectors  of non-NAN
     i_finobs = .! isnan.(obs)
     obs_data = CA.getdata(obs)[i_finobs]

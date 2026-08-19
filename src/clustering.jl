@@ -53,8 +53,8 @@ function refit_clusters(rng, probo, solver, xM ;
         while (n_aggsplits_i > 0) && (length(cnts_clusters_totest) > 0)
             #global cnts, clusters, i_splits
             i_cluster = argmax(cnts_clusters_totest)
-            i_sites = findall(isequal.(clusters, i_cluster))
-            σM = vec(median(σMs[:,i_sites]; dims=2))
+            itrain_sites = findall(isequal.(clusters, i_cluster))
+            σM = vec(median(σMs[:,itrain_sites]; dims=2))
             #
             (; is_overdispersed, clusters, clusters_sub) = split_cluster(
                 clusters, i_cluster, X, Ucor, σMs; n_cluster_sub)
@@ -93,16 +93,22 @@ function extract_MLpred(probo, xM; scenario = Val(()))
     (; X, σMs)
 end
 
-function cluster_records(X_matrix::AbstractMatrix, Ucor::AbstractMatrix{T}, σM::AbstractVector; n_cluster_sub=4, cluster_ids = 1:n_cluster_sub, ) where T
+function cluster_records(X_matrix::AbstractMatrix, Ucor::AbstractMatrix, σM::AbstractVector; kwargs... ) 
+    UΣ = Ucor * diagm(σM)
+    cluster_records(X_matrix::AbstractMatrix, UΣ; kwargs...)
+end
+
+function cluster_records(X_matrix::AbstractMatrix, UΣ::AbstractMatrix{T}; n_cluster_sub=4, cluster_ids = 1:n_cluster_sub, ) where T
     # x_i -x_j are distributed N(0, 2Σ) 
     #Σ = 2 * HybridVariationalInference.compute_cov(Ucor, σM)    
     @assert n_cluster_sub == length(cluster_ids) "Length of cluster_ids must match n_cluster"
-    invΣ = HybridVariationalInference.compute_invcov(Ucor, σM) / T(2)
+    #invΣ = HybridVariationalInference.compute_invcov(Ucor, σM) / T(2)
+    invΣ = inv(UΣ) * inv(UΣ')
     # Precompute differences: (X_i - X_j) for all i, j
     # Use broadcasting to compute all pairwise differences
     #diffs = X_matrix' .- X_matrix  # Shape: (n_vars, n_rows, n_rows)
     n_rows, n_vars = size(X_matrix)  # e.g., 2000×10
-    n_rows < n_cluster_sub && error("Cannot cluster $nrows records into $n_cluster_sub clusters.")
+    n_rows < n_cluster_sub && error("Cannot cluster $n_rows records into $n_cluster_sub clusters.")
     if n_rows == n_cluster_sub
         # assign each record to its own cluster
         clusters0 = 1:n_rows
@@ -221,20 +227,20 @@ function check_overdispersion(
 end
 
 function split_cluster(clusters, i_cluster, X, Ucor, σMs; n_cluster_sub=4)
-    i_sites = findall(isequal.(clusters, i_cluster))
-    n_sites_cl = length(i_sites)
+    itrain_sites = findall(isequal.(clusters, i_cluster))
+    n_sites_cl = length(itrain_sites)
     if n_sites_cl == 1
         return (; is_overdispersed = false, clusters, clusters_sub = eltype(clusters)[])
     end
-    X_cluster = X[i_sites,:]
-    σM = vec(median(σMs[:,i_sites]; dims=2))
+    X_cluster = X[itrain_sites,:]
+    σM = vec(median(σMs[:,itrain_sites]; dims=2))
     # vec(std(X_cluster; dims = 1))
     is_overdispersed = check_overdispersion(X_cluster, Ucor, σM)[1]
     if is_overdispersed
         n_cluster_sub_i = min(n_cluster_sub, n_sites_cl)
         cluster_ids = vcat(i_cluster, maximum(clusters) .+ (1:(n_cluster_sub_i-1)))
         clusters_sub = cluster_records(X_cluster, Ucor, σM; cluster_ids, n_cluster_sub = n_cluster_sub_i);
-        clusters[i_sites] = clusters_sub
+        clusters[itrain_sites] = clusters_sub
     else
         clusters_sub = eltype(clusters)[]
     end
@@ -245,7 +251,7 @@ function split_cluster(clusters, i_cluster, X, Ucor, σMs; n_cluster_sub=4)
     #     Main.@infiltrate_main
 
     #     clusters_sub = vcat(i_cluster, maximum(clusters) .+ (1:(n_sites_cl-1)))
-    #     clusters[i_sites] = cluster_sub
+    #     clusters[itrain_sites] = cluster_sub
     #     (; is_overdispersed = false, clusters, clusters_sub)       
     # end
 end
@@ -253,7 +259,7 @@ end
 function map_by_cluster(f, clusters)
     cluster_ids = unique(clusters)
     map(cluster_ids) do cluster_id
-        i_sites = findall(isequal.(clusters, cluster_id))   
-        f(i_sites)
+        itrain_sites = findall(isequal.(clusters, cluster_id))   
+        f(itrain_sites)
     end
 end
