@@ -47,6 +47,23 @@ function HVI.apply_model(app::LuxApplicator, x, ϕ; is_testmode=false)
     end
 end
 
+function HVI.apply_model!(y, app::LuxApplicator, x, ϕ; is_testmode=false) 
+    ϕd = CA.getdata(ϕ)
+    if (ϕ isa SubArray) && (ϕ.parent isa GPUArraysCore.AbstractGPUArray)
+        # Lux has problems with SubArrays of GPUArrays, need to convert to plain Array
+        ϕc = app.int_ϕ(ϕd[:])
+    else
+        ϕc = app.int_ϕ(ϕd)
+    end
+    # tmp(x, ϕc)
+    if is_testmode
+        y .= app.stateful_layer_test(x, ϕc)
+    else
+        y .= app.stateful_layer_train(x, ϕc)
+    end
+end
+
+
 
 
 function HVI.construct_3layer_MLApplicator(

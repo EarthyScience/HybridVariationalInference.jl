@@ -144,6 +144,8 @@ include("elbo_scaling.jl")
 include("elbo.jl")
 include("elbo2.jl")
 
+include("elbo_site.jl")
+
 #export get_loss_ran_tr_f
 include("fit_ranef_site.jl")
 
