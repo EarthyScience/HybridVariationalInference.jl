@@ -28,3 +28,4 @@ projects/clustered_sites/intermediate/*
 
 build/*
 intermediate/*
+alloc-profile.pb.gz

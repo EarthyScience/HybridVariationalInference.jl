@@ -18,6 +18,7 @@ Implemented overloads of `construct_ChainsApplicator` for layers of
 """
 abstract type AbstractModelApplicator end
 
+function apply_model! end
 function apply_model end
 
 (app::AbstractModelApplicator)(x, ϕ; kwargs...) = apply_model(app, x, ϕ; kwargs...)
