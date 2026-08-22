@@ -6,22 +6,22 @@ function neg_elbo_sites(rng, ϕg::AbstractVector{TG}, ϕq::AbstractVector{TF}, a
     xM,
     kwargs...
 ) where {TG, TF}
-    h = elbo_helpers
+    h = elbo_helpers # preallocated μζP, dμζP, ζsP, ϕms, xMP, dxMP
+    extract_μζP!(h.μζP, ϕq) # n_p
     randn!(rng, h.ζsP) # n_P * n_MC
     sample_ζsP!(h.ζsP, ϕq, intθq)
-    #g_apply!(h.ϕsms, ϕg, xM, h.ζsP, pbm_covar_indices, g) # n_M x n_MC x n_site
-    ϕsms = g_apply!(ϕg, xM, h.ζsP, pbm_covar_indices, g) # n_M x n_MC x n_site
-    res_site = map(i_sites_train, h.helpers_sites, eachcol(h.ζsP), eachslice(ϕsms)
-              ) do i_site_train,   hi,              ζsP,            ϕsm
+    g_apply!(h.ϕms, ϕg, xM, h.ζP, pbm_covar_indices, g, h.xMP) # n_M x n_MC x n_site
+    res_site = map(i_sites_train, h.helpers_sites, eachcol(h.ϕms)
+              ) do i_site_train,   hi,              ϕm
         randn!(rng, hi.ζsM) # n_M * n_MC
         # first component needs to be the full elbo
-        Lζi(ϕsm, ϕq, ζsP, hi.ζsM, args...; i_site_train, kwargs...)
+        Lζi(ϕq, ϕm, h.ζsP, hi.ζsM, args...; i_site_train, kwargs...)
     end
-    E = sum(x -> x.E, res_site)
-    loglik = sum(x -> x.loglik, res_site)
-    costTrans = sum(x -> x.costTrans, res_site)
-    L = E + loglik + costTrans
-    (; res_site)
+    # E = sum(x -> x.E, res_site)
+    # loglik = sum(x -> x.loglik, res_site)
+    # costTrans = sum(x -> x.costTrans, res_site)
+    elbo = sum(first, res_site)
+    (; elbo, res_site)
 end
 
 function g_apply_zygote(ϕg::AbstractVector{TG}, xM::AbstractMatrix{TG}, 
@@ -33,10 +33,6 @@ function g_apply_zygote(ϕg::AbstractVector{TG}, xM::AbstractMatrix{TG},
         ϕm1 = apply_model(g, xM, ϕg; is_testmode)
     else
         n_cov, n_site = size(xM)
-        #xMP[1:n_cov, :] .= xM
-        #xMP = vcat(xM, repeat(copy(ζP[pbm_covar_indices]), 1, n_site))  
-        # MAYBE replace allocation by mutating preallocated xMP
-        # we know that xMP will not be modified, so do not need to create a copy
         ζPc = if eltype(xM) !== eltype(ζP)
             convert.(eltype(xM), ζP[pbm_covar_indices])
         else
@@ -66,13 +62,11 @@ function g_apply!(y, ϕg::AbstractVector{TG}, xM::AbstractMatrix{TG},
     update_xMP!(xMP, xM, ζP, pbm_covar_indices)
     return apply_model!(y, g, xMP, ϕg; is_testmode)
 end
-
 function update_xMP!(xMP::AbstractMatrix{TG}, 
     xM::AbstractMatrix{TG}, ζP::AbstractVector{TF}, pbm_covar_indices::AbstractVector{<:Number}
     ) where {TG, TF}
     n_cov, n_site = size(xM)
     n_covP = length(pbm_covar_indices)
-    #xMP = Matrix{TG}(undef, n_cov + n_covP, n_site)
     @assert size(xMP) == (n_cov + n_covP, n_site)
     @inbounds for j in 1:n_site
         # Copy xM block

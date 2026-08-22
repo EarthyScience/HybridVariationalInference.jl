@@ -21,6 +21,7 @@ n_M = 4
 import Lux
 import Zygote
 import Enzyme
+import ForwardDiff
 
 @testset "g_apply!" begin
     n_input = n_cov + n_covP0
@@ -65,6 +66,29 @@ import Enzyme
     @test size(ϕms) == (n_M, n_site) 
     #
     gr_zygote = Zygote.gradient((ϕg2) -> sum(CP.g_apply_zygote(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)), ϕg2v )
+    s, pullback_s_zygote = Zygote.pullback((ϕg2) -> sum(CP.g_apply_zygote(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)), ϕg2v )
+    #gr_zygote2 = pullback_s_zygote(ones(eltype(ϕg2v), size(ϕg2v)...))
+    gr_zygote2 = pullback_s_zygote(one(eltype(ϕg2v)))
+    @test gr_zygote2[1] ≈ gr_zygote[1]
+    y, pullback_zygote = Zygote.pullback((ϕg2) -> CP.g_apply_zygote(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP), ϕg2v )
+    gr_zygote3 = pullback_zygote(ones(eltype(y), size(y)...))
+    gr_zygote3[1] ≈ gr_zygote[1]
+    # 
+    # concatenate function h(g(ϕ_g))
+    h = (x) -> sum(3.0 .* x)
+    # one pass of composed function
+    gr_zygote = Zygote.gradient((ϕg2) -> h(CP.g_apply_zygote(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)), ϕg2v )
+    s, pullback_s_zygote = Zygote.pullback((ϕg2) -> h(CP.g_apply_zygote(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)), ϕg2v )
+    gr_zygote2 = pullback_s_zygote(one(eltype(s)))
+    @test gr_zygote2[1] ≈ gr_zygote[1]
+    # mixed AD, differentiate h by FowardDiff and pull back through g
+    y1 = CP.g_apply_zygote(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)
+    #gr_h = Zygote.gradient(y -> sum(h(y)), y1)[1]
+    gr_h = ForwardDiff.gradient(y -> sum(h(y)), y1)
+    y, pullback_zygote = Zygote.pullback((ϕg2) -> CP.g_apply_zygote(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP), ϕg2v )
+    @test y == y1
+    gr_zygote3 = pullback_zygote(gr_h)
+    gr_zygote3[1] ≈ gr_zygote[1]
     #
     () -> begin # enzyme gradient wihtout providing shadows
         _f = (ϕg2) ->sum(CP.g_apply(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP))
@@ -100,12 +124,12 @@ import Enzyme
             fill!(h.dxMP,  zero(eltype(h.dxMP)))
             # enzymes already accumulates to dϕg
             Enzyme.autodiff(
-                Reverse,
+                Enzyme.Reverse,
                 _f_ip,
-                Active,
-                Duplicated(ϕg, dϕg),
-                DuplicatedNoNeed(h.y, h.dy),
-                DuplicatedNoNeed(h.xMP, h.dxMP)
+                Enzyme.Active,
+                Enzyme.Duplicated(ϕg, dϕg),
+                Enzyme.Duplicated(h.y, h.dy),
+                Enzyme.Duplicated(h.xMP, h.dxMP)
             )
         end
         #
@@ -152,6 +176,8 @@ import Enzyme
     dϕg ≈ gr_zygote[1]
     # @benchmark grad_no_alloc!(dϕg, _f_ip, ϕg2v, h, fwd, rev)    
 end
+
+
 
 
 
