@@ -53,14 +53,20 @@ function g_apply(ϕg::AbstractVector{TG}, xM::AbstractMatrix{TG},
     update_xMP!(xMP, xM, ζP, pbm_covar_indices)
     return apply_model(g, xMP, ϕg; is_testmode)
 end
-function g_apply!(y, ϕg::AbstractVector{TG}, xM::AbstractMatrix{TG}, 
+function g_apply!(y::AbstractMatrix, ϕg::AbstractVector{TG}, xM::AbstractMatrix{TG}, 
     ζP::AbstractVector{TF}, pbm_covar_indices::AbstractVector{<:Number}, 
     g::AbstractModelApplicator,
     xMP::AbstractMatrix, is_testmode::Bool=false
     ) where {TG, TF}
-    length(pbm_covar_indices) == 0 && return apply_model!(y, g, xM, ϕg; is_testmode)
+    if length(pbm_covar_indices) == 0 
+        apply_model!(y, g, xM, ϕg; is_testmode)
+        #return y
+        return nothing
+    end
     update_xMP!(xMP, xM, ζP, pbm_covar_indices)
-    return apply_model!(y, g, xMP, ϕg; is_testmode)
+    apply_model!(y, g, xMP, ϕg; is_testmode)
+    return nothing # no need to return primal for proper gradients of return to whatever
+    #return y
 end
 function update_xMP!(xMP::AbstractMatrix{TG}, 
     xM::AbstractMatrix{TG}, ζP::AbstractVector{TF}, pbm_covar_indices::AbstractVector{<:Number}

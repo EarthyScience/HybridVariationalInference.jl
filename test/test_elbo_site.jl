@@ -65,26 +65,28 @@ import ForwardDiff
     ϕms = CP.g_apply(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)
     @test size(ϕms) == (n_M, n_site) 
     #
-    gr_zygote = Zygote.gradient((ϕg2) -> sum(CP.g_apply_zygote(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)), ϕg2v )
-    s, pullback_s_zygote = Zygote.pullback((ϕg2) -> sum(CP.g_apply_zygote(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)), ϕg2v )
-    #gr_zygote2 = pullback_s_zygote(ones(eltype(ϕg2v), size(ϕg2v)...))
-    gr_zygote2 = pullback_s_zygote(one(eltype(ϕg2v)))
-    @test gr_zygote2[1] ≈ gr_zygote[1]
-    y, pullback_zygote = Zygote.pullback((ϕg2) -> CP.g_apply_zygote(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP), ϕg2v )
-    gr_zygote3 = pullback_zygote(ones(eltype(y), size(y)...))
-    gr_zygote3[1] ≈ gr_zygote[1]
+    () -> begin # gradient(sum)
+        gr_zygote = Zygote.gradient((ϕg2) -> sum(CP.g_apply_zygote(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)), ϕg2v )
+        s, pullback_s_zygote = Zygote.pullback((ϕg2) -> sum(CP.g_apply_zygote(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)), ϕg2v )
+        #gr_zygote2 = pullback_s_zygote(ones(eltype(ϕg2v), size(ϕg2v)...))
+        gr_zygote2 = pullback_s_zygote(one(eltype(ϕg2v)))
+        @test gr_zygote2[1] ≈ gr_zygote[1]
+        y, pullback_zygote = Zygote.pullback((ϕg2) -> CP.g_apply_zygote(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP), ϕg2v )
+        gr_zygote3 = pullback_zygote(ones(eltype(y), size(y)...))
+        gr_zygote3[1] ≈ gr_zygote[1]
+    end
     # 
-    # concatenate function h(g(ϕ_g))
-    h = (x) -> sum(3.0 .* x)
+    # concatenate function f3(g(ϕ_g))
+    f3 = (x) -> sum(3.0 .* x)
     # one pass of composed function
-    gr_zygote = Zygote.gradient((ϕg2) -> h(CP.g_apply_zygote(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)), ϕg2v )
-    s, pullback_s_zygote = Zygote.pullback((ϕg2) -> h(CP.g_apply_zygote(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)), ϕg2v )
+    gr_zygote = Zygote.gradient((ϕg2) -> f3(CP.g_apply_zygote(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)), ϕg2v )
+    s, pullback_s_zygote = Zygote.pullback((ϕg2) -> f3(CP.g_apply_zygote(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)), ϕg2v )
     gr_zygote2 = pullback_s_zygote(one(eltype(s)))
     @test gr_zygote2[1] ≈ gr_zygote[1]
-    # mixed AD, differentiate h by FowardDiff and pull back through g
+    # mixed AD, differentiate f3 by FowardDiff and pull back through g
     y1 = CP.g_apply_zygote(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)
-    #gr_h = Zygote.gradient(y -> sum(h(y)), y1)[1]
-    gr_h = ForwardDiff.gradient(y -> sum(h(y)), y1)
+    #gr_h = Zygote.gradient(y -> sum(f3(y)), y1)[1]
+    gr_h = ForwardDiff.gradient(y -> sum(f3(y)), y1)
     y, pullback_zygote = Zygote.pullback((ϕg2) -> CP.g_apply_zygote(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP), ϕg2v )
     @test y == y1
     gr_zygote3 = pullback_zygote(gr_h)
@@ -93,7 +95,15 @@ import ForwardDiff
     () -> begin # enzyme gradient wihtout providing shadows
         _f = (ϕg2) ->sum(CP.g_apply(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP))
         _f(ϕg2)
-        gr_enzyme = Enzyme.gradient(Reverse, _f, ϕg2)
+        gr_enzyme = Enzyme.gradient(Enzyme.Reverse, _f, ϕg2v)
+        #@benchmark  Enzyme.gradient(set_runtime_activity(Reverse), _f, collect(ϕg2))
+        gr_enzyme[1] ≈ gr_zygote[1]
+    end
+    _fj = (ϕg2) -> CP.g_apply(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)
+    y_oop = _fj(ϕg2v)
+    @test y ≈ y_oop
+    () -> begin # enzyme gradient wihtout providing shadows
+        J_enzyme = Enzyme.jacobian(Enzyme.Reverse, _fj, ϕg2v)
         #@benchmark  Enzyme.gradient(set_runtime_activity(Reverse), _f, collect(ϕg2))
         gr_enzyme[1] ≈ gr_zygote[1]
     end
@@ -104,77 +114,89 @@ import ForwardDiff
         CP.g_apply!(y, ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)
         sum(y)
     end
+    y = Enzyme.make_zero(y_oop)
+    _fj_ip = (y, ϕg2, xMP) -> CP.g_apply!(y, ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)
+    _fj_ip(y, ϕg2v, xMP)
+    @test y ≈ y_oop
+
     # preallocate helpers and shadows
     h = (;
         xMP = Matrix{eltype(ϕg2)}(undef, n_cov + n_covP2, n_site),
-        y = zeros(eltype(ϕg2), n_M, n_site),
     )
     h = (;h... , 
-        dxMP  = zero(h.xMP),      # shadow for xMP
-        dy    = zero(h.y),        # shadow for y  
+        dxMP  = Enzyme.make_zero(h.xMP),      # shadow for xMP
+        dy = zeros(eltype(ϕg2), n_M, n_site),
     )
-    dϕg = zero(ϕg2v)
-    L1 = _f_ip(ϕg2, h.y, h.xMP)
     #
-    () -> begin  # when primal value is not required, simpler
+    # two return values: primal and derivative 
+    #   given coderiv dy, parameters and helpers
+    function grad_g_apply!(y, dϕg, dy, ϕg, h)
         # need to set shadows to zero before each gradient computation
-        function grad_no_alloc1!(dϕg, _f_ip, ϕg, h)
-            fill!(dϕg, zero(eltype(dϕg)))
-            fill!(h.dy,    zero(eltype(h.dy)))
-            fill!(h.dxMP,  zero(eltype(h.dxMP)))
-            # enzymes already accumulates to dϕg
-            Enzyme.autodiff(
-                Enzyme.Reverse,
-                _f_ip,
-                Enzyme.Active,
-                Enzyme.Duplicated(ϕg, dϕg),
-                Enzyme.Duplicated(h.y, h.dy),
-                Enzyme.Duplicated(h.xMP, h.dxMP)
-            )
-        end
-        #
-        grad_no_alloc1!(dϕg, _f_ip, ϕg2v, h)
-        dϕg ≈ gr_zygote[1]
-        # still few allocation in Lux
-        #@benchmark grad_no_alloc!($dϕg, $_f_ip, $ϕg2v, $h)
-        # @profview_allocs for i in 1:10000
-        #     Enzyme.gradient(Reverse, _f_ip, ϕg2v, y, xMP)
-        # end
-    end
-    #
-    # Compile once outside the hot loop
-    fwd, rev = Enzyme.autodiff_thunk(
-        Enzyme.ReverseSplitWithPrimal,
-        Enzyme.Const{typeof(_f_ip)},          
-        Enzyme.Active,                        
-        Enzyme.Duplicated{typeof(ϕg2v)},      
-        Enzyme.Duplicated{typeof(h.y)},       
-        Enzyme.Duplicated{typeof(h.xMP)}      
-    )
-    function grad_no_alloc!(dϕg, _f_ip, ϕg, h, fwd, rev)
-        fill!(dϕg, zero(eltype(dϕg)))
-        fill!(h.dy,    zero(eltype(h.dy)))
+        fill!(dϕg,     zero(eltype(dϕg)))
         fill!(h.dxMP,  zero(eltype(h.dxMP)))
-        tape, primal, _ = fwd(
-            Enzyme.Const(_f_ip),
+        copyto!(h.dy, dy) # copy to avoid modifying dy
+        # Enzyme already accumulates to dϕg
+        Enzyme.autodiff(
+            Enzyme.Reverse,
+            _fj_ip,
+            Enzyme.Const,
+            Enzyme.Duplicated(y, h.dy),
             Enzyme.Duplicated(ϕg, dϕg),
-            Enzyme.Duplicated(h.y, h.dy),
             Enzyme.Duplicated(h.xMP, h.dxMP)
         )
-        rev(
-            Enzyme.Const(_f_ip),
-            Enzyme.Duplicated(ϕg, dϕg),
-            Enzyme.Duplicated(h.y, h.dy),
-            Enzyme.Duplicated(h.xMP, h.dxMP),
-            one(eltype(ϕg)),
-            tape
+    end
+    #
+    #Enzyme.make_one!(y)
+    y .= rand()
+    dϕg .= rand() # check that initial values do not effect result
+    dy = convert.(eltype(y), gr_h)
+    grad_g_apply!(y, dϕg, dy, ϕg2v, h)
+    @test y == y_oop
+    @test dϕg ≈ gr_zygote[1]
+    @test dy ≈ gr_h # not modified
+    #@benchmark grad_g_apply!(y, dϕg, dy, ϕg2v, h)
+    #
+    () -> begin # explicitly splitting the forward and backward pass
+        # they get cached anymay and require allocating the Duplicated Wrappers twice
+        #   hence there is no performance benefit
+        # Compile once outside the hot loop
+        fwd, rev = Enzyme.autodiff_thunk(
+            Enzyme.ReverseSplitNoPrimal,
+            Enzyme.Const{typeof(_fj_ip)},          
+            Enzyme.Const,                        
+            Enzyme.Duplicated{typeof(y)},       
+            Enzyme.Duplicated{typeof(ϕg2v)},      
+            Enzyme.Duplicated{typeof(h.xMP)}      
         )
-        return dϕg, primal
+        # take care, dy is also modified
+        function grad2_g_apply!(y, dϕg, dy, ϕg, h, fwd, rev)
+            fill!(dϕg, zero(eltype(dϕg)))
+            fill!(h.dxMP,  zero(eltype(h.dxMP)))
+            copyto!(h.dy, dy) # copy to avoid modifying dy
+            tape, _, _ = fwd(
+                Enzyme.Const(_fj_ip),
+                Enzyme.Duplicated(y, h.dy),
+                Enzyme.Duplicated(ϕg, dϕg),
+                Enzyme.Duplicated(h.xMP, h.dxMP)
+            )
+            rev(
+                Enzyme.Const(_fj_ip),
+                Enzyme.Duplicated(y, h.dy),
+                Enzyme.Duplicated(ϕg, dϕg),
+                Enzyme.Duplicated(h.xMP, h.dxMP),
+                tape
+            )
+            return nothing
+        end
+        dy = convert.(eltype(y), gr_h) 
+        grad2_g_apply!(y, dϕg, dy, ϕg2v, h, fwd, rev)
+        @test y == y_oop
+        @test dϕg ≈ gr_zygote[1]
+        @test dy ≈ gr_h # not modified
+        #@usingany BenchmarkTools
+        #@benchmark grad2_g_apply!(y, dϕg, dy, ϕg2v, h, fwd, rev)
     end
 
-    grad_no_alloc!(dϕg, _f_ip, ϕg2v, h, fwd, rev)
-    dϕg ≈ gr_zygote[1]
-    # @benchmark grad_no_alloc!(dϕg, _f_ip, ϕg2v, h, fwd, rev)    
 end
 
 
