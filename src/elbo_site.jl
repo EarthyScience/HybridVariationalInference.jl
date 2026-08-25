@@ -1,19 +1,22 @@
-function neg_elbo_sites(rng, ϕg::AbstractVector{TG}, ϕq::AbstractVector{TF}, args...;
+function neg_elbo_sites(rng, ϕg::AbstractVector{TG}, ϕq::AbstractVector{TF}, g, args...;
     n_MC=3, 
     pbm_covar_indices,
     i_sites_train,     # indices of sites in training set
+    intϕq,
     elbo_helpers,      # tuple of preallocated arrays
     xM,
     kwargs...
 ) where {TG, TF}
     h = elbo_helpers # preallocated μζP, dμζP, ζsP, ϕms, xMP, dxMP
-    extract_μζP!(h.μζP, ϕq) # n_p
+    ϕqc = intϕq(ϕq) 
+    μζP = ϕqc[Val(:μζP)]
     randn!(rng, h.ζsP) # n_P * n_MC
-    sample_ζsP!(h.ζsP, ϕq, intθq)
-    g_apply!(h.ϕms, ϕg, xM, h.ζP, pbm_covar_indices, g, h.xMP) # n_M x n_MC x n_site
+    sample_ζsP!(h.ζsP, ϕqc)
+    g_apply!(h.ϕms, ϕg, xM, μζP, pbm_covar_indices, g, h.xMP) # n_M x n_MC x n_site
     res_site = map(i_sites_train, h.helpers_sites, eachcol(h.ϕms)
               ) do i_site_train,   hi,              ϕm
         randn!(rng, hi.ζsM) # n_M * n_MC
+        sample_ζsM!(hi.ζsM, ϕqc, ϕm)
         # first component needs to be the full elbo
         Lζi(ϕq, ϕm, h.ζsP, hi.ζsM, args...; i_site_train, kwargs...)
     end
@@ -22,6 +25,20 @@ function neg_elbo_sites(rng, ϕg::AbstractVector{TG}, ϕq::AbstractVector{TF}, a
     # costTrans = sum(x -> x.costTrans, res_site)
     elbo = sum(first, res_site)
     (; elbo, res_site)
+end
+
+function sample_ζsP!(ζsP, ϕqc)
+    # TODO replace by proper sampling of full covariance matrix
+    # for now just add the mean
+    ζsP .+= ϕqc[Val(:μζP)]
+end
+
+function sample_ζsM!(ζsM, ϕqc, ϕm)
+    # TODO replace by proper sampling of full covariance matrix
+    # for now just add the mean
+    n_θM, n_MC = size(ζsM)
+    μM = ϕm[1:n_θM]
+    ζsM .+= μM
 end
 
 function g_apply_zygote(ϕg::AbstractVector{TG}, xM::AbstractMatrix{TG}, 
@@ -86,29 +103,28 @@ function update_xMP!(xMP::AbstractMatrix{TG},
     end
 end
 
-
 function Lζi(
-    ϕsM::AbstractMatrix{TF}, 
-    ϕq::AbstractVector{TF}, 
-    ζsP::AbstractMatrix{TF}, 
-    zMs::AbstractMatrix{TF}, 
-    g, f, py,
-    xM::AbstractMatrix, xP, y_ob, y_unc, itrain_sites::AbstractVector{<:Number};
-    cor_ends, # =(P=(1,),M=(1,))
-    int_ϕg_ϕq::AbstractComponentArrayInterpreter,
-    int_ϕq::AbstractComponentArrayInterpreter,
-    transP, transMs, 
-    priorsP, priorsM,
-    penalty_computer = ZeroPenaltyComputer(),
-    is_testmode,
-    is_omit_priors,
-    zero_prior_logdensity,
-    approx::AbstractHVIApproximation,
-    intθP, intθMs,
-    ranef::AbstractRandomEffectsComputer,
-    frac_cluster_all,
+    ϕqc::AbstractVector{TF}, 
+    ϕm::AbstractVector{TG}, 
+    ζsM::AbstractMatrix{TF}, 
+    ζsP::AbstractMatrix{TF};
+    # f, py,
+    # xP, y_ob, y_unc, itrain_sites::AbstractVector{<:Number};
+    # cor_ends, # =(P=(1,),M=(1,))
+    # int_ϕg_ϕq::AbstractComponentArrayInterpreter,
+    # int_ϕq::AbstractComponentArrayInterpreter,
+    # transP, transMs, 
+    # priorsP, priorsM,
+    # penalty_computer = ZeroPenaltyComputer(),
+    # is_omit_priors,
+    # zero_prior_logdensity,
+    # approx::AbstractHVIApproximation,
+    # intθP, intθMs,
+    # ranef::AbstractRandomEffectsComputer,
+    # frac_cluster_all,
     i_site_train,
 ) where {TG, TF}
+    sum(ϕm)
     # ζMs = sample_ζMs(zMs, ϕMs, intθMs)
     # ϕc = int_ϕg_ϕq(ϕ)
     # VT= typeof(@view(ϕ[1:1]))

@@ -16,14 +16,15 @@ rng = StableRNG(1234)
 n_covP0 = 0
 n_covP2 = 2
 n_cov = 3
-n_M = 4
+n_θP = 3 
+n_θM = 3 
+n_M = n_θM + 1 # additional uncertainty scaling factor
 
 import Lux
 import Zygote
 import Enzyme
 import ForwardDiff
 
-@testset "g_apply!" begin
     n_input = n_cov + n_covP0
     chain0 = Lux.Chain(
         # dense layer with bias that maps to 8 outputs and applies `tanh` activation
@@ -44,27 +45,45 @@ import ForwardDiff
     #
     n_site = 8
     n_MC = 3
-    n_P = 3
+    #
+    ϕqc1 = CA.ComponentVector(μζP = [-0.1, 0.0, 0.1])
+    ϕq = CA.getdata(ϕqc1)
+    intϕq = ComponentArrayInterpreter(ϕqc1)
     #
     xM = randn(eltype(ϕg),n_cov, n_site)
     y = CP.apply_model(g, xM, ϕg)
     #
-    ζP = randn(n_P)
+    ζP = randn(n_θP)
     #
     # without population covariates
     pbm_covar_indices0 = Int[]   
     xMP0=zeros(eltype(xM), size(xM,1) + n_covP0, size(xM,2))
-    ϕms = CP.g_apply(ϕg, xM, ζP, pbm_covar_indices0, g, xMP0)
-    @test size(ϕms) == (n_M, n_site) 
+    ϕms0 = CP.g_apply(ϕg, xM, ζP, pbm_covar_indices0, g, xMP0)
     #
     # with popuolation covariates
     pbm_covar_indices2 = Int[2,3]   
     g2, ϕg2 = construct_ChainsApplicator(rng, chain2, Float32)
     ϕg2v = collect(ϕg2)
     xMP=zeros(eltype(xM), size(xM,1)+ n_covP2, size(xM,2) )
-    ϕms = CP.g_apply(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)
-    @test size(ϕms) == (n_M, n_site) 
-    #
+    ϕms2 = CP.g_apply(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)
+
+    # preallocate helpers and shadows
+    h = (;
+        xMP = Matrix{eltype(ϕg)}(undef, n_cov + n_covP2, n_site),
+        ζsP = Matrix{eltype(ϕq)}(undef, n_θP, n_MC),
+        ϕms = Matrix{eltype(ϕg)}(undef, n_M, n_site),
+    )
+    helpers_sites = Tuple((;
+        ζsM = Matrix{eltype(ϕq)}(undef, n_θM, n_MC),
+    ) for i in 1:n_site)
+    h = (;h... , helpers_sites, 
+        dxMP  = Enzyme.make_zero(h.xMP),      # shadow for xMP
+        dy = zeros(eltype(ϕg2), n_M, n_site),
+    )    
+
+@testset "g_apply!" begin
+    @test size(ϕms0) == (n_M, n_site) 
+    @test size(ϕms2) == (n_M, n_site) 
     () -> begin # gradient(sum)
         gr_zygote = Zygote.gradient((ϕg2) -> sum(CP.g_apply_zygote(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)), ϕg2v )
         s, pullback_s_zygote = Zygote.pullback((ϕg2) -> sum(CP.g_apply_zygote(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)), ϕg2v )
@@ -92,6 +111,9 @@ import ForwardDiff
     gr_zygote3 = pullback_zygote(gr_h)
     gr_zygote3[1] ≈ gr_zygote[1]
     #
+    _fj = (ϕg2) -> CP.g_apply(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)
+    y_oop = _fj(ϕg2v)
+    #
     () -> begin # enzyme gradient wihtout providing shadows
         _f = (ϕg2) ->sum(CP.g_apply(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP))
         _f(ϕg2)
@@ -99,9 +121,6 @@ import ForwardDiff
         #@benchmark  Enzyme.gradient(set_runtime_activity(Reverse), _f, collect(ϕg2))
         gr_enzyme[1] ≈ gr_zygote[1]
     end
-    _fj = (ϕg2) -> CP.g_apply(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)
-    y_oop = _fj(ϕg2v)
-    @test y ≈ y_oop
     () -> begin # enzyme gradient wihtout providing shadows
         J_enzyme = Enzyme.jacobian(Enzyme.Reverse, _fj, ϕg2v)
         #@benchmark  Enzyme.gradient(set_runtime_activity(Reverse), _f, collect(ϕg2))
@@ -110,51 +129,22 @@ import ForwardDiff
     #
     # need to explicitly pass the buffers for y and xMP to avoid allocation
     #  below also their shadows
-    _f_ip = (ϕg2, y, xMP) -> begin
-        CP.g_apply!(y, ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)
-        sum(y)
-    end
+    #
     y = Enzyme.make_zero(y_oop)
-    _fj_ip = (y, ϕg2, xMP) -> CP.g_apply!(y, ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)
-    _fj_ip(y, ϕg2v, xMP)
+    CP.g_apply!(y, ϕg2v, xM, ζP, pbm_covar_indices2, g2, xMP)
     @test y ≈ y_oop
 
-    # preallocate helpers and shadows
-    h = (;
-        xMP = Matrix{eltype(ϕg2)}(undef, n_cov + n_covP2, n_site),
-    )
-    h = (;h... , 
-        dxMP  = Enzyme.make_zero(h.xMP),      # shadow for xMP
-        dy = zeros(eltype(ϕg2), n_M, n_site),
-    )
-    #
-    # two return values: primal and derivative 
-    #   given coderiv dy, parameters and helpers
-    function grad_g_apply!(y, dϕg, dy, ϕg, h)
-        # need to set shadows to zero before each gradient computation
-        fill!(dϕg,     zero(eltype(dϕg)))
-        fill!(h.dxMP,  zero(eltype(h.dxMP)))
-        copyto!(h.dy, dy) # copy to avoid modifying dy
-        # Enzyme already accumulates to dϕg
-        Enzyme.autodiff(
-            Enzyme.Reverse,
-            _fj_ip,
-            Enzyme.Const,
-            Enzyme.Duplicated(y, h.dy),
-            Enzyme.Duplicated(ϕg, dϕg),
-            Enzyme.Duplicated(h.xMP, h.dxMP)
-        )
-    end
-    #
+
+    dϕg = Enzyme.make_zero(ϕg2v)
     #Enzyme.make_one!(y)
     y .= rand()
     dϕg .= rand() # check that initial values do not effect result
     dy = convert.(eltype(y), gr_h)
-    grad_g_apply!(y, dϕg, dy, ϕg2v, h)
+    CP.grad_g_apply!(y, dϕg, dy, ϕg2v, xM, ζP, pbm_covar_indices2, g2, h)
     @test y == y_oop
     @test dϕg ≈ gr_zygote[1]
     @test dy ≈ gr_h # not modified
-    #@benchmark grad_g_apply!(y, dϕg, dy, ϕg2v, h)
+    #@benchmark grad_g_apply!(y, dϕg, dy, ϕg2v, xM, ζP, pbm_covar_indices2, g2, h)
     #
     () -> begin # explicitly splitting the forward and backward pass
         # they get cached anymay and require allocating the Duplicated Wrappers twice
@@ -162,44 +152,65 @@ import ForwardDiff
         # Compile once outside the hot loop
         fwd, rev = Enzyme.autodiff_thunk(
             Enzyme.ReverseSplitNoPrimal,
-            Enzyme.Const{typeof(_fj_ip)},          
-            Enzyme.Const,                        
-            Enzyme.Duplicated{typeof(y)},       
-            Enzyme.Duplicated{typeof(ϕg2v)},      
-            Enzyme.Duplicated{typeof(h.xMP)}      
+            Enzyme.Const{typeof(g_apply!)},
+            Enzyme.Const,
+            Enzyme.Duplicated{typeof(y)},
+            Enzyme.Duplicated{typeof(ϕg2v)},
+            Enzyme.Const{typeof(xM)},
+            Enzyme.Const{typeof(ζP)},
+            Enzyme.Const{typeof(pbm_covar_indices2)},
+            Enzyme.Const{typeof(g2)},
+            Enzyme.Duplicated{typeof(h.xMP)}
         )
         # take care, dy is also modified
-        function grad2_g_apply!(y, dϕg, dy, ϕg, h, fwd, rev)
+        function grad2_g_apply!(y, dϕg, dy, ϕg, xM, ζP, pbm_covar_indices, g, h, fwd, rev)
             fill!(dϕg, zero(eltype(dϕg)))
             fill!(h.dxMP,  zero(eltype(h.dxMP)))
             copyto!(h.dy, dy) # copy to avoid modifying dy
             tape, _, _ = fwd(
-                Enzyme.Const(_fj_ip),
+                Enzyme.Const(g_apply!),
                 Enzyme.Duplicated(y, h.dy),
                 Enzyme.Duplicated(ϕg, dϕg),
+                Enzyme.Const(xM),
+                Enzyme.Const(ζP),
+                Enzyme.Const(pbm_covar_indices),
+                Enzyme.Const(g),
                 Enzyme.Duplicated(h.xMP, h.dxMP)
             )
             rev(
-                Enzyme.Const(_fj_ip),
+                Enzyme.Const(g_apply!),
                 Enzyme.Duplicated(y, h.dy),
                 Enzyme.Duplicated(ϕg, dϕg),
+                Enzyme.Const(xM),
+                Enzyme.Const(ζP),
+                Enzyme.Const(pbm_covar_indices),
+                Enzyme.Const(g),
                 Enzyme.Duplicated(h.xMP, h.dxMP),
                 tape
             )
             return nothing
         end
         dy = convert.(eltype(y), gr_h) 
-        grad2_g_apply!(y, dϕg, dy, ϕg2v, h, fwd, rev)
+        grad2_g_apply!(y, dϕg, dy, ϕg2v, xM, ζP, pbm_covar_indices2, g2, h, fwd, rev)
         @test y == y_oop
         @test dϕg ≈ gr_zygote[1]
         @test dy ≈ gr_h # not modified
         #@usingany BenchmarkTools
-        #@benchmark grad2_g_apply!(y, dϕg, dy, ϕg2v, h, fwd, rev)
+        #@benchmark grad2_g_apply!(y, dϕg, dy, ϕg2v, xM, ζP, pbm_covar_indices2, g2, h, fwd, rev)
     end
 
 end
 
-
+@testset "neg_elbo_sites" begin
+    res = CP.neg_elbo_sites(rng, ϕg2v, ϕq, g2;
+        n_MC, 
+        pbm_covar_indices = pbm_covar_indices2,
+        i_sites_train = 1:n_site,     
+        intϕq,
+        elbo_helpers = h,      # tuple of preallocated arrays
+        xM,
+    )    
+end
 
 
 

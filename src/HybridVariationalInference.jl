@@ -28,6 +28,7 @@ using KernelAbstractions
 import NaNMath # ignore missing observations in logDensity
 using DifferentiationInterface: DifferentiationInterface as DI
 import Zygote
+import Enzyme
 import ForwardDiff, PreallocationTools
 using IterTools: IterTools
 using PDMats
@@ -145,6 +146,7 @@ include("elbo.jl")
 include("elbo2.jl")
 
 include("elbo_site.jl")
+include("elbo_site_grad.jl")
 
 #export get_loss_ran_tr_f
 include("fit_ranef_site.jl")
