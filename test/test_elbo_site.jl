@@ -10,6 +10,7 @@ using Random
 using ComponentArrays: ComponentArrays as CA
 #using TransformVariables
 using Bijectors
+import PreallocationTools
 
 rng = StableRNG(1234)
 
@@ -121,34 +122,30 @@ import ForwardDiff
 #     f3 = (x) -> sum(3.0 .* x)
 #     CP.g_apply_oop(ϕg2, xM, ζsP, pbm_covar_indices2, g2, xMP)
 #     # one pass of composed function
-#     gr_zygote = Zygote.gradient((ϕg2) -> f3(CP.g_apply_oop(ϕg2, xM, ζsP, pbm_covar_indices2, g2, xMP)), ϕg2v )
+#     gr_zygote = Zygote.gradient((ϕg2, ζsP) -> f3(CP.g_apply_oop(ϕg2, xM, ζsP, pbm_covar_indices2, g2, xMP)), ϕg2v, ζsP )
 #     s, pullback_s_zygote = Zygote.pullback((ϕg2) -> f3(CP.g_apply_oop(ϕg2, xM, ζsP, pbm_covar_indices2, g2, xMP)), ϕg2v )
 #     gr_zygote2 = pullback_s_zygote(one(eltype(s)))
 #     @test gr_zygote2[1] ≈ gr_zygote[1]
 #     # mixed AD, differentiate f3 by FowardDiff and pull back through g
-#     y1 = CP.g_apply_oop(ϕg2, xM, ζsP, pbm_covar_indices2, g2, xMP)
+#     y_oop = CP.g_apply_oop(ϕg2, xM, ζsP, pbm_covar_indices2, g2, xMP)
 #     #gr_h = Zygote.gradient(y -> sum(f3(y)), y1)[1]
-#     gr_h = ForwardDiff.gradient(y -> sum(f3(y)), y1)
+#     gr_h = ForwardDiff.gradient(y -> sum(f3(y)), y_oop)
 #     y, pullback_zygote = Zygote.pullback((ϕg2) -> CP.g_apply_oop(ϕg2, xM, ζsP, pbm_covar_indices2, g2, xMP), ϕg2v )
-#     @test y == y1
+#     @test y == y_oop
 #     gr_zygote3 = pullback_zygote(gr_h)
 #     gr_zygote3[1] ≈ gr_zygote[1]
 #     #
-#     y_oop = CP.g_apply_oop(ϕg2v, xM, ζsP, pbm_covar_indices2, g2, xMP)
-#     # need to explicitly pass the buffers for y and xMP to avoid allocation
-#     #  below also their shadows
-#     y = Enzyme.make_zero(y_oop)
-#     CP.g_apply!(y, ϕg2v, xM, ζsP, pbm_covar_indices2, g2, xMP)
-#     @test y ≈ y_oop
-#     #
 #     dϕg = Enzyme.make_zero(ϕg2v)
+#     dζsP = Enzyme.make_zero(ζsP)
 #     #Enzyme.make_one!(y)
 #     y .= rand()
 #     dϕg .= rand() # check that initial values do not effect result
+#     dζsP .= rand() # check that initial values do not effect result
 #     dy = convert.(eltype(y), gr_h)
-#     CP.grad_g_apply!(y, dϕg, dy, ϕg2v, xM, ζsP, pbm_covar_indices2, g2, h)
+#     CP.grad_g_apply!(y, dϕg, dζsP, dy, ϕg2v, xM, ζsP, pbm_covar_indices2, g2, h)
 #     @test y == y_oop
 #     @test dϕg ≈ gr_zygote[1]
+#     @test dζsP ≈ gr_zygote[2] rtol=1e-3
 #     @test dy ≈ gr_h # not modified
 #     #@benchmark CP.grad_g_apply!(y, dϕg, dy, ϕg2v, xM, ζsP, pbm_covar_indices2, g2, h)
 #     #
@@ -206,108 +203,131 @@ import ForwardDiff
 #     end
 # end
 
-# @testset "neg_elbo_sites" begin
+# @testset "neg_elbo_sites!" begin
 #     # @usingany Cthulhu
-#     res0 = CP.neg_elbo_sites(
-#     #@descend_code_warntype CP.neg_elbo_sites(
-#         rng, ϕgv, ϕq, g, nothing;
+#     CP.randnζ!(rng, h)
+#     res0 = CP.neg_elbo_sites!(
+#     #@descend_code_warntype CP.neg_elbo_sites!(
+#         h,
+#         ϕgv, ϕq, g, nothing;
 #         n_MC, 
 #         i_sites_train = 1:n_site,     
 #         intϕq,
-#         elbo_helpers = h,      # tuple of preallocated arrays
 #         xM,
 #         is_testmode = false,
 #     )    
 
-#     res = CP.neg_elbo_sites(rng, ϕg2v, ϕq, g2, pbm_covar_indices2;
+#     CP.randnζ!(rng, h)
+#     res = CP.neg_elbo_sites!(h, ϕg2v, ϕq, g2, pbm_covar_indices2;
 #         n_MC, 
 #         i_sites_train = 1:n_site,     
 #         intϕq,
-#         elbo_helpers = h,      # tuple of preallocated arrays
 #         xM,
 #         is_testmode = false,
 #     )    
 # end
 
-@testset "grad neg_elbo_sites" begin
-    dh0 = Enzyme.make_zero(h0)
-    dϕg = Enzyme.make_zero(ϕgv)
-    dϕq = Enzyme.make_zero(ϕq)
-    _ftmp2 = (ϕgv, h, g, pbm_covar_indices, rng, ϕq, intϕq, xM, n_MC, i_sites_train) -> 
-        CP.neg_elbo_sites(
-        rng, ϕgv, ϕq, g, pbm_covar_indices, h;
-        n_MC, 
-        i_sites_train,     
-        intϕq,
-        xM,
-        is_testmode = false,
-        )[1]    
-    pbm_covar_indices_nothing = nothing
-    _ftmp2(ϕgv, h, g, pbm_covar_indices_nothing, rng, ϕq, intϕq, xM, n_MC, 1:n_site)
-    #_f(ϕg2v, h, g2, pbm_covar_indices2)
+# @testset "grad neg_elbo_sites!" begin
+#     dh0 = Enzyme.make_zero(h0)
+#     dϕg = Enzyme.make_zero(ϕgv)
+#     dϕq = Enzyme.make_zero(ϕq)
+#     _ftmp2 = (ϕgv, h, g, pbm_covar_indices, ϕq, intϕq, xM, n_MC, i_sites_train) -> 
+#         CP.neg_elbo_sites!(
+#         h, ϕgv, ϕq, g, pbm_covar_indices;
+#         n_MC, 
+#         i_sites_train,     
+#         intϕq,
+#         xM,
+#         is_testmode = false,
+#         )[1]    
+#     pbm_covar_indices_nothing = nothing
+#     CP.randnζ!(rng, h)    
+#     _ftmp2(ϕgv, h, g, pbm_covar_indices_nothing, ϕq, intϕq, xM, n_MC, 1:n_site)
+#     #_f(ϕg2v, h, g2, pbm_covar_indices2)
     
-    Enzyme.make_zero!(dϕg)
-    Enzyme.make_zero!(dϕq)
-    Enzyme.make_zero!(dh0)
-    rng1 = StableRNG(1234)
-    Enzyme.autodiff(
-            Enzyme.set_runtime_activity(Enzyme.Reverse) ,
-            _ftmp2,
-            Enzyme.Active,
-            Enzyme.Duplicated(ϕgv, dϕg),
-            Enzyme.Duplicated(h, dh0),
-            Enzyme.Const(g),
-            Enzyme.Const(pbm_covar_indices_nothing),
-            Enzyme.Const(rng1),
-            Enzyme.Duplicated(ϕq, dϕq),
-            Enzyme.Const(intϕq),
-            Enzyme.Const(xM),
-            Enzyme.Const(n_MC),
-            Enzyme.Const(1:n_site),
-        )   
-    dϕg0_enz = copy(dϕg)
-    dϕq0_enz = copy(dϕq)
-    hcat(dϕg0_enz, dϕg)
+#     Enzyme.make_zero!(dϕg)
+#     Enzyme.make_zero!(dϕq)
+#     Enzyme.make_zero!(dh0)
+#     rng1 = StableRNG(1234)
+#     CP.randnζ!(rng1, h)    
+#     Enzyme.autodiff(
+#             Enzyme.set_runtime_activity(Enzyme.Reverse) ,
+#             _ftmp2,
+#             Enzyme.Active,
+#             Enzyme.Duplicated(ϕgv, dϕg),
+#             Enzyme.Duplicated(h, dh0),
+#             Enzyme.Const(g),
+#             Enzyme.Const(pbm_covar_indices_nothing),
+#             Enzyme.Duplicated(ϕq, dϕq),
+#             Enzyme.Const(intϕq),
+#             Enzyme.Const(xM),
+#             Enzyme.Const(n_MC),
+#             Enzyme.Const(1:n_site),
+#         )   
+#     dϕg0_enz = copy(dϕg)
+#     dϕq0_enz = copy(dϕq)
+#     hcat(dϕg0_enz, dϕg)
 
-    dh2 = Enzyme.make_zero(h2)
-    dϕg2 = Enzyme.make_zero(ϕg2v)
-    dϕq2 = Enzyme.make_zero(ϕq2)
-    _ftmp2(ϕg2v, h2, g2, pbm_covar_indices2, rng, ϕq2, intϕq, xM, n_MC, 1:n_site)
+#     dh2 = Enzyme.make_zero(h2)
+#     dϕg2 = Enzyme.make_zero(ϕg2v)
+#     dϕq2 = Enzyme.make_zero(ϕq2)
+#     CP.randnζ!(rng1, h)    
+#     _ftmp2(ϕg2v, h2, g2, pbm_covar_indices2, ϕq2, intϕq, xM, n_MC, 1:n_site)
 
-    Enzyme.make_zero!(dϕg2)
-    Enzyme.make_zero!(dϕq2)
-    Enzyme.make_zero!(dh2)
-    rng1 = StableRNG(1234)
-    Enzyme.autodiff(
-            Enzyme.set_runtime_activity(Enzyme.Reverse) ,
-            _ftmp2,
-            Enzyme.Active,
-            Enzyme.Duplicated(ϕg2v, dϕg2),
-            Enzyme.Duplicated(h2, dh2),
-            Enzyme.Const(g2),
-            Enzyme.Const(pbm_covar_indices2),
-            Enzyme.Const(rng1),
-            Enzyme.Duplicated(ϕq2, dϕq2),
-            Enzyme.Const(intϕq),
-            Enzyme.Const(xM),
-            Enzyme.Const(n_MC),
-            Enzyme.Const(1:n_site),
-        )   
-    dϕg2_enz = copy(dϕgg)
-    dϕq2_enz = copy(dϕq2)
-    hcat(dϕg2_enz, dϕg2)
+#     Enzyme.make_zero!(dϕg2)
+#     Enzyme.make_zero!(dϕq2)
+#     Enzyme.make_zero!(dh2)
+#     rng1 = StableRNG(1234)
+#     CP.randnζ!(rng1, h)    
+#     Enzyme.autodiff(
+#             Enzyme.set_runtime_activity(Enzyme.Reverse) ,
+#             _ftmp2,
+#             Enzyme.Active,
+#             Enzyme.Duplicated(ϕg2v, dϕg2),
+#             Enzyme.Duplicated(h2, dh2),
+#             Enzyme.Const(g2),
+#             Enzyme.Const(pbm_covar_indices2),
+#             Enzyme.Duplicated(ϕq2, dϕq2),
+#             Enzyme.Const(intϕq),
+#             Enzyme.Const(xM),
+#             Enzyme.Const(n_MC),
+#             Enzyme.Const(1:n_site),
+#         )   
+#     dϕg2_enz = copy(dϕg2)
+#     dϕq2_enz = copy(dϕq2)
+#     hcat(dϕg2_enz, dϕg2)
+# end
 
+@testset "grad_sample_ζsP!" begin
+    # reference: pure wrapper so ForwardDiff can differentiate the mutation
+    ζsP_cache = PreallocationTools.DiffCache(copy(ζsP))
+    f_ref = (ϕq_data) -> begin
+        ϕqc = intϕq(ϕq_data)
+        ζsP_tmp = PreallocationTools.get_tmp(ζsP_cache, ϕq_data)
+        vec(CP.sample_ζsP!(ζsP_tmp, ϕqc))
+    end
+    J_ref = ForwardDiff.jacobian(f_ref, ϕq)          # 9 x 3
+    @test size(J_ref) == (9,3)
 
+    # Enzyme result via the mutating routine (2-D: n_θP * n_MC × n_in)
+    ϕqc = intϕq(ϕq)
+    dζsP = zeros(eltype(ζsP), length(ζsP), length(ϕqc))  # 9 × 3
+    CP.grad_sample_ζsP!(dζsP, ζsP, ϕqc)
 
-    
-    # res = CP.neg_elbo_sites(rng, ϕg2v, ϕq, g2, pbm_covar_indices2;
-    #     n_MC, 
-    #     i_sites_train = 1:n_site,     
-    #     intϕq,
-    #     elbo_helpers = h,      # tuple of preallocated arrays
-    #     xM,
-    #     is_testmode = false,
-    # )    
+    # Compare shapes and values directly
+    @test size(dζsP) == size(J_ref)
+    @test dζsP ≈ J_ref
+
+    # structural sanity: vec(ζsP) column-major, element (i,j) → (j-1)*n_θP + i
+    # ζsP[i,j] depends only on μζP[i]
+    @test all(((idx, k),) -> begin
+        j = (idx - 1) ÷ n_θP + 1    # MC column index
+        i = (idx - 1) % n_θP + 1    # θP index
+        J_ref[idx, k] == (i == k ? 1 : 0)
+    end, Iterators.product(1:length(ζsP), 1:length(ϕqc)))
+
+    # mutating routine must not corrupt the input primal
+    @test ϕqc == intϕq(ϕq)
 end
 
 
@@ -316,38 +336,3 @@ end
 
 
 
-() -> begin
-    #using SimpleChains
-    chain0 = SimpleChain(
-        static(n_cov + n_covP0),          # input size
-        TurboDense(tanh, n_M*2),
-        TurboDense(identity, n_M)
-    )
-    chain2 = SimpleChain(
-        static(n_cov + n_covP2),          # input size
-        TurboDense(tanh, n_M*2),
-        TurboDense(identity, n_M)
-    )
-    ϕg = SimpleChains.init_params(chain0)
-    g, ϕg = construct_ChainsApplicator(rng, chain0)
-end
-
-() -> begin
-    #using Flux
-    n_input = n_cov + n_covP0
-    chain0 = Flux.Chain(
-            # dense layer with bias that maps to 8 outputs and applies `tanh` activation
-            Flux.Dense(n_input => n_input * 4, tanh),
-            Flux.Dense(n_input * 4 => n_input * 4, tanh),
-            # dense layer without bias that maps to n outputs and `logistic` activation
-            Flux.Dense(n_input * 4 => n_M, logistic, bias = false)
-        )
-    n_input = n_cov + n_covP2
-    chain2 = Flux.Chain(
-            # dense layer with bias that maps to 8 outputs and applies `tanh` activation
-            Flux.Dense(n_input => n_input * 4, tanh),
-            Flux.Dense(n_input * 4 => n_input * 4, tanh),
-            # dense layer without bias that maps to n outputs and `logistic` activation
-            Flux.Dense(n_input * 4 => n_M, logistic, bias = false)
-        )
-end

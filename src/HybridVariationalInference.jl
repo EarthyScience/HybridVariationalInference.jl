@@ -35,6 +35,7 @@ using PDMats
 using Distances, Clustering
 #using OptimizationOptimisers
 using RecursiveArrayTools: VectorOfArray, AbstractVectorOfArray
+import ForwardDiff, DiffResults
 
 export DoubleMM
 

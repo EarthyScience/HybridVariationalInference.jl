@@ -1,9 +1,72 @@
+function grad_neg_elbo_sites(
+    elbo_helpers::NamedTuple,      # tuple of preallocated arrays
+    ϕg::AbstractVector{TG}, ϕq::AbstractVector{TF}, g, 
+    pbm_covar_indices::Union{Nothing,AbstractVector{<:Number}}, 
+    args...;
+    n_MC=3, 
+    i_sites_train,     # indices of sites in training set
+    intϕq,
+    xM,
+    is_testmode, 
+    kwargs...
+) where {TG, TF}
+    h = elbo_helpers
+    ϕqc = intϕq(ϕq) 
+    n_θP, n_MC = size(h.ζsP)
+    ∂ζsP∂ϕqc = zeros(eltype(ζsP), n_θP * n_MC, length(ϕqc))
+    grad_sample_ζsP!(∂ζsP∂ϕqc, h.ζsP, ϕqc)
+    ϕm_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
+    # can  only pull back after dϕm = computed dL/dϕm
+    # grad_g_apply!(h[ϕm_buffer_key], h.dϕg, h.dζsP, dϕm, ϕg, xM, ζsP, 
+    #pbm_covar_indices, g, h)
+    g_apply!(h[ϕm_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP) 
+    function SL!(hi, i_site_train, ϕm) 
+            #randn!(rng, hi.ζsM) # n_M * n_MC
+            sample_ζsM!(hi.ζsM, ϕqc, ϕm)
+            # first component needs to be the full elbo
+            Lζi(h.ζsP, hi.ζsM, args...; i_site_train, kwargs...)
+    end
+    i = 1
+    hi = h.helpers_sites[i]
+    i_site_train  = i_sites_train[i]
+    res = ForwardDiff.gradient(ϕm -> SL!(hi, i_site_train, ϕm), h[ϕm_buffer_key])
+end
+
+function grad_sample_ζsP!(dζsP, ζsP, ϕqc)
+    n_θP, n_MC = size(ζsP)
+    n_in = length(ϕqc)
+    @assert size(dζsP) == (n_θP * n_MC, n_in)
+
+    axes_ϕqc   = CA.getaxes(ϕqc)
+    ϕqc_primal = ϕqc
+    ϕqc_shadow = CA.ComponentArray(zeros(eltype(ϕqc), n_in), axes_ϕqc) # TODO pass buffer to avoid allocation
+
+    dζsP_col_shadow = zeros(eltype(ζsP), size(ζsP)) # TODO pass buffer to avoid allocation
+    ζsP_primal = copy(ζsP) # TODO pass buffer to avoid allocation
+
+    for j in 1:n_in
+        fill!(CA.getdata(ϕqc_shadow), 0)
+        CA.getdata(ϕqc_shadow)[j] = one(eltype(ϕqc))   # seed direction e_j
+        fill!(dζsP_col_shadow, 0)
+        copyto!(ζsP_primal, ζsP)                        # restore baseline
+        Enzyme.autodiff(
+            Enzyme.Forward,
+            sample_ζsP!,
+            Enzyme.Duplicated(ζsP_primal, dζsP_col_shadow),  # matrix shadow, matches primal
+            Enzyme.Duplicated(ϕqc_primal, ϕqc_shadow),   # input + tangent
+        )
+        copyto!(view(dζsP, :, j), vec(dζsP_col_shadow))     # column j of the Jacobian
+    end
+    dζsP
+end
+
 # two return values: primal and derivative 
 #   given coderiv dy, parameters and helpers
-function grad_g_apply!(ϕm, dϕg, dϕm, ϕg, xM, ζP, 
+function grad_g_apply!(ϕm, dϕg, dζsP, dϕm, ϕg, xM, ζsP, 
     pbm_covar_indices::Union{Nothing, AbstractArray}, g, h)
     # need to set shadows to zero before each gradient computation
     fill!(dϕg,     zero(eltype(dϕg)))
+    fill!(dζsP,     zero(eltype(dζsP)))
     fill!(h.dxMP,  zero(eltype(h.dxMP)))
     dϕm_buffer_key = isnothing(pbm_covar_indices) ? :dϕms : :dϕms_mcs
     copyto!(h[dϕm_buffer_key], dϕm) # copy to avoid modifying dϕm
@@ -14,25 +77,10 @@ function grad_g_apply!(ϕm, dϕg, dϕm, ϕg, xM, ζP,
         Enzyme.Duplicated(ϕm, h[dϕm_buffer_key]),
         Enzyme.Duplicated(ϕg, dϕg),
         Enzyme.Const(xM),
-        Enzyme.Const(ζP),
+        Enzyme.Duplicated(ζsP, dζsP),
         Enzyme.Const(pbm_covar_indices),
         Enzyme.Const(g),
         Enzyme.Duplicated(h.xMP, h.dxMP),
     )
 end
 
-
-# function grad_g_apply!(y, dϕg, dy, ϕg, xM, ζP, pbm_covar_indices::Nothing, g, h)
-#     # without with no global parameter covariates:  (covar_indices::Nothing )
-#     fill!(dϕg,     zero(eltype(dϕg)))
-#     copyto!(h.dy, dy) # copy to avoid modifying dy
-#     # Enzyme already accumulates to dϕg
-#     Enzyme.autodiff(
-#         Enzyme.Reverse,
-#         apply_model!,
-#         Enzyme.Duplicated(y, h.dy),
-#         Enzyme.Const(g),
-#         Enzyme.Const(xM),
-#         Enzyme.Duplicated(ϕg, dϕg),
-#     )
-# end
