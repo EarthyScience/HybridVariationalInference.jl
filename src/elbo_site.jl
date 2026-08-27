@@ -1,6 +1,25 @@
-function neg_elbo_sites(rng, ϕg::AbstractVector{TG}, ϕq::AbstractVector{TF}, g, 
-    pbm_covar_indices::Union{Nothing,AbstractVector{<:Number}}, 
+function neg_elbo_sites(rng::AbstractRNG, elbo_helpers::NamedTuple, args; kwargs...)
+    CP.randnζ!(rng, h)    
+    neg_elbo_sites!(h, args...; kwargs...)
+end
+
+function randnζ!(rng, h::NamedTuple)
+    randn!(rng, h.ζsP) # n_P * n_MC
+    for i in 1:length(h.helpers_sites)
+        randn!(rng, h.helpers_sites[i].ζsM)
+    end
+    nothing
+end
+
+"""
+elbo_helpers need to be initialized with new random numbers
+in h.ζsP and hi.ζsM by calling randnζ! before.
+By this way, we can compute the derivative corresponding to the forward pass
+"""
+function neg_elbo_sites!(
     elbo_helpers::NamedTuple,      # tuple of preallocated arrays
+    ϕg::AbstractVector{TG}, ϕq::AbstractVector{TF}, g, 
+    pbm_covar_indices::Union{Nothing,AbstractVector{<:Number}}, 
     args...;
     n_MC=3, 
     i_sites_train,     # indices of sites in training set
@@ -12,27 +31,25 @@ function neg_elbo_sites(rng, ϕg::AbstractVector{TG}, ϕq::AbstractVector{TF}, g
     h = elbo_helpers # preallocated μζP, dμζP, ζsP, ϕms, xMP, dxMP
     ϕqc = intϕq(ϕq) 
     μζP = ϕqc[Val(:μζP)]
-    randn!(rng, h.ζsP) # n_P * n_MC
-    sample_ζsP!(h.ζsP, ϕqc)
+    #randn!(rng, h.ζsP) # n_P * n_MC
+    sample_ζsP!(h.ζsP, ϕqc) # n_P * n_MC
     # (n_M x n_sit)  or (n_M x n_MC x n_sit)    
     ϕm_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
     g_apply!(h[ϕm_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP) 
     ϕm_it = eachslice(h[ϕm_buffer_key]; dims = ndims(h[ϕm_buffer_key]))
-    res_site = map(i_sites_train, h.helpers_sites, ϕm_it
-              ) do i_site_train,   hi,              ϕm
-        randn!(rng, hi.ζsM) # n_M * n_MC
-        #hi.ζsM .= one(eltype(hi.ζsM))
-        sample_ζsM!(hi.ζsM, ϕqc, ϕm)
-        # first component needs to be the full elbo
-        Lζi(h.ζsP, hi.ζsM, args...; i_site_train, kwargs...)
+    function SL!(hi, i_site_train, ϕm) 
+            #randn!(rng, hi.ζsM) # n_M * n_MC
+            sample_ζsM!(hi.ζsM, ϕqc, ϕm)
+            # first component needs to be the full elbo
+            Lζi(h.ζsP, hi.ζsM, args...; i_site_train, kwargs...)
     end
+    res_site = map(SL!, h.helpers_sites, i_sites_train, ϕm_it)
     # E = sum(x -> x.E, res_site)
     # loglik = sum(x -> x.loglik, res_site)
     # costTrans = sum(x -> x.costTrans, res_site)
     elbo = sum(first, res_site)
-    (; elbo, res_site)
+    (; elbo, ζsP=copy(h.ζsP), ϕm=copy(h[ϕm_buffer_key]), res_site)
 end
-
 
 
 function sample_ζsP!(ζsP, ϕqc)
