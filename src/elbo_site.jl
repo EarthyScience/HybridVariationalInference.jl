@@ -1,10 +1,12 @@
 function neg_elbo_sites(rng, ϕg::AbstractVector{TG}, ϕq::AbstractVector{TF}, g, 
-    pbm_covar_indices::Nothing, args...;
+    pbm_covar_indices::Union{Nothing,AbstractVector{<:Number}}, 
+    elbo_helpers::NamedTuple,      # tuple of preallocated arrays
+    args...;
     n_MC=3, 
     i_sites_train,     # indices of sites in training set
     intϕq,
-    elbo_helpers,      # tuple of preallocated arrays
     xM,
+    is_testmode, 
     kwargs...
 ) where {TG, TF}
     h = elbo_helpers # preallocated μζP, dμζP, ζsP, ϕms, xMP, dxMP
@@ -12,13 +14,17 @@ function neg_elbo_sites(rng, ϕg::AbstractVector{TG}, ϕq::AbstractVector{TF}, g
     μζP = ϕqc[Val(:μζP)]
     randn!(rng, h.ζsP) # n_P * n_MC
     sample_ζsP!(h.ζsP, ϕqc)
-    apply_model!(h.ϕms, g, xM, ϕg; is_testmode)    # each MC has the same ϕm
-    res_site = map(i_sites_train, h.helpers_sites, eachcol(h.ϕms)
+    # (n_M x n_sit)  or (n_M x n_MC x n_sit)    
+    ϕm_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
+    g_apply!(h[ϕm_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP) 
+    ϕm_it = eachslice(h[ϕm_buffer_key]; dims = ndims(h[ϕm_buffer_key]))
+    res_site = map(i_sites_train, h.helpers_sites, ϕm_it
               ) do i_site_train,   hi,              ϕm
         randn!(rng, hi.ζsM) # n_M * n_MC
+        #hi.ζsM .= one(eltype(hi.ζsM))
         sample_ζsM!(hi.ζsM, ϕqc, ϕm)
         # first component needs to be the full elbo
-        Lζi(ϕq, h.ζsP, hi.ζsM, args...; i_site_train, kwargs...)
+        Lζi(h.ζsP, hi.ζsM, args...; i_site_train, kwargs...)
     end
     # E = sum(x -> x.E, res_site)
     # loglik = sum(x -> x.loglik, res_site)
@@ -27,35 +33,6 @@ function neg_elbo_sites(rng, ϕg::AbstractVector{TG}, ϕq::AbstractVector{TF}, g
     (; elbo, res_site)
 end
 
-function neg_elbo_sites(rng, ϕg::AbstractVector{TG}, ϕq::AbstractVector{TF}, g, 
-    pbm_covar_indices::AbstractVector, args...;
-    n_MC=3, 
-    i_sites_train,     # indices of sites in training set
-    intϕq,
-    elbo_helpers,      # tuple of preallocated arrays
-    xM,
-    kwargs...
-) where {TG, TF}
-    h = elbo_helpers # preallocated μζP, dμζP, ζsP, ϕms, xMP, dxMP
-    ϕqc = intϕq(ϕq) 
-    #μζP = ϕqc[Val(:μζP)]
-    randn!(rng, h.ζsP) # n_P * n_MC
-    sample_ζsP!(h.ζsP, ϕqc)
-    g_apply!(h.ϕms_mcs, ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP) # n_M x n_MC x n_sit
-    res_site = map(i_sites_train, h.helpers_sites, eachslice(h.ϕms_mc; dims = 3)
-              ) do i_site_train,   hi,              ϕm_mc
-        randn!(rng, hi.ζsM) # n_M * n_MC
-        sample_ζsM!(hi.ζsM, ϕqc, ϕm_mc)
-        # first component needs to be the full elbo
-        # second argument may be a vector (same across mc) or a matrix (different for j_mc)
-        Lζi(ϕq, h.ζsP, hi.ζsM, args...; i_site_train, kwargs...)
-    end
-    # E = sum(x -> x.E, res_site)
-    # loglik = sum(x -> x.loglik, res_site)
-    # costTrans = sum(x -> x.costTrans, res_site)
-    elbo = sum(first, res_site)
-    (; elbo, res_site)
-end
 
 
 function sample_ζsP!(ζsP, ϕqc)
@@ -64,6 +41,7 @@ function sample_ζsP!(ζsP, ϕqc)
     ζsP .+= ϕqc[Val(:μζP)]
 end
 
+# with Vector, all MCs have the same mean
 function sample_ζsM!(ζsM, ϕqc, ϕm::AbstractVector)
     # TODO replace by proper sampling of full covariance matrix
     # for now just add the mean
@@ -72,6 +50,7 @@ function sample_ζsM!(ζsM, ϕqc, ϕm::AbstractVector)
     ζsM .+= μM
 end
 
+# with Matrix, there is a site mean for each mc-sample
 function sample_ζsM!(ζsM, ϕqc, ϕm::AbstractMatrix)
     # TODO replace by proper sampling of full covariance matrix
     # for now just add the mean
@@ -85,7 +64,7 @@ end
 
 # if pbm_covar_indices is nothing, return only a Matrix (n_m x n_site)
 # otherwise return an Array (n_m x n_MC x n_site)
-function g_apply_zygote(ϕg::AbstractVector{TG}, xM::AbstractMatrix{TG}, 
+function g_apply_oop(ϕg::AbstractVector{TG}, xM::AbstractMatrix{TG}, 
     ζsP::AbstractMatrix{TF}, pbm_covar_indices::Nothing, 
     g::AbstractModelApplicator,
     xMP::AbstractMatrix;
@@ -93,7 +72,7 @@ function g_apply_zygote(ϕg::AbstractVector{TG}, xM::AbstractMatrix{TG},
     ) where {TG, TF}
     ϕm1 = apply_model(g, xM, ϕg; is_testmode)
 end
-function g_apply_zygote(ϕg::AbstractVector{TG}, xM::AbstractMatrix{TG}, 
+function g_apply_oop(ϕg::AbstractVector{TG}, xM::AbstractMatrix{TG}, 
     ζsP::AbstractMatrix{TF}, pbm_covar_indices::AbstractVector{<:Number}, 
     g::AbstractModelApplicator,
     xMP::AbstractMatrix;
@@ -101,7 +80,7 @@ function g_apply_zygote(ϕg::AbstractVector{TG}, xM::AbstractMatrix{TG},
     ) where {TG, TF}
     if length(pbm_covar_indices) == 0
         n_θP, n_MC = size(ζsP)
-        ϕm1 = g_apply_zygote(ϕg, xM, ζsP, nothing, g, xMP; is_testmode)
+        ϕm1 = g_apply_oop(ϕg, xM, ζsP, nothing, g, xMP; is_testmode)
         # Reshape to (n_rows × 1 × n_cols) then repeat n_MC times along dim 2
         ϕms = repeat(reshape(ϕm1, size(ϕm1, 1), 1, size(ϕm1, 2)), 1, n_MC, 1)        
     else
@@ -165,6 +144,7 @@ function update_xMP!(xMP::AbstractMatrix{TG},
     n_θP, n_MC = size(ζsP)
     n_cov, n_site = size(xM)
     n_covP = length(pbm_covar_indices)
+    @show n_covP, size(xMP)
     @assert size(xMP) == ((n_cov + n_covP) , n_site * n_MC)
     @inbounds for i in 1:n_site
         for j in 1:n_MC
@@ -182,10 +162,8 @@ function update_xMP!(xMP::AbstractMatrix{TG},
 end
 
 function Lζi(
-    ϕqc::AbstractVector{TF}, 
-    ϕm::AbstractVector{TG}, 
-    ζsM::AbstractMatrix{TF}, 
-    ζsP::AbstractMatrix{TF};
+    ζsP::AbstractMatrix{TF},
+    ζsM::AbstractMatrix{TF}; 
     # f, py,
     # xP, y_ob, y_unc, itrain_sites::AbstractVector{<:Number};
     # cor_ends, # =(P=(1,),M=(1,))
@@ -201,8 +179,8 @@ function Lζi(
     # ranef::AbstractRandomEffectsComputer,
     # frac_cluster_all,
     i_site_train,
-) where {TG, TF}
-    5 * sum(ϕm)
+) where {TF}
+    5 * sum(ζsP) + 3 * sum(ζsM)
     # ζMs = sample_ζMs(zMs, ϕMs, intθMs)
     # ϕc = int_ϕg_ϕq(ϕ)
     # VT= typeof(@view(ϕ[1:1]))
