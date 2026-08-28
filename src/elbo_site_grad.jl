@@ -14,10 +14,10 @@ function grad_neg_elbo_sites(
     ϕqc = intϕq(ϕq) 
     n_θP, n_MC = size(h.ζsP)
     ∂ζsP∂ϕqc = zeros(eltype(ζsP), n_θP * n_MC, length(ϕqc))
-    grad_sample_ζsP!(∂ζsP∂ϕqc, h.ζsP, ϕqc)
+    pullback_sample_ζsP!(∂ζsP∂ϕqc, h.ζsP, ϕqc)
     ϕm_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
     # can  only pull back after dϕm = computed dL/dϕm
-    # grad_g_apply!(h[ϕm_buffer_key], h.dϕg, h.dζsP, dϕm, ϕg, xM, ζsP, 
+    # pullback_g_apply!(h[ϕm_buffer_key], h.dϕg, h.dζsP, dϕm, ϕg, xM, ζsP, 
     #pbm_covar_indices, g, h)
     g_apply!(h[ϕm_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP) 
     function SL!(hi, i_site_train, ϕm) 
@@ -32,7 +32,7 @@ function grad_neg_elbo_sites(
     res = ForwardDiff.gradient(ϕm -> SL!(hi, i_site_train, ϕm), h[ϕm_buffer_key])
 end
 
-function grad_sample_ζsP!(dζsP, ζsP, ϕqc)
+function pullback_sample_ζsP!(dζsP, ζsP, ϕqc)
     n_θP, n_MC = size(ζsP)
     n_in = length(ϕqc)
     @assert size(dζsP) == (n_θP * n_MC, n_in)
@@ -60,9 +60,26 @@ function grad_sample_ζsP!(dζsP, ζsP, ϕqc)
     dζsP
 end
 
+function pullback_sample_ζsP!(dϕqc, dlogσ2_ζP, dζsP, ζsP, logσ2_ζP, ϕqc)
+    # ζsP is mutated, so store previous value
+    ζsP_ = copy(ζsP) # TODO pass buffers to avoid allocation
+    dζsP_ = copy(dζsP)
+    fill!(dϕqc, 0)
+    fill!(dlogσ2_ζP, 0)
+    Enzyme.autodiff(
+        Enzyme.Reverse,
+        sample_ζsP!,
+        Enzyme.Duplicated(ζsP_, dζsP_),  
+        Enzyme.Duplicated(logσ2_ζP, dlogσ2_ζP),  
+        Enzyme.Duplicated(ϕqc, dϕqc),   
+    )
+    nothing
+end
+
+
 # two return values: primal and derivative 
 #   given coderiv dy, parameters and helpers
-function grad_g_apply!(ϕm, dϕg, dζsP, dϕm, ϕg, xM, ζsP, 
+function pullback_g_apply!(ϕm, dϕg, dζsP, dϕm, ϕg, xM, ζsP, 
     pbm_covar_indices::Union{Nothing, AbstractArray}, g, h)
     # need to set shadows to zero before each gradient computation
     fill!(dϕg,     zero(eltype(dϕg)))

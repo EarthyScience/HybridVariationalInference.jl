@@ -51,11 +51,14 @@ function neg_elbo_sites!(
     (; elbo, ζsP=copy(h.ζsP), ϕm=copy(h[ϕm_buffer_key]), res_site)
 end
 
-
-function sample_ζsP!(ζsP, ϕqc)
+function sample_ζsP!(ζsP, logσ2_ζP, ϕqc::AbstractVector{T}) where T
     # TODO replace by proper sampling of full covariance matrix
-    # for now just add the mean
-    ζsP .+= ϕqc[Val(:μζP)]
+    # for now neglect correlations
+    μζP = CA.getdata(ϕqc[Val(:μζP)])
+    logσ2_ζP .= CA.getdata(ϕqc[Val(:logσ2_ζP)])
+    # ζsP * diagm(v) is the same as ζsP .* v'
+    ζsP .= μζP .+ (ζsP .* exp.(logσ2_ζP ./ T(2))')
+    nothing
 end
 
 # with Vector, all MCs have the same mean
