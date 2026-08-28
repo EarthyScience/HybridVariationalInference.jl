@@ -62,14 +62,14 @@ import ForwardDiff
     pbm_covar_indices0 = Int[]   
     xMP0=zeros(eltype(xM), size(xM,1) + n_covP0, size(xM,2))
     ϕms0vz = CP.g_apply_oop(ϕg, xM, ζsP, pbm_covar_indices0, g, xMP0)
-    ϕms0v = Enzyme.make_zero(ϕms0vz)
+    ϕms0v = zero(ϕms0vz)
     CP.g_apply!(ϕms0v, ϕg, xM, ζsP, pbm_covar_indices0, g, xMP0)
     ϕms0v == ϕms0vz
     # @usingany BenchmarkTools
     # @benchmark CP.g_apply!(ϕms0, ϕg, xM, ζsP, pbm_covar_indices0, g, xMP0)
     # with providing nothing instead of an empty list, omit the n_mc dimension
     ϕms0z = CP.g_apply_oop(ϕg, xM, ζsP, nothing, g, xMP0)
-    ϕms0 = Enzyme.make_zero(ϕms0z)
+    ϕms0 = zero(ϕms0z)
     CP.g_apply!(ϕms0, ϕg, xM, ζsP, nothing, g, xMP0)
     ϕms0 == ϕms0z
 
@@ -80,7 +80,7 @@ import ForwardDiff
     ϕg2v = collect(ϕg2)
     xMP=zeros(eltype(xM), (size(xM,1)+ n_covP2), size(xM,2) * n_MC)
     ϕms2z = CP.g_apply_oop(ϕg2, xM, ζsP, pbm_covar_indices2, g2, xMP)
-    ϕms2 = Enzyme.make_zero(ϕms2z)
+    ϕms2 = zero(ϕms2z)
     CP.g_apply!(ϕms2, ϕg2, xM, ζsP, pbm_covar_indices2, g2, xMP)
     ϕms2 == ϕms2z
 
@@ -96,7 +96,7 @@ import ForwardDiff
         ζsM = Matrix{eltype(ϕq)}(undef, n_θM, n_MC),
     ) for i in 1:n_site)
     h = (;h... , helpers_sites, 
-        dxMP  = Enzyme.make_zero(h.xMP),      # shadow for xMP
+        dxMP  = zero(h.xMP),      # shadow for xMP
         dϕms = zeros(eltype(ϕg2), size(h.ϕms)),
         dϕms_mcs = zeros(eltype(ϕg2), size(h.ϕms_mcs)),
     )   
@@ -135,8 +135,8 @@ import ForwardDiff
 #     gr_zygote3 = pullback_zygote(gr_h)
 #     gr_zygote3[1] ≈ gr_zygote[1]
 #     #
-#     dϕg = Enzyme.make_zero(ϕg2v)
-#     dζsP = Enzyme.make_zero(ζsP)
+#     dϕg = zero(ϕg2v)
+#     dζsP = zero(ζsP)
 #     #Enzyme.make_one!(y)
 #     y .= rand()
 #     dϕg .= rand() # check that initial values do not effect result
@@ -149,50 +149,51 @@ import ForwardDiff
 #     @test dy ≈ gr_h # not modified
 #     #@benchmark CP.pullback_g_apply!(y, dϕg, dy, ϕg2v, xM, ζsP, pbm_covar_indices2, g2, h)
 #     #
-#     () -> begin # explicitly splitting the forward and backward pass
-#         # they get cached anymay and require allocating the Duplicated Wrappers twice
-#         #   hence there is no performance benefit
-#         # Compile once outside the hot loop
-#         fwd, rev = Enzyme.autodiff_thunk(
-#             Enzyme.ReverseSplitNoPrimal,
-#             Enzyme.Const{typeof(g_apply!)},
-#             Enzyme.Const,
-#             Enzyme.Duplicated{typeof(y)},
-#             Enzyme.Duplicated{typeof(ϕg2v)},
-#             Enzyme.Const{typeof(xM)},
-#             Enzyme.Const{typeof(ζP)},
-#             Enzyme.Const{typeof(pbm_covar_indices2)},
-#             Enzyme.Const{typeof(g2)},
-#             Enzyme.Duplicated{typeof(h.xMP)}
-#         )
-#         # take care, dy is also modified
-#         function grad2_g_apply!(y, dϕg, dy, ϕg, xM, ζP, pbm_covar_indices, g, h, fwd, rev)
-#             fill!(dϕg, zero(eltype(dϕg)))
-#             fill!(h.dxMP,  zero(eltype(h.dxMP)))
-#             copyto!(h.dy, dy) # copy to avoid modifying dy
-#             tape, _, _ = fwd(
-#                 Enzyme.Const(g_apply!),
-#                 Enzyme.Duplicated(y, h.dy),
-#                 Enzyme.Duplicated(ϕg, dϕg),
-#                 Enzyme.Const(xM),
-#                 Enzyme.Const(ζP),
-#                 Enzyme.Const(pbm_covar_indices),
-#                 Enzyme.Const(g),
-#                 Enzyme.Duplicated(h.xMP, h.dxMP)
-#             )
-#             rev(
-#                 Enzyme.Const(g_apply!),
-#                 Enzyme.Duplicated(y, h.dy),
-#                 Enzyme.Duplicated(ϕg, dϕg),
-#                 Enzyme.Const(xM),
-#                 Enzyme.Const(ζP),
-#                 Enzyme.Const(pbm_covar_indices),
-#                 Enzyme.Const(g),
-#                 Enzyme.Duplicated(h.xMP, h.dxMP),
-#                 tape
-#             )
-#             return nothing
-#         end
+    # () -> begin # explicitly splitting the forward and backward pass
+    #     # they get cached anymay and require allocating the Duplicated Wrappers twice
+    #     #   hence there is no performance benefit
+    #     # Compile once outside the hot loop
+    #     fwd, rev = Enzyme.autodiff_thunk(
+    #         Enzyme.ReverseSplitNoPrimal,
+    #         Enzyme.Const{typeof(g_apply!)},
+    #         Enzyme.Const,
+    #         Enzyme.Duplicated{typeof(y)},
+    #         Enzyme.Duplicated{typeof(ϕg2v)},
+    #         Enzyme.Const{typeof(xM)},
+    #         Enzyme.Const{typeof(ζP)},
+    #         Enzyme.Const{typeof(pbm_covar_indices2)},
+    #         Enzyme.Const{typeof(g2)},
+    #         Enzyme.Duplicated{typeof(h.xMP)}
+    #     )
+    #     # take care, dy is also modified
+    #     function grad2_g_apply!(y, dϕg, dy, ϕg, xM, ζP, pbm_covar_indices, g, h, fwd, rev)
+    #         fill!(dϕg, zero(eltype(dϕg)))
+    #         fill!(h.dxMP,  zero(eltype(h.dxMP)))
+    #         copyto!(h.dy, dy) # copy to avoid modifying dy
+    #         tape, _, _ = fwd(
+    #             Enzyme.Const(g_apply!),
+    #             Enzyme.Duplicated(y, h.dy),
+    #             Enzyme.Duplicated(ϕg, dϕg),
+    #             Enzyme.Const(xM),
+    #             Enzyme.Const(ζP),
+    #             Enzyme.Const(pbm_covar_indices),
+    #             Enzyme.Const(g),
+    #             Enzyme.Duplicated(h.xMP, h.dxMP)
+    #         )
+    #         rev(
+    #             Enzyme.Const(g_apply!),
+    #             Enzyme.Duplicated(y, h.dy),
+    #             Enzyme.Duplicated(ϕg, dϕg),
+    #             Enzyme.Const(xM),
+    #             Enzyme.Const(ζP),
+    #             Enzyme.Const(pbm_covar_indices),
+    #             Enzyme.Const(g),
+    #             Enzyme.Duplicated(h.xMP, h.dxMP),
+    #             tape
+    #         )
+    #         return nothing
+    #     end
+
 #         dy = convert.(eltype(y), gr_h) 
 #         grad2_g_apply!(y, dϕg, dy, ϕg2v, xM, ζP, pbm_covar_indices2, g2, h, fwd, rev)
 #         @test y == y_oop
@@ -228,9 +229,9 @@ import ForwardDiff
 # end
 
 # @testset "grad neg_elbo_sites!" begin
-#     dh0 = Enzyme.make_zero(h0)
-#     dϕg = Enzyme.make_zero(ϕgv)
-#     dϕq = Enzyme.make_zero(ϕq)
+#     dh0 = zero(h0)
+#     dϕg = zero(ϕgv)
+#     dϕq = zero(ϕq)
 #     _ftmp2 = (ϕgv, h, g, pbm_covar_indices, ϕq, intϕq, xM, n_MC, i_sites_train) -> 
 #         CP.neg_elbo_sites!(
 #         h, ϕgv, ϕq, g, pbm_covar_indices;
@@ -268,9 +269,9 @@ import ForwardDiff
 #     dϕq0_enz = copy(dϕq)
 #     hcat(dϕg0_enz, dϕg)
 
-#     dh2 = Enzyme.make_zero(h2)
-#     dϕg2 = Enzyme.make_zero(ϕg2v)
-#     dϕq2 = Enzyme.make_zero(ϕq2)
+#     dh2 = zero(h2)
+#     dϕg2 = zero(ϕg2v)
+#     dϕq2 = zero(ϕq2)
 #     CP.randnζ!(rng1, h)    
 #     _ftmp2(ϕg2v, h2, g2, pbm_covar_indices2, ϕq2, intϕq, xM, n_MC, 1:n_site)
 
@@ -299,29 +300,58 @@ import ForwardDiff
 # end
 
 @testset "pullback_sample_ζsP!" begin
-    rP = copy(ζsP)
-    randn!(rP)
     ϕqc = intϕq(ϕq)
-    logσ2_ζP = zeros(eltype(ζsP), n_θP)
+    rP = zero(ζsP)
+    randn!(rP)  # before input gaussian noise
+    rPr = copy(rP)
+    #logσ2_ζP = zero(ϕqc.logσ2_ζP) # cretes a view rather than copy
+    logσ2_ζP = zero(ϕqc.logσ2_ζP)
     CP.sample_ζsP!(rP, logσ2_ζP, ϕqc)
     mean(rP; dims=2)
 
     # Enzyme result via the mutating routine (2-D: n_θP * n_MC × n_in)
-    dζsP = Enzyme.make_zero(ζsP) .+ one(eltype(ζsP))
-    dϕqc = Enzyme.make_zero(ϕqc) 
-    dlogσ2_ζP = Enzyme.make_zero(logσ2_ζP) 
+    dζsP = zero(ζsP) .+ one(eltype(ζsP))
+    dlogσ2_ζP = zero(logσ2_ζP) .+ one(eltype(ζsP))
+    dϕqc = zero(ϕqc) 
 
     randn!(dϕqc) # test that is zerod inside pullback
     rP_ = copy(rP)
     dζsP_ = copy(dζsP)
     logσ2_ζP_ = copy(logσ2_ζP)
-    CP.pullback_sample_ζsP!(dϕqc, dlogσ2_ζP, dζsP, rP, logσ2_ζP, ϕqc)
+    dlogσ2_ζP_ = copy(dlogσ2_ζP)
+    #CP.pullback_sample_ζsP!(dϕqc, dζsP, dlogσ2_ζP, rP, logσ2_ζP, ϕqc) # needs rP to be noise
+    CP.pullback_sample_ζsP!(dϕqc, dζsP, dlogσ2_ζP, rPr, logσ2_ζP, ϕqc)
     @test rP == rP_
     @test dζsP == dζsP_
+    @test dlogσ2_ζP == dlogσ2_ζP_
     @test logσ2_ζP == logσ2_ζP_
     # without correlation
     #@test all(dϕqc[Val(:μζP)] .== n_MC)
     # #@test dϕqc[Val(:logσ2_ζP)] ≈ vec(sum(rP; dims=2)) # 
+    dϕqc_comb = copy(dϕqc)
+
+    rP .= rPr  # same noise
+    pb_sample_ζsP = CP.primal_pullback_sample_ζsP!(rP, logσ2_ζP, ϕqc)
+    @test rP ≈ rP_# computed the forward pass
+    @test logσ2_ζP == logσ2_ζP_
+    dϕqc .= 0.1
+    #dϕqc .= 0.01 # should not influence results
+    pb_sample_ζsP(dϕqc, dζsP, dlogσ2_ζP)    
+    #pb_sample_ζsP(rP, logσ2_ζP)
+    @test rP ≈ rP_  # did not modify
+    @test logσ2_ζP == logσ2_ζP_ # not modified
+    @test dlogσ2_ζP == dlogσ2_ζP_ # not modified
+    @test dζsP == dζsP_
+    #hcat(dϕqc, dϕqc_comb)
+    @test CA.getdata(dϕqc) ≈ CA.getdata(dϕqc_comb)
+    #
+    # test another pullback
+    #dζsP .= dζsP * eltype(dζsP)(2)
+    pb_sample_ζsP(dϕqc, dζsP, dlogσ2_ζP)    
+    @test CA.getdata(dϕqc) ≈ CA.getdata(dϕqc_comb)
+    #
+    # @usingany BenchmarkTools
+    # @benchmark pb_sample_ζsP(dϕqc, dζsP, dlogσ2_ζP)    
 end
 
 
