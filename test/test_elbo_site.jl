@@ -48,7 +48,7 @@ import ForwardDiff
     n_site = 8
     n_MC = 3
     #
-    ϕqc1 = CA.ComponentVector(μζP = [-0.1, 0.0, 0.1])
+    ϕqc1 = CA.ComponentVector(μζP = [-1, 0, 1.0], logσ2_ζP = ones(3) .* log(0.01))
     ϕq = ϕq2 = CA.getdata(ϕqc1)
     intϕq = get_concrete(ComponentArrayInterpreter(ϕqc1))
     #
@@ -102,7 +102,7 @@ import ForwardDiff
     )   
     h0 = h2 = h 
 
-# @testset "grad_g_apply!" begin
+# @testset "pullback_g_apply!" begin
 #     @test ϕms0 == ϕms0z
 #     @test ϕms2 == ϕms2z
 #     @test size(ϕms0) == (n_M, n_site) 
@@ -142,12 +142,12 @@ import ForwardDiff
 #     dϕg .= rand() # check that initial values do not effect result
 #     dζsP .= rand() # check that initial values do not effect result
 #     dy = convert.(eltype(y), gr_h)
-#     CP.grad_g_apply!(y, dϕg, dζsP, dy, ϕg2v, xM, ζsP, pbm_covar_indices2, g2, h)
+#     CP.pullback_g_apply!(y, dϕg, dζsP, dy, ϕg2v, xM, ζsP, pbm_covar_indices2, g2, h)
 #     @test y == y_oop
 #     @test dϕg ≈ gr_zygote[1]
 #     @test dζsP ≈ gr_zygote[2] rtol=1e-3
 #     @test dy ≈ gr_h # not modified
-#     #@benchmark CP.grad_g_apply!(y, dϕg, dy, ϕg2v, xM, ζsP, pbm_covar_indices2, g2, h)
+#     #@benchmark CP.pullback_g_apply!(y, dϕg, dy, ϕg2v, xM, ζsP, pbm_covar_indices2, g2, h)
 #     #
 #     () -> begin # explicitly splitting the forward and backward pass
 #         # they get cached anymay and require allocating the Duplicated Wrappers twice
@@ -298,36 +298,30 @@ import ForwardDiff
 #     hcat(dϕg2_enz, dϕg2)
 # end
 
-@testset "grad_sample_ζsP!" begin
-    # reference: pure wrapper so ForwardDiff can differentiate the mutation
-    ζsP_cache = PreallocationTools.DiffCache(copy(ζsP))
-    f_ref = (ϕq_data) -> begin
-        ϕqc = intϕq(ϕq_data)
-        ζsP_tmp = PreallocationTools.get_tmp(ζsP_cache, ϕq_data)
-        vec(CP.sample_ζsP!(ζsP_tmp, ϕqc))
-    end
-    J_ref = ForwardDiff.jacobian(f_ref, ϕq)          # 9 x 3
-    @test size(J_ref) == (9,3)
+@testset "pullback_sample_ζsP!" begin
+    rP = copy(ζsP)
+    randn!(rP)
+    ϕqc = intϕq(ϕq)
+    logσ2_ζP = zeros(eltype(ζsP), n_θP)
+    CP.sample_ζsP!(rP, logσ2_ζP, ϕqc)
+    mean(rP; dims=2)
 
     # Enzyme result via the mutating routine (2-D: n_θP * n_MC × n_in)
-    ϕqc = intϕq(ϕq)
-    dζsP = zeros(eltype(ζsP), length(ζsP), length(ϕqc))  # 9 × 3
-    CP.grad_sample_ζsP!(dζsP, ζsP, ϕqc)
+    dζsP = Enzyme.make_zero(ζsP) .+ one(eltype(ζsP))
+    dϕqc = Enzyme.make_zero(ϕqc) 
+    dlogσ2_ζP = Enzyme.make_zero(logσ2_ζP) 
 
-    # Compare shapes and values directly
-    @test size(dζsP) == size(J_ref)
-    @test dζsP ≈ J_ref
-
-    # structural sanity: vec(ζsP) column-major, element (i,j) → (j-1)*n_θP + i
-    # ζsP[i,j] depends only on μζP[i]
-    @test all(((idx, k),) -> begin
-        j = (idx - 1) ÷ n_θP + 1    # MC column index
-        i = (idx - 1) % n_θP + 1    # θP index
-        J_ref[idx, k] == (i == k ? 1 : 0)
-    end, Iterators.product(1:length(ζsP), 1:length(ϕqc)))
-
-    # mutating routine must not corrupt the input primal
-    @test ϕqc == intϕq(ϕq)
+    randn!(dϕqc) # test that is zerod inside pullback
+    rP_ = copy(rP)
+    dζsP_ = copy(dζsP)
+    logσ2_ζP_ = copy(logσ2_ζP)
+    CP.pullback_sample_ζsP!(dϕqc, dlogσ2_ζP, dζsP, rP, logσ2_ζP, ϕqc)
+    @test rP == rP_
+    @test dζsP == dζsP_
+    @test logσ2_ζP == logσ2_ζP_
+    # without correlation
+    #@test all(dϕqc[Val(:μζP)] .== n_MC)
+    # #@test dϕqc[Val(:logσ2_ζP)] ≈ vec(sum(rP; dims=2)) # 
 end
 
 
