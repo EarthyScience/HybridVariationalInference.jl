@@ -32,14 +32,14 @@ function neg_elbo_sites!(
     ϕqc = intϕq(ϕq) 
     μζP = ϕqc[Val(:μζP)]
     #randn!(rng, h.ζsP) # n_P * n_MC
-    sample_ζsP!(h.ζsP, ϕqc) # n_P * n_MC
+    sample_ζsP!(h.ζsP, h.logσ2_ζP, ϕqc) # n_P * n_MC
     # (n_M x n_sit)  or (n_M x n_MC x n_sit)    
     ϕm_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
     g_apply!(h[ϕm_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP) 
     ϕm_it = eachslice(h[ϕm_buffer_key]; dims = ndims(h[ϕm_buffer_key]))
     function SL!(hi, i_site_train, ϕm) 
             #randn!(rng, hi.ζsM) # n_M * n_MC
-            sample_ζsM!(hi.ζsM, ϕqc, ϕm)
+            sample_ζsM!(hi.ζsM, hi.logσ2_ζP, ϕqc, ϕm)
             # first component needs to be the full elbo
             Lζi(h.ζsP, hi.ζsM, args...; i_site_train, kwargs...)
     end
@@ -53,33 +53,51 @@ end
 
 function sample_ζsP!(ζsP, logσ2_ζP, ϕqc::AbstractVector{T}) where T
     # TODO replace by proper sampling of full covariance matrix
-    # for now neglect correlations
     μζP = CA.getdata(ϕqc[Val(:μζP)])
-    logσ2_ζP .= CA.getdata(ϕqc[Val(:logσ2_ζP)])
+    logσ2_ζP .= view(ϕqc, Val(:logσ2_ζP))
     # ζsP * diagm(v) is the same as ζsP .* v'
     ζsP .= μζP .+ (ζsP .* exp.(logσ2_ζP ./ T(2))')
     nothing
 end
 
 # with Vector, all MCs have the same mean
-function sample_ζsM!(ζsM, ϕqc, ϕm::AbstractVector)
+function sample_ζsM!(ζsM, logσ2_ζM, ϕqc::AbstractVector{T}, ϕm::AbstractVector, buffer_nθM::AbstractVector) where T
     # TODO replace by proper sampling of full covariance matrix
-    # for now just add the mean
+    # TODO add scaling by factor in ϕm / dispatch by approach
     n_θM, n_MC = size(ζsM)
-    μM = ϕm[1:n_θM]
-    ζsM .+= μM
+    logσ2_ζM .= view(ϕqc, Val(:logσ2_ζM))
+    @assert size(buffer_nθM) == (n_θM,)
+    scale = buffer_nθM
+    @. scale = exp(logσ2_ζM / T(2))
+    μζM = view(ϕm, 1:n_θM)           # view of the mean block (n_θM × n_MC)
+    ζsM .= μζM .+ (ζsM .* scale')    # does not allocate
+    # @inbounds for j in 1:n_MC
+    #     for i in 1:n_θM
+    #         ζsM[i,j] = ϕm[i] + ζsM[i,j] * scale[i]
+    #     end
+    # end
+    nothing
 end
 
 # with Matrix, there is a site mean for each mc-sample
-function sample_ζsM!(ζsM, ϕqc, ϕm::AbstractMatrix)
-    # TODO replace by proper sampling of full covariance matrix
-    # for now just add the mean
+function sample_ζsM!(ζsM, logσ2_ζM, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector) where T
     n_θM, n_MC = size(ζsM)
+    logσ2_ζM .= view(ϕqc, Val(:logσ2_ζM))
     @assert size(ϕm,1) >= n_θM
     @assert size(ϕm,2) == n_MC
-    @inbounds for j in 1:n_MC
-        ζsM[:,j] .+= ϕm[1:n_θM,j]
-    end
+    # TODO avoid allocation with subsetting non-last column
+    # μζM = ϕm[1:n_θM,:]
+    @assert size(buffer_nθM) == (n_θM,)
+    scale = buffer_nθM
+    @. scale = exp(logσ2_ζM / T(2))
+    μζM = view(ϕm, 1:n_θM, :)           # view of the mean block (n_θM × n_MC)
+    ζsM .= μζM .+ (ζsM .* scale')       # does not allocate
+    # @inbounds for j in 1:n_MC
+    #     for i in 1:n_θM
+    #         ζsM[i,j] = ϕm[i,j] + ζsM[i,j] * scale[i]
+    #     end
+    # end
+    nothing         
 end
 
 # if pbm_covar_indices is nothing, return only a Matrix (n_m x n_site)

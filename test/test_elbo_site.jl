@@ -48,7 +48,11 @@ import ForwardDiff
     n_site = 8
     n_MC = 3
     #
-    ϕqc1 = CA.ComponentVector(μζP = [-1, 0, 1.0], logσ2_ζP = ones(3) .* log(0.01))
+    ϕqc1 = CA.ComponentVector(
+        μζP = [-1, 0, 1.0], 
+        logσ2_ζP = ones(n_MC) .* log(0.01),
+        logσ2_ζM = ones(n_MC) .* log(0.02),
+        )
     ϕq = ϕq2 = CA.getdata(ϕqc1)
     intϕq = get_concrete(ComponentArrayInterpreter(ϕqc1))
     #
@@ -88,12 +92,14 @@ import ForwardDiff
     h = (;
         xMP = Matrix{eltype(ϕg)}(undef, (n_cov + n_covP2), n_MC * n_site),
         ζsP = Matrix{eltype(ϕq)}(undef, n_θP, n_MC),
+        logσ2_ζP = Vector{eltype(ϕq)}(undef, n_θP),
         ϕms = Matrix{eltype(ϕg)}(undef, n_M, n_site),
         ϕms_mcs = Array{eltype(ϕg),3}(undef, n_M, n_MC, n_site),
 
     )
     helpers_sites = Tuple((;
         ζsM = Matrix{eltype(ϕq)}(undef, n_θM, n_MC),
+        logσ2_ζM = Vector{eltype(ϕq)}(undef, n_θM),
     ) for i in 1:n_site)
     h = (;h... , helpers_sites, 
         dxMP  = zero(h.xMP),      # shadow for xMP
@@ -101,6 +107,26 @@ import ForwardDiff
         dϕms_mcs = zeros(eltype(ϕg2), size(h.ϕms_mcs)),
     )   
     h0 = h2 = h 
+
+@testset "sample_ζsM!" begin
+    # test allocation
+    ϕm = rand(n_θM+1, n_MC)
+    j = 3
+    @allocated ϕm[:,j][1:n_θM]  
+    @allocated view(ϕm,1:n_θM,j)  
+    ζsM = randn(n_θM, n_MC)
+    logσ2_ζM = zeros(n_θM)
+    ϕqc = intϕq(ϕq)
+    buffer_nθM = zeros(n_θM)
+    @allocated CP.sample_ζsM!(ζsM, logσ2_ζM, ϕqc, ϕm, buffer_nθM)
+    @test (@allocated CP.sample_ζsM!(ζsM, logσ2_ζM, ϕqc, ϕm, buffer_nθM)) == 0
+    #
+    # vector version
+    ϕm1 = ϕm[:,1] 
+    @allocated CP.sample_ζsM!(ζsM, logσ2_ζM, ϕqc, ϕm1, buffer_nθM)
+    @test (@allocated CP.sample_ζsM!(ζsM, logσ2_ζM, ϕqc, ϕm1, buffer_nθM)) == 0
+
+end
 
 # @testset "pullback_g_apply!" begin
 #     @test ϕms0 == ϕms0z
