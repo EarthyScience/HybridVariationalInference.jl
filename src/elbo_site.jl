@@ -4,21 +4,21 @@ function neg_elbo_sites(rng::AbstractRNG, elbo_helpers::NamedTuple, args; kwargs
 end
 
 function randnζ!(rng, h::NamedTuple)
-    randn!(rng, h.ζsP) # n_P * n_MC
+    randn!(rng, h.rnormP) # n_P * n_MC
     for i in 1:length(h.helpers_sites)
-        randn!(rng, h.helpers_sites[i].ζsM)
+        randn!(rng, h.helpers_sites[i].rnormM)
     end
     nothing
 end
 
 """
 elbo_helpers need to be initialized with new random numbers
-in h.ζsP and hi.ζsM by calling randnζ! before.
+in h.ζsP and hi.ζsM_dc by calling randnζ! before.
 By this way, we can compute the derivative corresponding to the forward pass
 """
 function neg_elbo_sites!(
     elbo_helpers::NamedTuple,      # tuple of preallocated arrays
-    ϕg::AbstractVector{TG}, ϕq::AbstractVector{TF}, g, 
+    ϕg::AbstractVector{TG}, ϕqP::AbstractVector{TF}, ϕqI::AbstractVector{TF}, g, 
     pbm_covar_indices::Union{Nothing,AbstractVector{<:Number}}, 
     args...;
     n_MC=3, 
@@ -29,19 +29,21 @@ function neg_elbo_sites!(
     kwargs...
 ) where {TG, TF}
     h = elbo_helpers # preallocated μζP, dμζP, ζsP, ϕms, xMP, dxMP
-    ϕqc = intϕq(ϕq) 
+    ϕqPc = intϕqP(ϕqP) 
     μζP = ϕqc[Val(:μζP)]
     #randn!(rng, h.ζsP) # n_P * n_MC
-    sample_ζsP!(h.ζsP, h.logσ2_ζP, ϕqc) # n_P * n_MC
+    sample_ζsP!(h.ζsP, h.logσ2_ζP, h.rnormP, ϕqc) # n_P * n_MC
     # (n_M x n_sit)  or (n_M x n_MC x n_sit)    
     ϕm_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
     g_apply!(h[ϕm_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP) 
     ϕm_it = eachslice(h[ϕm_buffer_key]; dims = ndims(h[ϕm_buffer_key]))
-    function SL!(hi, i_site_train, ϕm) 
-            #randn!(rng, hi.ζsM) # n_M * n_MC
-            sample_ζsM!(hi.ζsM, hi.logσ2_ζP, ϕqc, ϕm)
+    function SL!(hi, i_site_train, ϕqi, ϕm, template) 
+            #randn!(rng, hi.ζsM_dc) # n_M * n_MC
+            ζsM = PAT.get_tmp(h1.ζsM_dc, template)
+            logσ2_ζM = PAT.get_tmp(h1.logσ2_ζM_dc, template)
+            sample_ζsM!(ζsM, logσ2_ζP, hi.rnorm, ϕqi, ϕm)
             # first component needs to be the full elbo
-            Lζi(h.ζsP, hi.ζsM, args...; i_site_train, kwargs...)
+            Lζi(ζsPb, ζsMb, args...; i_site_train, kwargs...)
     end
     res_site = map(SL!, h.helpers_sites, i_sites_train, ϕm_it)
     # E = sum(x -> x.E, res_site)
@@ -51,17 +53,17 @@ function neg_elbo_sites!(
     (; elbo, ζsP=copy(h.ζsP), ϕm=copy(h[ϕm_buffer_key]), res_site)
 end
 
-function sample_ζsP!(ζsP, logσ2_ζP, ϕqc::AbstractVector{T}) where T
+function sample_ζsP!(ζsP, logσ2_ζP, rnormP, ϕqc::AbstractVector{T}) where T
     # TODO replace by proper sampling of full covariance matrix
     μζP = CA.getdata(ϕqc[Val(:μζP)])
     logσ2_ζP .= view(ϕqc, Val(:logσ2_ζP))
     # ζsP * diagm(v) is the same as ζsP .* v'
-    ζsP .= μζP .+ (ζsP .* exp.(logσ2_ζP ./ T(2))')
+    ζsP .= μζP .+ (rnormP .* exp.(logσ2_ζP ./ T(2))')
     nothing
 end
 
 # with Vector, all MCs have the same mean
-function sample_ζsM!(ζsM, logσ2_ζM, ϕqc::AbstractVector{T}, ϕm::AbstractVector, buffer_nθM::AbstractVector) where T
+function sample_ζsM!(ζsM, logσ2_ζM, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractVector, buffer_nθM::AbstractVector) where T
     # TODO replace by proper sampling of full covariance matrix
     # TODO add scaling by factor in ϕm / dispatch by approach
     n_θM, n_MC = size(ζsM)
@@ -70,18 +72,19 @@ function sample_ζsM!(ζsM, logσ2_ζM, ϕqc::AbstractVector{T}, ϕm::AbstractVe
     scale = buffer_nθM
     @. scale = exp(logσ2_ζM / T(2))
     μζM = view(ϕm, 1:n_θM)           # view of the mean block (n_θM × n_MC)
-    ζsM .= μζM .+ (ζsM .* scale')    # does not allocate
+    ζsM .= μζM .+ (rnorm .* scale')    # does not allocate
     # @inbounds for j in 1:n_MC
     #     for i in 1:n_θM
-    #         ζsM[i,j] = ϕm[i] + ζsM[i,j] * scale[i]
+    #         ζsM[i,j] = ϕm[i] + rnorm[i,j] * scale[i]
     #     end
     # end
     nothing
 end
 
 # with Matrix, there is a site mean for each mc-sample
-function sample_ζsM!(ζsM, logσ2_ζM, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector) where T
+function sample_ζsM!(ζsM, logσ2_ζM, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector) where T
     n_θM, n_MC = size(ζsM)
+    @assert size(rnorm) == (n_θM, n_MC)
     logσ2_ζM .= view(ϕqc, Val(:logσ2_ζM))
     @assert size(ϕm,1) >= n_θM
     @assert size(ϕm,2) == n_MC
@@ -91,10 +94,10 @@ function sample_ζsM!(ζsM, logσ2_ζM, ϕqc::AbstractVector{T}, ϕm::AbstractMa
     scale = buffer_nθM
     @. scale = exp(logσ2_ζM / T(2))
     μζM = view(ϕm, 1:n_θM, :)           # view of the mean block (n_θM × n_MC)
-    ζsM .= μζM .+ (ζsM .* scale')       # does not allocate
+    ζsM .= μζM .+ (rnorm .* scale')       # does not allocate
     # @inbounds for j in 1:n_MC
     #     for i in 1:n_θM
-    #         ζsM[i,j] = ϕm[i,j] + ζsM[i,j] * scale[i]
+    #         ζsM[i,j] = ϕm[i,j] + rnorm[i,j] * scale[i]
     #     end
     # end
     nothing         

@@ -10,7 +10,7 @@ using Random
 using ComponentArrays: ComponentArrays as CA
 #using TransformVariables
 using Bijectors
-import PreallocationTools
+import PreallocationTools as PAT
 
 rng = StableRNG(1234)
 
@@ -90,16 +90,18 @@ import ForwardDiff
 
     # preallocate helpers and shadows
     h = (;
-        xMP = Matrix{eltype(ϕg)}(undef, (n_cov + n_covP2), n_MC * n_site),
+        rnormP = Matrix{eltype(ϕq)}(undef, n_θP, n_MC),
         ζsP = Matrix{eltype(ϕq)}(undef, n_θP, n_MC),
         logσ2_ζP = Vector{eltype(ϕq)}(undef, n_θP),
         ϕms = Matrix{eltype(ϕg)}(undef, n_M, n_site),
         ϕms_mcs = Array{eltype(ϕg),3}(undef, n_M, n_MC, n_site),
-
+        xMP = Matrix{eltype(ϕg)}(undef, (n_cov + n_covP2), n_MC * n_site),
     )
     helpers_sites = Tuple((;
-        ζsM = Matrix{eltype(ϕq)}(undef, n_θM, n_MC),
-        logσ2_ζM = Vector{eltype(ϕq)}(undef, n_θM),
+        rnormM = Matrix{eltype(ϕq)}(undef, n_θM, n_MC),
+        ζsM_dc = PAT.DiffCache(Matrix{eltype(ϕq)}(undef, n_θM, n_MC)),
+        logσ2_ζM_dc = PAT.DiffCache(Vector{eltype(ϕq)}(undef, n_θM)),
+        buffer_nθM_dc = PAT.DiffCache(Vector{eltype(ϕq)}(undef, n_θM)),
     ) for i in 1:n_site)
     h = (;h... , helpers_sites, 
         dxMP  = zero(h.xMP),      # shadow for xMP
@@ -109,23 +111,56 @@ import ForwardDiff
     h0 = h2 = h 
 
 @testset "sample_ζsM!" begin
+    h1 = h.helpers_sites[1]
     # test allocation
+    CP.randnζ!(rng, h2)
     ϕm = rand(n_θM+1, n_MC)
     j = 3
-    @allocated ϕm[:,j][1:n_θM]  
-    @allocated view(ϕm,1:n_θM,j)  
-    ζsM = randn(n_θM, n_MC)
+    # wrap inside function to aovid allocation due to boxing type unstable globals
+    ((ϕm, n_θM,j) -> @allocated ϕm[:,j][1:n_θM])(ϕm,n_θM,j)
+    ((ϕm,n_θM,j) -> @allocated view(ϕm,1:n_θM,j))(ϕm, n_θM,j)  
+    ζsM = similar(h1.rnormM)
     logσ2_ζM = zeros(n_θM)
     ϕqc = intϕq(ϕq)
     buffer_nθM = zeros(n_θM)
-    @allocated CP.sample_ζsM!(ζsM, logσ2_ζM, ϕqc, ϕm, buffer_nθM)
-    @test (@allocated CP.sample_ζsM!(ζsM, logσ2_ζM, ϕqc, ϕm, buffer_nθM)) == 0
+    CP.sample_ζsM!(ζsM, logσ2_ζM, h1.rnormM, ϕqc, ϕm, buffer_nθM)
+    @test ((h1) -> @allocated CP.sample_ζsM!(ζsM, logσ2_ζM, h1.rnormM, ϕqc, ϕm, buffer_nθM))(h1) == 0
     #
     # vector version
+    CP.randnζ!(rng, h0)
     ϕm1 = ϕm[:,1] 
-    @allocated CP.sample_ζsM!(ζsM, logσ2_ζM, ϕqc, ϕm1, buffer_nθM)
-    @test (@allocated CP.sample_ζsM!(ζsM, logσ2_ζM, ϕqc, ϕm1, buffer_nθM)) == 0
+    CP.sample_ζsM!(ζsM, logσ2_ζM, h1.rnormM, ϕqc, ϕm1, buffer_nθM)
+    #allocations because h1 is global
+    #  @allocated CP.sample_ζsM!(ζsM, logσ2_ζM, h1.rnormM, ϕqc, ϕm1, buffer_nθM)
+    tmpf1 = (h1) -> @allocated CP.sample_ζsM!(ζsM, logσ2_ζM, h1.rnormM, ϕqc, ϕm1, buffer_nθM)
+    @test (@allocated tmpf1(h1))  == 0
 
+    # capture global variables in closure
+    get_f_fd1 = (h1, intϕq) -> (ϕq, ϕm1, template) -> begin
+        local ϕqc = intϕq(ϕq) # without local allocations by @safetestset, shadows global
+        ζsMb = PAT.get_tmp(h1.ζsM_dc, template)
+        logσ2_ζMb = PAT.get_tmp(h1.logσ2_ζM_dc, template)
+        buffer_nθMb = PAT.get_tmp(h1.buffer_nθM_dc, template)
+        CP.sample_ζsM!(ζsMb, logσ2_ζMb, h1.rnormM, ϕqc, ϕm1, buffer_nθMb)
+        sum(ζsMb) + sum(logσ2_ζMb)
+    end
+    f_fd1 = get_f_fd1(h1, intϕq)
+    f_fd1(ϕq, ϕm1, ϕq)
+        # grad_ϕq = ForwardDiff.gradient(f_fd1, ϕq)
+        # ϕqd = convert.(typeof(ForwardDiff.Dual(ϕq[1])), ϕq)
+        # @allocated f_fd1(ϕqd)
+    # vector version
+    @test (@allocated f_fd1(ϕq, ϕm1, ϕq)) == 0
+    ϕqd = convert.(typeof(ForwardDiff.Dual(ϕq[1])), ϕq)
+    @test (@allocated f_fd1(ϕqd, ϕm1, ϕqd)) == 0
+    # matrix version
+    @test (@allocated f_fd1(ϕq, ϕm, ϕq)) == 0
+    @test (@allocated f_fd1(ϕqd, ϕm, ϕqd)) == 0
+    #
+    grad_ϕq = ForwardDiff.gradient(ϕq -> f_fd1(ϕq, ϕm1, ϕq), ϕq)
+    @test all(intϕq(grad_ϕq).logσ2_ζP .== 0)
+    grad_ϕm1 = ForwardDiff.gradient(ϕm1 -> f_fd1(ϕq, ϕm1, ϕm1), ϕm1)
+    @test grad_ϕm1 == vcat(fill(n_MC, n_θM), 0)
 end
 
 # @testset "pullback_g_apply!" begin
@@ -327,13 +362,14 @@ end
 
 @testset "pullback_sample_ζsP!" begin
     ϕqc = intϕq(ϕq)
-    rP = zero(ζsP)
-    randn!(rP)  # before input gaussian noise
-    rPr = copy(rP)
+    rnormP = zero(ζsP)
+    randn!(rnormP)  # before input gaussian noise
+    ζsP .= 0
     #logσ2_ζP = zero(ϕqc.logσ2_ζP) # cretes a view rather than copy
     logσ2_ζP = zero(ϕqc.logσ2_ζP)
-    CP.sample_ζsP!(rP, logσ2_ζP, ϕqc)
-    mean(rP; dims=2)
+    CP.sample_ζsP!(ζsP, logσ2_ζP, rnormP, ϕqc)
+    mean(ζsP; dims=2)
+    ζsP1 = copy(ζsP)
 
     # Enzyme result via the mutating routine (2-D: n_θP * n_MC × n_in)
     dζsP = zero(ζsP) .+ one(eltype(ζsP))
@@ -341,30 +377,32 @@ end
     dϕqc = zero(ϕqc) 
 
     randn!(dϕqc) # test that is zerod inside pullback
-    rP_ = copy(rP)
     dζsP_ = copy(dζsP)
+    rnormP_ = copy(rnormP)
     logσ2_ζP_ = copy(logσ2_ζP)
     dlogσ2_ζP_ = copy(dlogσ2_ζP)
-    #CP.pullback_sample_ζsP!(dϕqc, dζsP, dlogσ2_ζP, rP, logσ2_ζP, ϕqc) # needs rP to be noise
-    CP.pullback_sample_ζsP!(dϕqc, dζsP, dlogσ2_ζP, rPr, logσ2_ζP, ϕqc)
-    @test rP == rP_
+    #CP.pullback_sample_ζsP!(dϕqc, dζsP, dlogσ2_ζP, rnormP, logσ2_ζP, ϕqc) # needs rnormP to be noise
+    CP.pullback_sample_ζsP!(dϕqc, dζsP, dlogσ2_ζP, ζsP, logσ2_ζP, rnormP, ϕqc)
+    @test ζsP == ζsP1 # same forward result
+    @test rnormP == rnormP_
     @test dζsP == dζsP_
     @test dlogσ2_ζP == dlogσ2_ζP_
     @test logσ2_ζP == logσ2_ζP_
     # without correlation
     #@test all(dϕqc[Val(:μζP)] .== n_MC)
-    # #@test dϕqc[Val(:logσ2_ζP)] ≈ vec(sum(rP; dims=2)) # 
+    # #@test dϕqc[Val(:logσ2_ζP)] ≈ vec(sum(rnormP; dims=2)) # 
     dϕqc_comb = copy(dϕqc)
 
-    rP .= rPr  # same noise
-    pb_sample_ζsP = CP.primal_pullback_sample_ζsP!(rP, logσ2_ζP, ϕqc)
-    @test rP ≈ rP_# computed the forward pass
+    randn!(ζsP)  # test initial not relevant
+    pb_sample_ζsP = CP.primal_pullback_sample_ζsP!(ζsP, logσ2_ζP, rnormP, ϕqc)
+    @test ζsP == ζsP1 # same forward result
+    @test rnormP ≈ rnormP_# computed the forward pass
     @test logσ2_ζP == logσ2_ζP_
-    dϕqc .= 0.1
+    dϕqc .= 0.1 # test initial value not relevant
     #dϕqc .= 0.01 # should not influence results
     pb_sample_ζsP(dϕqc, dζsP, dlogσ2_ζP)    
-    #pb_sample_ζsP(rP, logσ2_ζP)
-    @test rP ≈ rP_  # did not modify
+    #pb_sample_ζsP(rnormP, logσ2_ζP)
+    @test rnormP ≈ rnormP_  # did not modify
     @test logσ2_ζP == logσ2_ζP_ # not modified
     @test dlogσ2_ζP == dlogσ2_ζP_ # not modified
     @test dζsP == dζsP_
