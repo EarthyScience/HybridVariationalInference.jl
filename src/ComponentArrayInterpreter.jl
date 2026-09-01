@@ -41,7 +41,8 @@ performance-critical functions.
 """
 struct StaticComponentArrayInterpreter{AX} <: AbstractComponentArrayInterpreter end
 function as_ca(v::AbstractArray, ::StaticComponentArrayInterpreter{AX}) where {AX}
-    vr = reshape(v, _axis_length.(AX))
+    # reshaping adds a small allocation cost
+    vr = ndims(v) == length(AX) ? v : reshape(v, _axis_length.(AX))
     CA.ComponentArray(vr, AX)::CA.ComponentArray{eltype(v)}
 end
 

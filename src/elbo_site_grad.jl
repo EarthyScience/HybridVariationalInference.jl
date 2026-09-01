@@ -21,10 +21,10 @@ function grad_neg_elbo_sites(
     #pbm_covar_indices, g, h)
     g_apply!(h[ϕm_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP) 
     function SL!(hi, i_site_train, ϕm) 
-            #randn!(rng, hi.ζsM) # n_M * n_MC
-            sample_ζsM!(hi.ζsM, ϕqc, ϕm)
+            #randn!(rng, hi.ζsM_dc) # n_M * n_MC
+            sample_ζsM!(hi.ζsM_dc, ϕqc, ϕm)
             # first component needs to be the full elbo
-            Lζi(h.ζsP, hi.ζsM, args...; i_site_train, kwargs...)
+            Lζi(h.ζsP, hi.ζsM_dc, args...; i_site_train, kwargs...)
     end
     i = 1
     hi = h.helpers_sites[i]
@@ -32,7 +32,7 @@ function grad_neg_elbo_sites(
     res = ForwardDiff.gradient(ϕm -> SL!(hi, i_site_train, ϕm), h[ϕm_buffer_key])
 end
 
-function primal_pullback_sample_ζsP!(ζsP, logσ2_ζP, ϕqc)
+function primal_pullback_sample_ζsP!(ζsP, logσ2_ζP, rnormP, ϕqc)
     # ζsP is mutated, so store previous value
     fwd, rev = Enzyme.autodiff_thunk(
         Enzyme.ReverseSplitNoPrimal,
@@ -40,45 +40,52 @@ function primal_pullback_sample_ζsP!(ζsP, logσ2_ζP, ϕqc)
         Enzyme.Const,                        # no scalar return
         Enzyme.Duplicated{typeof(ζsP)},      # mutated output (noise in, sample out)
         Enzyme.Duplicated{typeof(logσ2_ζP)}, # mutated intermediate buffer
+        Enzyme.DuplicatedNoNeed{typeof(rnormP)},  
         Enzyme.Duplicated{typeof(ϕqc)}       # active input
     )    
-    # need to copy so that they are not modified in the reverse pass
-    ζsP_orig = copy(ζsP) 
+    # # need to copy so that they are not modified in the reverse pass
+    # ζsP_orig = copy(ζsP) 
     ζsP_ = copy(ζsP) 
     logσ2_ζP_ = copy(logσ2_ζP) 
     dζsP_ = zero(ζsP_)
     dlogσ2_ζP_ = zero(logσ2_ζP_)   
+    drnormP = zero(rnormP)   
     args_fwd = ( # only allocate Duplicated once
         Enzyme.Const(sample_ζsP!),
         Enzyme.Duplicated(ζsP_, dζsP_),
         Enzyme.Duplicated(logσ2_ζP_, dlogσ2_ζP_),
+        Enzyme.DuplicatedNoNeed(rnormP, drnormP),  
     )
     function pullback_cl_sample_ζsP!(dϕqc, dζsP, dlogσ2_ζP)
-        copyto!(ζsP_, ζsP_orig)  # reset to initial random seed
+        #copyto!(ζsP_, ζsP_orig)  # reset to initial random seed
         copyto!(dζsP_, dζsP)  # seed cotangent on ζsP
         copyto!(dlogσ2_ζP_, dlogσ2_ζP)  # seed cotangent on ζsP
         fill!(CA.getdata(dϕqc), 0)
+        fill!(drnormP, 0)
         Dup_ϕqc = Enzyme.Duplicated(ϕqc, dϕqc)
         tape, _, _ = fwd( args_fwd...,  Dup_ϕqc)
         rev( args_fwd...,  Dup_ϕqc, tape )
         nothing
     end    
     # execute the primal function to update the results
-    sample_ζsP!(ζsP, logσ2_ζP, ϕqc)    
+    sample_ζsP!(ζsP, logσ2_ζP, rnormP, ϕqc)    
     return pullback_cl_sample_ζsP!
 end
 
- function pullback_sample_ζsP!(dϕqc, dζsP, dlogσ2_ζP, ζsP, logσ2_ζP, ϕqc)
+ function pullback_sample_ζsP!(dϕqc, dζsP, dlogσ2_ζP, ζsP, logσ2_ζP, rnormP, ϕqc)
     ζsP_ = copy(ζsP) # TODO pass buffers to avoid allocation
     dζsP_ = copy(dζsP)
     logσ2_ζP_ = copy(logσ2_ζP) # TODO pass buffers to avoid allocation
     dlogσ2_ζP_ = copy(dlogσ2_ζP)
+    drnormP = Enzyme.make_zero(rnormP)
+
     fill!(dϕqc, 0)
     Enzyme.autodiff(
         Enzyme.Reverse,
         sample_ζsP!,
         Enzyme.Duplicated(ζsP_, dζsP_),  
         Enzyme.Duplicated(logσ2_ζP_, dlogσ2_ζP_),  
+        Enzyme.DuplicatedNoNeed(rnormP, drnormP),  
         Enzyme.Duplicated(ϕqc, dϕqc),   
     )
     nothing
