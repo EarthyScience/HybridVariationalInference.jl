@@ -35,7 +35,7 @@ using PDMats
 using Distances, Clustering
 #using OptimizationOptimisers
 using RecursiveArrayTools: VectorOfArray, AbstractVectorOfArray
-import ForwardDiff, DiffResults
+import ForwardDiff, DiffResults, PreallocationTools as PAT
 
 export DoubleMM
 
@@ -148,6 +148,7 @@ include("elbo2.jl")
 
 include("elbo_site.jl")
 include("elbo_site_grad.jl")
+#export prepare_elbo_helpers
 
 #export get_loss_ran_tr_f
 include("fit_ranef_site.jl")

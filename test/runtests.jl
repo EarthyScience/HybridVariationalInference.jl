@@ -1,4 +1,9 @@
 using Test, SafeTestsets
+import Logging, LoggingExtras as LE
+warn2error_logger = LE.TransformerLogger(LE.global_logger()) do log
+    return log.level === Logging.Warn ?  merge(log, (; level=Logging.Error)) : log
+end
+
 () -> begin
     #@usingany ReferenceRevision
     refmain = open_process(rev = "main")
@@ -11,7 +16,13 @@ const GROUP = get(ENV, "GROUP", "All") # defined in in CI.yml
 
 @time begin
     if GROUP == "All" || GROUP == "Basic"
-        #@safetestset "test" include("test/test_elbo_site.jl")
+        () -> begin
+            LE.with_logger(warn2error_logger) do
+                @safetestset "test" include("test/test_elbo_site.jl")
+            end
+        end
+
+
         @time @safetestset "test_util" include("test_elbo_site.jl")
     end
 end

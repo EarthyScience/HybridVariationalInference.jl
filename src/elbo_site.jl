@@ -23,33 +23,36 @@ function neg_elbo_sites!(
     args...;
     n_MC=3, 
     i_sites_train,     # indices of sites in training set
-    intϕq,
+    intϕqP, intϕqI,
     xM,
     is_testmode, 
     kwargs...
 ) where {TG, TF}
     h = elbo_helpers # preallocated μζP, dμζP, ζsP, ϕms, xMP, dxMP
     ϕqPc = intϕqP(ϕqP) 
-    μζP = ϕqc[Val(:μζP)]
-    #randn!(rng, h.ζsP) # n_P * n_MC
-    sample_ζsP!(h.ζsP, h.logσ2_ζP, h.rnormP, ϕqc) # n_P * n_MC
+    ϕqIc = intϕqI(ϕqI)
+    sample_ζsP!(h.ζsP, h.logσ2_ζP, h.rnormP, ϕqPc) # n_P * n_MC
     # (n_M x n_sit)  or (n_M x n_MC x n_sit)    
     ϕm_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
     g_apply!(h[ϕm_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP) 
     ϕm_it = eachslice(h[ϕm_buffer_key]; dims = ndims(h[ϕm_buffer_key]))
-    function SL!(hi, i_site_train, ϕqi, ϕm, template) 
+    template = ϕqI # only important for gradient
+    function SL!(hi, i_site_train, ϕm) 
             #randn!(rng, hi.ζsM_dc) # n_M * n_MC
-            ζsM = PAT.get_tmp(h1.ζsM_dc, template)
-            logσ2_ζM = PAT.get_tmp(h1.logσ2_ζM_dc, template)
-            sample_ζsM!(ζsM, logσ2_ζP, hi.rnorm, ϕqi, ϕm)
+            ζsM = PAT.get_tmp(hi.ζsM_dc, template)
+            logσ2_ζM = PAT.get_tmp(hi.logσ2_ζM_dc, template)
+            buffer_nθM = PAT.get_tmp(hi.buffer_nθM_dc, template)
+            #ζsM, logσ2_ζM, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector
+            
+            sample_ζsM!(ζsM, logσ2_ζM, hi.rnormM, ϕqIc, ϕm, buffer_nθM)
             # first component needs to be the full elbo
-            Lζi(ζsPb, ζsMb, args...; i_site_train, kwargs...)
+            Lζi(h.ζsP, ζsM, logσ2_ζM, args...; i_site_train, kwargs...)
     end
     res_site = map(SL!, h.helpers_sites, i_sites_train, ϕm_it)
     # E = sum(x -> x.E, res_site)
     # loglik = sum(x -> x.loglik, res_site)
     # costTrans = sum(x -> x.costTrans, res_site)
-    elbo = sum(first, res_site)
+    elbo = sum(first, res_site) + sum(h.logσ2_ζP)
     (; elbo, ζsP=copy(h.ζsP), ϕm=copy(h[ϕm_buffer_key]), res_site)
 end
 
@@ -63,11 +66,11 @@ function sample_ζsP!(ζsP, logσ2_ζP, rnormP, ϕqc::AbstractVector{T}) where T
 end
 
 # with Vector, all MCs have the same mean
-function sample_ζsM!(ζsM, logσ2_ζM, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractVector, buffer_nθM::AbstractVector) where T
+function sample_ζsM!(ζsM, logσ2_ζM, rnorm, ϕqIc::AbstractVector{T}, ϕm::AbstractVector, buffer_nθM::AbstractVector) where T
     # TODO replace by proper sampling of full covariance matrix
     # TODO add scaling by factor in ϕm / dispatch by approach
     n_θM, n_MC = size(ζsM)
-    logσ2_ζM .= view(ϕqc, Val(:logσ2_ζM))
+    logσ2_ζM .= view(ϕqIc, Val(:logσ2_ζM))
     @assert size(buffer_nθM) == (n_θM,)
     scale = buffer_nθM
     @. scale = exp(logσ2_ζM / T(2))
@@ -150,31 +153,31 @@ end
 #     update_xMP!(xMP, xM, ζP, pbm_covar_indices)
 #     return apply_model(g, xMP, ϕg; is_testmode)
 # end
-function g_apply!(y::AbstractMatrix{TG}, ϕg::AbstractVector{TG}, xM::AbstractMatrix{TG}, 
+function g_apply!(ϕm::AbstractMatrix{TF}, ϕg::AbstractVector{TG}, xM::AbstractMatrix{TG}, 
     ζsP::AbstractMatrix{TF}, pbm_covar_indices::Nothing, 
     g::AbstractModelApplicator,
     xMP::AbstractMatrix, is_testmode::Bool=false
     ) where {TG, TF}
-        apply_model!(y, g, xM, ϕg; is_testmode) # allocates view
+        apply_model!(ϕm, g, xM, ϕg; is_testmode) # allocates view
         return nothing
 end
-function g_apply!(y::AbstractArray{TG,3}, ϕg::AbstractVector{TG}, xM::AbstractMatrix{TG}, 
+function g_apply!(ϕm::AbstractArray{TF,3}, ϕg::AbstractVector{TG}, xM::AbstractMatrix{TG}, 
     ζsP::AbstractMatrix{TF}, pbm_covar_indices::AbstractVector{<:Number}, 
     g::AbstractModelApplicator,
     xMP::AbstractMatrix, is_testmode::Bool=false
     ) where {TG, TF}
     if length(pbm_covar_indices) == 0 
-        n_M, n_MC, n_site = size(y)
+        n_M, n_MC, n_site = size(ϕm)
         @assert size(ζsP,2) == n_MC
-        y1 = view(y,:,1,:)
+        y1 = view(ϕm,:,1,:)
         apply_model!(y1, g, xM, ϕg; is_testmode) # allocates view
         for j in 2:n_MC
-            y[:,j,:] .= y1
+            ϕm[:,j,:] .= y1
         end
         return nothing
     end
     update_xMP!(xMP, xM, ζsP, pbm_covar_indices)
-    yr = reshape(y, size(y,1),:) # view collapses 3'r dim, apply_model! updates underlying y
+    yr = reshape(ϕm, size(ϕm,1),:) # view collapses 3'r dim, apply_model! updates underlying y
     apply_model!(yr, g, xMP, ϕg; is_testmode)
     return nothing # no need to return primal for proper gradients of return to whatever
     #return y
@@ -185,7 +188,6 @@ function update_xMP!(xMP::AbstractMatrix{TG},
     n_θP, n_MC = size(ζsP)
     n_cov, n_site = size(xM)
     n_covP = length(pbm_covar_indices)
-    @show n_covP, size(xMP)
     @assert size(xMP) == ((n_cov + n_covP) , n_site * n_MC)
     @inbounds for i in 1:n_site
         for j in 1:n_MC
@@ -203,8 +205,9 @@ function update_xMP!(xMP::AbstractMatrix{TG},
 end
 
 function Lζi(
-    ζsP::AbstractMatrix{TF},
-    ζsM::AbstractMatrix{TF}; 
+    ζsP::AbstractMatrix,
+    ζsM::AbstractMatrix,
+    logσ2_ζM::AbstractVector; 
     # f, py,
     # xP, y_ob, y_unc, itrain_sites::AbstractVector{<:Number};
     # cor_ends, # =(P=(1,),M=(1,))
@@ -220,8 +223,9 @@ function Lζi(
     # ranef::AbstractRandomEffectsComputer,
     # frac_cluster_all,
     i_site_train,
-) where {TF}
-    5 * sum(ζsP) + 3 * sum(ζsM)
+) 
+    elbo_site = 5 * sum(ζsP) + 3 * sum(ζsM) + sum(logσ2_ζM)
+    (; E=elbo_site,)
     # ζMs = sample_ζMs(zMs, ϕMs, intθMs)
     # ϕc = int_ϕg_ϕq(ϕ)
     # VT= typeof(@view(ϕ[1:1]))
