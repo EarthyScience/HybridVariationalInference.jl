@@ -1,27 +1,27 @@
 function neg_elbo_sites(rng::AbstractRNG, elbo_helpers::NamedTuple, args; kwargs...)
-    CP.randnζ!(rng, h)    
+    CP.randnPM!(rng, h)    
     neg_elbo_sites!(h, args...; kwargs...)
 end
 
-function randnζ!(rng, h::NamedTuple)
-    randn!(rng, h.rnormP) # n_P * n_MC
-    for i in 1:length(h.helpers_sites)
-        randn!(rng, h.helpers_sites[i].rnormM)
+function randnPM!(rng, rnorm::NamedTuple)
+    randn!(rng, rnorm.P) # n_P * n_MC
+    for i in 1:length(rnorm.M)
+        randn!(rng, rnorm.M[i])
     end
     nothing
 end
 
 """
 elbo_helpers need to be initialized with new random numbers
-in h.ζsP and hi.ζsM_dc by calling randnζ! before.
+in h.ζsP and hi.ζsM_dc by calling randnPM! before.
 By this way, we can compute the derivative corresponding to the forward pass
 """
 function neg_elbo_sites!(
     elbo_helpers::NamedTuple,      # tuple of preallocated arrays
+    rnormPM::NamedTuple,          # tuple of random numbers
     ϕg::AbstractVector{TG}, ϕqP::AbstractVector{TF}, ϕqI::AbstractVector{TF}, g, 
     pbm_covar_indices::Union{Nothing,AbstractVector{<:Number}}, 
     args...;
-    n_MC=3, 
     i_sites_train,     # indices of sites in training set
     intϕqP, intϕqI,
     xM,
@@ -29,32 +29,100 @@ function neg_elbo_sites!(
     kwargs...
 ) where {TG, TF}
     h = elbo_helpers # preallocated μζP, dμζP, ζsP, ϕms, xMP, dxMP
+    @assert size(rnormPM.P) == size(h.ζsP)
+    @assert size(rnormPM.M[1]) == size(h.helpers_sites[1].ζsM_dc.du)
     ϕqPc = intϕqP(ϕqP) 
     ϕqIc = intϕqI(ϕqI)
-    sample_ζsP!(h.ζsP, h.logσ2_ζP, h.rnormP, ϕqPc) # n_P * n_MC
+    sample_ζsP!(h.ζsP, h.logσ2_ζP, rnormPM.P, ϕqPc) # n_P * n_MC
     # (n_M x n_sit)  or (n_M x n_MC x n_sit)    
     ϕm_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
-    g_apply!(h[ϕm_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP) 
+    g_apply!(h[ϕm_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
     ϕm_it = eachslice(h[ϕm_buffer_key]; dims = ndims(h[ϕm_buffer_key]))
     template = ϕqI # only important for gradient
-    function SL!(hi, i_site_train, ϕm) 
+    # TODO supply all arguments to SL!
+    function SL!(hi, rnormM, i_site_train, ϕm) 
             #randn!(rng, hi.ζsM_dc) # n_M * n_MC
             ζsM = PAT.get_tmp(hi.ζsM_dc, template)
             logσ2_ζM = PAT.get_tmp(hi.logσ2_ζM_dc, template)
             buffer_nθM = PAT.get_tmp(hi.buffer_nθM_dc, template)
             #ζsM, logσ2_ζM, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector
             
-            sample_ζsM!(ζsM, logσ2_ζM, hi.rnormM, ϕqIc, ϕm, buffer_nθM)
+            sample_ζsM!(ζsM, logσ2_ζM, rnormM, ϕqIc, ϕm, buffer_nθM)
             # first component needs to be the full elbo
             Lζi(h.ζsP, ζsM, logσ2_ζM, args...; i_site_train, kwargs...)
     end
-    res_site = map(SL!, h.helpers_sites, i_sites_train, ϕm_it)
+    res_site = map(SL!, h.helpers_sites, rnormPM.M, i_sites_train, ϕm_it)
     # E = sum(x -> x.E, res_site)
     # loglik = sum(x -> x.loglik, res_site)
     # costTrans = sum(x -> x.costTrans, res_site)
     elbo = sum(first, res_site) + sum(h.logσ2_ζP)
     (; elbo, ζsP=copy(h.ζsP), ϕm=copy(h[ϕm_buffer_key]), res_site)
 end
+
+function prepare_rnorm(::AbstractVector{TF}; n_θP, n_θM, n_site, n_MC) where TF
+    (;
+        P = Matrix{TF}(undef, n_θP, n_MC),
+        M = Tuple(Matrix{TF}(undef, n_θM, n_MC) for i in 1:n_site),
+    )
+end
+
+function prepare_elbo_helpers(ϕg::AbstractArray{TG}, ::AbstractArray{TF};
+    n_θP, n_θM, n_site, n_MC, n_cov, n_covP, n_M
+    ) where {TG, TF}
+    h = (;
+        ζsP = Matrix{TF}(undef, n_θP, n_MC),
+        logσ2_ζP = Vector{TF}(undef, n_θP),
+        ϕms = Matrix{TF}(undef, n_M, n_site),
+        ϕms_mcs = Array{TF,3}(undef, n_M, n_MC, n_site),
+        # ϕms = Matrix{TG}(undef, n_M, n_site),
+        # ϕms_mcs = Array{TG,3}(undef, n_M, n_MC, n_site),
+        xMP = Matrix{TG}(undef, (n_cov + n_covP), n_MC * n_site),
+        dϕg = Vector{TG}(undef, length(ϕg)),
+    )
+    helpers_sites = Tuple((;
+        ζsM_dc = PAT.DiffCache(Matrix{TF}(undef, n_θM, n_MC)),
+        logσ2_ζM_dc = PAT.DiffCache(Vector{TF}(undef, n_θM)),
+        buffer_nθM_dc = PAT.DiffCache(Vector{TF}(undef, n_θM)),
+    ) for i in 1:n_site)
+    h = (;h... , helpers_sites, 
+        dxMP  = zero(h.xMP),      # shadow for xMP
+        dϕms = zero(h.ϕms),
+        dϕms_mcs = zero(h.ϕms_mcs),
+        ∂elbo_∂ζP = zero(h.ζsP),
+        ∂elbo_∂ϕm_∂ζP = zero(h.ζsP),
+    )   
+end
+
+function check_elbo_helpers(h::NamedTuple, xM::AbstractMatrix, pbm_covar_indices;
+    n_ϕg
+    )
+    n_cov, n_site = size(xM)
+    n_covP = isnothing(pbm_covar_indices) ? 0 : length(pbm_covar_indices)
+    n_θP, n_MC = size(h.ζsP)
+    n_M = size(h.ϕms, 1)
+    @assert size(h.ζsP) == (n_θP, n_MC )
+    @assert size(h.dϕg) == (n_ϕg,)
+    @assert size(h.logσ2_ζP) == (n_θP,)
+    @assert size(h.ϕms) == (n_M, n_site)
+    @assert size(h.ϕms_mcs) == (n_M, n_MC, n_site)
+    @assert size(h.xMP) == ((n_cov + n_covP), n_MC * n_site) 
+    @assert size(h.dϕg) == (n_ϕg,)
+    @assert size(h.dxMP) == size(h.xMP)
+    @assert size(h.dϕms) == size(h.ϕms)
+    @assert size(h.dϕms_mcs) == size(h.ϕms_mcs)
+    @assert size(h.∂elbo_∂ζP) == size(h.ζsP)
+    @assert size(h.∂elbo_∂ϕm_∂ζP) == size(h.ζsP)
+    #
+    @assert length(h.helpers_sites) == n_site
+    hi = h.helpers_sites[1]
+    n_θM = size(hi.ζsM_dc.du, 1)
+    @assert size(hi.ζsM_dc.du) == (n_θM, n_MC)
+    @assert size(hi.logσ2_ζM_dc.du) == (n_θM,)
+    @assert size(hi.buffer_nθM_dc.du) == (n_θM,)
+end
+
+
+
 
 function sample_ζsP!(ζsP, logσ2_ζP, rnormP, ϕqc::AbstractVector{T}) where T
     # TODO replace by proper sampling of full covariance matrix
@@ -156,7 +224,8 @@ end
 function g_apply!(ϕm::AbstractMatrix{TF}, ϕg::AbstractVector{TG}, xM::AbstractMatrix{TG}, 
     ζsP::AbstractMatrix{TF}, pbm_covar_indices::Nothing, 
     g::AbstractModelApplicator,
-    xMP::AbstractMatrix, is_testmode::Bool=false
+    xMP::AbstractMatrix,
+    is_testmode::Bool
     ) where {TG, TF}
         apply_model!(ϕm, g, xM, ϕg; is_testmode) # allocates view
         return nothing
@@ -164,7 +233,8 @@ end
 function g_apply!(ϕm::AbstractArray{TF,3}, ϕg::AbstractVector{TG}, xM::AbstractMatrix{TG}, 
     ζsP::AbstractMatrix{TF}, pbm_covar_indices::AbstractVector{<:Number}, 
     g::AbstractModelApplicator,
-    xMP::AbstractMatrix, is_testmode::Bool=false
+    xMP::AbstractMatrix,
+    is_testmode::Bool
     ) where {TG, TF}
     if length(pbm_covar_indices) == 0 
         n_M, n_MC, n_site = size(ϕm)
