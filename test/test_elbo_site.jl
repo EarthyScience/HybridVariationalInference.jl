@@ -97,15 +97,18 @@ import ForwardDiff
     ϕms2 == ϕms2z
 
     # preallocate helpers and shadows
+    rnormPM = CP.prepare_rnorm(ϕqP; n_θP, n_θM, n_MC, n_site)
+    # size(rnormPM.P)
+    CP.randnPM!(rng, rnormPM)
     h0 = CP.prepare_elbo_helpers(ϕg, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP0, n_M)
-    randn!(h0.xMP)
     h2 = CP.prepare_elbo_helpers(ϕg2, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M)
-    randn!(h2.xMP)
+    CP.check_elbo_helpers(h0, xM, pbm_covar_indices0; n_ϕg = length(ϕg))
+    CP.check_elbo_helpers(h2, xM, pbm_covar_indices2; n_ϕg = length(ϕg2))
 
 # @testset "sample_ζsM!" begin
 #     h0_1 = h0.helpers_sites[1]
 #     # test allocation
-#     CP.randnζ!(rng, h2)
+#     CP.randnPM!(rng, h2)
 #     ϕm = rand(n_θM+1, n_MC)
 #     j = 3
 #     # wrap inside function to aovid allocation due to boxing type unstable globals
@@ -119,7 +122,7 @@ import ForwardDiff
 #     @test ((h1) -> @allocated CP.sample_ζsM!(ζsM, logσ2_ζM, h1.rnormM, ϕqIc, ϕm, buffer_nθM))(h0_1) == 0
 #     #
 #     # vector version
-#     CP.randnζ!(rng, h0)
+#     CP.randnPM!(rng, h0)
 #     ϕm1 = ϕm[:,1] 
 #     CP.sample_ζsM!(ζsM, logσ2_ζM, h0_1.rnormM, ϕqIc, ϕm1, buffer_nθM)
 #     #allocations because h1 is global
@@ -274,7 +277,7 @@ import ForwardDiff
 
 # @testset "neg_elbo_sites!" begin
 #     # @usingany Cthulhu
-#     CP.randnζ!(rng, h0)
+#     CP.randnPM!(rng, h0)
 #     res0 = CP.neg_elbo_sites!(
 #     #@descend_code_warntype CP.neg_elbo_sites!(
 #         h0,
@@ -287,7 +290,7 @@ import ForwardDiff
 #     )    
 
 #     # matrix version with population covariates
-#     CP.randnζ!(rng, h2)
+#     CP.randnPM!(rng, h2)
 #     res = CP.neg_elbo_sites!(
 #         h2, 
 #         ϕg2v, ϕqP, ϕqI, g2, pbm_covar_indices2;
@@ -357,6 +360,7 @@ import ForwardDiff
 #     # @benchmark pb_sample_ζsP(dϕqc, dζsP, dlogσ2_ζP)    
 # end
 
+import JLD2
 function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by enzyme
     # and store results to compare to hand-crafted mixed AD
     dh0 = Enzyme.make_zero(h0)
@@ -364,18 +368,15 @@ function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by e
     dϕg = zero(ϕgv)
     dϕqP = zero(ϕqP)
     dϕqI = zero(ϕqI)
-    _ftmp2 = (ϕgv, h, ϕqP, ϕqI, g, pbm_covar_indices, intϕqP, intϕqI, xM, n_MC, i_sites_train) -> 
+    _ftmp2 = (ϕgv, h, rnormPM, ϕqP, ϕqI, g, pbm_covar_indices, intϕqP, intϕqI, xM, i_sites_train) -> 
         CP.neg_elbo_sites!(
-        h, ϕgv, ϕqP, ϕqI, g, pbm_covar_indices;
-        n_MC, 
+        h, rnormPM, ϕgv, ϕqP, ϕqI, g, pbm_covar_indices;
         i_sites_train,     
         intϕqP, intϕqI,
         xM,
         is_testmode = false,
         )[1]    
     pbm_covar_indices_nothing = nothing
-    CP.randnζ!(rng, h)    
-    _ftmp2(ϕgv, h, ϕqP, ϕqI, g, pbm_covar_indices_nothing, intϕqP, intϕqI, xM, n_MC, 1:n_site)
     #_f(ϕg2v, h, g2, pbm_covar_indices2)
     
     Enzyme.make_zero!(dϕg)
@@ -383,13 +384,17 @@ function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by e
     Enzyme.make_zero!(dϕqI)
     Enzyme.make_zero!(dh0)
     rng1 = StableRNG(1234)
-    CP.randnζ!(rng1, h)    
+    CP.randnPM!(rng1, rnormPM)   
+    randn!(rng1, ϕgv)
+    randn!(rng1, xM)
+    primal_enz = _ftmp2(ϕgv, h0, rnormPM, ϕqP, ϕqI, g, pbm_covar_indices_nothing, intϕqP, intϕqI, xM, 1:n_site)
     Enzyme.autodiff(
             Enzyme.set_runtime_activity(Enzyme.Reverse) ,
             _ftmp2,
             Enzyme.Active,
             Enzyme.Duplicated(ϕgv, dϕg),
-            Enzyme.Duplicated(h, dh0),
+            Enzyme.Duplicated(h0, dh0),
+            Enzyme.DuplicatedNoNeed(rnormPM, Enzyme.make_zero(rnormPM)),
             Enzyme.Duplicated(ϕqP, dϕqP),
             Enzyme.Duplicated(ϕqI, dϕqI),
             Enzyme.Const(g),
@@ -397,7 +402,6 @@ function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by e
             Enzyme.Const(intϕqP),
             Enzyme.Const(intϕqI),
             Enzyme.Const(xM),
-            Enzyme.Const(n_MC),
             Enzyme.Const(1:n_site),
         )   
     dϕg0_enz = copy(dϕg)
@@ -407,8 +411,8 @@ function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by e
         #@usingany JLD2
         fname = "intermediate/test_enzyme_dphi0.jld2"
         mkpath("intermediate")
-        jldsave(fname, false, IOStream; h, dϕg0_enz, dϕqP0_enz, dϕqI0_enz)
-        h, dϕg0_enz, dϕqP0_enz, dϕqI0_enz = load(fname, "h", "dϕg0_enz", "dϕqP0_enz", "dϕqI0_enz");
+        JLD2.jldsave(fname, false, IOStream; dϕg0_enz, dϕqP0_enz, dϕqI0_enz)
+        dϕg0_enz, dϕqP0_enz, dϕqI0_enz = JLD2.load(fname, "dϕg0_enz", "dϕqP0_enz", "dϕqI0_enz");
     end
 
     dh2 = Enzyme.make_zero(h2)
@@ -449,28 +453,45 @@ end
 
 @testset "grad_neg_elbo_sites" begin
     CP.check_elbo_helpers(h0, xM, nothing; n_ϕg = length(ϕgv))
-    CP.randnζ!(rng, h0)
+    rng1 = StableRNG(1234)
+    CP.randnPM!(rng1, rnormPM)
+    randn!(rng1, ϕgv)
+    randn!(rng1, xM)
+    primal = CP.neg_elbo_sites!(
+        h0, rnormPM,
+        ϕgv, ϕqP, ϕqI, g, nothing;
+        i_sites_train = 1:n_site,     
+        intϕqP, intϕqI,
+        xM,
+        is_testmode = false,
+    )
     res0 = CP.grad_neg_elbo_sites(
     #@descend_code_warntype CP.neg_elbo_sites!(
-        h0,
+        h0, rnormPM,
         ϕgv, ϕqP, ϕqI, g, nothing;
-        n_MC, 
         i_sites_train = 1:n_site,     
         intϕqP, intϕqI,
         xM,
         is_testmode = false,
     )    
-    res0_ = CP.grad_neg_elbo_sites(
+    res0_ = CP.grad_neg_elbo_sites( # test deterministic result
     #@descend_code_warntype CP.neg_elbo_sites!(
-        h0,
+        h0, rnormPM,
         ϕgv, ϕqP, ϕqI, g, nothing;
-        n_MC, 
         i_sites_train = 1:n_site,     
         intϕqP, intϕqI,
         xM,
         is_testmode = false,
     )    
     @test res0_ == res0
+
+    # if we saved Enzyme results earlier, compare to them
+    if file.exists("intermediate/test_enzyme_dphi0.jld2")
+        dϕg0_enz, dϕqP0_enz, dϕqI0_enz = JLD2.load("intermediate/test_enzyme_dphi0.jld2", "dϕg0_enz", "dϕqP0_enz", "dϕqI0_enz");
+        @test dϕg0_enz ≈ res0.dϕg
+        @test dϕqI0_enz ≈ res0.dϕqI
+        @test dϕqP0_enz ≈ res0.dϕqP
+    end
 
 end
 
