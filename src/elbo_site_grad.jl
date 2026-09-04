@@ -1,5 +1,6 @@
 function grad_neg_elbo_sites(
     elbo_helpers::NamedTuple,      # tuple of preallocated arrays
+    pullback_cl_sample_ζsP!::Function,  # pullback closure for sample_ζsP!
     rnormPM::NamedTuple,          # tuple of random numbers
     ϕg::AbstractVector{TG}, ϕqP::AbstractVector{TF}, ϕqI::AbstractVector{TF}, g, 
     pbm_covar_indices::Union{Nothing,AbstractVector{<:Number}}, 
@@ -15,7 +16,6 @@ function grad_neg_elbo_sites(
     ϕqPc = intϕqP(ϕqP) 
     ϕqIc = intϕqI(ϕqI)
     sample_ζsP!(h.ζsP, h.logσ2_ζP, rnormPM.P, ϕqPc) # n_P * n_MC
-    #
     ϕm_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
     g_apply!(h[ϕm_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
     #
@@ -66,7 +66,9 @@ function grad_neg_elbo_sites(
     #
     # pullback gradients of ∂elbo_∂ζP, ∂elbo_∂ϕm_∂ζP, and ∂elbo_∂logσ2_ζP to dϕqP
     dϕqP = zero(ϕqPc)
-    pullback_sample_ζsP!(dϕqP, 
+    #pullback_sample_ζsP!(
+    pullback_cl_sample_ζsP!(
+        dϕqP, 
         h.∂elbo_∂ζP + h.∂elbo_∂ϕm_∂ζP, ∂elbo_∂logσ2_ζP,
         h.ζsP, h.logσ2_ζP, rnormPM.P, ϕqPc
         )
@@ -97,6 +99,33 @@ function pullback_sample_ζsP!(dϕqc, dζsP, dlogσ2_ζP, ζsP, logσ2_ζP, rnor
     nothing
 end
 
+function get_pullback_cl_sample_ζsP(::AbstractArray{TF}, n_θP, n_MC) where TF
+    #dϕqc, dζsP, dlogσ2_ζP, ζsP, logσ2_ζP, rnormP, ϕqc)
+    ζsP_ = Matrix{TF}(undef, n_θP, n_MC)
+    logσ2_ζP_ = Vector{TF}(undef, n_θP)
+    dζsP_ = similar(ζsP_)  # allocate space for derivatives
+    dlogσ2_ζP_ = similar(logσ2_ζP_)
+    drnormP = similar(ζsP_)
+    #
+    function pullback_cl_sample_ζsP!(dϕqc, dζsP, dlogσ2_ζP, ζsP, logσ2_ζP, rnormP, ϕqc)
+        Enzyme.make_zero!(dϕqc)
+        fill!(dϕqc, 0)            # the derivative to compute 
+        copyto!(dζsP_, dζsP)      # input cotangents (modified in-place by Enzyme)
+        copyto!(dlogσ2_ζP_, dlogσ2_ζP)
+        copyto!(ζsP_, ζsP)        # modified in-place by Enzyme
+        copyto!(logσ2_ζP_, logσ2_ζP)
+        Enzyme.autodiff(
+            Enzyme.Reverse,
+            sample_ζsP!,
+            Enzyme.Duplicated(ζsP_, dζsP_),  
+            Enzyme.Duplicated(logσ2_ζP_, dlogσ2_ζP_),  
+            Enzyme.DuplicatedNoNeed(rnormP, drnormP),  
+            Enzyme.Duplicated(ϕqc, dϕqc),   
+        )
+    end
+end
+
+
 
 # two return values: primal and derivative 
 #   given coderiv dy, parameters and helpers
@@ -106,7 +135,7 @@ function pullback_g_apply!(ϕm, dϕg, dζsP, dϕm, ϕg, xM, ζsP,
     )
     # need to set shadows to zero before each gradient computation
     fill!(dϕg,     zero(eltype(dϕg)))
-    fill!(dζsP,     zero(eltype(dζsP)))
+    fill!(dζsP,    zero(eltype(dζsP)))
     fill!(h.dxMP,  zero(eltype(h.dxMP)))
     dϕm_buffer_key = isnothing(pbm_covar_indices) ? :dϕms : :dϕms_mcs
     copyto!(h[dϕm_buffer_key], dϕm) # copy to avoid modifying dϕm
