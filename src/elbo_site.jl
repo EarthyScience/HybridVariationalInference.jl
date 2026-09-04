@@ -28,6 +28,7 @@ function neg_elbo_sites!(
     is_testmode, 
     kwargs...
 ) where {TG, TF}
+    # for AD do not put it into closure
     h = elbo_helpers # preallocated μζP, dμζP, ζsP, ϕms, xMP, dxMP
     @assert size(rnormPM.P) == size(h.ζsP)
     @assert size(rnormPM.M[1]) == size(h.helpers_sites[1].ζsM_dc.du)
@@ -74,23 +75,13 @@ function prepare_elbo_helpers(ϕg::AbstractArray{TG}, ::AbstractArray{TF};
         logσ2_ζP = Vector{TF}(undef, n_θP),
         ϕms = Matrix{TF}(undef, n_M, n_site),
         ϕms_mcs = Array{TF,3}(undef, n_M, n_MC, n_site),
-        # ϕms = Matrix{TG}(undef, n_M, n_site),
-        # ϕms_mcs = Array{TG,3}(undef, n_M, n_MC, n_site),
         xMP = Matrix{TG}(undef, (n_cov + n_covP), n_MC * n_site),
-        dϕg = Vector{TG}(undef, length(ϕg)),
+        helpers_sites = Tuple((;
+            ζsM_dc = PAT.DiffCache(Matrix{TF}(undef, n_θM, n_MC)),
+            logσ2_ζM_dc = PAT.DiffCache(Vector{TF}(undef, n_θM)),
+            buffer_nθM_dc = PAT.DiffCache(Vector{TF}(undef, n_θM)),
+        ) for i in 1:n_site),
     )
-    helpers_sites = Tuple((;
-        ζsM_dc = PAT.DiffCache(Matrix{TF}(undef, n_θM, n_MC)),
-        logσ2_ζM_dc = PAT.DiffCache(Vector{TF}(undef, n_θM)),
-        buffer_nθM_dc = PAT.DiffCache(Vector{TF}(undef, n_θM)),
-    ) for i in 1:n_site)
-    h = (;h... , helpers_sites, 
-        dxMP  = zero(h.xMP),      # shadow for xMP
-        dϕms = zero(h.ϕms),
-        dϕms_mcs = zero(h.ϕms_mcs),
-        ∂elbo_∂ζP = zero(h.ζsP),
-        ∂elbo_∂ϕm_∂ζP = zero(h.ζsP),
-    )   
 end
 
 function check_elbo_helpers(h::NamedTuple, xM::AbstractMatrix, pbm_covar_indices;
@@ -101,17 +92,11 @@ function check_elbo_helpers(h::NamedTuple, xM::AbstractMatrix, pbm_covar_indices
     n_θP, n_MC = size(h.ζsP)
     n_M = size(h.ϕms, 1)
     @assert size(h.ζsP) == (n_θP, n_MC )
-    @assert size(h.dϕg) == (n_ϕg,)
+    #@assert size(h.dϕg) == (n_ϕg,)
     @assert size(h.logσ2_ζP) == (n_θP,)
     @assert size(h.ϕms) == (n_M, n_site)
     @assert size(h.ϕms_mcs) == (n_M, n_MC, n_site)
     @assert size(h.xMP) == ((n_cov + n_covP), n_MC * n_site) 
-    @assert size(h.dϕg) == (n_ϕg,)
-    @assert size(h.dxMP) == size(h.xMP)
-    @assert size(h.dϕms) == size(h.ϕms)
-    @assert size(h.dϕms_mcs) == size(h.ϕms_mcs)
-    @assert size(h.∂elbo_∂ζP) == size(h.ζsP)
-    @assert size(h.∂elbo_∂ϕm_∂ζP) == size(h.ζsP)
     #
     @assert length(h.helpers_sites) == n_site
     hi = h.helpers_sites[1]
