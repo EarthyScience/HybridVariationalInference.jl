@@ -456,6 +456,8 @@ function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by e
 end
 
 @testset "grad_neg_elbo_sites" begin
+    pullback_cl_sample_ζsP! = CP.get_pullback_cl_sample_ζsP(ϕqP, n_θP, n_MC)
+
     CP.check_elbo_helpers(h0, xM, nothing; n_ϕg = length(ϕgv))
     rng1 = StableRNG(1234)
     CP.randnPM!(rng1, rnormPM)
@@ -471,7 +473,8 @@ end
     )
     res0 = CP.grad_neg_elbo_sites(
     #@descend_code_warntype CP.neg_elbo_sites!(
-        h0, rnormPM,
+        h0, pullback_cl_sample_ζsP!,
+        rnormPM,
         ϕgv, ϕqP, ϕqI, g, nothing;
         i_sites_train = 1:n_site,     
         intϕqP, intϕqI,
@@ -479,7 +482,8 @@ end
         is_testmode = false,
     )    
     res0_ = CP.grad_neg_elbo_sites( # test deterministic result
-        h0, rnormPM,
+        h0, pullback_cl_sample_ζsP!, 
+        rnormPM,
         ϕgv, ϕqP, ϕqI, g, nothing;
         i_sites_train = 1:n_site,     
         intϕqP, intϕqI,
@@ -511,7 +515,8 @@ end
     )
     res0 = CP.grad_neg_elbo_sites(
     #@descend_code_warntype CP.neg_elbo_sites!(
-        h2, rnormPM,
+        h2, pullback_cl_sample_ζsP!, 
+        rnormPM,
         ϕg2v, ϕqP, ϕqI, g2, pbm_covar_indices2;
         i_sites_train = 1:n_site,     
         intϕqP, intϕqI,
@@ -519,7 +524,9 @@ end
         is_testmode = false,
     )    
     res0_ = CP.grad_neg_elbo_sites( # test deterministic result
-        h2, rnormPM,
+        h2, 
+        pullback_cl_sample_ζsP!,
+        rnormPM,
         ϕg2v, ϕqP, ϕqI, g2, pbm_covar_indices2;
         i_sites_train = 1:n_site,     
         intϕqP, intϕqI,
