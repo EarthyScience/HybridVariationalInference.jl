@@ -35,9 +35,9 @@ function neg_elbo_sites!(
     ϕqIc = intϕqI(ϕqI)
     sample_ζsP!(h.ζsP, h.logσ2_ζP, rnormPM.P, ϕqPc) # n_P * n_MC
     # (n_M x n_sit)  or (n_M x n_MC x n_sit)    
-    ϕm_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
-    g_apply!(h[ϕm_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
-    ϕm_it = eachslice(h[ϕm_buffer_key]; dims = ndims(h[ϕm_buffer_key]))
+    ϕms_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
+    g_apply!(h[ϕms_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
+    ϕm_it = eachslice(h[ϕms_buffer_key]; dims = ndims(h[ϕms_buffer_key]))
     template = ϕqI # only important for gradient
     # TODO supply all arguments to SL!
     function SL!(hi, rnormM, i_site_train, ϕm) 
@@ -56,7 +56,7 @@ function neg_elbo_sites!(
     # loglik = sum(x -> x.loglik, res_site)
     # costTrans = sum(x -> x.costTrans, res_site)
     elbo = sum(first, res_site) + sum(h.logσ2_ζP)
-    (; elbo, ζsP=copy(h.ζsP), ϕm=copy(h[ϕm_buffer_key]), res_site)
+    (; elbo, ζsP=copy(h.ζsP), ϕm=copy(h[ϕms_buffer_key]), res_site)
 end
 
 function prepare_rnorm(::AbstractVector{TF}; n_θP, n_θM, n_site, n_MC) where TF
