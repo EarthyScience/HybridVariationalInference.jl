@@ -1,6 +1,6 @@
 function grad_neg_elbo_sites(
     elbo_helpers::NamedTuple,      # tuple of preallocated arrays
-    pullbacks::NamedTuple,          # tuple of pullback closures
+    grad_elbo_helpers::NamedTuple,  # tuple of preallocated arrays pullback closures
     rnormPM::NamedTuple,          # tuple of random numbers
     ϕg::AbstractVector{TG}, ϕqP::AbstractVector{TF}, ϕqI::AbstractVector{TF}, g, 
     pbm_covar_indices::Union{Nothing,AbstractVector{<:Number}}, 
@@ -12,7 +12,9 @@ function grad_neg_elbo_sites(
     kwargs...
 ) where {TG, TF}
     h = elbo_helpers # preallocated μζP, dμζP, ζsP, ϕms, xMP, dxMP
+    gradh = grad_elbo_helpers # here, as object, avoid closure so that can debug easier
     check_elbo_helpers(h, xM, pbm_covar_indices; n_ϕg = length(ϕg))
+    check_gradelbo_helpers(gradh; n_ϕg = length(ϕg))
     ϕqPc = intϕqP(ϕqP) 
     ϕqIc = intϕqI(ϕqI)
     sample_ζsP!(h.ζsP, h.logσ2_ζP, rnormPM.P, ϕqPc) # n_P * n_MC
@@ -52,22 +54,22 @@ function grad_neg_elbo_sites(
     ∂elbo_∂ϕqm = mapreduce(g -> g[Val(:ϕm)], lcat, grads_ϕ;
         #init = @view(grads_ϕ[1][Val(:ϕm)]).* 0
         )::typeof(h[ϕm_buffer_key])
-    h.∂elbo_∂ζP .= reshape(mapreduce(g -> g[Val(:ζsPvec)], +, grads_ϕ;
+    gradh.∂elbo_∂ζP .= reshape(mapreduce(g -> g[Val(:ζsPvec)], +, grads_ϕ;
         init = @view(grads_ϕ[1][Val(:ζsPvec)]).* 0),
         size(h.ζsP))
     ∂elbo_∂logσ2_ζP = ones(length(h.logσ2_ζP)) # TODO update when properly computing elbo
     #
-    # pullback gradients of ϕqm -> h.dϕg and h.dζsP
-    pullbacks.pullback_g_apply!(
-        h[ϕm_buffer_key], h.dϕg, h.∂elbo_∂ϕm_∂ζP, ∂elbo_∂ϕqm, 
+    # pullback gradients of ϕqm -> gradh.dϕg and gradh.dζsP
+    grad_elbo_helpers.pullback_g_apply!(
+        gradh.dϕg, gradh.∂elbo_∂ϕm_∂ζP, h[ϕm_buffer_key], ∂elbo_∂ϕqm, 
         ϕg, xM, h.ζsP, pbm_covar_indices, g, is_testmode)
     #
     # pullback gradients of ∂elbo_∂ζP, ∂elbo_∂ϕm_∂ζP, and ∂elbo_∂logσ2_ζP to dϕqP
     dϕqP = similar(ϕqPc)
     #pullback_sample_ζsP!(
-    pullbacks.pullback_cl_sample_ζsP!(
+    grad_elbo_helpers.pullback_cl_sample_ζsP!(
         dϕqP, 
-        h.∂elbo_∂ζP + h.∂elbo_∂ϕm_∂ζP, ∂elbo_∂logσ2_ζP,
+        gradh.∂elbo_∂ζP + gradh.∂elbo_∂ϕm_∂ζP, ∂elbo_∂logσ2_ζP,
         h.ζsP, h.logσ2_ζP, rnormPM.P, ϕqPc
         )
 
@@ -75,7 +77,7 @@ function grad_neg_elbo_sites(
     # n_θP, n_MC = size(h.ζsP)
     # ∂ζsP∂ϕqc = zeros(eltype(ζsP), n_θP * n_MC, length(ϕqc))
     # #pullback_sample_ζsP!(∂ζsP∂ϕqc, h.ζsP, h.logσ2_ζP, h.rnormP, ϕqPc)
-    (;dϕqP, dϕqI = ∂elbo_∂ϕqI, dϕg = h.dϕg)
+    (;dϕqP, dϕqI = ∂elbo_∂ϕqI, dϕg = gradh.dϕg)
 end
 
 function pullback_sample_ζsP!(dϕqc, dζsP, dlogσ2_ζP, ζsP, logσ2_ζP, rnormP, ϕqc)
@@ -137,7 +139,7 @@ function get_pullback_g_apply(::AbstractArray{TG}, ::AbstractArray{TF};
     dϕms_mcs_ = similar(ϕms_mcs_)
     #dζsP_ = Matrix{TF}(undef, n_θP, n_MC)
     #
-    function pullback_g_apply!(ϕms, dϕg, dζsP, dϕm, ϕg, xM, ζsP,
+    function pullback_g_apply!(dϕg, dζsP, ϕms, dϕm, ϕg, xM, ζsP,
                                pbm_covar_indices, g, is_testmode)
         ϕms_buffer = isnothing(pbm_covar_indices) ? ϕms_ : ϕms_mcs_
         dϕms_buffer = isnothing(pbm_covar_indices) ? dϕms_ : dϕms_mcs_
@@ -169,11 +171,31 @@ function get_pullback_g_apply(::AbstractArray{TG}, ::AbstractArray{TF};
     end
 end
 
-function prepare_pullbacks(ϕg, ϕqP; n_θP, n_MC, n_cov, n_covP, n_site, n_M)
+function prepare_gradelbo_helpers(ϕg::AbstractVector{TG}, ϕqP::AbstractVector{TF}; 
+    n_θP, n_MC, n_cov, n_covP, n_site, n_M
+    ) where {TG, TF}
     (;
+        dϕg = Vector{TG}(undef, length(ϕg)),
+        ∂elbo_∂ζP = Matrix{TF}(undef, n_θP, n_MC),
+        ∂elbo_∂ϕm_∂ζP = Matrix{TF}(undef, n_θP, n_MC),
+        #
         pullback_cl_sample_ζsP! = get_pullback_cl_sample_ζsP(ϕqP; n_θP, n_MC),
         pullback_g_apply! = get_pullback_g_apply(
             ϕg, ϕqP; n_θP, n_cov, n_covP, n_MC, n_site, n_M),
     )
 end
+
+function check_gradelbo_helpers(gradh::NamedTuple;
+    n_ϕg
+    )
+    # n_cov, n_site = size(xM)
+    # n_covP = isnothing(pbm_covar_indices) ? 0 : length(pbm_covar_indices)
+    n_θP, n_MC = size(gradh.∂elbo_∂ζP)
+    @assert size(gradh.dϕg) == (n_ϕg,)
+    @assert size(gradh.∂elbo_∂ζP) == (n_θP, n_MC)
+    @assert size(gradh.∂elbo_∂ϕm_∂ζP) == (n_θP, n_MC)
+end
+
+
+
 
