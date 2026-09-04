@@ -14,9 +14,7 @@ function grad_neg_elbo_sites(
     check_elbo_helpers(h, xM, pbm_covar_indices; n_ϕg = length(ϕg))
     ϕqPc = intϕqP(ϕqP) 
     ϕqIc = intϕqI(ϕqI)
-    #- sample_ζsP!(h.ζsP, h.logσ2_ζP, rnormPM.P, ϕqPc) # n_P * n_MC
-    pullback_cl_sample_ζsP! = primal_pullback_sample_ζsP!(
-        h.ζsP, h.logσ2_ζP, rnormPM.P, ϕqPc) 
+    sample_ζsP!(h.ζsP, h.logσ2_ζP, rnormPM.P, ϕqPc) # n_P * n_MC
     #
     ϕm_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
     g_apply!(h[ϕm_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
@@ -58,29 +56,21 @@ function grad_neg_elbo_sites(
         size(h.ζsP))
     ∂elbo_∂logσ2_ζP = ones(length(h.logσ2_ζP)) # TODO update when properly computing elbo
     #
-    # backpropagate gradients of ϕqm to h.dϕg and h.dζsP
+    # pullback gradients of ϕqm to h.dϕg and h.dζsP
     ϕm_ = copy(h[ϕm_buffer_key]) # primal actually not needed -> simplify pullback_g_apply!
     Enzyme.make_zero!(h.dϕg)
     Enzyme.make_zero!(h.∂elbo_∂ϕm_∂ζP)
     pullback_g_apply!(
         ϕm_, h.dϕg, h.∂elbo_∂ϕm_∂ζP, ∂elbo_∂ϕqm, 
         ϕg, xM, h.ζsP, pbm_covar_indices, g, h, is_testmode)
-    #h.dϕg
-    #h.∂elbo_∂ϕm_∂ζP
     #
-    # dϕqP
-    ∂elbo_∂logσ2_ζP_∂ϕqP = zero(ϕqPc)
-    pullback_cl_sample_ζsP!(∂elbo_∂logσ2_ζP_∂ϕqP, h.∂elbo_∂ζP .* zero(TF), ∂elbo_∂logσ2_ζP)
-    ∂elbo_∂ζP_∂ϕqP = zero(ϕqPc)
-    pullback_cl_sample_ζsP!(∂elbo_∂ζP_∂ϕqP, h.∂elbo_∂ζP, ∂elbo_∂logσ2_ζP .* zero(TF))
-    ∂elbo_∂ϕm_∂ζP_∂ϕqP = zero(ϕqPc)
-    pullback_cl_sample_ζsP!(∂elbo_∂ϕm_∂ζP_∂ϕqP, h.∂elbo_∂ϕm_∂ζP, ∂elbo_∂logσ2_ζP .* zero(TF))
-    dϕqP = ∂elbo_∂logσ2_ζP_∂ϕqP + ∂elbo_∂ζP_∂ϕqP + ∂elbo_∂ϕm_∂ζP_∂ϕqP
-    # test if can sum the cotangets and call the pullback once
-    tmp2 = zero(ϕqPc)
-    pullback_cl_sample_ζsP!(tmp2, 
-        h.∂elbo_∂ζP + h.∂elbo_∂ϕm_∂ζP, 
-        ∂elbo_∂logσ2_ζP)
+    # pullback gradients of ∂elbo_∂ζP, ∂elbo_∂ϕm_∂ζP, and ∂elbo_∂logσ2_ζP to dϕqP
+    dϕqP = zero(ϕqPc)
+    pullback_sample_ζsP!(dϕqP, 
+        h.∂elbo_∂ζP + h.∂elbo_∂ϕm_∂ζP, ∂elbo_∂logσ2_ζP,
+        h.ζsP, h.logσ2_ζP, rnormPM.P, ϕqPc
+        )
+
     # ∂ζsP∂ϕqc = zeros(eltype(ζsP), n_θP * n_MC, length(ϕqc))
     # n_θP, n_MC = size(h.ζsP)
     # ∂ζsP∂ϕqc = zeros(eltype(ζsP), n_θP * n_MC, length(ϕqc))
@@ -88,49 +78,7 @@ function grad_neg_elbo_sites(
     (;dϕqP, dϕqI = ∂elbo_∂ϕqI, dϕg = h.dϕg)
 end
 
-
-
-function primal_pullback_sample_ζsP!(ζsP, logσ2_ζP, rnormP, ϕqc)
-    # ζsP is mutated, so store previous value
-    fwd, rev = Enzyme.autodiff_thunk(
-        Enzyme.ReverseSplitNoPrimal,
-        Enzyme.Const{typeof(sample_ζsP!)},
-        Enzyme.Const,                        # no scalar return
-        Enzyme.Duplicated{typeof(ζsP)},      # mutated output (noise in, sample out)
-        Enzyme.Duplicated{typeof(logσ2_ζP)}, # mutated intermediate buffer
-        Enzyme.DuplicatedNoNeed{typeof(rnormP)},  
-        Enzyme.Duplicated{typeof(ϕqc)}       # active input
-    )    
-    # # need to copy so that they are not modified in the reverse pass
-    # ζsP_orig = copy(ζsP) 
-    ζsP_ = copy(ζsP) 
-    logσ2_ζP_ = copy(logσ2_ζP) 
-    dζsP_ = zero(ζsP_)
-    dlogσ2_ζP_ = zero(logσ2_ζP_)   
-    drnormP = zero(rnormP)   
-    args_fwd = ( # only allocate Duplicated once
-        Enzyme.Const(sample_ζsP!),
-        Enzyme.Duplicated(ζsP_, dζsP_),
-        Enzyme.Duplicated(logσ2_ζP_, dlogσ2_ζP_),
-        Enzyme.DuplicatedNoNeed(rnormP, drnormP),  
-    )
-    function pullback_cl_sample_ζsP!(dϕqPc, dζsP, dlogσ2_ζP)
-        #copyto!(ζsP_, ζsP_orig)  # reset to initial random seed
-        copyto!(dζsP_, dζsP)  # seed cotangent on ζsP
-        copyto!(dlogσ2_ζP_, dlogσ2_ζP)  # seed cotangent on ζsP
-        fill!(CA.getdata(dϕqPc), 0)
-        fill!(drnormP, 0)
-        Dup_ϕqc = Enzyme.Duplicated(ϕqc, dϕqPc)
-        tape, _, _ = fwd( args_fwd...,  Dup_ϕqc)
-        rev( args_fwd...,  Dup_ϕqc, tape )
-        nothing
-    end    
-    # execute the primal function to update the results
-    sample_ζsP!(ζsP, logσ2_ζP, rnormP, ϕqc)    
-    return pullback_cl_sample_ζsP!
-end
-
- function pullback_sample_ζsP!(dϕqc, dζsP, dlogσ2_ζP, ζsP, logσ2_ζP, rnormP, ϕqc)
+function pullback_sample_ζsP!(dϕqc, dζsP, dlogσ2_ζP, ζsP, logσ2_ζP, rnormP, ϕqc)
     ζsP_ = copy(ζsP) # TODO pass buffers to avoid allocation
     dζsP_ = copy(dζsP)
     logσ2_ζP_ = copy(logσ2_ζP) # TODO pass buffers to avoid allocation
