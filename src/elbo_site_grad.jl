@@ -53,7 +53,7 @@ function grad_neg_elbo_sites(
     ∂elbo_∂ϕqm = mapreduce(g -> g[Val(:ϕm)], hcat, grads_ϕ;
         #init = @view(grads_ϕ[1][Val(:ϕm)]).* 0
         )::AbstractMatrix{TF}
-    ∂elbo_∂ζsP = reshape(mapreduce(g -> g[Val(:ζsPvec)], +, grads_ϕ;
+    h.∂elbo_∂ζP .= reshape(mapreduce(g -> g[Val(:ζsPvec)], +, grads_ϕ;
         init = @view(grads_ϕ[1][Val(:ζsPvec)]).* 0),
         size(h.ζsP))
     ∂elbo_∂logσ2_ζP = ones(length(h.logσ2_ζP)) # TODO update when properly computing elbo
@@ -81,7 +81,6 @@ function grad_neg_elbo_sites(
     pullback_cl_sample_ζsP!(tmp2, 
         h.∂elbo_∂ζP + h.∂elbo_∂ϕm_∂ζP, 
         ∂elbo_∂logσ2_ζP)
-
     # ∂ζsP∂ϕqc = zeros(eltype(ζsP), n_θP * n_MC, length(ϕqc))
     # n_θP, n_MC = size(h.ζsP)
     # ∂ζsP∂ϕqc = zeros(eltype(ζsP), n_θP * n_MC, length(ϕqc))
