@@ -56,7 +56,7 @@ function neg_elbo_sites!(
     # E = sum(x -> x.E, res_site)
     # loglik = sum(x -> x.loglik, res_site)
     # costTrans = sum(x -> x.costTrans, res_site)
-    elbo = sum(first, res_site) + sum(h.logσ2_ζP)
+    elbo = sum(first, res_site) - sum(h.logσ2_ζP)/TF(2)
     (; elbo, ζsP=copy(h.ζsP), ϕm=copy(h[ϕms_buffer_key]), res_site)
 end
 
@@ -65,6 +65,10 @@ function prepare_rnorm(::AbstractVector{TF}; n_θP, n_θM, n_site, n_MC) where T
         P = Matrix{TF}(undef, n_θP, n_MC),
         M = Tuple(Matrix{TF}(undef, n_θM, n_MC) for i in 1:n_site),
     )
+    # discussed transforming Tuple{Matrix} to a 3D Array.
+    # This would run, but make it more difficult and brittle for Enzyme,
+    # which would work on a view rather than Matrix. Moreover, accessing
+    # the view yields a small performance cost. So keep the Tuple-pattern 
 end
 
 function prepare_elbo_helpers(ϕg::AbstractArray{TG}, ::AbstractArray{TF};
