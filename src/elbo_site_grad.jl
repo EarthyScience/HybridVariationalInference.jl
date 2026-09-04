@@ -57,7 +57,7 @@ function grad_neg_elbo_sites(
     gradh.∂elbo_∂ζP .= reshape(mapreduce(g -> g[Val(:ζsPvec)], +, grads_ϕ;
         init = @view(grads_ϕ[1][Val(:ζsPvec)]).* 0),
         size(h.ζsP))
-    ∂elbo_∂logσ2_ζP = ones(length(h.logσ2_ζP)) # TODO update when properly computing elbo
+    ∂elbo_∂logσ2_ζP = fill(TF(-1/2), length(h.logσ2_ζP)) 
     #
     # pullback gradients of ϕqm -> gradh.dϕg and gradh.dζsP
     grad_elbo_helpers.pullback_g_apply!(
