@@ -456,7 +456,8 @@ function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by e
 end
 
 @testset "grad_neg_elbo_sites" begin
-    pullback_cl_sample_ζsP! = CP.get_pullback_cl_sample_ζsP(ϕqP, n_θP, n_MC)
+    pullbacks0 = CP.prepare_pullbacks(ϕg, ϕqP; 
+        n_θP, n_MC, n_cov, n_covP=n_covP0, n_site, n_M)
 
     CP.check_elbo_helpers(h0, xM, nothing; n_ϕg = length(ϕgv))
     rng1 = StableRNG(1234)
@@ -473,7 +474,7 @@ end
     )
     res0 = CP.grad_neg_elbo_sites(
     #@descend_code_warntype CP.neg_elbo_sites!(
-        h0, pullback_cl_sample_ζsP!,
+        h0, pullbacks0,
         rnormPM,
         ϕgv, ϕqP, ϕqI, g, nothing;
         i_sites_train = 1:n_site,     
@@ -482,7 +483,7 @@ end
         is_testmode = false,
     )    
     res0_ = CP.grad_neg_elbo_sites( # test deterministic result
-        h0, pullback_cl_sample_ζsP!, 
+        h0, pullbacks0, 
         rnormPM,
         ϕgv, ϕqP, ϕqI, g, nothing;
         i_sites_train = 1:n_site,     
@@ -500,6 +501,8 @@ end
     end
     #
     #---------------- matrix mode with population covariates
+    pullbacks2 = CP.prepare_pullbacks(ϕg2, ϕqP; 
+        n_θP, n_MC, n_cov, n_covP=n_covP2, n_site, n_M)
     CP.check_elbo_helpers(h2, xM, pbm_covar_indices2; n_ϕg = length(ϕg2v))
     rng1 = StableRNG(1234)
     CP.randnPM!(rng1, rnormPM)
@@ -515,7 +518,7 @@ end
     )
     res0 = CP.grad_neg_elbo_sites(
     #@descend_code_warntype CP.neg_elbo_sites!(
-        h2, pullback_cl_sample_ζsP!, 
+        h2, pullbacks2,
         rnormPM,
         ϕg2v, ϕqP, ϕqI, g2, pbm_covar_indices2;
         i_sites_train = 1:n_site,     
@@ -525,7 +528,7 @@ end
     )    
     res0_ = CP.grad_neg_elbo_sites( # test deterministic result
         h2, 
-        pullback_cl_sample_ζsP!,
+        pullbacks2,
         rnormPM,
         ϕg2v, ϕqP, ϕqI, g2, pbm_covar_indices2;
         i_sites_train = 1:n_site,     
@@ -540,6 +543,7 @@ end
         @test dϕg2_enz ≈ res0.dϕg
         @test dϕqI2_enz ≈ res0.dϕqI
         @test dϕqP2_enz ≈ res0.dϕqP
+        #hcat(dϕqP2_enz, res0.dϕqP)
     end
 
 
