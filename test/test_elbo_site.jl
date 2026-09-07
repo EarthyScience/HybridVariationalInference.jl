@@ -22,6 +22,7 @@ n_θP = 3
 n_θM = 3 
 n_M = n_θM + 1 # additional uncertainty scaling factor
 
+MLDATADEVICES_SILENCE_WARN_NO_GPU=1 # suppress warning on missing CUDA
 import Lux
 import Zygote
 import Enzyme
@@ -363,9 +364,12 @@ import ForwardDiff
 # end
 
 function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by enzyme
+    # do not use DiffCache here for helpers_sites
+    h0p = CP.prepare_elbo_helpers(ϕg, ϕqP; 
+        n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP0, n_M, use_diff_cache = Val(false))
     # and store results to compare to hand-crafted mixed AD
-    dh0 = Enzyme.make_zero(h0)
-    @test dh0 !== h0 # real copy rather than reference
+    dh0p = Enzyme.make_zero(h0p)
+    @test dh0p !== h0p # real copy rather than reference
     dϕg = zero(ϕgv)
     dϕqP = zero(ϕqP)
     dϕqI = zero(ϕqI)
@@ -383,18 +387,18 @@ function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by e
     Enzyme.make_zero!(dϕg)
     Enzyme.make_zero!(dϕqP)
     Enzyme.make_zero!(dϕqI)
-    Enzyme.make_zero!(dh0)
+    Enzyme.make_zero!(dh0p)
     rng1 = StableRNG(1234)
     CP.randnPM!(rng1, rnormPM)   
     randn!(rng1, ϕgv)
     randn!(rng1, xM)
-    primal_enz = _ftmp2(ϕgv, h0, rnormPM, ϕqP, ϕqI, g, pbm_covar_indices_nothing, intϕqP, intϕqI, xM, 1:n_site)
+    primal_enz = _ftmp2(ϕgv, h0p, rnormPM, ϕqP, ϕqI, g, pbm_covar_indices_nothing, intϕqP, intϕqI, xM, 1:n_site)
     Enzyme.autodiff(
             Enzyme.set_runtime_activity(Enzyme.Reverse) ,
             _ftmp2,
             Enzyme.Active,
             Enzyme.Duplicated(ϕgv, dϕg),
-            Enzyme.Duplicated(h0, dh0),
+            Enzyme.Duplicated(h0p, dh0p),
             Enzyme.DuplicatedNoNeed(rnormPM, Enzyme.make_zero(rnormPM)),
             Enzyme.Duplicated(ϕqP, dϕqP),
             Enzyme.Duplicated(ϕqI, dϕqI),
@@ -412,29 +416,32 @@ function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by e
         #@usingany JLD2
         fname = "intermediate/test_enzyme_dphi0.jld2"
         mkpath("intermediate")
-        JLD2.jldsave(fname, false, IOStream; dϕg0_enz, dϕqP0_enz, dϕqI0_enz)
-        dϕg0_enz, dϕqP0_enz, dϕqI0_enz = JLD2.load(fname, "dϕg0_enz", "dϕqP0_enz", "dϕqI0_enz");
+        JLD2.jldsave(fname, false, IOStream; primal_enz, dϕg0_enz, dϕqP0_enz, dϕqI0_enz)
+        primal_enz, dϕg0_enz, dϕqP0_enz, dϕqI0_enz = JLD2.load(fname, 
+            "primal_enz", "dϕg0_enz", "dϕqP0_enz", "dϕqI0_enz");
     end
 
+    h2p = CP.prepare_elbo_helpers(ϕg2, ϕqP; 
+        n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M, use_diff_cache = Val(false))
     dϕg2 = zero(ϕg2v)
-    dh2 = Enzyme.make_zero(h2)
-    @test dh2 !== h2 # real copy rather than reference
+    dh2p = Enzyme.make_zero(h2p)
+    @test dh2p !== h2p # real copy rather than reference
 
     Enzyme.make_zero!(dϕg2)
     Enzyme.make_zero!(dϕqP)
     Enzyme.make_zero!(dϕqI)
-    Enzyme.make_zero!(dh2)
+    Enzyme.make_zero!(dh2p)
     rng1 = StableRNG(1234)
     CP.randnPM!(rng1, rnormPM)   
     randn!(rng1, ϕg2v)
     randn!(rng1, xM)
-    primal2_enz = _ftmp2(ϕg2v, h2, rnormPM, ϕqP, ϕqI, g2, pbm_covar_indices2, intϕqP, intϕqI, xM, 1:n_site)
+    primal2_enz = _ftmp2(ϕg2v, h2p, rnormPM, ϕqP, ϕqI, g2, pbm_covar_indices2, intϕqP, intϕqI, xM, 1:n_site)
     Enzyme.autodiff(
             Enzyme.set_runtime_activity(Enzyme.Reverse) ,
             _ftmp2,
             Enzyme.Active,
             Enzyme.Duplicated(ϕg2v, dϕg2),
-            Enzyme.Duplicated(h2, dh2),
+            Enzyme.Duplicated(h2p, dh2p),
             Enzyme.DuplicatedNoNeed(rnormPM, Enzyme.make_zero(rnormPM)),
             Enzyme.Duplicated(ϕqP, dϕqP),
             Enzyme.Duplicated(ϕqI, dϕqI),
@@ -451,7 +458,9 @@ function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by e
     () -> begin
         fname = "intermediate/test_enzyme_dphi2.jld2"
         mkpath("intermediate")
-        JLD2.jldsave(fname, false, IOStream; dϕg2_enz, dϕqP2_enz, dϕqI2_enz)
+        JLD2.jldsave(fname, false, IOStream; primal2_enz, dϕg2_enz, dϕqP2_enz, dϕqI2_enz)
+        primal2_enz, dϕg2_enz, dϕqP2_enz, dϕqI2_enz = JLD2.load(fname, 
+            "primal2_enz", "dϕg2_enz", "dϕqP2_enz", "dϕqI2_enz");
     end
 end
 
@@ -495,7 +504,10 @@ end
     @test res0_ == res0
     # if we saved Enzyme results earlier, compare to them
     if isfile("intermediate/test_enzyme_dphi0.jld2")
-        dϕg0_enz, dϕqP0_enz, dϕqI0_enz = JLD2.load("intermediate/test_enzyme_dphi0.jld2", "dϕg0_enz", "dϕqP0_enz", "dϕqI0_enz");
+        primal_enz, dϕg0_enz, dϕqP0_enz, dϕqI0_enz = JLD2.load(
+            "intermediate/test_enzyme_dphi0.jld2", 
+            "primal_enz", "dϕg0_enz", "dϕqP0_enz", "dϕqI0_enz");
+        @test primal_enz ≈ primal[1]
         @test dϕg0_enz ≈ res0.dϕg
         @test dϕqI0_enz ≈ res0.dϕqI
         @test dϕqP0_enz ≈ res0.dϕqP
@@ -540,7 +552,10 @@ end
     @test res0_ == res0
     # if we saved Enzyme results earlier, compare to them
     if isfile("intermediate/test_enzyme_dphi2.jld2")
-        dϕg2_enz, dϕqP2_enz, dϕqI2_enz = JLD2.load("intermediate/test_enzyme_dphi2.jld2", "dϕg2_enz", "dϕqP2_enz", "dϕqI2_enz");
+        primal2_enz, dϕg2_enz, dϕqP2_enz, dϕqI2_enz = JLD2.load(
+            "intermediate/test_enzyme_dphi2.jld2", 
+            "primal2_enz", "dϕg2_enz", "dϕqP2_enz", "dϕqI2_enz");
+        @test primal2_enz ≈ primal2[1]
         @test dϕg2_enz ≈ res0.dϕg
         @test dϕqI2_enz ≈ res0.dϕqI
         @test dϕqP2_enz ≈ res0.dϕqP
