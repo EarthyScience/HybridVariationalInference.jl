@@ -18,7 +18,8 @@ function grad_neg_elbo_sites(
     ϕqPc = intϕqP(ϕqP) 
     ϕqIc = intϕqI(ϕqI)
     sample_ζsP!(h.ζsP, h.logσ_ζP, rnormPM.P, ϕqPc) # n_P * n_MC
-    ϕm_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
+    use_ϕm_matrix = isnothing(pbm_covar_indices)
+    ϕm_buffer_key = use_ϕm_matrix ? :ϕms : :ϕms_mcs
     g_apply!(h[ϕm_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
     #
     # compute the gradients of SL! using ForwardDiff
@@ -47,18 +48,31 @@ function grad_neg_elbo_sites(
 
     ϕm_it = eachslice(h[ϕm_buffer_key]; dims = ndims(h[ϕm_buffer_key]))
     grads_ϕ = map(forwarddiff_grad_SL!, h.helpers_sites, rnormPM.M, i_sites_train, ϕm_it)
-    #
-    # MAYBE avoid allocation by using a buffers
-    ∂elbo_∂ϕqI = mapreduce( g -> g[Val(:ϕqIc)], +, grads_ϕ; 
-        init = @view(grads_ϕ[1][Val(:ϕqIc)]).* 0)
-    lcat = (x,y) -> cat(x,y; dims = ndims(h[ϕm_buffer_key]))
-    ∂elbo_∂ϕqm = mapreduce(g -> g[Val(:ϕm)], lcat, grads_ϕ;
-        #init = @view(grads_ϕ[1][Val(:ϕm)]).* 0
-        )::typeof(h[ϕm_buffer_key])
-    gradh.∂elbo_∂ζP .= reshape(mapreduce(g -> g[Val(:ζsPvec)], +, grads_ϕ;
-        init = @view(grads_ϕ[1][Val(:ζsPvec)]).* 0),
-        size(h.ζsP))
-    ∂elbo_∂logσ_ζP = -ones(TF, length(h.logσ_ζP)) 
+
+    gacc = CA.ComponentVector( # TODO preallocate
+        ϕqIc = ϕqIc .* zero(TF), 
+        ϕms = h[ϕm_buffer_key],
+        ζsPvec = vec(h.ζsP) .* zero(TF),
+    )
+    i_red = 1
+    function reducer(x,y) 
+        # i from outside
+        x.ϕqIc += y.ϕqIc
+        x.ζsPvec += y.ζsPvec
+        if use_ϕm_matrix
+            x.ϕms[:,i_red] .= y.ϕm
+        else
+            x.ϕms[:,:,i_red] .= y.ϕm
+        end
+        #i_red .+= 1
+        i_red += 1
+        x
+    end
+    foldl(reducer, grads_ϕ; init = gacc) # need to garante order because of i_red
+    ∂elbo_∂ϕqI = view(gacc, Val(:ϕqIc))
+    ∂elbo_∂ϕqm = view(gacc, Val(:ϕms))
+    ∂elbo_∂ζP = reshape(view(gacc, Val(:ζsPvec)), size(h.ζsP))
+    ∂elbo_∂logσ_ζP = -ones(TF, length(h.logσ_ζP))  # TODO preallocate?
     #
     # pullback gradients of ϕqm -> gradh.dϕg and gradh.dζsP
     grad_elbo_helpers.pullback_g_apply!(
@@ -70,7 +84,7 @@ function grad_neg_elbo_sites(
     #pullback_sample_ζsP!(
     grad_elbo_helpers.pullback_cl_sample_ζsP!(
         dϕqP, 
-        gradh.∂elbo_∂ζP + gradh.∂elbo_∂ϕm_∂ζP, ∂elbo_∂logσ_ζP,
+        ∂elbo_∂ζP + gradh.∂elbo_∂ϕm_∂ζP, ∂elbo_∂logσ_ζP,
         h.ζsP, h.logσ_ζP, rnormPM.P, ϕqPc
         )
 

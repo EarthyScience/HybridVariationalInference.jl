@@ -59,12 +59,17 @@ function neg_elbo_sites!(
             elboi_ζ = compute_elboi_ζ(h.ζsP, ζsM, args...; i_site_train, kwargs...)[1]
             elboi_ζ - sum(logσ_ζM)
     end
-    res_site = map(compute_elboi_z!, h.helpers_sites, rnormPM.M, i_sites_train, ϕm_it)
+    #res_site = map(compute_elboi_z!, h.helpers_sites, rnormPM.M, i_sites_train, ϕm_it)
+    #MAYBE: distributed mapreduce: 
+    #   https://docs.julialang.org/en/v1/stdlib/Distributed/#Distributed.@distributed
+    #   https://github.com/SupaeroDataScience/DE/blob/main/notebooks/Introduction%20to%20MapReduce.ipynb
+    elbo_z = mapreduce(compute_elboi_z!, +, h.helpers_sites, rnormPM.M, i_sites_train, ϕm_it)
     # E = sum(x -> x.E, res_site)
     # loglik = sum(x -> x.loglik, res_site)
     # costTrans = sum(x -> x.costTrans, res_site)
-    elbo = sum(first, res_site) - sum(h.logσ_ζP)
-    (; elbo, ζsP=copy(h.ζsP), ϕm=copy(h[ϕms_buffer_key]), res_site)
+    #elbo = sum(first, res_site) - sum(h.logσ_ζP)
+    elbo = elbo_z - sum(h.logσ_ζP)
+    (; elbo, ζsP=copy(h.ζsP), ϕm=copy(h[ϕms_buffer_key]))
 end
 
 function prepare_rnorm(::AbstractVector{TF}; n_θP, n_θM, n_site, n_MC) where TF
