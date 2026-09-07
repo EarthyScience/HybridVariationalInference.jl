@@ -69,7 +69,7 @@ function grad_neg_elbo_sites(
     ∂elbo_∂ϕqI = view(gacc, Val(:ϕqIc))
     ∂elbo_∂ϕqm = reshape(view(gacc, Val(:ϕmsvec)), size(h[ϕm_buffer_key]))
     ∂elbo_∂ζP = reshape(view(gacc, Val(:ζsPvec)), size(h.ζsP))
-    ∂elbo_∂logσ_ζP = -ones(TF, length(h.logσ_ζP))  # TODO preallocate?
+    gradh.∂elbo_∂logσ_ζP .= -ones(TF, length(h.logσ_ζP))  
     #
     # pullback gradients of ϕqm -> gradh.dϕg and gradh.dζsP
     grad_elbo_helpers.pullback_g_apply!(
@@ -81,7 +81,7 @@ function grad_neg_elbo_sites(
     #pullback_sample_ζsP!(
     grad_elbo_helpers.pullback_cl_sample_ζsP!(
         dϕqP, 
-        ∂elbo_∂ζP + gradh.∂elbo_∂ϕm_∂ζP, ∂elbo_∂logσ_ζP,
+        ∂elbo_∂ζP + gradh.∂elbo_∂ϕm_∂ζP, gradh.∂elbo_∂logσ_ζP,
         h.ζsP, h.logσ_ζP, rnormPM.P, ϕqPc
         )
 
@@ -188,8 +188,9 @@ function prepare_gradelbo_helpers(ϕg::AbstractVector{TG}, ϕqP::AbstractVector{
     ) where {TG, TF}
     (;
         dϕg = Vector{TG}(undef, length(ϕg)),
-        ∂elbo_∂ζP = Matrix{TF}(undef, n_θP, n_MC),
+        #∂elbo_∂ζP = Matrix{TF}(undef, n_θP, n_MC),
         ∂elbo_∂ϕm_∂ζP = Matrix{TF}(undef, n_θP, n_MC),
+        ∂elbo_∂logσ_ζP = Vector{TF}(undef, n_θP),
         #
         pullback_cl_sample_ζsP! = get_pullback_cl_sample_ζsP(ϕqP; n_θP, n_MC),
         pullback_g_apply! = get_pullback_g_apply(
@@ -202,10 +203,11 @@ function check_gradelbo_helpers(gradh::NamedTuple;
     )
     # n_cov, n_site = size(xM)
     # n_covP = isnothing(pbm_covar_indices) ? 0 : length(pbm_covar_indices)
-    n_θP, n_MC = size(gradh.∂elbo_∂ζP)
+    n_θP, n_MC = size(gradh.∂elbo_∂ϕm_∂ζP)
     @assert size(gradh.dϕg) == (n_ϕg,)
-    @assert size(gradh.∂elbo_∂ζP) == (n_θP, n_MC)
+    #@assert size(gradh.∂elbo_∂ζP) == (n_θP, n_MC)
     @assert size(gradh.∂elbo_∂ϕm_∂ζP) == (n_θP, n_MC)
+    @assert size(gradh.∂elbo_∂logσ_ζP) == (n_θP,)
 end
 
 
