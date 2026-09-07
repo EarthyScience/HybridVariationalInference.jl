@@ -31,7 +31,9 @@ function neg_elbo_sites!(
     # for AD do not put it into closure
     h = elbo_helpers # preallocated μζP, dμζP, ζsP, ϕms, xMP, dxMP
     @assert size(rnormPM.P) == size(h.ζsP)
-    @assert size(rnormPM.M[1]) == size(h.helpers_sites[1].ζsM_dc.du)
+    use_dc = h.helpers_sites[1].ζsM_dc isa PAT.DiffCache
+    n_M, n_MC = use_dc ? size(h.helpers_sites[1].ζsM_dc.du) : size(h.helpers_sites[1].ζsM_dc)
+    @assert size(rnormPM.M[1]) == (n_M, n_MC)
     ϕqPc = intϕqP(ϕqP) 
     ϕqIc = intϕqI(ϕqI)
     sample_ζsP!(h.ζsP, h.logσ2_ζP, rnormPM.P, ϕqPc) # n_P * n_MC
@@ -42,12 +44,16 @@ function neg_elbo_sites!(
     template = ϕqI # only important for gradient
     # TODO supply all arguments to SL!
     function SL!(hi, rnormM, i_site_train, ϕm) 
-            #randn!(rng, hi.ζsM_dc) # n_M * n_MC
-            ζsM = PAT.get_tmp(hi.ζsM_dc, template)
-            logσ2_ζM = PAT.get_tmp(hi.logσ2_ζM_dc, template)
-            buffer_nθM = PAT.get_tmp(hi.buffer_nθM_dc, template)
+            if use_dc 
+                ζsM = PAT.get_tmp(hi.ζsM_dc, template)
+                logσ2_ζM = PAT.get_tmp(hi.logσ2_ζM_dc, template)
+                buffer_nθM = PAT.get_tmp(hi.buffer_nθM_dc, template)
+            else
+                ζsM = hi.ζsM_dc
+                logσ2_ζM = hi.logσ2_ζM_dc
+                buffer_nθM = hi.buffer_nθM_dc
+            end
             #ζsM, logσ2_ζM, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector
-            
             sample_ζsM!(ζsM, logσ2_ζM, rnormM, ϕqIc, ϕm, buffer_nθM)
             # first component needs to be the full elbo
             Lζi(h.ζsP, ζsM, logσ2_ζM, args...; i_site_train, kwargs...)
@@ -72,19 +78,22 @@ function prepare_rnorm(::AbstractVector{TF}; n_θP, n_θM, n_site, n_MC) where T
 end
 
 function prepare_elbo_helpers(ϕg::AbstractArray{TG}, ::AbstractArray{TF};
-    n_θP, n_θM, n_site, n_MC, n_cov, n_covP, n_M
-    ) where {TG, TF}
+    n_θP, n_θM, n_site, n_MC, n_cov, n_covP, n_M, 
+    use_diff_cache::Val{use_dc} = Val(true),
+    ) where {TG, TF, use_dc}
+    his = Tuple((;
+        ζsM_dc = Matrix{TF}(undef, n_θM, n_MC),
+        logσ2_ζM_dc = Vector{TF}(undef, n_θM),
+        buffer_nθM_dc = Vector{TF}(undef, n_θM),
+    ) for i in 1:n_site)
+    helpers_sites = use_dc ? map(hi -> map(x -> PAT.DiffCache(x), hi), his) : his
     h = (;
         ζsP = Matrix{TF}(undef, n_θP, n_MC),
         logσ2_ζP = Vector{TF}(undef, n_θP),
         ϕms = Matrix{TF}(undef, n_M, n_site),
         ϕms_mcs = Array{TF,3}(undef, n_M, n_MC, n_site),
         xMP = Matrix{TG}(undef, (n_cov + n_covP), n_MC * n_site),
-        helpers_sites = Tuple((;
-            ζsM_dc = PAT.DiffCache(Matrix{TF}(undef, n_θM, n_MC)),
-            logσ2_ζM_dc = PAT.DiffCache(Vector{TF}(undef, n_θM)),
-            buffer_nθM_dc = PAT.DiffCache(Vector{TF}(undef, n_θM)),
-        ) for i in 1:n_site),
+        helpers_sites,
     )
 end
 
