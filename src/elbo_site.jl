@@ -36,33 +36,34 @@ function neg_elbo_sites!(
     @assert size(rnormPM.M[1]) == (n_M, n_MC)
     ϕqPc = intϕqP(ϕqP) 
     ϕqIc = intϕqI(ϕqI)
-    sample_ζsP!(h.ζsP, h.logσ2_ζP, rnormPM.P, ϕqPc) # n_P * n_MC
+    sample_ζsP!(h.ζsP, h.logσ_ζP, rnormPM.P, ϕqPc) # n_P * n_MC
     # (n_M x n_sit)  or (n_M x n_MC x n_sit)    
     ϕms_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
     g_apply!(h[ϕms_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
     ϕm_it = eachslice(h[ϕms_buffer_key]; dims = ndims(h[ϕms_buffer_key]))
     template = ϕqI # only important for gradient
-    # TODO supply all arguments to SL!
-    function SL!(hi, rnormM, i_site_train, ϕm) 
+    function compute_elboi_z!(hi, rnormM, i_site_train, ϕm) 
+            # on update -> sync corresponding function within grad_neg_elbo_sites
             if use_dc 
                 ζsM = PAT.get_tmp(hi.ζsM_dc, template)
-                logσ2_ζM = PAT.get_tmp(hi.logσ2_ζM_dc, template)
+                logσ_ζM = PAT.get_tmp(hi.logσ_ζM_dc, template)
                 buffer_nθM = PAT.get_tmp(hi.buffer_nθM_dc, template)
             else
                 ζsM = hi.ζsM_dc
-                logσ2_ζM = hi.logσ2_ζM_dc
+                logσ_ζM = hi.logσ_ζM_dc
                 buffer_nθM = hi.buffer_nθM_dc
             end
-            #ζsM, logσ2_ζM, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector
-            sample_ζsM!(ζsM, logσ2_ζM, rnormM, ϕqIc, ϕm, buffer_nθM)
+            #ζsM, logσ_ζM, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector
+            sample_ζsM!(ζsM, logσ_ζM, rnormM, ϕqIc, ϕm, buffer_nθM)
             # first component needs to be the full elbo
-            Lζi(h.ζsP, ζsM, logσ2_ζM, args...; i_site_train, kwargs...)
+            elboi_ζ = compute_elboi_ζ(h.ζsP, ζsM, args...; i_site_train, kwargs...)[1]
+            elboi_ζ - sum(logσ_ζM)
     end
-    res_site = map(SL!, h.helpers_sites, rnormPM.M, i_sites_train, ϕm_it)
+    res_site = map(compute_elboi_z!, h.helpers_sites, rnormPM.M, i_sites_train, ϕm_it)
     # E = sum(x -> x.E, res_site)
     # loglik = sum(x -> x.loglik, res_site)
     # costTrans = sum(x -> x.costTrans, res_site)
-    elbo = sum(first, res_site) - sum(h.logσ2_ζP)/TF(2)
+    elbo = sum(first, res_site) - sum(h.logσ_ζP)
     (; elbo, ζsP=copy(h.ζsP), ϕm=copy(h[ϕms_buffer_key]), res_site)
 end
 
@@ -83,13 +84,13 @@ function prepare_elbo_helpers(ϕg::AbstractArray{TG}, ::AbstractArray{TF};
     ) where {TG, TF, use_dc}
     his = Tuple((;
         ζsM_dc = Matrix{TF}(undef, n_θM, n_MC),
-        logσ2_ζM_dc = Vector{TF}(undef, n_θM),
+        logσ_ζM_dc = Vector{TF}(undef, n_θM),
         buffer_nθM_dc = Vector{TF}(undef, n_θM),
     ) for i in 1:n_site)
     helpers_sites = use_dc ? map(hi -> map(x -> PAT.DiffCache(x), hi), his) : his
     h = (;
         ζsP = Matrix{TF}(undef, n_θP, n_MC),
-        logσ2_ζP = Vector{TF}(undef, n_θP),
+        logσ_ζP = Vector{TF}(undef, n_θP),
         ϕms = Matrix{TF}(undef, n_M, n_site),
         ϕms_mcs = Array{TF,3}(undef, n_M, n_MC, n_site),
         xMP = Matrix{TG}(undef, (n_cov + n_covP), n_MC * n_site),
@@ -106,7 +107,7 @@ function check_elbo_helpers(h::NamedTuple, xM::AbstractMatrix, pbm_covar_indices
     n_M = size(h.ϕms, 1)
     @assert size(h.ζsP) == (n_θP, n_MC )
     #@assert size(h.dϕg) == (n_ϕg,)
-    @assert size(h.logσ2_ζP) == (n_θP,)
+    @assert size(h.logσ_ζP) == (n_θP,)
     @assert size(h.ϕms) == (n_M, n_site)
     @assert size(h.ϕms_mcs) == (n_M, n_MC, n_site)
     @assert size(h.xMP) == ((n_cov + n_covP), n_MC * n_site) 
@@ -115,31 +116,31 @@ function check_elbo_helpers(h::NamedTuple, xM::AbstractMatrix, pbm_covar_indices
     hi = h.helpers_sites[1]
     n_θM = size(hi.ζsM_dc.du, 1)
     @assert size(hi.ζsM_dc.du) == (n_θM, n_MC)
-    @assert size(hi.logσ2_ζM_dc.du) == (n_θM,)
+    @assert size(hi.logσ_ζM_dc.du) == (n_θM,)
     @assert size(hi.buffer_nθM_dc.du) == (n_θM,)
 end
 
 
 
 
-function sample_ζsP!(ζsP, logσ2_ζP, rnormP, ϕqc::AbstractVector{T}) where T
+function sample_ζsP!(ζsP, logσ_ζP, rnormP, ϕqc::AbstractVector{T}) where T
     # TODO replace by proper sampling of full covariance matrix
     μζP = CA.getdata(ϕqc[Val(:μζP)])
-    logσ2_ζP .= view(ϕqc, Val(:logσ2_ζP))
+    logσ_ζP .= view(ϕqc, Val(:logσ_ζP))
     # ζsP * diagm(v) is the same as ζsP .* v'
-    ζsP .= μζP .+ (rnormP .* exp.(logσ2_ζP ./ T(2))')
+    ζsP .= μζP .+ (rnormP .* exp.(logσ_ζP)')
     nothing
 end
 
 # with Vector, all MCs have the same mean
-function sample_ζsM!(ζsM, logσ2_ζM, rnorm, ϕqIc::AbstractVector{T}, ϕm::AbstractVector, buffer_nθM::AbstractVector) where T
+function sample_ζsM!(ζsM, logσ_ζM, rnorm, ϕqIc::AbstractVector{T}, ϕm::AbstractVector, buffer_nθM::AbstractVector) where T
     # TODO replace by proper sampling of full covariance matrix
     # TODO add scaling by factor in ϕm / dispatch by approach
     n_θM, n_MC = size(ζsM)
-    logσ2_ζM .= view(ϕqIc, Val(:logσ2_ζM))
+    logσ_ζM .= view(ϕqIc, Val(:logσ_ζM))
     @assert size(buffer_nθM) == (n_θM,)
     scale = buffer_nθM
-    @. scale = exp(logσ2_ζM / T(2))
+    @. scale = exp(logσ_ζM / T(2))
     μζM = view(ϕm, 1:n_θM)           # view of the mean block (n_θM × n_MC)
     ζsM .= μζM .+ (rnorm .* scale')    # does not allocate
     # @inbounds for j in 1:n_MC
@@ -151,17 +152,17 @@ function sample_ζsM!(ζsM, logσ2_ζM, rnorm, ϕqIc::AbstractVector{T}, ϕm::Ab
 end
 
 # with Matrix, there is a site mean for each mc-sample
-function sample_ζsM!(ζsM, logσ2_ζM, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector) where T
+function sample_ζsM!(ζsM, logσ_ζM, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector) where T
     n_θM, n_MC = size(ζsM)
     @assert size(rnorm) == (n_θM, n_MC)
-    logσ2_ζM .= view(ϕqc, Val(:logσ2_ζM))
+    logσ_ζM .= view(ϕqc, Val(:logσ_ζM))
     @assert size(ϕm,1) >= n_θM
     @assert size(ϕm,2) == n_MC
     # TODO avoid allocation with subsetting non-last column
     # μζM = ϕm[1:n_θM,:]
     @assert size(buffer_nθM) == (n_θM,)
     scale = buffer_nθM
-    @. scale = exp(logσ2_ζM / T(2))
+    @. scale = exp(logσ_ζM / T(2))
     μζM = view(ϕm, 1:n_θM, :)           # view of the mean block (n_θM × n_MC)
     ζsM .= μζM .+ (rnorm .* scale')       # does not allocate
     # @inbounds for j in 1:n_MC
@@ -272,10 +273,9 @@ function update_xMP!(xMP::AbstractMatrix{TG},
     end
 end
 
-function Lζi(
+function compute_elboi_ζ(
     ζsP::AbstractMatrix,
-    ζsM::AbstractMatrix,
-    logσ2_ζM::AbstractVector; 
+    ζsM::AbstractMatrix;
     # f, py,
     # xP, y_ob, y_unc, itrain_sites::AbstractVector{<:Number};
     # cor_ends, # =(P=(1,),M=(1,))
@@ -292,7 +292,7 @@ function Lζi(
     # frac_cluster_all,
     i_site_train,
 ) 
-    elbo_site = 5 * sum(ζsP) + 3 * sum(ζsM) + sum(logσ2_ζM)
+    elbo_site = 5 * sum(ζsP) + 3 * sum(ζsM) 
     (; E=elbo_site,)
     # ζMs = sample_ζMs(zMs, ϕMs, intθMs)
     # ϕc = int_ϕg_ϕq(ϕ)

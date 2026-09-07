@@ -17,21 +17,22 @@ function grad_neg_elbo_sites(
     check_gradelbo_helpers(gradh; n_ϕg = length(ϕg))
     ϕqPc = intϕqP(ϕqP) 
     ϕqIc = intϕqI(ϕqI)
-    sample_ζsP!(h.ζsP, h.logσ2_ζP, rnormPM.P, ϕqPc) # n_P * n_MC
+    sample_ζsP!(h.ζsP, h.logσ_ζP, rnormPM.P, ϕqPc) # n_P * n_MC
     ϕm_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
     g_apply!(h[ϕm_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
     #
     # compute the gradients of SL! using ForwardDiff
-    function SL!(hi, ϕqIc, ϕm, ζsPvec, rnormM, sizeζsP, template, args...;
+    function compute_elboi_z!(hi, ϕqIc, ϕm, ζsPvec, rnormM, sizeζsP, template, args...;
             i_site_train, kwargs...
             )
             ζsM = PAT.get_tmp(hi.ζsM_dc, template)
-            logσ2_ζM = PAT.get_tmp(hi.logσ2_ζM_dc, template)
+            logσ_ζM = PAT.get_tmp(hi.logσ_ζM_dc, template)
             buffer_nθM = PAT.get_tmp(hi.buffer_nθM_dc, template)
-            sample_ζsM!(ζsM, logσ2_ζM, rnormM, ϕqIc, ϕm, buffer_nθM)
+            sample_ζsM!(ζsM, logσ_ζM, rnormM, ϕqIc, ϕm, buffer_nθM)
             # first component needs to be the full elbo
             ζsP = reshape(ζsPvec, sizeζsP) # view for plain arrays h.ζsP
-            Lζi(ζsP, ζsM, logσ2_ζM, args...; i_site_train, kwargs...)
+            elboi_ζ = compute_elboi_ζ(ζsP, ζsM, args...; i_site_train, kwargs...)[1]
+            elboi_ζ - sum(logσ_ζM)
     end
     function forwarddiff_grad_SL!(hi, rnormM, i_site_train, ϕm)
         # aggregate all the derivatives to allow a single call to ForwardDiff.gradient
@@ -39,7 +40,7 @@ function grad_neg_elbo_sites(
         #   TODO avoid allocation by buffer
         inputs = CA.ComponentArray(; ϕqIc, ϕm = ϕm, ζsPvec = vec(h.ζsP))
         grads = ForwardDiff.gradient(
-            cv -> SL!(hi, cv[Val(:ϕqIc)], cv[Val(:ϕm)], cv[Val(:ζsPvec)], rnormM, size(h.ζsP), 
+            cv -> compute_elboi_z!(hi, cv[Val(:ϕqIc)], cv[Val(:ϕm)], cv[Val(:ζsPvec)], rnormM, size(h.ζsP), 
             CA.getdata(cv), args...; i_site_train, kwargs...)[1], inputs)
         grads
     end
@@ -57,34 +58,34 @@ function grad_neg_elbo_sites(
     gradh.∂elbo_∂ζP .= reshape(mapreduce(g -> g[Val(:ζsPvec)], +, grads_ϕ;
         init = @view(grads_ϕ[1][Val(:ζsPvec)]).* 0),
         size(h.ζsP))
-    ∂elbo_∂logσ2_ζP = fill(TF(-1/2), length(h.logσ2_ζP)) 
+    ∂elbo_∂logσ_ζP = -ones(TF, length(h.logσ_ζP)) 
     #
     # pullback gradients of ϕqm -> gradh.dϕg and gradh.dζsP
     grad_elbo_helpers.pullback_g_apply!(
         gradh.dϕg, gradh.∂elbo_∂ϕm_∂ζP, h[ϕm_buffer_key], ∂elbo_∂ϕqm, 
         ϕg, xM, h.ζsP, pbm_covar_indices, g, is_testmode)
     #
-    # pullback gradients of ∂elbo_∂ζP, ∂elbo_∂ϕm_∂ζP, and ∂elbo_∂logσ2_ζP to dϕqP
+    # pullback gradients of ∂elbo_∂ζP, ∂elbo_∂ϕm_∂ζP, and ∂elbo_∂logσ_ζP to dϕqP
     dϕqP = similar(ϕqPc)
     #pullback_sample_ζsP!(
     grad_elbo_helpers.pullback_cl_sample_ζsP!(
         dϕqP, 
-        gradh.∂elbo_∂ζP + gradh.∂elbo_∂ϕm_∂ζP, ∂elbo_∂logσ2_ζP,
-        h.ζsP, h.logσ2_ζP, rnormPM.P, ϕqPc
+        gradh.∂elbo_∂ζP + gradh.∂elbo_∂ϕm_∂ζP, ∂elbo_∂logσ_ζP,
+        h.ζsP, h.logσ_ζP, rnormPM.P, ϕqPc
         )
 
     # ∂ζsP∂ϕqc = zeros(eltype(ζsP), n_θP * n_MC, length(ϕqc))
     # n_θP, n_MC = size(h.ζsP)
     # ∂ζsP∂ϕqc = zeros(eltype(ζsP), n_θP * n_MC, length(ϕqc))
-    # #pullback_sample_ζsP!(∂ζsP∂ϕqc, h.ζsP, h.logσ2_ζP, h.rnormP, ϕqPc)
+    # #pullback_sample_ζsP!(∂ζsP∂ϕqc, h.ζsP, h.logσ_ζP, h.rnormP, ϕqPc)
     (;dϕqP, dϕqI = ∂elbo_∂ϕqI, dϕg = gradh.dϕg)
 end
 
-function pullback_sample_ζsP!(dϕqc, dζsP, dlogσ2_ζP, ζsP, logσ2_ζP, rnormP, ϕqc)
+function pullback_sample_ζsP!(dϕqc, dζsP, dlogσ_ζP, ζsP, logσ_ζP, rnormP, ϕqc)
     ζsP_ = copy(ζsP) # TODO pass buffers to avoid allocation
     dζsP_ = copy(dζsP)
-    logσ2_ζP_ = copy(logσ2_ζP) # TODO pass buffers to avoid allocation
-    dlogσ2_ζP_ = copy(dlogσ2_ζP)
+    logσ_ζP_ = copy(logσ_ζP) # TODO pass buffers to avoid allocation
+    dlogσ_ζP_ = copy(dlogσ_ζP)
     drnormP = Enzyme.make_zero(rnormP)
 
     fill!(dϕqc, 0)
@@ -92,7 +93,7 @@ function pullback_sample_ζsP!(dϕqc, dζsP, dlogσ2_ζP, ζsP, logσ2_ζP, rnor
         Enzyme.Reverse,
         sample_ζsP!,
         Enzyme.Duplicated(ζsP_, dζsP_),  
-        Enzyme.Duplicated(logσ2_ζP_, dlogσ2_ζP_),  
+        Enzyme.Duplicated(logσ_ζP_, dlogσ_ζP_),  
         Enzyme.DuplicatedNoNeed(rnormP, drnormP),  
         Enzyme.Duplicated(ϕqc, dϕqc),   
     )
@@ -100,25 +101,25 @@ function pullback_sample_ζsP!(dϕqc, dζsP, dlogσ2_ζP, ζsP, logσ2_ζP, rnor
 end
 
 function get_pullback_cl_sample_ζsP(::AbstractArray{TF}; n_θP, n_MC) where TF
-    #dϕqc, dζsP, dlogσ2_ζP, ζsP, logσ2_ζP, rnormP, ϕqc)
+    #dϕqc, dζsP, dlogσ_ζP, ζsP, logσ_ζP, rnormP, ϕqc)
     ζsP_ = Matrix{TF}(undef, n_θP, n_MC)
-    logσ2_ζP_ = Vector{TF}(undef, n_θP)
+    logσ_ζP_ = Vector{TF}(undef, n_θP)
     dζsP_ = similar(ζsP_)  # allocate space for derivatives
-    dlogσ2_ζP_ = similar(logσ2_ζP_)
+    dlogσ_ζP_ = similar(logσ_ζP_)
     drnormP = similar(ζsP_)
     #
-    function pullback_cl_sample_ζsP!(dϕqc, dζsP, dlogσ2_ζP, ζsP, logσ2_ζP, rnormP, ϕqc)
+    function pullback_cl_sample_ζsP!(dϕqc, dζsP, dlogσ_ζP, ζsP, logσ_ζP, rnormP, ϕqc)
         Enzyme.make_zero!(dϕqc)
         fill!(dϕqc, 0)            # the derivative to compute 
         copyto!(dζsP_, dζsP)      # input cotangents (modified in-place by Enzyme)
-        copyto!(dlogσ2_ζP_, dlogσ2_ζP)
+        copyto!(dlogσ_ζP_, dlogσ_ζP)
         copyto!(ζsP_, ζsP)        # modified in-place by Enzyme
-        copyto!(logσ2_ζP_, logσ2_ζP)
+        copyto!(logσ_ζP_, logσ_ζP)
         Enzyme.autodiff(
             Enzyme.Reverse,
             sample_ζsP!,
             Enzyme.Duplicated(ζsP_, dζsP_),  
-            Enzyme.Duplicated(logσ2_ζP_, dlogσ2_ζP_),  
+            Enzyme.Duplicated(logσ_ζP_, dlogσ_ζP_),  
             Enzyme.DuplicatedNoNeed(rnormP, drnormP),  
             Enzyme.Duplicated(ϕqc, dϕqc),   
         )
