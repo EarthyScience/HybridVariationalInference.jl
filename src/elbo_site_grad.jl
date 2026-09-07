@@ -23,12 +23,13 @@ function grad_neg_elbo_sites(
     g_apply!(h[ϕm_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
     #
     # compute the gradients of SL! using ForwardDiff
-    function compute_elboi_z!(hi, ϕqIc, ϕm, ζsPvec, rnormM, sizeζsP, template, args...;
+    function compute_elboi_z!(hi, ϕqIc, ϕmvec, ζsPvec, rnormM, sizeϕm, sizeζsP, template, args...;
             i_site_train, kwargs...
             )
             ζsM = PAT.get_tmp(hi.ζsM_dc, template)
             logσ_ζM = PAT.get_tmp(hi.logσ_ζM_dc, template)
             buffer_nθM = PAT.get_tmp(hi.buffer_nθM_dc, template)
+            ϕm = reshape(ϕmvec, sizeϕm)
             sample_ζsM!(ζsM, logσ_ζM, rnormM, ϕqIc, ϕm, buffer_nθM)
             # first component needs to be the full elbo
             ζsP = reshape(ζsPvec, sizeζsP) # view for plain arrays h.ζsP
@@ -37,11 +38,12 @@ function grad_neg_elbo_sites(
     end
     function forwarddiff_grad_SL!(hi, rnormM, i_site_train, ϕm)
         # aggregate all the derivatives to allow a single call to ForwardDiff.gradient
-        #   reshape ζsP into a vector to avoid allocations in cv[Val(:ζsP)]
+        #   reshape ϕm and ζsP into a vector to avoid allocations in cv[Val(:ζsP)]
         #   TODO avoid allocation by buffer
-        inputs = CA.ComponentArray(; ϕqIc, ϕm = ϕm, ζsPvec = vec(h.ζsP))
+        inputs = CA.ComponentArray(; ϕqIc, ϕmvec = vec(ϕm), ζsPvec = vec(h.ζsP))
         grads = ForwardDiff.gradient(
-            cv -> compute_elboi_z!(hi, cv[Val(:ϕqIc)], cv[Val(:ϕm)], cv[Val(:ζsPvec)], rnormM, size(h.ζsP), 
+            cv -> compute_elboi_z!(hi, cv[Val(:ϕqIc)], cv[Val(:ϕmvec)], cv[Val(:ζsPvec)], rnormM, 
+            size(ϕm), size(h.ζsP), 
             CA.getdata(cv), args...; i_site_train, kwargs...)[1], inputs)
         grads
     end
@@ -51,26 +53,21 @@ function grad_neg_elbo_sites(
 
     gacc = CA.ComponentVector( # TODO preallocate
         ϕqIc = ϕqIc .* zero(TF), 
-        ϕms = h[ϕm_buffer_key],
+        ϕmsvec = use_ϕm_matrix ? h[ϕm_buffer_key] :
+            reshape(h[ϕm_buffer_key], :, size(h[ϕm_buffer_key],3)),
         ζsPvec = vec(h.ζsP) .* zero(TF),
     )
     i_red = 1
     function reducer(x,y) 
-        # i from outside
         x.ϕqIc += y.ϕqIc
         x.ζsPvec += y.ζsPvec
-        if use_ϕm_matrix
-            x.ϕms[:,i_red] .= y.ϕm
-        else
-            x.ϕms[:,:,i_red] .= y.ϕm
-        end
-        #i_red .+= 1
+        x.ϕmsvec[:,i_red] .= y.ϕmvec
         i_red += 1
         x
     end
     foldl(reducer, grads_ϕ; init = gacc) # need to garante order because of i_red
     ∂elbo_∂ϕqI = view(gacc, Val(:ϕqIc))
-    ∂elbo_∂ϕqm = view(gacc, Val(:ϕms))
+    ∂elbo_∂ϕqm = reshape(view(gacc, Val(:ϕmsvec)), size(h[ϕm_buffer_key]))
     ∂elbo_∂ζP = reshape(view(gacc, Val(:ζsPvec)), size(h.ζsP))
     ∂elbo_∂logσ_ζP = -ones(TF, length(h.logσ_ζP))  # TODO preallocate?
     #
