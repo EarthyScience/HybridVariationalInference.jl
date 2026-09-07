@@ -465,9 +465,12 @@ function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by e
 end
 
 @testset "grad_neg_elbo_sites" begin
-    gradh0 = CP.prepare_gradelbo_helpers(ϕg, ϕqP; 
-        n_θP, n_MC, n_cov, n_covP=n_covP0, n_site, n_M)
-    CP.check_gradelbo_helpers(gradh0; n_ϕg = length(ϕgv))
+    ϕqIc = intϕqI(ϕqI)
+    ϕqPc = intϕqP(ϕqP)
+    gradh0 = CP.prepare_gradelbo_helpers(ϕg, ϕqPc, ϕqIc; 
+        n_θP, n_θM, n_MC, n_cov, n_covP=n_covP0, n_site, n_M)
+    # gradh0 = CP.prepare_gradelbo_helpers(ϕg, ϕqP; 
+    #     n_θP, n_MC, n_cov, n_covP=n_covP0, n_site, n_M)
     CP.check_elbo_helpers(h0, xM, nothing; n_ϕg = length(ϕgv))
     #
     rng1 = StableRNG(1234)
@@ -516,8 +519,8 @@ end
     end
     #
     #---------------- matrix mode with population covariates
-    gradh2 = CP.prepare_gradelbo_helpers(ϕg2, ϕqP; 
-        n_θP, n_MC, n_cov, n_covP=n_covP2, n_site, n_M)
+    gradh2 = CP.prepare_gradelbo_helpers(ϕg2, ϕqPc, ϕqIc; 
+        n_θP, n_θM, n_MC, n_cov, n_covP=n_covP2, n_site, n_M)
     CP.check_elbo_helpers(h2, xM, pbm_covar_indices2; n_ϕg = length(ϕg2v))
     rng1 = StableRNG(1234)
     CP.randnPM!(rng1, rnormPM)
