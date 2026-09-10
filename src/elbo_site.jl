@@ -40,11 +40,14 @@ function neg_elbo_sites!(
     # (n_M x n_sit)  or (n_M x n_MC x n_sit)    
     ϕms_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
     g_apply!(h[ϕms_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
+    logdetTP = Ref(zero(TF))  # make it a Ref so that can be modified in place
+    # so that one can provide its gradient to the pullback
+    transformζ!(h.θsP, logdetTP, h.ζsP)
     ϕm_it = eachslice(h[ϕms_buffer_key]; dims = ndims(h[ϕms_buffer_key]))
     template = ϕqI # only important for gradient
     function compute_elboi_z_cl!(hi, rnormM, i_site_train, ϕm) 
         compute_elboi_z!(hi, rnormM, i_site_train, ϕm, 
-        ϕqIc, h.ζsP; kwargs...) 
+        ϕqIc, h.θsP; kwargs...) 
     end
     #res_site = map(compute_elboi_z!, h.helpers_sites, rnormPM.M, i_sites_train, ϕm_it)
     #MAYBE: distributed mapreduce: 
@@ -55,28 +58,33 @@ function neg_elbo_sites!(
     # loglik = sum(x -> x.loglik, res_site)
     # costTrans = sum(x -> x.costTrans, res_site)
     #elbo = sum(first, res_site) - sum(h.logσ_ζP)
-    elbo = elbo_z - sum(h.logσ_ζP)
+    elbo = elbo_z + logdetTP[] - sum(h.logσ_ζP)
     (; elbo, ζsP=copy(h.ζsP), ϕm=copy(h[ϕms_buffer_key]))
 end
 
-function compute_elboi_z!(hi, rnormM, i_site_train, ϕm, ϕqIc, ζsP; kwargs...) 
+function compute_elboi_z!(hi, rnormM, i_site_train, ϕm, ϕqIc::AbstractArray{TF}, θsP; 
+    kwargs...) where TF
         # on update -> sync corresponding function within grad_neg_elbo_sites
         use_dc = hi.ζsM_dc isa PAT.DiffCache
         if use_dc 
-            template = ϕqIc # only important for gradient
+            template = ϕqIc 
             ζsM = PAT.get_tmp(hi.ζsM_dc, template)
+            θsM = PAT.get_tmp(hi.θsM_dc, template)
             logσ_ζM = PAT.get_tmp(hi.logσ_ζM_dc, template)
             buffer_nθM = PAT.get_tmp(hi.buffer_nθM_dc, template)
         else
             ζsM = hi.ζsM_dc
+            θsM = hi.θsM_dc
             logσ_ζM = hi.logσ_ζM_dc
             buffer_nθM = hi.buffer_nθM_dc
         end
         #ζsM, logσ_ζM, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector
         sample_ζsM!(ζsM, logσ_ζM, rnormM, ϕqIc, ϕm, buffer_nθM)
+        logdetTM = Ref(zero(TF))
+        transformζ!(θsM, logdetTM, ζsM)
         # first component needs to be the full elbo
-        elboi_ζ = compute_elboi_ζ(ζsP, ζsM; i_site_train, kwargs...)[1]
-        elboi_ζ - sum(logσ_ζM)
+        nL = nLi(θsP, θsM; i_site_train, kwargs...)[1]
+        elbozi = nL + logdetTM[] - sum(logσ_ζM)
 end
 
 
@@ -97,12 +105,14 @@ function prepare_elbo_helpers(ϕg::AbstractArray{TG}, ::AbstractArray{TF};
     ) where {TG, TF, use_dc}
     his = Tuple((;
         ζsM_dc = Matrix{TF}(undef, n_θM, n_MC),
+        θsM_dc = Matrix{TF}(undef, n_θM, n_MC),
         logσ_ζM_dc = Vector{TF}(undef, n_θM),
         buffer_nθM_dc = Vector{TF}(undef, n_θM),
     ) for i in 1:n_site)
     helpers_sites = use_dc ? map(hi -> map(x -> PAT.DiffCache(x), hi), his) : his
     h = (;
         ζsP = Matrix{TF}(undef, n_θP, n_MC),
+        θsP = Matrix{TF}(undef, n_θP, n_MC),
         logσ_ζP = Vector{TF}(undef, n_θP),
         ϕms = Matrix{TF}(undef, n_M, n_site),
         ϕms_mcs = Array{TF,3}(undef, n_M, n_MC, n_site),
@@ -119,6 +129,7 @@ function check_elbo_helpers(h::NamedTuple, xM::AbstractMatrix, pbm_covar_indices
     n_θP, n_MC = size(h.ζsP)
     n_M = size(h.ϕms, 1)
     @assert size(h.ζsP) == (n_θP, n_MC )
+    @assert size(h.θsP) == (n_θP, n_MC )
     #@assert size(h.dϕg) == (n_ϕg,)
     @assert size(h.logσ_ζP) == (n_θP,)
     @assert size(h.ϕms) == (n_M, n_site)
@@ -129,12 +140,10 @@ function check_elbo_helpers(h::NamedTuple, xM::AbstractMatrix, pbm_covar_indices
     hi = h.helpers_sites[1]
     n_θM = size(hi.ζsM_dc.du, 1)
     @assert size(hi.ζsM_dc.du) == (n_θM, n_MC)
+    @assert size(hi.θsM_dc.du) == (n_θM, n_MC)
     @assert size(hi.logσ_ζM_dc.du) == (n_θM,)
     @assert size(hi.buffer_nθM_dc.du) == (n_θM,)
 end
-
-
-
 
 function sample_ζsP!(ζsP, logσ_ζP, rnormP, ϕqc::AbstractVector{T}) where T
     # TODO replace by proper sampling of full covariance matrix
@@ -286,9 +295,16 @@ function update_xMP!(xMP::AbstractMatrix{TG},
     end
 end
 
-function compute_elboi_ζ(
-    ζsP::AbstractMatrix,
-    ζsM::AbstractMatrix;
+function transformζ!(θs, logdetT, ζs::AbstractArray{TF}) where TF
+    # TODO implement user-defined parameter transformation
+    θs .= exp.(ζs)
+    logdetT[] =  sum(one(TF) ./ ζs)
+    nothing
+end
+
+function nLi(
+    θsP::AbstractMatrix,
+    θsM::AbstractMatrix;
     # f, py,
     # xP, y_ob, y_unc, itrain_sites::AbstractVector{<:Number};
     # cor_ends, # =(P=(1,),M=(1,))
@@ -305,8 +321,8 @@ function compute_elboi_ζ(
     # frac_cluster_all,
     i_site_train,
 ) 
-    elbo_site = 5 * sum(ζsP) + 3 * sum(ζsM) 
-    (; E=elbo_site,)
+    nL = 5 * sum(θsP) + 3 * sum(θsM) 
+    (; nL=nL,)
     # ζMs = sample_ζMs(zMs, ϕMs, intθMs)
     # ϕc = int_ϕg_ϕq(ϕ)
     # VT= typeof(@view(ϕ[1:1]))
