@@ -22,7 +22,9 @@ int_xP1 = ComponentArrayInterpreter(CA.ComponentVector(S1 = xP_S1, S2 = xP_S2))
 
 # const transMS = Stacked(elementwise(identity), elementwise(exp))
 
-const int_θdoubleMM = ComponentArrayInterpreter(flatten1(CA.ComponentVector(; θP, θM)))
+#const int_θdoubleMM = ComponentArrayInterpreter(flatten1(CA.ComponentVector(; θP, θM)))
+const int_θdoubleMM = get_concrete(
+    ComponentArrayInterpreter(flatten1(CA.ComponentVector(; θP, θM))))
 
 """
     f_doubleMM(θc_tr::CA.ComponentVector{ET}, x) where ET
