@@ -22,7 +22,7 @@ function grad_neg_elbo_sites(
     check_gradelbo_helpers(gradh, ϕqI, h[ϕm_buffer_key], h.ζsP; n_ϕg = length(ϕg))
     sample_ζsP!(h.ζsP, h.logσ_ζP, rnormPM.P, ϕqPc) # n_P * n_MC
     g_apply!(h[ϕm_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
-    logdetTP = transformζ(h.θsP, h.ζsP)  # return value captures logdetT
+    ladJacTP = transformζ(h.θsP, h.ζsP)  # return value captures ladJacT
     #
     # compute the gradients of SL! using ForwardDiff
     θsPvec = vec(h.θsP) # avoid putting entire h into closure
@@ -61,7 +61,7 @@ function grad_neg_elbo_sites(
     ∂elbo_∂ϕqm = reshape(view(gradh.gacc, Val(:ϕmsvec)), size(h[ϕm_buffer_key]))
     ∂elbo_∂θP = reshape(view(gradh.gacc, Val(:θsPvec)), size(h.θsP))
     gradh.∂elbo_∂logσ_ζP .= -ones(TF, length(h.logσ_ζP))  
-    ∂elbo_∂logdetTP = +one(TF)
+    ∂elbo_∂ladJacTP = -one(TF)
     #
     # pullback gradients of ϕqm -> gradh.dϕg and gradh.dζsP
     grad_elbo_helpers.pullback_g_apply!(
@@ -73,7 +73,7 @@ function grad_neg_elbo_sites(
     grad_elbo_helpers.pullback_cl_transformζsP!(
         ∂elbo_∂θP_∂ζP, 
         ∂elbo_∂θP,
-        ∂elbo_∂logdetTP,
+        ∂elbo_∂ladJacTP,
         h.θsP,
         h.ζsP,
         )
@@ -99,7 +99,7 @@ function compute_elboi_z_vec!(hi, rnormM, i_site_train, ϕmvec, ϕqIc, θsPvec,
     ) 
     ϕm = reshape(ϕmvec, sizeϕm)
     θsP = reshape(θsPvec, sizeθsP) # view for plain arrays h.ζsP
-    compute_elboi_z!(hi, rnormM, i_site_train, ϕm, ϕqIc, θsP; kwargs...) 
+    compute_nelboi_z!(hi, rnormM, i_site_train, ϕm, ϕqIc, θsP; kwargs...) 
 end
 
 
@@ -198,20 +198,20 @@ function get_pullback_cl_transformζ!(::AbstractArray{TF};  n_θ, n_MC) where {T
     θs_buffer = Matrix{TF}(undef, n_θ, n_MC)
     dθs_buffer = similar(θs_buffer)
     # Enzyme seeds an Active return value with one, so to seed its cotangent
-    # with an arbitrary dlogdetTP we fold it in as a scalar factor, relying on
+    # with an arbitrary dladJacTP we fold it in as a scalar factor, relying on
     # linearity of the reverse-mode adjoint: the pullback then delivers
-    # dlogdetTP * ∂logdetT/∂(·) to θs and ζs, as with the former Ref seeding.
-    function pullback_cl_transformζ!(dζs, dθs, dlogdetTP, θs, ζs)
+    # dladJacTP * ∂ladJacT/∂(·) to θs and ζs, as with the former Ref seeding.
+    function pullback_cl_transformζ!(dζs, dθs, dladJacTP, θs, ζs)
         fill!(dζs, zero(eltype(dζs)))
         copyto!(θs_buffer, θs)
         copyto!(dθs_buffer, dθs)
         # Trick of seeding the active return value different to unity:
-        # Here dlogdetTP is captured from the closure (an Active-compatible scalar), 
-        # the returned Active value's unit seed gets multiplied by dlogdetTP, 
-        # and the adjoints of θs/ζs come out as dlogdetTP * ∂/∂(·)
+        # Here dladJacTP is captured from the closure (an Active-compatible scalar), 
+        # the returned Active value's unit seed gets multiplied by dladJacTP, 
+        # and the adjoints of θs/ζs come out as dladJacTP * ∂/∂(·)
         Enzyme.autodiff(
             Enzyme.Reverse,
-            (θs_, ζs_) -> dlogdetTP * transformζ(θs_, ζs_),
+            (θs_, ζs_) -> dladJacTP * transformζ(θs_, ζs_),
             Enzyme.Duplicated(θs_buffer, dθs_buffer),
             Enzyme.Duplicated(ζs, dζs),
         )
