@@ -24,33 +24,21 @@ function grad_neg_elbo_sites(
     g_apply!(h[ϕm_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
     #
     # compute the gradients of SL! using ForwardDiff
-    function compute_elboi_z!(hi, ϕqIc, ϕmvec, ζsPvec, rnormM, sizeϕm, sizeζsP, template, args...;
-            i_site_train, kwargs...
-            )
-            ζsM = PAT.get_tmp(hi.ζsM_dc, template)
-            logσ_ζM = PAT.get_tmp(hi.logσ_ζM_dc, template)
-            buffer_nθM = PAT.get_tmp(hi.buffer_nθM_dc, template)
-            ϕm = reshape(ϕmvec, sizeϕm)
-            sample_ζsM!(ζsM, logσ_ζM, rnormM, ϕqIc, ϕm, buffer_nθM)
-            # first component needs to be the full elbo
-            ζsP = reshape(ζsPvec, sizeζsP) # view for plain arrays h.ζsP
-            elboi_ζ = compute_elboi_ζ(ζsP, ζsM, args...; i_site_train, kwargs...)[1]
-            elboi_ζ - sum(logσ_ζM)
-    end
-    function forwarddiff_grad_elboi_z!(tup)
-        hi, rnormM, i_site_train, ϕm = tup
+    ζsPvec = vec(h.ζsP) # avoid putting entire h into closure
+    sizeζsP = size(h.ζsP)
+    function forwarddiff_grad_elboi_z!(tup) # closure with ϕqIc, ζsPvec, sizeζsP, kwargs
+        hi, rnormM, i_site_train, ϕm = tup  # use tup to satisfy signature of mapfoldl
         # aggregate all the derivatives to allow a single call to ForwardDiff.gradient
         #   reshape ϕm and ζsP into a vector to avoid allocations in cv[Val(:ζsP)]
         #   TODO avoid allocation by buffer
-        inputs = CA.ComponentArray(; ϕqIc, ϕmvec = vec(ϕm), ζsPvec = vec(h.ζsP))
+        inputs = CA.ComponentArray(; ϕqIc, ϕmvec = vec(ϕm), ζsPvec = ζsPvec)
         grads = ForwardDiff.gradient(
-            cv -> compute_elboi_z!(hi, cv[Val(:ϕqIc)], cv[Val(:ϕmvec)], cv[Val(:ζsPvec)], rnormM, 
-            size(ϕm), size(h.ζsP), 
-            CA.getdata(cv), args...; i_site_train, kwargs...)[1], inputs)
+            cv -> compute_elboi_z_vec!(
+                hi, rnormM, i_site_train, cv[Val(:ϕmvec)], cv[Val(:ϕqIc)], cv[Val(:ζsPvec)], 
+                size(ϕm), sizeζsP; kwargs...
+                )[1], inputs)
         grads
     end
-
-    ϕm_it = eachslice(h[ϕm_buffer_key]; dims = ndims(h[ϕm_buffer_key]))
     gradh.gacc.ϕqIc .= zero(TF) # accumulating + across mapfoldl
     gradh.gacc.ζsPvec .= zero(TF)
     function get_onetime_reducer()
@@ -63,11 +51,11 @@ function grad_neg_elbo_sites(
             x
         end
     end
+    ϕm_it = eachslice(h[ϕm_buffer_key]; dims = ndims(h[ϕm_buffer_key]))
     mapfoldl(forwarddiff_grad_elboi_z!, get_onetime_reducer(), 
         zip(h.helpers_sites, rnormPM.M, i_sites_train, ϕm_it);
         init = gradh.gacc
         )
-
     ∂elbo_∂ϕqI = view(gradh.gacc, Val(:ϕqIc))
     ∂elbo_∂ϕqm = reshape(view(gradh.gacc, Val(:ϕmsvec)), size(h[ϕm_buffer_key]))
     ∂elbo_∂ζP = reshape(view(gradh.gacc, Val(:ζsPvec)), size(h.ζsP))
@@ -93,6 +81,15 @@ function grad_neg_elbo_sites(
     # #pullback_sample_ζsP!(∂ζsP∂ϕqc, h.ζsP, h.logσ_ζP, h.rnormP, ϕqPc)
     (;dϕqP, dϕqI = ∂elbo_∂ϕqI, dϕg = gradh.dϕg)
 end
+
+function compute_elboi_z_vec!(hi, rnormM, i_site_train, ϕmvec, ϕqIc, ζsPvec, 
+    sizeϕm, sizeζsP; kwargs...
+    ) 
+    ϕm = reshape(ϕmvec, sizeϕm)
+    ζsP = reshape(ζsPvec, sizeζsP) # view for plain arrays h.ζsP
+    compute_elboi_z!(hi, rnormM, i_site_train, ϕm, ϕqIc, ζsP; kwargs...) 
+end
+
 
 function pullback_sample_ζsP!(dϕqc, dζsP, dlogσ_ζP, ζsP, logσ_ζP, rnormP, ϕqc)
     ζsP_ = copy(ζsP) # TODO pass buffers to avoid allocation
