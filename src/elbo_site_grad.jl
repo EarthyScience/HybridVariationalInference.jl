@@ -53,15 +53,17 @@ function grad_neg_elbo_sites(
     ϕm_it = eachslice(h[ϕm_buffer_key]; dims = ndims(h[ϕm_buffer_key]))
     gradh.gacc.ϕqIc .= zero(TF) # accumulating + across mapfoldl
     gradh.gacc.ζsPvec .= zero(TF)
-    i_red = 1 
-    function reducer(x,y) 
-        x.ϕqIc += y.ϕqIc
-        x.ζsPvec += y.ζsPvec
-        x.ϕmsvec[:,i_red] .= y.ϕmvec
-        i_red += 1   # captured in reducer closure, can only execute reducer once
-        x
+    function get_onetime_reducer()
+        local i_red = 1 
+        function reducer(x,y) 
+            x.ϕqIc += y.ϕqIc
+            x.ζsPvec += y.ζsPvec
+            x.ϕmsvec[:,i_red] .= y.ϕmvec
+            i_red += 1   # captured in reducer closure, can only execute reducer once
+            x
+        end
     end
-    mapfoldl(forwarddiff_grad_elboi_z!, reducer, 
+    mapfoldl(forwarddiff_grad_elboi_z!, get_onetime_reducer(), 
         zip(h.helpers_sites, rnormPM.M, i_sites_train, ϕm_it);
         init = gradh.gacc
         )
