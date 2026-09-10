@@ -40,15 +40,15 @@ function neg_elbo_sites!(
     # (n_M x n_sit)  or (n_M x n_MC x n_sit)    
     ϕms_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
     g_apply!(h[ϕms_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
-    logdetTP = transformζ(h.θsP, h.ζsP)  # return value captures logdetT
+    ladJacTP = transformζ(h.θsP, h.ζsP)  # return value captures ladJacT
     # so that one can provide its gradient to the pullback
     ϕm_it = eachslice(h[ϕms_buffer_key]; dims = ndims(h[ϕms_buffer_key]))
     template = ϕqI # only important for gradient
     function compute_elboi_z_cl!(hi, rnormM, i_site_train, ϕm) 
-        compute_elboi_z!(hi, rnormM, i_site_train, ϕm, 
+        compute_nelboi_z!(hi, rnormM, i_site_train, ϕm, 
         ϕqIc, h.θsP; kwargs...) 
     end
-    #res_site = map(compute_elboi_z!, h.helpers_sites, rnormPM.M, i_sites_train, ϕm_it)
+    #res_site = map(compute_nelboi_z!, h.helpers_sites, rnormPM.M, i_sites_train, ϕm_it)
     #MAYBE: distributed mapreduce: 
     #   https://docs.julialang.org/en/v1/stdlib/Distributed/#Distributed.@distributed
     #   https://github.com/SupaeroDataScience/DE/blob/main/notebooks/Introduction%20to%20MapReduce.ipynb
@@ -57,11 +57,11 @@ function neg_elbo_sites!(
     # loglik = sum(x -> x.loglik, res_site)
     # costTrans = sum(x -> x.costTrans, res_site)
     #elbo = sum(first, res_site) - sum(h.logσ_ζP)
-    elbo = elbo_z + logdetTP - sum(h.logσ_ζP)
+    elbo = elbo_z - ladJacTP - sum(h.logσ_ζP)
     (; elbo, ζsP=copy(h.ζsP), ϕm=copy(h[ϕms_buffer_key]))
 end
 
-function compute_elboi_z!(hi, rnormM, i_site_train, ϕm, ϕqIc::AbstractArray{TF}, θsP; 
+function compute_nelboi_z!(hi, rnormM, i_site_train, ϕm, ϕqIc::AbstractArray{TF}, θsP; 
     kwargs...) where TF
         # on update -> sync corresponding function within grad_neg_elbo_sites
         use_dc = hi.ζsM_dc isa PAT.DiffCache
@@ -79,10 +79,10 @@ function compute_elboi_z!(hi, rnormM, i_site_train, ϕm, ϕqIc::AbstractArray{TF
         end
         #ζsM, logσ_ζM, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector
         sample_ζsM!(ζsM, logσ_ζM, rnormM, ϕqIc, ϕm, buffer_nθM)
-    logdetTM = transformζ(θsM, ζsM)  # return value captures logdetT
+    ladJacTM = transformζ(θsM, ζsM)  # return value captures ladJacT
     # first component needs to be the full elbo
     nL = nLi(θsP, θsM; i_site_train, kwargs...)[1]
-    elbozi = nL + logdetTM - sum(logσ_ζM)
+    elbozi = nL - ladJacTM - sum(logσ_ζM)
 end
 
 
@@ -296,7 +296,7 @@ end
 function transformζ(θs, ζs::AbstractArray{TF}) where TF
     # TODO implement user-defined parameter transformation
     θs .= exp.(ζs)
-    return sum(one(TF) ./ ζs)
+    ladJacT = sum(ζs)
 end
 
 function nLi(

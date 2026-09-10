@@ -37,6 +37,8 @@ using Distances, Clustering
 using RecursiveArrayTools: VectorOfArray, AbstractVectorOfArray
 import ForwardDiff, DiffResults, PreallocationTools as PAT
 
+import Folds, Transducers
+
 export DoubleMM
 
 include("OneBasedVectorWithZero.jl")
