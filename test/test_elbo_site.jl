@@ -414,7 +414,8 @@ function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by e
     dϕqI0_enz = copy(dϕqI)
     () -> begin
         #@usingany JLD2
-        fname = "intermediate/test_enzyme_dphi0.jld2"
+        #fname = "intermediate/test_enzyme_dphi0.jld2"
+        fname = "intermediate/test_enzymeT_dphi0.jld2"
         mkpath("intermediate")
         JLD2.jldsave(fname, false, IOStream; primal_enz, dϕg0_enz, dϕqP0_enz, dϕqI0_enz)
         primal_enz, dϕg0_enz, dϕqP0_enz, dϕqI0_enz = JLD2.load(fname, 
@@ -456,7 +457,8 @@ function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by e
     dϕqP2_enz = copy(dϕqP)
     dϕqI2_enz = copy(dϕqI)
     () -> begin
-        fname = "intermediate/test_enzyme_dphi2.jld2"
+        #fname = "intermediate/test_enzyme_dphi2.jld2"
+        fname = "intermediate/test_enzymeT_dphi2.jld2"
         mkpath("intermediate")
         JLD2.jldsave(fname, false, IOStream; primal2_enz, dϕg2_enz, dϕqP2_enz, dϕqI2_enz)
         primal2_enz, dϕg2_enz, dϕqP2_enz, dϕqI2_enz = JLD2.load(fname, 
@@ -506,9 +508,9 @@ end
     )    
     @test res0_ == res0
     # if we saved Enzyme results earlier, compare to them
-    if isfile("intermediate/test_enzyme_dphi0.jld2")
+    if isfile("intermediate/test_enzymeT_dphi0.jld2")
         primal_enz, dϕg0_enz, dϕqP0_enz, dϕqI0_enz = JLD2.load(
-            "intermediate/test_enzyme_dphi0.jld2", 
+            "intermediate/test_enzymeT_dphi0.jld2", 
             "primal_enz", "dϕg0_enz", "dϕqP0_enz", "dϕqI0_enz");
         @test primal_enz ≈ primal[1]
         @test dϕg0_enz ≈ res0.dϕg
@@ -556,9 +558,9 @@ end
     )    
     @test res0_ == res0
     # if we saved Enzyme results earlier, compare to them
-    if isfile("intermediate/test_enzyme_dphi2.jld2")
+    if isfile("intermediate/test_enzymeT_dphi2.jld2")
         primal2_enz, dϕg2_enz, dϕqP2_enz, dϕqI2_enz = JLD2.load(
-            "intermediate/test_enzyme_dphi2.jld2", 
+            "intermediate/test_enzymeT_dphi2.jld2", 
             "primal2_enz", "dϕg2_enz", "dϕqP2_enz", "dϕqI2_enz");
         @test primal2_enz ≈ primal2[1]
         @test dϕg2_enz ≈ res0.dϕg
