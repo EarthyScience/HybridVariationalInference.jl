@@ -268,7 +268,7 @@ function flatten1(cv::CA.ComponentVector)
         return CA.ComponentVector(cv, CA.FlatAxis())
     else
         gen_cvs = (cv[k] for k in keys(cv) if !isempty(cv[k]))
-        cv_new = reduce(vcat, gen_cvs)
+        cv_new = reduce(vcat, gen_cvs; init=CA.ComponentVector())
         CA.ComponentVector(cv, first(CA.getaxes(cv_new)))
     end
 end
