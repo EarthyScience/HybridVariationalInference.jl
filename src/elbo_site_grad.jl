@@ -22,8 +22,7 @@ function grad_neg_elbo_sites(
     check_gradelbo_helpers(gradh, ϕqI, h[ϕm_buffer_key], h.ζsP; n_ϕg = length(ϕg))
     sample_ζsP!(h.ζsP, h.logσ_ζP, rnormPM.P, ϕqPc) # n_P * n_MC
     g_apply!(h[ϕm_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
-    logdetTP = Ref(zero(TF))
-    transformζ!(h.θsP, logdetTP, h.ζsP)
+    logdetTP = transformζ(h.θsP, h.ζsP)  # return value captures logdetT
     #
     # compute the gradients of SL! using ForwardDiff
     θsPvec = vec(h.θsP) # avoid putting entire h into closure
@@ -76,7 +75,6 @@ function grad_neg_elbo_sites(
         ∂elbo_∂θP,
         ∂elbo_∂logdetTP,
         h.θsP,
-        logdetTP,
         h.ζsP,
         )
     #
@@ -199,19 +197,22 @@ end
 function get_pullback_cl_transformζ!(::AbstractArray{TF};  n_θ, n_MC) where {TF}
     θs_buffer = Matrix{TF}(undef, n_θ, n_MC)
     dθs_buffer = similar(θs_buffer)
-    logdetTP_buffer = Ref(zero(TF))
-    dlogdetTP_buffer = Ref(zero(TF))
-    #
-    function pullback_cl_transformζ!(dζs, dθs, dlogdetTP, θs, logdetTP, ζs)
-        fill!(dζs,  zero(eltype(dζs))) # output accumulates
-        copyto!(θs_buffer, θs)    # copy to avoid modifying 
-        copyto!(dθs_buffer, dθs)  # copy to avoid modifying 
-        logdetTP_buffer[] = logdetTP[]    # copy to avoid modifying 
-        dlogdetTP_buffer[] = dlogdetTP    # convert/copy to Ref
+    # Enzyme seeds an Active return value with one, so to seed its cotangent
+    # with an arbitrary dlogdetTP we fold it in as a scalar factor, relying on
+    # linearity of the reverse-mode adjoint: the pullback then delivers
+    # dlogdetTP * ∂logdetT/∂(·) to θs and ζs, as with the former Ref seeding.
+    function pullback_cl_transformζ!(dζs, dθs, dlogdetTP, θs, ζs)
+        fill!(dζs, zero(eltype(dζs)))
+        copyto!(θs_buffer, θs)
+        copyto!(dθs_buffer, dθs)
+        # Trick of seeding the active return value different to unity:
+        # Here dlogdetTP is captured from the closure (an Active-compatible scalar), 
+        # the returned Active value's unit seed gets multiplied by dlogdetTP, 
+        # and the adjoints of θs/ζs come out as dlogdetTP * ∂/∂(·)
         Enzyme.autodiff(
-            Enzyme.Reverse, transformζ!,
+            Enzyme.Reverse,
+            (θs_, ζs_) -> dlogdetTP * transformζ(θs_, ζs_),
             Enzyme.Duplicated(θs_buffer, dθs_buffer),
-            Enzyme.Duplicated(logdetTP_buffer, dlogdetTP_buffer),
             Enzyme.Duplicated(ζs, dζs),
         )
     end
