@@ -40,9 +40,8 @@ function neg_elbo_sites!(
     # (n_M x n_sit)  or (n_M x n_MC x n_sit)    
     ϕms_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
     g_apply!(h[ϕms_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
-    logdetTP = Ref(zero(TF))  # make it a Ref so that can be modified in place
+    logdetTP = transformζ(h.θsP, h.ζsP)  # return value captures logdetT
     # so that one can provide its gradient to the pullback
-    transformζ!(h.θsP, logdetTP, h.ζsP)
     ϕm_it = eachslice(h[ϕms_buffer_key]; dims = ndims(h[ϕms_buffer_key]))
     template = ϕqI # only important for gradient
     function compute_elboi_z_cl!(hi, rnormM, i_site_train, ϕm) 
@@ -58,7 +57,7 @@ function neg_elbo_sites!(
     # loglik = sum(x -> x.loglik, res_site)
     # costTrans = sum(x -> x.costTrans, res_site)
     #elbo = sum(first, res_site) - sum(h.logσ_ζP)
-    elbo = elbo_z + logdetTP[] - sum(h.logσ_ζP)
+    elbo = elbo_z + logdetTP - sum(h.logσ_ζP)
     (; elbo, ζsP=copy(h.ζsP), ϕm=copy(h[ϕms_buffer_key]))
 end
 
@@ -80,11 +79,10 @@ function compute_elboi_z!(hi, rnormM, i_site_train, ϕm, ϕqIc::AbstractArray{TF
         end
         #ζsM, logσ_ζM, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector
         sample_ζsM!(ζsM, logσ_ζM, rnormM, ϕqIc, ϕm, buffer_nθM)
-        logdetTM = Ref(zero(TF))
-        transformζ!(θsM, logdetTM, ζsM)
-        # first component needs to be the full elbo
-        nL = nLi(θsP, θsM; i_site_train, kwargs...)[1]
-        elbozi = nL + logdetTM[] - sum(logσ_ζM)
+    logdetTM = transformζ(θsM, ζsM)  # return value captures logdetT
+    # first component needs to be the full elbo
+    nL = nLi(θsP, θsM; i_site_train, kwargs...)[1]
+    elbozi = nL + logdetTM - sum(logσ_ζM)
 end
 
 
@@ -295,11 +293,10 @@ function update_xMP!(xMP::AbstractMatrix{TG},
     end
 end
 
-function transformζ!(θs, logdetT, ζs::AbstractArray{TF}) where TF
+function transformζ(θs, ζs::AbstractArray{TF}) where TF
     # TODO implement user-defined parameter transformation
     θs .= exp.(ζs)
-    logdetT[] =  sum(one(TF) ./ ζs)
-    nothing
+    return sum(one(TF) ./ ζs)
 end
 
 function nLi(
