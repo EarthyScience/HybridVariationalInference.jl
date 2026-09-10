@@ -42,28 +42,15 @@ function neg_elbo_sites!(
     g_apply!(h[ϕms_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
     ϕm_it = eachslice(h[ϕms_buffer_key]; dims = ndims(h[ϕms_buffer_key]))
     template = ϕqI # only important for gradient
-    function compute_elboi_z!(hi, rnormM, i_site_train, ϕm) 
-            # on update -> sync corresponding function within grad_neg_elbo_sites
-            if use_dc 
-                ζsM = PAT.get_tmp(hi.ζsM_dc, template)
-                logσ_ζM = PAT.get_tmp(hi.logσ_ζM_dc, template)
-                buffer_nθM = PAT.get_tmp(hi.buffer_nθM_dc, template)
-            else
-                ζsM = hi.ζsM_dc
-                logσ_ζM = hi.logσ_ζM_dc
-                buffer_nθM = hi.buffer_nθM_dc
-            end
-            #ζsM, logσ_ζM, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector
-            sample_ζsM!(ζsM, logσ_ζM, rnormM, ϕqIc, ϕm, buffer_nθM)
-            # first component needs to be the full elbo
-            elboi_ζ = compute_elboi_ζ(h.ζsP, ζsM, args...; i_site_train, kwargs...)[1]
-            elboi_ζ - sum(logσ_ζM)
+    function compute_elboi_z_cl!(hi, rnormM, i_site_train, ϕm) 
+        compute_elboi_z!(hi, rnormM, i_site_train, ϕm, 
+        ϕqIc, h.ζsP; kwargs...) 
     end
     #res_site = map(compute_elboi_z!, h.helpers_sites, rnormPM.M, i_sites_train, ϕm_it)
     #MAYBE: distributed mapreduce: 
     #   https://docs.julialang.org/en/v1/stdlib/Distributed/#Distributed.@distributed
     #   https://github.com/SupaeroDataScience/DE/blob/main/notebooks/Introduction%20to%20MapReduce.ipynb
-    elbo_z = mapreduce(compute_elboi_z!, +, h.helpers_sites, rnormPM.M, i_sites_train, ϕm_it)
+    elbo_z = mapreduce(compute_elboi_z_cl!, +, h.helpers_sites, rnormPM.M, i_sites_train, ϕm_it)
     # E = sum(x -> x.E, res_site)
     # loglik = sum(x -> x.loglik, res_site)
     # costTrans = sum(x -> x.costTrans, res_site)
@@ -71,6 +58,27 @@ function neg_elbo_sites!(
     elbo = elbo_z - sum(h.logσ_ζP)
     (; elbo, ζsP=copy(h.ζsP), ϕm=copy(h[ϕms_buffer_key]))
 end
+
+function compute_elboi_z!(hi, rnormM, i_site_train, ϕm, ϕqIc, ζsP; kwargs...) 
+        # on update -> sync corresponding function within grad_neg_elbo_sites
+        use_dc = hi.ζsM_dc isa PAT.DiffCache
+        if use_dc 
+            template = ϕqIc # only important for gradient
+            ζsM = PAT.get_tmp(hi.ζsM_dc, template)
+            logσ_ζM = PAT.get_tmp(hi.logσ_ζM_dc, template)
+            buffer_nθM = PAT.get_tmp(hi.buffer_nθM_dc, template)
+        else
+            ζsM = hi.ζsM_dc
+            logσ_ζM = hi.logσ_ζM_dc
+            buffer_nθM = hi.buffer_nθM_dc
+        end
+        #ζsM, logσ_ζM, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector
+        sample_ζsM!(ζsM, logσ_ζM, rnormM, ϕqIc, ϕm, buffer_nθM)
+        # first component needs to be the full elbo
+        elboi_ζ = compute_elboi_ζ(ζsP, ζsM; i_site_train, kwargs...)[1]
+        elboi_ζ - sum(logσ_ζM)
+end
+
 
 function prepare_rnorm(::AbstractVector{TF}; n_θP, n_θM, n_site, n_MC) where TF
     (;
