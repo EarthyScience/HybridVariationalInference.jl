@@ -37,6 +37,7 @@ using Distances, Clustering
 using RecursiveArrayTools: VectorOfArray, AbstractVectorOfArray
 import ForwardDiff, DiffResults, PreallocationTools as PAT
 
+import Distributed, SharedArrays
 import Folds, Transducers
 
 export DoubleMM

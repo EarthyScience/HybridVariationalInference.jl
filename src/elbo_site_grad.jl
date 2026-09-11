@@ -9,63 +9,68 @@ function grad_neg_elbo_sites(
     intϕqP, intϕqI,
     xM,
     is_testmode, 
+    executor::Transducers.Executor = Transducers.SequentialEx(),
     kwargs...
 ) where {TG, TF}
     use_ϕm_matrix = isnothing(pbm_covar_indices)
-    ϕm_buffer_key = use_ϕm_matrix ? :ϕms : :ϕms_mcs
     ϕqPc = intϕqP(ϕqP) 
     ϕqIc = intϕqI(ϕqI)
-
     h = elbo_helpers # preallocated μζP, dμζP, ζsP, ϕms, xMP, dxMP
+    ϕm_buffer_key = use_ϕm_matrix ? :ϕms : :ϕms_mcs
+    h_ϕm = h[ϕm_buffer_key]
     gradh = grad_elbo_helpers # here, as object, avoid closure so that can debug easier
     check_elbo_helpers(h, xM, pbm_covar_indices; n_ϕg = length(ϕg))
-    check_gradelbo_helpers(gradh, ϕqI, h[ϕm_buffer_key], h.ζsP; n_ϕg = length(ϕg))
+    check_gradelbo_helpers(gradh, ϕqI, h_ϕm, h.ζsP; n_ϕg = length(ϕg))
     sample_ζsP!(h.ζsP, h.logσ_ζP, rnormPM.P, ϕqPc) # n_P * n_MC
-    g_apply!(h[ϕm_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
+    g_apply!(h_ϕm, ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
     ladJacTP = transformζ(h.θsP, h.ζsP)  # return value captures ladJacT
     #
     # compute the gradients of SL! using ForwardDiff
     θsPvec = vec(h.θsP) # avoid putting entire h into closure
     sizeθsP = size(h.θsP)
-    function forwarddiff_grad_elboi_z!(tup) # closure with ϕqIc, θsPvec, sizeθsP, kwargs
-        hi, rnormM, i_site_train, ϕm = tup  # use tup to satisfy signature of mapfoldl
+    #dϕmvecs = SharedArrays.SharedArray{eltype(h_ϕm)}(prod(size(h_ϕm)[1:(end-1)]), size(h_ϕm)[end]) 
+    dϕmvecs = gradh.dϕmvecs # preallocate
+    #Distributed.@everywhere 
+    function forwarddiff_grad_nelboi_z!(hi, gradhi, rnormM, i_site_train, ϕm, i) 
         # aggregate all the derivatives to allow a single call to ForwardDiff.gradient
         #   reshape ϕm and ζsP into a vector to avoid allocations in cv[Val(:ζsP)]
-        #   TODO avoid allocation by buffer
-        inputs = CA.ComponentArray(; ϕqIc, ϕmvec = vec(ϕm), θsPvec = θsPvec)
+        inputs = gradhi.cv_grad_nelboi # buffer to avoid allocation
+        inputs.ϕqIc .= ϕqIc
+        inputs.ϕmvec .= vec(ϕm)
+        inputs.θsPvec .= θsPvec
         grads = ForwardDiff.gradient(
-            cv -> compute_elboi_z_vec!(
+            cv -> compute_nelboi_z_vec!(
                 hi, rnormM, i_site_train, cv[Val(:ϕmvec)], cv[Val(:ϕqIc)], cv[Val(:θsPvec)], 
                 size(ϕm), sizeθsP; kwargs...
                 )[1], inputs)
-        grads
+        dϕmvecs[:,i] .= grads[Val(:ϕmvec)]
+        (; dϕqIc = grads[Val(:ϕqIc)], dθsPvec = grads[Val(:θsPvec)])
     end
-    gradh.gacc.ϕqIc .= zero(TF) # accumulating + across mapfoldl
-    gradh.gacc.θsPvec .= zero(TF)
-    function get_onetime_reducer()
-        local i_red = 1 
-        function reducer(x,y) 
-            x.ϕqIc += y.ϕqIc
-            x.θsPvec += y.θsPvec
-            x.ϕmsvec[:,i_red] .= y.ϕmvec
-            i_red += 1   # captured in reducer closure, can only execute reducer once
-            x
-        end
-    end
-    ϕm_it = eachslice(h[ϕm_buffer_key]; dims = ndims(h[ϕm_buffer_key]))
-    mapfoldl(forwarddiff_grad_elboi_z!, get_onetime_reducer(), 
-        zip(h.helpers_sites, rnormPM.M, i_sites_train, ϕm_it);
-        init = gradh.gacc
+    ϕm_it = eachslice(h_ϕm; dims = ndims(h_ϕm))
+    # let forwarddiff_grad_nelboi_z! directly write into array also in distributed
+    #executor = Transducers.DistributedEx()
+    # cannot avoid allocations in reducing function of mapreduce
+    #    adding to SharedArrays dϕqIc and dθsPvec inside could lead to race conditions
+    #    maybe let them store to preallocated SharedMatrix with site columns and sum after
+    gacc = Folds.mapreduce(
+        (tup) -> forwarddiff_grad_nelboi_z!(tup...), 
+        make_tuple_reducer(+), 
+        zip(h.helpers_sites, gradh.helpers_sites, rnormPM.M, i_sites_train, ϕm_it, axes(i_sites_train,1)),
+        executor;
+        init = (; dϕqIc = zero(ϕqIc), dθsPvec = zero(θsPvec)) 
         )
-    ∂elbo_∂ϕqI = view(gradh.gacc, Val(:ϕqIc))
-    ∂elbo_∂ϕqm = reshape(view(gradh.gacc, Val(:ϕmsvec)), size(h[ϕm_buffer_key]))
-    ∂elbo_∂θP = reshape(view(gradh.gacc, Val(:θsPvec)), size(h.θsP))
+    # ∂elbo_∂ϕqI = view(gradh.gacc, Val(:ϕqIc))
+    # ∂elbo_∂θP = reshape(view(gradh.gacc, Val(:θsPvec)), size(h.θsP))
+    #∂elbo_∂ϕqm = reshape(view(gradh.gacc, Val(:ϕmsvec)), size(h_ϕm))
+    ∂elbo_∂ϕqI = gacc.dϕqIc # tuple access
+    ∂elbo_∂θP = reshape(gacc.dθsPvec, size(h.θsP))
+    ∂elbo_∂ϕqm = reshape(dϕmvecs, size(h_ϕm))
     gradh.∂elbo_∂logσ_ζP .= -ones(TF, length(h.logσ_ζP))  
     ∂elbo_∂ladJacTP = -one(TF)
     #
     # pullback gradients of ϕqm -> gradh.dϕg and gradh.dζsP
     grad_elbo_helpers.pullback_g_apply!(
-        gradh.dϕg, gradh.∂elbo_∂ϕm_∂ζP, h[ϕm_buffer_key], ∂elbo_∂ϕqm, 
+        gradh.dϕg, gradh.∂elbo_∂ϕm_∂ζP, h_ϕm, ∂elbo_∂ϕqm, 
         ϕg, xM, h.ζsP, pbm_covar_indices, g, is_testmode)
     #
     # pullback gradients of ∂elbo_∂θP to ∂elbo_∂θP_∂ζP
@@ -94,7 +99,7 @@ function grad_neg_elbo_sites(
     (;dϕqP, dϕqI = ∂elbo_∂ϕqI, dϕg = gradh.dϕg)
 end
 
-function compute_elboi_z_vec!(hi, rnormM, i_site_train, ϕmvec, ϕqIc, θsPvec, 
+function compute_nelboi_z_vec!(hi, rnormM, i_site_train, ϕmvec, ϕqIc, θsPvec, 
     sizeϕm, sizeθsP; kwargs...
     ) 
     ϕm = reshape(ϕmvec, sizeϕm)
@@ -223,17 +228,22 @@ function prepare_gradelbo_helpers(
     n_θP, n_θM, n_MC, n_cov, n_covP, n_site, n_M
     ) where {TG, TF}
     use_ϕm_matrix = (n_covP == 0)
+    n_ϕmvec = use_ϕm_matrix ? n_M : n_M * n_MC
+    his = Tuple((;
+        cv_grad_nelboi = CA.ComponentArray(; 
+            ϕqIc, 
+            ϕmvec = Vector{TF}(undef, n_ϕmvec), 
+            θsPvec = Vector{TF}(undef, n_θP * n_MC),
+        ),
+    ) for i in 1:n_site)
     (;
         dϕg = Vector{TG}(undef, length(ϕg)),
         #∂elbo_∂ζP = Matrix{TF}(undef, n_θP, n_MC),
         ∂elbo_∂ϕm_∂ζP = Matrix{TF}(undef, n_θP, n_MC),
         ∂elbo_∂logσ_ζP = Vector{TF}(undef, n_θP),
-        gacc = CA.ComponentVector( 
-            ϕqIc = copy(ϕqIc), 
-            ϕmsvec = use_ϕm_matrix ? Matrix{TF}(undef, n_M, n_site) :
-                Matrix{TF}(undef, n_M * n_MC, n_site),
-            θsPvec = Vector{TF}(undef, n_θM * n_MC)
-        ),
+        #helpers_sites = map(x -> PAT.DiffCache(x), hi), his),
+        dϕmvecs = SharedArrays.SharedArray{TF}(n_ϕmvec, n_site), 
+        helpers_sites = his,
         #
         pullback_cl_sample_ζsP! = get_pullback_cl_sample_ζsP(CA.getdata(ϕqPc); n_θP, n_MC),
         pullback_cl_transformζsP! = get_pullback_cl_transformζ!(CA.getdata(ϕqPc); n_θ = n_θP, n_MC),
@@ -248,15 +258,17 @@ function check_gradelbo_helpers(gradh::NamedTuple, ϕqI, ϕms, ζsP;
     # n_cov, n_site = size(xM)
     # n_covP = isnothing(pbm_covar_indices) ? 0 : length(pbm_covar_indices)
     n_site = size(ϕms)[end]
+    n_ϕmvec= prod(size(ϕms)[1:(end-1)])
     n_θP, n_MC = size(gradh.∂elbo_∂ϕm_∂ζP)
     @assert size(gradh.dϕg) == (n_ϕg,)
     #@assert size(gradh.∂elbo_∂ζP) == (n_θP, n_MC)
     @assert size(gradh.∂elbo_∂ϕm_∂ζP) == (n_θP, n_MC)
     @assert size(gradh.∂elbo_∂logσ_ζP) == (n_θP,)
-    @assert size(gradh.gacc.ϕqIc) == (length(ϕqI),)
-    @assert size(gradh.gacc.ϕmsvec,2) == n_site
-    @assert length(gradh.gacc.ϕmsvec) == length(ϕms)
-    @assert length(gradh.gacc.θsPvec) == length(ζsP)
+    @assert size(gradh.dϕmvecs) == (n_ϕmvec,n_site)
+    hi = gradh.helpers_sites[1]
+    @assert size(hi.cv_grad_nelboi.ϕqIc) == (length(ϕqI),)
+    @assert size(hi.cv_grad_nelboi.θsPvec) == (length(ζsP), )
+    @assert size(hi.cv_grad_nelboi.ϕmvec) == (n_ϕmvec,)
 end
 
 
