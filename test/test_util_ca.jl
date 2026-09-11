@@ -2,6 +2,7 @@ using Test
 using HybridVariationalInference
 using HybridVariationalInference: HybridVariationalInference as CP
 using ComponentArrays: ComponentArrays as CA
+import StaticArrays as SA
 using DataFrames
 
 @testset "compose_axes" begin
@@ -59,5 +60,18 @@ end
     cma41 = stack([cma1, cma1 .* 10])
     df2 = as_data_frame(cma41)
     @test df2 == df
+end
+
+@testset "static_cv_getproperty" begin
+    cv = CA.ComponentVector(a=1.1, b=CA.ComponentVector(b1 = 2.1, b2 = [2.2,2.3,2.4]))
+    sv = CP.static_cv_getproperty(cv, Val(:b))
+    @test CA.getaxes(sv) == CA.getaxes(cv[Val(:b)])
+    @test CA.getdata(sv) isa SA.SVector
+    @test sv == cv.b
+    # compare allocations to plain access
+    cv[Val(:b)] # warm up before @allocated
+    # will not avoid allocations but can subsequently work with SVector
+    @test (@allocated CP.static_cv_getproperty(cv, Val(:b))) <=
+        (@allocated cv[Val(:b)])
 end
 
