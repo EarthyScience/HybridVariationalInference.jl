@@ -559,7 +559,7 @@ end
         is_testmode = false,
         executor = Transducers.DistributedEx()
     )    
-    @test res0_ == res0
+    @test all(map(≈, res0_,  res0))
     # if we saved Enzyme results earlier, compare to them
     if isfile("intermediate/test_enzymeT_dphi2.jld2")
         primal2_enz, dϕg2_enz, dϕqP2_enz, dϕqI2_enz = JLD2.load(

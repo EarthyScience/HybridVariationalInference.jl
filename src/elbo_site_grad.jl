@@ -43,8 +43,18 @@ function grad_neg_elbo_sites(
                 hi, rnormM, i_site_train, cv[Val(:ϕmvec)], cv[Val(:ϕqIc)], cv[Val(:θsPvec)], 
                 size(ϕm), sizeθsP; kwargs...
                 )[1], inputs)
+        # alloc_grad = (@allocated ForwardDiff.gradient(
+        #     cv -> compute_nelboi_z_vec!(
+        #         hi, rnormM, i_site_train, cv[Val(:ϕmvec)], cv[Val(:ϕqIc)], cv[Val(:θsPvec)], 
+        #         size(ϕm), sizeθsP; kwargs...
+        #         )[1], inputs))
+        # @show alloc_grad
         dϕmvecs[:,i] .= grads[Val(:ϕmvec)]
-        (; dϕqIc = grads[Val(:ϕqIc)], dθsPvec = grads[Val(:θsPvec)])
+        #(; dϕqIc = grads[Val(:ϕqIc)], dθsPvec = grads[Val(:θsPvec)])            
+        # returning SVector helps avoiding allocations during reduce
+        #   although the following does not avoid allocations
+        (; dϕqIc = static_cv_getproperty(grads, Val(:ϕqIc)), 
+            dθsPvec = static_cv_getproperty(grads, Val(:θsPvec)))
     end
     ϕm_it = eachslice(h_ϕm; dims = ndims(h_ϕm))
     # let forwarddiff_grad_nelboi_z! directly write into array also in distributed
@@ -52,13 +62,24 @@ function grad_neg_elbo_sites(
     # cannot avoid allocations in reducing function of mapreduce
     #    adding to SharedArrays dϕqIc and dθsPvec inside could lead to race conditions
     #    maybe let them store to preallocated SharedMatrix with site columns and sum after
+    gradhi1 = gradh.helpers_sites[1]
+    init = (;
+        dϕqIc = zero(static_cv_getproperty(gradhi1.cv_grad_nelboi, Val(:ϕqIc))),
+        dθsPvec = zero(static_cv_getproperty(gradhi1.cv_grad_nelboi, Val(:θsPvec)))
+    )
+    reducer = make_tuple_reducer(+)
+    #tmp = (@allocated reducer(init, init)) # check no allocations during reduction
     gacc = Folds.mapreduce(
         (tup) -> forwarddiff_grad_nelboi_z!(tup...), 
-        make_tuple_reducer(+), 
+        reducer, 
         zip(h.helpers_sites, gradh.helpers_sites, rnormPM.M, i_sites_train, ϕm_it, axes(i_sites_train,1)),
-        executor;
-        init = (; dϕqIc = zero(ϕqIc), dθsPvec = zero(θsPvec)) 
-        )
+        executor; init)
+    # alloc_mapreduce = (@allocated Folds.mapreduce(
+    #     (tup) -> forwarddiff_grad_nelboi_z!(tup...), 
+    #     reducer, 
+    #     zip(h.helpers_sites, gradh.helpers_sites, rnormPM.M, i_sites_train, ϕm_it, axes(i_sites_train,1)),
+    #     executor; init))
+    # @show alloc_mapreduce, alloc_mapreduce / length(rnormPM.M)
     # ∂elbo_∂ϕqI = view(gradh.gacc, Val(:ϕqIc))
     # ∂elbo_∂θP = reshape(view(gradh.gacc, Val(:θsPvec)), size(h.θsP))
     #∂elbo_∂ϕqm = reshape(view(gradh.gacc, Val(:ϕmsvec)), size(h_ϕm))
@@ -104,6 +125,9 @@ function compute_nelboi_z_vec!(hi, rnormM, i_site_train, ϕmvec, ϕqIc, θsPvec,
     ) 
     ϕm = reshape(ϕmvec, sizeϕm)
     θsP = reshape(θsPvec, sizeθsP) # view for plain arrays h.ζsP
+    # alloc_reshape = (@allocated reshape(θsPvec, sizeθsP))    
+    # @show alloc_reshape
+    #return zero(eltype(θsP))
     compute_nelboi_z!(hi, rnormM, i_site_train, ϕm, ϕqIc, θsP; kwargs...) 
 end
 

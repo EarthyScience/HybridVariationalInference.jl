@@ -76,3 +76,23 @@ the index in this dimension.
 """
 function as_data_frame end
 # in ext/HybridVariationalInferenceDataFramesExt.jl to avoid DataFrames dependency 
+
+
+"""
+Extends CA.static_getproperty(cv, Val(:b)) and @static_unpack.
+But also converts a component that is itself a ComponentVector to a StaticVector
+"""
+function static_cv_getproperty(cv::CA.ComponentVector, key::Val) 
+    v = view(cv, key)    
+    if v isa CA.ComponentVector 
+        SA.SVector{axis_length(CA.getaxes(v)[1])}(v)
+        # attaching axis -> downstream errors "Dimension is not static. Please file a bug."
+        # CA.ComponentVector(
+        #     SA.SVector{axis_length(CA.getaxes(v)[1])}(v),
+        #     CA.getaxes(v)
+        # )
+    else
+        CA.static_getproperty(cv, key)
+    end
+end
+
