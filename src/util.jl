@@ -387,3 +387,11 @@ function colsum_finite_obs(X::AbstractVector, obs::AbstractVector)
             init = zero(eltype(X))
         )
 end
+
+
+"""
+Reducing function f(acc,t), where both acc and t are tuples
+or named tuples
+"""
+make_tuple_reducer(op) = (acc, t) -> map(op, acc, t)
+

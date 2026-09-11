@@ -12,6 +12,7 @@ using ComponentArrays: ComponentArrays as CA
 using Bijectors
 import PreallocationTools as PAT
 import JLD2
+import Transducers
 
 rng = StableRNG(1234)
 
@@ -497,7 +498,7 @@ end
         xM,
         is_testmode = false,
     )    
-    res0_ = CP.grad_neg_elbo_sites( # test deterministic result
+    res0_ = CP.grad_neg_elbo_sites( # test deterministic result and distributed
         h0, gradh0, 
         rnormPM,
         ϕgv, ϕqP, ϕqI, g, nothing;
@@ -505,8 +506,9 @@ end
         intϕqP, intϕqI,
         xM,
         is_testmode = false,
+        executor = Transducers.DistributedEx()
     )    
-    @test res0_ == res0
+    @test all(map(≈, res0_,  res0))
     # if we saved Enzyme results earlier, compare to them
     if isfile("intermediate/test_enzymeT_dphi0.jld2")
         primal_enz, dϕg0_enz, dϕqP0_enz, dϕqI0_enz = JLD2.load(
@@ -555,6 +557,7 @@ end
         intϕqP, intϕqI,
         xM,
         is_testmode = false,
+        executor = Transducers.DistributedEx()
     )    
     @test res0_ == res0
     # if we saved Enzyme results earlier, compare to them
