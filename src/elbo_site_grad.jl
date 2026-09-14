@@ -26,35 +26,15 @@ function grad_neg_elbo_sites(
     ladJacTP = transformζ(h.θsP, h.ζsP)  # return value captures ladJacT
     #
     # compute the gradients of SL! using ForwardDiff
-    θsPvec = vec(h.θsP) # avoid putting entire h into closure
-    sizeθsP = size(h.θsP)
+    θsP = h.θsP # avoid putting entire h or gradh into closure
     #dϕmvecs = SharedArrays.SharedArray{eltype(h_ϕm)}(prod(size(h_ϕm)[1:(end-1)]), size(h_ϕm)[end]) 
     dϕmvecs = gradh.dϕmvecs # preallocate
     #Distributed.@everywhere 
-    function forwarddiff_grad_nelboi_z!(hi, gradhi, rnormM, i_site_train, ϕm, i) 
-        # aggregate all the derivatives to allow a single call to ForwardDiff.gradient
-        #   reshape ϕm and ζsP into a vector to avoid allocations in cv[Val(:ζsP)]
-        inputs = gradhi.cv_grad_nelboi # buffer to avoid allocation
-        inputs.ϕqIc .= ϕqIc
-        inputs.ϕmvec .= vec(ϕm)
-        inputs.θsPvec .= θsPvec
-        grads = ForwardDiff.gradient(
-            cv -> compute_nelboi_z_vec!(
-                hi, rnormM, i_site_train, cv[Val(:ϕmvec)], cv[Val(:ϕqIc)], cv[Val(:θsPvec)], 
-                size(ϕm), sizeθsP; kwargs...
-                )[1], inputs)
-        # alloc_grad = (@allocated ForwardDiff.gradient(
-        #     cv -> compute_nelboi_z_vec!(
-        #         hi, rnormM, i_site_train, cv[Val(:ϕmvec)], cv[Val(:ϕqIc)], cv[Val(:θsPvec)], 
-        #         size(ϕm), sizeθsP; kwargs...
-        #         )[1], inputs))
-        # @show alloc_grad
-        dϕmvecs[:,i] .= grads[Val(:ϕmvec)]
-        #(; dϕqIc = grads[Val(:ϕqIc)], dθsPvec = grads[Val(:θsPvec)])            
-        # returning SVector helps avoiding allocations during reduce
-        #   although the following does not avoid allocations
-        (; dϕqIc = static_cv_getproperty(grads, Val(:ϕqIc)), 
-            dθsPvec = static_cv_getproperty(grads, Val(:θsPvec)))
+    #
+    function forwarddiff_grad_nelboi_z_cl!(tup)
+        hi, gradhi, rnormM, i_site_train, ϕm, i = tup
+        forwarddiff_grad_nelboi_z!(hi, gradhi, rnormM, i_site_train, ϕm, i, 
+            ϕqIc, θsP, dϕmvecs)
     end
     ϕm_it = eachslice(h_ϕm; dims = ndims(h_ϕm))
     # let forwarddiff_grad_nelboi_z! directly write into array also in distributed
@@ -65,12 +45,12 @@ function grad_neg_elbo_sites(
     gradhi1 = gradh.helpers_sites[1]
     init = (;
         dϕqIc = zero(static_cv_getproperty(gradhi1.cv_grad_nelboi, Val(:ϕqIc))),
-        dθsPvec = zero(static_cv_getproperty(gradhi1.cv_grad_nelboi, Val(:θsPvec)))
+        dθsP = zero(static_cv_getproperty(gradhi1.cv_grad_nelboi, Val(:θsP)))
     )
     reducer = make_tuple_reducer(+)
     #tmp = (@allocated reducer(init, init)) # check no allocations during reduction
     gacc = Folds.mapreduce(
-        (tup) -> forwarddiff_grad_nelboi_z!(tup...), 
+        forwarddiff_grad_nelboi_z_cl!, 
         reducer, 
         zip(h.helpers_sites, gradh.helpers_sites, rnormPM.M, i_sites_train, ϕm_it, axes(i_sites_train,1)),
         executor; init)
@@ -84,7 +64,7 @@ function grad_neg_elbo_sites(
     # ∂elbo_∂θP = reshape(view(gradh.gacc, Val(:θsPvec)), size(h.θsP))
     #∂elbo_∂ϕqm = reshape(view(gradh.gacc, Val(:ϕmsvec)), size(h_ϕm))
     ∂elbo_∂ϕqI = gacc.dϕqIc # tuple access
-    ∂elbo_∂θP = reshape(gacc.dθsPvec, size(h.θsP))
+    ∂elbo_∂θP = gacc.dθsP
     ∂elbo_∂ϕqm = reshape(dϕmvecs, size(h_ϕm))
     gradh.∂elbo_∂logσ_ζP .= -ones(TF, length(h.logσ_ζP))  
     ∂elbo_∂ladJacTP = -one(TF)
@@ -95,7 +75,7 @@ function grad_neg_elbo_sites(
         ϕg, xM, h.ζsP, pbm_covar_indices, g, is_testmode)
     #
     # pullback gradients of ∂elbo_∂θP to ∂elbo_∂θP_∂ζP
-    ∂elbo_∂θP_∂ζP = similar(∂elbo_∂θP) # TODO avoid allocation
+    ∂elbo_∂θP_∂ζP = Matrix{TF}(undef, size(∂elbo_∂θP)) # TODO avoid allocation
     grad_elbo_helpers.pullback_cl_transformζsP!(
         ∂elbo_∂θP_∂ζP, 
         ∂elbo_∂θP,
@@ -120,16 +100,26 @@ function grad_neg_elbo_sites(
     (;dϕqP, dϕqI = ∂elbo_∂ϕqI, dϕg = gradh.dϕg)
 end
 
-function compute_nelboi_z_vec!(hi, rnormM, i_site_train, ϕmvec, ϕqIc, θsPvec, 
-    sizeϕm, sizeθsP; kwargs...
-    ) 
-    ϕm = reshape(ϕmvec, sizeϕm)
-    θsP = reshape(θsPvec, sizeθsP) # view for plain arrays h.ζsP
-    # alloc_reshape = (@allocated reshape(θsPvec, sizeθsP))    
-    # @show alloc_reshape
-    #return zero(eltype(θsP))
-    compute_nelboi_z!(hi, rnormM, i_site_train, ϕm, ϕqIc, θsP; kwargs...) 
+function forwarddiff_grad_nelboi_z!(hi, gradhi, rnormM, i_site_train, ϕm, i, 
+    ϕqIc, θsP, dϕmvecs) 
+    # aggregate all the derivatives to allow a single call to ForwardDiff.gradient
+    #   reshape ϕm and ζsP into a vector to avoid allocations in cv[Val(:ζsP)]
+    inputs = gradhi.cv_grad_nelboi # buffer to avoid allocation
+    inputs.ϕqIc .= ϕqIc
+    inputs.ϕm .= ϕm
+    inputs.θsP .= θsP
+    grads = ForwardDiff.gradient(
+        cv -> compute_nelboi_z!(
+            hi, rnormM, i_site_train, cv[Val(:ϕm)], cv[Val(:ϕqIc)], cv[Val(:θsP)], 
+            )[1], inputs)
+    dϕmvecs[:,i] .= vec(grads[Val(:ϕm)])
+    #(; dϕqIc = grads[Val(:ϕqIc)], dθsPvec = grads[Val(:θsPvec)])            
+    # returning SVector helps avoiding allocations during reduce
+    #   although the following does not avoid allocations
+    (; dϕqIc = static_cv_getproperty(grads, Val(:ϕqIc)), 
+        dθsP = static_cv_getproperty(grads, Val(:θsP)))
 end
+
 
 
 function pullback_sample_ζsP!(dϕqc, dζsP, dlogσ_ζP, ζsP, logσ_ζP, rnormP, ϕqc)
@@ -249,15 +239,16 @@ end
 
 function prepare_gradelbo_helpers(
     ϕg::AbstractVector{TG}, ϕqPc::AbstractVector{TF}, ϕqIc::AbstractVector{TF}; 
-    n_θP, n_θM, n_MC, n_cov, n_covP, n_site, n_M
+    n_θP, n_θM, n_MC, n_cov, pbm_covar_indices, n_site, n_M
     ) where {TG, TF}
-    use_ϕm_matrix = (n_covP == 0)
+    use_ϕm_matrix = isnothing(pbm_covar_indices)
+    n_covP =  use_ϕm_matrix ? 0 : length(pbm_covar_indices)
     n_ϕmvec = use_ϕm_matrix ? n_M : n_M * n_MC
     his = Tuple((;
         cv_grad_nelboi = CA.ComponentArray(; 
             ϕqIc, 
-            ϕmvec = Vector{TF}(undef, n_ϕmvec), 
-            θsPvec = Vector{TF}(undef, n_θP * n_MC),
+            ϕm = use_ϕm_matrix ? Vector{TF}(undef, n_M) : Matrix{TF}(undef, n_M, n_MC), 
+            θsP = Matrix{TF}(undef, n_θP, n_MC),
         ),
     ) for i in 1:n_site)
     (;
@@ -291,8 +282,8 @@ function check_gradelbo_helpers(gradh::NamedTuple, ϕqI, ϕms, ζsP;
     @assert size(gradh.dϕmvecs) == (n_ϕmvec,n_site)
     hi = gradh.helpers_sites[1]
     @assert size(hi.cv_grad_nelboi.ϕqIc) == (length(ϕqI),)
-    @assert size(hi.cv_grad_nelboi.θsPvec) == (length(ζsP), )
-    @assert size(hi.cv_grad_nelboi.ϕmvec) == (n_ϕmvec,)
+    @assert size(hi.cv_grad_nelboi.θsP) == size(ζsP)
+    @assert size(hi.cv_grad_nelboi.ϕm) == size(ϕms)[1:(end-1)]
 end
 
 
