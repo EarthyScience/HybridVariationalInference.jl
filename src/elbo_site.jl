@@ -40,7 +40,7 @@ function neg_elbo_sites!(
     # (n_M x n_sit)  or (n_M x n_MC x n_sit)    
     ϕms_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
     g_apply!(h[ϕms_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
-    ladJacTP = transformζ(h.θsP, h.ζsP)  # return value captures ladJacT
+    exp_ladJacTP = transformζ(h.θsP, h.ζsP)  # return value captures ladJacT
     # so that one can provide its gradient to the pullback
     ϕm_it = eachslice(h[ϕms_buffer_key]; dims = ndims(h[ϕms_buffer_key]))
     template = ϕqI # only important for gradient
@@ -57,7 +57,7 @@ function neg_elbo_sites!(
     # loglik = sum(x -> x.loglik, res_site)
     # costTrans = sum(x -> x.costTrans, res_site)
     #elbo = sum(first, res_site) - sum(h.logσ_ζP)
-    elbo = elbo_z - ladJacTP - sum(h.logσ_ζP)
+    elbo = elbo_z - exp_ladJacTP - sum(h.logσ_ζP)
     (; elbo, ζsP=copy(h.ζsP), ϕm=copy(h[ϕms_buffer_key]))
 end
 
@@ -79,10 +79,10 @@ function compute_nelboi_z!(hi, rnormM, i_site_train, ϕm, ϕqIc::AbstractArray{T
         end
         #ζsM, logσ_ζM, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector
         sample_ζsM!(ζsM, logσ_ζM, rnormM, ϕqIc, ϕm, buffer_nθM)
-    ladJacTM = transformζ(θsM, ζsM)  # return value captures ladJacT
+    exp_ladJacTM = transformζ(θsM, ζsM)  # return value captures ladJacT
     # first component needs to be the full elbo
-    nL = nLi(θsP, θsM; i_site_train, kwargs...)[1]
-    elbozi = nL - ladJacTM - sum(logσ_ζM)
+    exp_nL = exp_nLi(θsP, θsM; i_site_train, kwargs...)[1]
+    elbozi = exp_nL - exp_ladJacTM - sum(logσ_ζM)
 end
 
 
@@ -295,11 +295,16 @@ end
 
 function transformζ(θs, ζs::AbstractArray{TF}) where TF
     # TODO implement user-defined parameter transformation
+    n_MC = size(ζs,2)
     θs .= exp.(ζs)
-    ladJacT = sum(ζs)
+    ladJacT = sum(ζs) / n_MC
 end
 
-function nLi(
+"""
+compute the expected value of the neative log joint density of observations
+and parameters
+"""
+function exp_nLi(
     θsP::AbstractMatrix,
     θsM::AbstractMatrix;
     # f, py,
@@ -318,7 +323,8 @@ function nLi(
     # frac_cluster_all,
     i_site_train,
 ) 
-    nL = 5 * sum(θsP) + 3 * sum(θsM) 
+    n_MC = size(θsP,2)
+    nL = (5 * sum(θsP) + 3 * sum(θsM)) / n_MC
     (; nL=nL,)
     # ζMs = sample_ζMs(zMs, ϕMs, intθMs)
     # ϕc = int_ϕg_ϕq(ϕ)
