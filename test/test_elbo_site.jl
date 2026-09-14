@@ -177,6 +177,41 @@ import ForwardDiff
 #     @test grads_ϕ[length(ϕqI)+1:end] == grad_ϕm1
 # end
 
+@testset "compute_nelboi_z!" begin
+    ϕqIc = intϕqI(ϕqI)
+    ϕqPc = intϕqP(ϕqP)
+    CP.sample_ζsP!(h0.ζsP, h0.logσ_ζP, rnormPM.P, ϕqPc) # n_P * n_MC
+    CP.g_apply!(h0.ϕms, ϕg, xM, h0.ζsP, nothing, g, h0.xMP, false)     
+    hi1 = h0.helpers_sites[1]
+    i_site_train1 = 1:n_site
+    rnormM1 = rnormPM.M[1]
+    ϕms1 = h0.ϕms[:,1]
+    θsP1 = h0.θsP
+    CP.compute_nelboi_z!(hi1, rnormM1, i_site_train1, ϕms1, ϕqIc, θsP1)     
+    #@code_warntype CP.compute_nelboi_z!(hi1, rnormM1, i_site_train1, ϕms1, ϕqIc, θsP1)
+    # need two wrap in tmpf to avoid allocations due to boxing
+    function tmpf(hi, rnormM1, i_site_train1, ϕms1, ϕqIc, θsP1)
+        @test (@allocated CP.compute_nelboi_z!(hi, rnormM1, i_site_train1, ϕms1, ϕqIc, θsP1)) == 0
+    end
+    tmpf(hi1, rnormM1, i_site_train1, ϕms1, ϕqIc, θsP1)
+        #@profview tmpf()
+        #using BenchmarkTools
+        #@btime CP.compute_nelboi_z!($hi1, $rnormM1, $i_site_train1, $ϕms1, $ϕqIc, $θsP1)    
+    #
+    # test with views as input to compute_nelboi_z! and differnt ϕm per MC
+    h21 = h2.helpers_sites[1]
+    CP.g_apply!(h2.ϕms_mcs, ϕg2, xM, h2.ζsP, pbm_covar_indices2, g2, h2.xMP, false)     
+    function tmpf(hi, rnormM1, i_site_train1, inputs)
+        ϕms1_ = view(inputs, Val(:ϕms))
+        ϕqIc_ = view(inputs, Val(:ϕqIc))
+        θsP1_ = view(inputs,Val(:θsP))
+        @test (@allocated CP.compute_nelboi_z!(hi, rnormM1, i_site_train1, 
+        ϕms1_, ϕqIc_, θsP1_)) == 0
+    end
+    inputs = CA.ComponentVector(ϕms = h2.ϕms_mcs[:,:,1], ϕqIc=ϕqIc, θsP= θsP1)
+    tmpf(h21, rnormM1, i_site_train1, inputs)
+end
+
 # @testset "pullback_g_apply!" begin
 #     @test ϕms0 == ϕms0z
 #     @test ϕms2 == ϕms2z
@@ -471,7 +506,7 @@ end
     ϕqIc = intϕqI(ϕqI)
     ϕqPc = intϕqP(ϕqP)
     gradh0 = CP.prepare_gradelbo_helpers(ϕg, ϕqPc, ϕqIc; 
-        n_θP, n_θM, n_MC, n_cov, n_covP=n_covP0, n_site, n_M)
+        n_θP, n_θM, n_MC, n_cov, pbm_covar_indices=nothing, n_site, n_M)
     # gradh0 = CP.prepare_gradelbo_helpers(ϕg, ϕqP; 
     #     n_θP, n_MC, n_cov, n_covP=n_covP0, n_site, n_M)
     CP.check_elbo_helpers(h0, xM, nothing; n_ϕg = length(ϕgv))
@@ -524,7 +559,7 @@ end
     #
     #---------------- matrix mode with population covariates
     gradh2 = CP.prepare_gradelbo_helpers(ϕg2, ϕqPc, ϕqIc; 
-        n_θP, n_θM, n_MC, n_cov, n_covP=n_covP2, n_site, n_M)
+        n_θP, n_θM, n_MC, n_cov, pbm_covar_indices=pbm_covar_indices2, n_site, n_M)
     CP.check_elbo_helpers(h2, xM, pbm_covar_indices2; n_ϕg = length(ϕg2v))
     rng1 = StableRNG(1234)
     CP.randnPM!(rng1, rnormPM)
