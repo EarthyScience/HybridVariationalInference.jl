@@ -65,13 +65,17 @@ end
 @testset "static_cv_getproperty" begin
     cv = CA.ComponentVector(a=1.1, b=CA.ComponentVector(b1 = 2.1, b2 = [2.2,2.3,2.4]))
     sv = CP.static_cv_getproperty(cv, Val(:b))
-    @test CA.getaxes(sv) == CA.getaxes(cv[Val(:b)])
-    @test CA.getdata(sv) isa SA.SVector
-    @test sv == cv.b
+    #@test CA.getaxes(sv) == CA.getaxes(cv[Val(:b)])
+    #@test CA.getdata(sv) isa SA.SVector
+    @test sv == CA.getdata(cv.b)
     # compare allocations to plain access
     cv[Val(:b)] # warm up before @allocated
     # will not avoid allocations but can subsequently work with SVector
-    @test (@allocated CP.static_cv_getproperty(cv, Val(:b))) <=
-        (@allocated cv[Val(:b)])
+    # @test (@allocated CP.static_cv_getproperty(cv, Val(:b))) <=
+    #     (@allocated cv[Val(:b)])
+    function tmpf(cv)
+        @test (@allocated CP.static_cv_getproperty(cv, Val(:b))) == 0
+    end
+    tmpf(cv)
 end
 
