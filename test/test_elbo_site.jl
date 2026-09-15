@@ -201,15 +201,40 @@ import ForwardDiff
     # test with views as input to compute_nelboi_z! and differnt ϕm per MC
     h21 = h2.helpers_sites[1]
     CP.g_apply!(h2.ϕms_mcs, ϕg2, xM, h2.ζsP, pbm_covar_indices2, g2, h2.xMP, false)     
-    function tmpf(hi, rnormM1, i_site_train1, inputs)
+    function tmpf(hi, rnormM, i_site_train1, inputs)
         ϕms1_ = view(inputs, Val(:ϕms))
         ϕqIc_ = view(inputs, Val(:ϕqIc))
         θsP1_ = view(inputs,Val(:θsP))
-        @test (@allocated CP.compute_nelboi_z!(hi, rnormM1, i_site_train1, 
+        @test (@allocated CP.compute_nelboi_z!(hi, rnormM, i_site_train1, 
         ϕms1_, ϕqIc_, θsP1_)) == 0
     end
     inputs = CA.ComponentVector(ϕms = h2.ϕms_mcs[:,:,1], ϕqIc=ϕqIc, θsP= θsP1)
     tmpf(h21, rnormM1, i_site_train1, inputs)
+    # 
+    # check allocations in gradient of compute_nelboi_z!
+    function tmp_g(hi, gradhi, rnormM, i_site_train, inputs, i, dϕmvecs, omit_gradient)
+        ϕms1_ = view(inputs, Val(:ϕms))
+        ϕqIc_ = view(inputs, Val(:ϕqIc))
+        θsP1_ = view(inputs,Val(:θsP))
+        CP.forwarddiff_grad_nelboi_z!(hi, gradhi, rnormM, i_site_train, ϕms1_, i, 
+            ϕqIc_, θsP1_, dϕmvecs, omit_gradient) 
+    end
+    gradh2 = CP.prepare_gradelbo_helpers(ϕg2, ϕqPc, ϕqIc; 
+        n_θP, n_θM, n_MC, n_cov, pbm_covar_indices=pbm_covar_indices2, n_site, n_M)
+    gradhi = gradh2.helpers_sites[1]
+    dϕmvecs = gradh2.dϕmvecs
+    tmp_g(h21, gradhi, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing)
+    tmp_g(h21, gradhi, rnormM1, i_site_train1, inputs, 1, dϕmvecs, true)
+    @test (@allocated tmp_g(h21, gradhi, rnormM1, i_site_train1, inputs, 1, dϕmvecs, true)) == 0
+    function tmpgn(args...; n = 10_000)
+        for i in 1:n
+            tmp_g(args...)
+        end
+    end
+    #@usingany BenchmarkTools
+    #@benchmark tmp_g(h21, gradhi, rnormM1, i_site_train1, inputs, 1, dϕmvecs, true)
+    #@profview_allocs tmpgn(h21, gradhi, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing)
+    #@profview_allocs tmpgn(h21, gradhi, rnormM1, i_site_train1, inputs, 1, dϕmvecs, true)
 end
 
 # @testset "pullback_g_apply!" begin

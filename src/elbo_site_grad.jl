@@ -101,26 +101,26 @@ function grad_neg_elbo_sites(
 end
 
 function forwarddiff_grad_nelboi_z!(hi, gradhi, rnormM, i_site_train, ϕm, i, 
-    ϕqIc, θsP, dϕmvecs) 
+    ϕqIc, θsP, dϕmvecs, omit_gradient=nothing) 
     # aggregate all the derivatives to allow a single call to ForwardDiff.gradient
     #   reshape ϕm and ζsP into a vector to avoid allocations in cv[Val(:ζsP)]
-    inputs = gradhi.cv_grad_nelboi # buffer to avoid allocation
-    inputs.ϕqIc .= ϕqIc
-    inputs.ϕm .= ϕm
-    inputs.θsP .= θsP
-    grads = ForwardDiff.gradient(
+    # Use pre-extracted views to avoid wrapper allocations
+    inputs = gradhi.cv_grad_nelboi
+    v_ϕm = view(inputs, Val(:ϕm))
+    view(inputs, Val(:ϕqIc)) .= ϕqIc
+    v_ϕm .= ϕm
+    view(inputs, Val(:θsP)) .= θsP
+    # supply something other than nothing to omit gradient to check allocations
+    #grads = ForwardDiff.gradient(
+    grads = !isnothing(omit_gradient) ? inputs : ForwardDiff.gradient(
         cv -> compute_nelboi_z!(
             hi, rnormM, i_site_train, cv[Val(:ϕm)], cv[Val(:ϕqIc)], cv[Val(:θsP)], 
             )[1], inputs)
-    dϕmvecs[:,i] .= vec(grads[Val(:ϕm)])
-    #(; dϕqIc = grads[Val(:ϕqIc)], dθsPvec = grads[Val(:θsPvec)])            
+    copyto!(view(dϕmvecs, :, i), view(grads, Val(:ϕm))) # second storage, leads to wrong results
     # returning SVector helps avoiding allocations during reduce
-    #   although the following does not avoid allocations
     (; dϕqIc = static_cv_getproperty(grads, Val(:ϕqIc)), 
         dθsP = static_cv_getproperty(grads, Val(:θsP)))
 end
-
-
 
 function pullback_sample_ζsP!(dϕqc, dζsP, dlogσ_ζP, ζsP, logσ_ζP, rnormP, ϕqc)
     ζsP_ = copy(ζsP) # TODO pass buffers to avoid allocation
