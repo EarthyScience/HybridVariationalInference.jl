@@ -206,39 +206,45 @@ import ForwardDiff
     h21 = h2.helpers_sites[1]
     CP.g_apply!(h2.ϕms_mcs, ϕg2, xM, h2.ζsP, pbm_covar_indices2, g2, h2.xMP, false)     
     function tmpf(hi, rnormM, i_site_train1, inputs)
-        ϕms1_ = view(inputs, Val(:ϕms))
+        ϕms1_ = view(inputs, Val(:ϕm))
         ϕqIc_ = view(inputs, Val(:ϕqIc))
         θsP1_ = view(inputs,Val(:θsP))
         @test (@allocated CP.compute_nelboi_z!(hi, rnormM, i_site_train1, 
         ϕms1_, ϕqIc_, θsP1_)) == 0
     end
-    inputs = CA.ComponentVector(ϕms = h2.ϕms_mcs[:,:,1], ϕqIc=ϕqIc, θsP= θsP1)
+    ϕm = randn!(similar(h2.ϕms_mcs[:,:,1]))
+    inputs = CA.ComponentVector(ϕm = ϕm, ϕqIc=ϕqIc, θsP= θsP1)
     tmpf(h21, rnormM1, i_site_train1, inputs)
     # 
     # check allocations in gradient of compute_nelboi_z!
-    function tmp_g(hi, gradhi, rnormM, i_site_train, inputs, i, dϕmvecs, omit_gradient)
-        ϕms1_ = view(inputs, Val(:ϕms))
+    nelboi_z = CP._make_nelboi_z_f(hi1, rnormM1, i_site_train1, ϕqIc, θsP1)
+    helpers_workers = ((;
+        grad_conf = Ref(ForwardDiff.GradientConfig(nelboi_z, copy(inputs))), 
+        cv_grad_nelboi = copy(inputs)),)
+    function tmp_g(hi, gradhi, rnormM, i_site_train, inputs, i, dϕmvecs, omit_gradient, helpers_workers)
+        ϕms1_ = view(inputs, Val(:ϕm))
         ϕqIc_ = view(inputs, Val(:ϕqIc))
         θsP1_ = view(inputs,Val(:θsP))
         CP.forwarddiff_grad_nelboi_z!(hi, gradhi, rnormM, i_site_train, ϕms1_, i, 
-            ϕqIc_, θsP1_, dϕmvecs, omit_gradient) 
+            ϕqIc_, θsP1_, dϕmvecs, omit_gradient; helpers_workers) 
     end
     gradh2 = CP.prepare_gradelbo_helpers(ϕg2, ϕqPc, ϕqIc; 
         n_θP, n_θM, n_MC, n_cov, pbm_covar_indices=pbm_covar_indices2, n_site, n_M)
     gradhi = gradh2.helpers_sites[1]
     dϕmvecs = gradh2.dϕmvecs
-    tmp_g(h21, gradhi, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing)
-    tmp_g(h21, gradhi, rnormM1, i_site_train1, inputs, 1, dϕmvecs, true)
-    @test (@allocated tmp_g(h21, gradhi, rnormM1, i_site_train1, inputs, 1, dϕmvecs, true)) == 0
+    tmp_g(h21, gradhi, rnormM1, i_site_train1, inputs, 1, dϕmvecs, true, helpers_workers)
+    @test (@allocated tmp_g(h21, gradhi, rnormM1, i_site_train1, inputs, 1, dϕmvecs, true, helpers_workers)) == 0
+    tmp_g(h21, gradhi, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing, helpers_workers)
+    #@test (@allocated tmp_g(h21, gradhi, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing, helpers_workers)) == 0
     function tmpgn(args...; n = 10_000)
         for i in 1:n
             tmp_g(args...)
         end
     end
     #@usingany BenchmarkTools
-    #@benchmark tmp_g(h21, gradhi, rnormM1, i_site_train1, inputs, 1, dϕmvecs, true)
-    #@profview_allocs tmpgn(h21, gradhi, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing)
-    #@profview_allocs tmpgn(h21, gradhi, rnormM1, i_site_train1, inputs, 1, dϕmvecs, true)
+    #@benchmark tmp_g(h21, gradhi, rnormM1, i_site_train1, inputs, 1, dϕmvecs, true, helpers_workers)
+    #@profview_allocs tmpgn(h21, gradhi, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing, helpers_workers)
+    #@profview_allocs tmpgn(h21, gradhi, rnormM1, i_site_train1, inputs, 1, dϕmvecs, true, helpers_workers)
 end
 
 # @testset "pullback_g_apply!" begin
@@ -562,6 +568,12 @@ end
         xM,
         is_testmode = false,
     )    
+    @test gradh0.helpers_workers[Distributed.nworkers()+1].grad_conf[] isa 
+        ForwardDiff.GradientConfig
+
+    # make sure to use only one thread per worker so to share preallocated helpers
+    basesize = n_site ÷ Distributed.nworkers()
+    distributedEx = Transducers.DistributedEx(;basesize, threads_basesize = basesize) 
     res0_ = CP.grad_neg_elbo_sites( # test deterministic result and distributed
         h0, gradh0, 
         rnormPM,
@@ -570,7 +582,7 @@ end
         intϕqP, intϕqI,
         xM,
         is_testmode = false,
-        executor = Transducers.DistributedEx()
+        executor = distributedEx
     )    
     @test all(map(≈, res0_,  res0))
     # if we saved Enzyme results earlier, compare to them
@@ -621,7 +633,7 @@ end
         intϕqP, intϕqI,
         xM,
         is_testmode = false,
-        executor = Transducers.DistributedEx()
+        executor = distributedEx,
     )    
     @test all(map(≈, res0_,  res0))
     # if we saved Enzyme results earlier, compare to them
