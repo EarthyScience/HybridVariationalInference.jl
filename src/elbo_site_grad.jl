@@ -25,17 +25,8 @@ function grad_neg_elbo_sites(
     g_apply!(h_ϕm, ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
     ladJacTP = transformζ(h.θsP, h.ζsP)  # return value captures ladJacT
     #
-    # compute the gradients of SL! using ForwardDiff
-    θsP = h.θsP # avoid putting entire h or gradh into closure
-    #dϕmvecs = SharedArrays.SharedArray{eltype(h_ϕm)}(prod(size(h_ϕm)[1:(end-1)]), size(h_ϕm)[end]) 
-    dϕmvecs = gradh.dϕmvecs # preallocate
-    #Distributed.@everywhere 
-    #
-    function forwarddiff_grad_nelboi_z_cl!(tup)
-        hi, gradhi, rnormM, i_site_train, ϕm, i = tup
-        forwarddiff_grad_nelboi_z!(hi, gradhi, rnormM, i_site_train, ϕm, i, 
-            ϕqIc, θsP, dϕmvecs)
-    end
+    # # compute the gradients of SL! using ForwardDiff
+    cl = ForwardDiffGradNelboiZCl(ϕqIc, h.θsP, gradh.dϕmvecs)    
     ϕm_it = eachslice(h_ϕm; dims = ndims(h_ϕm))
     # let forwarddiff_grad_nelboi_z! directly write into array also in distributed
     #executor = Transducers.DistributedEx()
@@ -50,7 +41,8 @@ function grad_neg_elbo_sites(
     reducer = make_tuple_reducer(+)
     #tmp = (@allocated reducer(init, init)) # check no allocations during reduction
     gacc = Folds.mapreduce(
-        forwarddiff_grad_nelboi_z_cl!, 
+        #forwarddiff_grad_nelboi_z_cl!, 
+        cl,
         reducer, 
         zip(h.helpers_sites, gradh.helpers_sites, rnormPM.M, i_sites_train, ϕm_it, axes(i_sites_train,1)),
         executor; init)
@@ -65,7 +57,7 @@ function grad_neg_elbo_sites(
     #∂elbo_∂ϕqm = reshape(view(gradh.gacc, Val(:ϕmsvec)), size(h_ϕm))
     ∂elbo_∂ϕqI = gacc.dϕqIc # tuple access
     ∂elbo_∂θP = gacc.dθsP
-    ∂elbo_∂ϕqm = reshape(dϕmvecs, size(h_ϕm))
+    ∂elbo_∂ϕqm = reshape(cl.dϕmvecs, size(h_ϕm))
     gradh.∂elbo_∂logσ_ζP .= -ones(TF, length(h.logσ_ζP))  
     ∂elbo_∂ladJacTP = -one(TF)
     #
@@ -98,6 +90,20 @@ function grad_neg_elbo_sites(
     # ∂ζsP∂ϕqc = zeros(eltype(ζsP), n_θP * n_MC, length(ϕqc))
     # #pullback_sample_ζsP!(∂ζsP∂ϕqc, h.ζsP, h.logσ_ζP, h.rnormP, ϕqPc)
     (;dϕqP, dϕqI = ∂elbo_∂ϕqI, dϕg = gradh.dϕg)
+end
+
+"""
+Callable to make deliver uncahged arguments to Foldl.mapreduce.
+"""
+struct ForwardDiffGradNelboiZCl{Tϕq, Tθ, TD}
+    ϕqIc::Tϕq
+    θsP::Tθ
+    dϕmvecs::TD
+end
+function (f::ForwardDiffGradNelboiZCl)(tup)
+    hi, gradhi, rnormM, i_site_train, ϕm, i = tup
+    forwarddiff_grad_nelboi_z!(hi, gradhi, rnormM, i_site_train, ϕm, i,
+        f.ϕqIc, f.θsP, f.dϕmvecs)
 end
 
 function forwarddiff_grad_nelboi_z!(hi, gradhi, rnormM, i_site_train, ϕm, i, 
