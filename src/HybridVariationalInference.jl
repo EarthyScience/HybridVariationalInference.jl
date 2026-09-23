@@ -1,5 +1,9 @@
 module HybridVariationalInference
 
+import Distributed
+#Distributed.@everywhere import 
+import SharedArrays
+
 using ComponentArrays: ComponentArrays as CA
 using Random
 using StatsBase # fit ZScoreTransform, countmap
@@ -37,7 +41,6 @@ using Distances, Clustering
 using RecursiveArrayTools: VectorOfArray, AbstractVectorOfArray
 import ForwardDiff, DiffResults, PreallocationTools as PAT
 
-import Distributed, SharedArrays
 import Folds, Transducers
 
 export DoubleMM

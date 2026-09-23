@@ -1,11 +1,13 @@
 ENV["MLDATADEVICES_SILENCE_WARN_NO_GPU"]="1" # suppress warning on missing CUDA
+import Distributed
+if Distributed.nworkers() < 3; Distributed.addprocs(3-Distributed.nworkers()); end
 
 #using LinearAlgebra, BlockDiagonals
 using LinearAlgebra
 using StatsFuns: logistic
 
 using Test
-using HybridVariationalInference
+Distributed.@everywhere using HybridVariationalInference
 using HybridVariationalInference: HybridVariationalInference as CP
 using StableRNGs
 using Random
@@ -17,6 +19,7 @@ import JLD2
 import Transducers
 
 rng = StableRNG(1234)
+
 
 n_covP0 = 0
 n_covP2 = 2
