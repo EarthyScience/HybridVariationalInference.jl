@@ -26,14 +26,21 @@ function grad_neg_elbo_sites(
     ladJacTP = transformζ(h.θsP, h.ζsP)  # return value captures ladJacT
     #
     # # compute the gradients of SL! using ForwardDiff
-    cl = ForwardDiffGradNelboiZCl(ϕqIc, h.θsP, gradh.dϕmvecs)    
+    gradhi1 = gradh.helpers_sites[1]
+    hws = gradh.helpers_workers
+    if isnothing(hws[1].grad_conf[])
+        nelboi_z = _make_nelboi_z_f(h.helpers_sites[1], rnormPM.M[1], i_sites_train[1], ϕqIc, h.θsP)
+        for hwi in hws
+            hwi.grad_conf[] = ForwardDiff.GradientConfig(nelboi_z, gradhi1.cv_grad_nelboi)
+        end 
+    end
+    cl = ForwardDiffGradNelboiZCl(ϕqIc, h.θsP, gradh.dϕmvecs, gradh.helpers_workers)    
     ϕm_it = eachslice(h_ϕm; dims = ndims(h_ϕm))
     # let forwarddiff_grad_nelboi_z! directly write into array also in distributed
     #executor = Transducers.DistributedEx()
     # cannot avoid allocations in reducing function of mapreduce
     #    adding to SharedArrays dϕqIc and dθsPvec inside could lead to race conditions
     #    maybe let them store to preallocated SharedMatrix with site columns and sum after
-    gradhi1 = gradh.helpers_sites[1]
     init = (;
         dϕqIc = zero(static_cv_getproperty(gradhi1.cv_grad_nelboi, Val(:ϕqIc))),
         dθsP = zero(static_cv_getproperty(gradhi1.cv_grad_nelboi, Val(:θsP)))
@@ -95,37 +102,48 @@ end
 """
 Callable to make deliver uncahged arguments to Foldl.mapreduce.
 """
-struct ForwardDiffGradNelboiZCl{Tϕq, Tθ, TD}
+struct ForwardDiffGradNelboiZCl{Tϕq, Tθ, TD, THW}
     ϕqIc::Tϕq
     θsP::Tθ
     dϕmvecs::TD
+    helpers_workers::THW
 end
 function (f::ForwardDiffGradNelboiZCl)(tup)
     hi, gradhi, rnormM, i_site_train, ϕm, i = tup
     forwarddiff_grad_nelboi_z!(hi, gradhi, rnormM, i_site_train, ϕm, i,
-        f.ϕqIc, f.θsP, f.dϕmvecs)
+        f.ϕqIc, f.θsP, f.dϕmvecs; f.helpers_workers)
 end
 
 function forwarddiff_grad_nelboi_z!(hi, gradhi, rnormM, i_site_train, ϕm, i, 
-    ϕqIc, θsP, dϕmvecs, omit_gradient=nothing) 
+    ϕqIc, θsP, dϕmvecs, omit_gradient=nothing; helpers_workers) 
     # aggregate all the derivatives to allow a single call to ForwardDiff.gradient
     #   reshape ϕm and ζsP into a vector to avoid allocations in cv[Val(:ζsP)]
     # Use pre-extracted views to avoid wrapper allocations
-    inputs = gradhi.cv_grad_nelboi
-    v_ϕm = view(inputs, Val(:ϕm))
+    hwi = helpers_workers[Distributed.myid()]
+    grad_conf = hwi.grad_conf[]
+    inputs = hwi.cv_grad_nelboi
+    #inputs = gradhi.cv_grad_nelboi
     view(inputs, Val(:ϕqIc)) .= ϕqIc
-    v_ϕm .= ϕm
+    view(inputs, Val(:ϕm)) .= ϕm
     view(inputs, Val(:θsP)) .= θsP
     # supply something other than nothing to omit gradient to check allocations
     #grads = ForwardDiff.gradient(
+    nelboi_z = _make_nelboi_z_f(hi, rnormM, i_site_train, ϕqIc, θsP)
     grads = !isnothing(omit_gradient) ? inputs : ForwardDiff.gradient(
-        cv -> compute_nelboi_z!(
-            hi, rnormM, i_site_train, cv[Val(:ϕm)], cv[Val(:ϕqIc)], cv[Val(:θsP)], 
-            )[1], inputs)
+        nelboi_z, inputs, grad_conf)
+    # grads = !isnothing(omit_gradient) ? inputs : ForwardDiff.gradient(
+    #     nelboi_z, inputs)
     copyto!(view(dϕmvecs, :, i), view(grads, Val(:ϕm))) # second storage, leads to wrong results
     # returning SVector helps avoiding allocations during reduce
     (; dϕqIc = static_cv_getproperty(grads, Val(:ϕqIc)), 
         dθsP = static_cv_getproperty(grads, Val(:θsP)))
+end
+
+function _make_nelboi_z_f(hi, rnormM, i_site_train, ϕqIc, θsP)
+    cv -> compute_nelboi_z!(
+        hi, rnormM, i_site_train,
+        cv[Val(:ϕm)], cv[Val(:ϕqIc)], cv[Val(:θsP)],
+    )[1]
 end
 
 function pullback_sample_ζsP!(dϕqc, dζsP, dlogσ_ζP, ζsP, logσ_ζP, rnormP, ϕqc)
@@ -250,6 +268,7 @@ function prepare_gradelbo_helpers(
     use_ϕm_matrix = isnothing(pbm_covar_indices)
     n_covP =  use_ϕm_matrix ? 0 : length(pbm_covar_indices)
     n_ϕmvec = use_ϕm_matrix ? n_M : n_M * n_MC
+    # TODO remove his and helpers_sites
     his = Tuple((;
         cv_grad_nelboi = CA.ComponentArray(; 
             ϕqIc, 
@@ -257,6 +276,19 @@ function prepare_gradelbo_helpers(
             θsP = Matrix{TF}(undef, n_θP, n_MC),
         ),
     ) for i in 1:n_site)
+    #grad_conf_n::Some{ForwardDiff.GradientConfig} = nothing
+    hws = Tuple((;
+        cv_grad_nelboi = CA.ComponentArray(; 
+            ϕqIc, 
+            ϕm = use_ϕm_matrix ? Vector{TF}(undef, n_M) : Matrix{TF}(undef, n_M, n_MC), 
+            θsP = Matrix{TF}(undef, n_θP, n_MC),
+        ),
+        # grad_conf = convert(Union{Base.RefValue{Nothing},Base.RefValue{ForwardDiff.GradientConfig}}, 
+        #     Ref(nothing))::Union{Base.RefValue{Nothing},Base.RefValue{ForwardDiff.GradientConfig}}
+        #Base.RefValue{Union{Nothing, <:ForwardDiff.GradientConfig}}(nothing),
+        #grad_conf = grad_conf_n,
+        grad_conf = Ref{Union{Nothing, ForwardDiff.GradientConfig}}(nothing)
+    ) for i in 1:(Distributed.nworkers()+1))
     (;
         dϕg = Vector{TG}(undef, length(ϕg)),
         #∂elbo_∂ζP = Matrix{TF}(undef, n_θP, n_MC),
@@ -265,6 +297,7 @@ function prepare_gradelbo_helpers(
         #helpers_sites = map(x -> PAT.DiffCache(x), hi), his),
         dϕmvecs = SharedArrays.SharedArray{TF}(n_ϕmvec, n_site), 
         helpers_sites = his,
+        helpers_workers = hws,
         #
         pullback_cl_sample_ζsP! = get_pullback_cl_sample_ζsP(CA.getdata(ϕqPc); n_θP, n_MC),
         pullback_cl_transformζsP! = get_pullback_cl_transformζ!(CA.getdata(ϕqPc); n_θ = n_θP, n_MC),
@@ -290,6 +323,13 @@ function check_gradelbo_helpers(gradh::NamedTuple, ϕqI, ϕms, ζsP;
     @assert size(hi.cv_grad_nelboi.ϕqIc) == (length(ϕqI),)
     @assert size(hi.cv_grad_nelboi.θsP) == size(ζsP)
     @assert size(hi.cv_grad_nelboi.ϕm) == size(ϕms)[1:(end-1)]
+    hwi = gradh.helpers_workers[1]
+    @assert size(hwi.cv_grad_nelboi.ϕqIc) == (length(ϕqI),)
+    @assert size(hwi.cv_grad_nelboi.θsP) == size(ζsP)
+    @assert size(hwi.cv_grad_nelboi.ϕm) == size(ϕms)[1:(end-1)]
+    # @assert hwi.grad_conf isa Union{
+    #     Base.RefValue{Nothing},Base.RefValue{ForwardDiff.GradientConfig}}
+    @assert hwi.grad_conf isa Base.RefValue{Union{Nothing, ForwardDiff.GradientConfig}}
 end
 
 
