@@ -1,3 +1,5 @@
+ENV["MLDATADEVICES_SILENCE_WARN_NO_GPU"]="1" # suppress warning on missing CUDA
+
 #using LinearAlgebra, BlockDiagonals
 using LinearAlgebra
 using StatsFuns: logistic
@@ -23,7 +25,6 @@ n_θP = 3
 n_θM = 3 
 n_M = n_θM + 1 # additional uncertainty scaling factor
 
-MLDATADEVICES_SILENCE_WARN_NO_GPU=1 # suppress warning on missing CUDA
 import Lux
 import Zygote
 import Enzyme
