@@ -30,11 +30,15 @@ function grad_neg_elbo_sites(
     hw_channel = gradh.hw_channel
     # hw_channel.n_avail_items
     if with_channel_element(x -> isnothing(x.grad_conf[]), hw_channel)
-        nelboi_z = _make_nelboi_z_f(h.helpers_sites[1], rnormPM.M[1], i_sites_train[1], ϕqIc, h.θsP)
+        nelboi_z = _make_nelboi_z_f(
+            h.helpers_sites[1], rnormPM.M[1], i_sites_train[1];
+            grad_ax = with_channel_element(hw_channel) do hwi
+                hwi.grad_ax
+            end)
         for i in 1:hw_channel.n_avail_items
             with_channel_element(hw_channel) do hwi
                 hwi.grad_conf[] = ForwardDiff.GradientConfig(
-                    nelboi_z, hwi.cv_grad_nelboi, h.diffchunk)
+                    nelboi_z, CA.getdata(hwi.cv_grad_nelboi), h.diffchunk)
             end
         end
     end
@@ -130,17 +134,21 @@ function forwarddiff_grad_nelboi_z!(hi, rnormM, i_site_train, ϕm, i,
     with_channel_element(hw_channel) do hwi
         grad_conf = hwi.grad_conf[]
         inputs = hwi.cv_grad_nelboi
+        grad_ax = hwi.grad_ax
+        flat = CA.getdata(inputs) # flat backing storage, shares memory with inputs
         #inputs = gradhi.cv_grad_nelboi
         view(inputs, Val(:ϕqIc)) .= ϕqIc
         view(inputs, Val(:ϕm)) .= ϕm
         view(inputs, Val(:θsP)) .= θsP
         # supply something other than nothing to omit gradient to check allocations
         #grads = ForwardDiff.gradient(
-        nelboi_z = _make_nelboi_z_f(hi, rnormM, i_site_train, ϕqIc, θsP)
-        grads = !isnothing(omit_gradient) ? inputs : ForwardDiff.gradient(
-            nelboi_z, inputs, grad_conf)
+        nelboi_z = _make_nelboi_z_f(hi, rnormM, i_site_train; grad_ax)
+        grads_flat = !isnothing(omit_gradient) ? flat : ForwardDiff.gradient(
+            nelboi_z, flat, grad_conf)
         # grads = !isnothing(omit_gradient) ? inputs : ForwardDiff.gradient(
         #     nelboi_z, inputs)
+        # rebuild the ComponentArray as a zero-copy view of the flat partials
+        grads = CA.ComponentArray(grads_flat, grad_ax)
         copyto!(view(dϕmvecs, :, i), view(grads, Val(:ϕm))) # second storage, leads to wrong results
         # returning SVector helps avoiding allocations during reduce
         (; dϕqIc = static_cv_getproperty(grads, Val(:ϕqIc)), 
@@ -148,12 +156,16 @@ function forwarddiff_grad_nelboi_z!(hi, rnormM, i_site_train, ϕm, i,
     end
 end
 
-function _make_nelboi_z_f(hi, rnormM, i_site_train, ϕqIc, θsP)
-    cv -> compute_nelboi_z!(
-        hi, rnormM, i_site_train,
-        #cv[Val(:ϕm)], cv[Val(:ϕqIc)], cv[Val(:θsP)],
-        view(cv, Val(:ϕm)), view(cv, Val(:ϕqIc)), view(cv, Val(:θsP)),
-    )[1]
+function _make_nelboi_z_f(hi, rnormM, i_site_train; grad_ax)
+    # the Flat Vector cv is the flat backing storage of a ComponentArray; rebuild the
+    # ComponentArray as a zero-copy view so that `Val`-keyed access keeps working
+    cv -> begin
+        cv_ = CA.ComponentArray(cv, grad_ax)
+        compute_nelboi_z!(
+            hi, rnormM, i_site_train,
+            view(cv_, Val(:ϕm)), view(cv_, Val(:ϕqIc)), view(cv_, Val(:θsP)),
+        )[1]
+    end
 end
 
 function pullback_sample_ζsP!(dϕqc, dζsP, dlogσ_ζP, ζsP, logσ_ζP, rnormP, ϕqc)
@@ -280,18 +292,24 @@ function prepare_gradelbo_helpers(
     n_ϕmvec = use_ϕm_matrix ? n_M : n_M * n_MC
     # To sync across procs/threads, use a Channel 
     # https://juliafolds2.github.io/OhMyThreads.jl/stable/literate/tls/tls/#The-safe-way:-Channel
-    get_helpers_worker = () -> (;
+    get_helpers_worker = () -> begin
         cv_grad_nelboi = CA.ComponentArray(; 
             ϕqIc, 
             ϕm = use_ϕm_matrix ? Vector{TF}(undef, n_M) : Matrix{TF}(undef, n_M, n_MC), 
             θsP = Matrix{TF}(undef, n_θP, n_MC),
-        ),
-        # grad_conf = convert(Union{Base.RefValue{Nothing},Base.RefValue{ForwardDiff.GradientConfig}}, 
-        #     Ref(nothing))::Union{Base.RefValue{Nothing},Base.RefValue{ForwardDiff.GradientConfig}}
-        #Base.RefValue{Union{Nothing, <:ForwardDiff.GradientConfig}}(nothing),
-        #grad_conf = grad_conf_n,
-        grad_conf = Ref{Union{Nothing, ForwardDiff.GradientConfig}}(nothing)
-    )
+        )
+        (;
+            cv_grad_nelboi,
+            # axis used to rebuild the ComponentArray as a zero-copy view of the
+            # flat vector handed to ForwardDiff.gradient
+            grad_ax = CA.getaxes(cv_grad_nelboi),
+            # grad_conf = convert(Union{Base.RefValue{Nothing},Base.RefValue{ForwardDiff.GradientConfig}}, 
+            #     Ref(nothing))::Union{Base.RefValue{Nothing},Base.RefValue{ForwardDiff.GradientConfig}}
+            #Base.RefValue{Union{Nothing, <:ForwardDiff.GradientConfig}}(nothing),
+            #grad_conf = grad_conf_n,
+            grad_conf = Ref{Union{Nothing, ForwardDiff.GradientConfig}}(nothing)
+        )
+    end
     h1 = get_helpers_worker()
     hw_channel = Channel{typeof(h1)}(n_workers) # workers + parallel threads
     put!(hw_channel, h1)

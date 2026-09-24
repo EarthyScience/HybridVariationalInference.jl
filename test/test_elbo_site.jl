@@ -232,11 +232,13 @@ import ForwardDiff
         n_workers = 1) # sequential execution, only one buffer
     hw_channel = gradh2.hw_channel
     # check allocations in gradient of compute_nelboi_z!
-    nelboi_z = CP._make_nelboi_z_f(hi1, rnormM1, i_site_train1, ϕqIc, θsP1)
+    nelboi_z = with_channel_element(hw_channel) do hwi
+        CP._make_nelboi_z_f(hi1, rnormM1, i_site_train1; grad_ax = hwi.grad_ax)
+    end
     for i in 1:hw_channel.n_avail_items
         with_channel_element(hw_channel) do hwi
             hwi.grad_conf[] = ForwardDiff.GradientConfig(
-                nelboi_z, hwi.cv_grad_nelboi, h2.diffchunk)
+                nelboi_z, CA.getdata(hwi.cv_grad_nelboi), h2.diffchunk)
         end
     end
     dϕmvecs = gradh2.dϕmvecs
@@ -244,7 +246,7 @@ import ForwardDiff
     @test (@allocated tmp_g(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, true, hw_channel)) == 0
     tmp_g(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing, hw_channel)
     @allocated tmp_g(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing, hw_channel)
-    @test (@allocated tmp_g(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing, hw_channel)) <= 1500
+    @test (@allocated tmp_g(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing, hw_channel)) <= 1000
     function tmpgn(args...; n = 10_000)
         for i in 1:n
             tmp_g(args...)
@@ -581,7 +583,7 @@ end
     )    
     # make sure to use only one thread per worker so to share preallocated helpers
     basesize = n_site ÷ Distributed.nworkers()
-    distributedEx = Transducers.DistributedEx(;basesize, threads_basesize = ceiling(basesize / n_threads_proc)) 
+    distributedEx = Transducers.DistributedEx(;basesize, threads_basesize = Int(ceil(basesize / n_threads_proc))) 
     res0_ = CP.grad_neg_elbo_sites( # test deterministic result and distributed
         h0, gradh0, 
         rnormPM,
