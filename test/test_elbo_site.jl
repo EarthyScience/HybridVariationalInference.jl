@@ -1,6 +1,7 @@
 ENV["MLDATADEVICES_SILENCE_WARN_NO_GPU"]="1" # suppress warning on missing CUDA
 import Distributed
-if Distributed.nworkers() < 3; Distributed.addprocs(3-Distributed.nworkers()); end
+if Distributed.nworkers() < 2; Distributed.addprocs(2-Distributed.nworkers()); end
+if Distributed.nworkers() < 2; Distributed.addprocs(2-Distributed.nworkers()); end
 
 #using LinearAlgebra, BlockDiagonals
 using LinearAlgebra
@@ -242,7 +243,8 @@ import ForwardDiff
     tmp_g(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, true, hw_channel)
     @test (@allocated tmp_g(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, true, hw_channel)) == 0
     tmp_g(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing, hw_channel)
-    #@test (@allocated tmp_g(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing, hw_channel)) == 0
+    @allocated tmp_g(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing, hw_channel)
+    @test (@allocated tmp_g(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing, hw_channel)) <= 1500
     function tmpgn(args...; n = 10_000)
         for i in 1:n
             tmp_g(args...)
@@ -250,8 +252,8 @@ import ForwardDiff
     end
     #@usingany BenchmarkTools
     #@benchmark tmp_g(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, true, hw_channel)
-    #@profview_allocs tmpgn(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing, hw_channel)
     #@profview_allocs tmpgn(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, true, hw_channel)
+    #@profview_allocs tmpgn(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing, hw_channel)
 end
 
 # @testset "pullback_g_apply!" begin
@@ -579,7 +581,7 @@ end
     )    
     # make sure to use only one thread per worker so to share preallocated helpers
     basesize = n_site ÷ Distributed.nworkers()
-    distributedEx = Transducers.DistributedEx(;basesize, threads_basesize = max(1,basesize ÷ n_threads_proc)) 
+    distributedEx = Transducers.DistributedEx(;basesize, threads_basesize = ceiling(basesize / n_threads_proc)) 
     res0_ = CP.grad_neg_elbo_sites( # test deterministic result and distributed
         h0, gradh0, 
         rnormPM,
