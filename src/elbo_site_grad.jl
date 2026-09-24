@@ -151,7 +151,8 @@ end
 function _make_nelboi_z_f(hi, rnormM, i_site_train, ϕqIc, θsP)
     cv -> compute_nelboi_z!(
         hi, rnormM, i_site_train,
-        cv[Val(:ϕm)], cv[Val(:ϕqIc)], cv[Val(:θsP)],
+        #cv[Val(:ϕm)], cv[Val(:ϕqIc)], cv[Val(:θsP)],
+        view(cv, Val(:ϕm)), view(cv, Val(:ϕqIc)), view(cv, Val(:θsP)),
     )[1]
 end
 
