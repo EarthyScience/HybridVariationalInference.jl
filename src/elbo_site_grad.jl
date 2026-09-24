@@ -26,12 +26,13 @@ function grad_neg_elbo_sites(
     ladJacTP = transformζ(h.θsP, h.ζsP)  # return value captures ladJacT
     #
     # # compute the gradients of SL! using ForwardDiff
-    gradhi1 = gradh.helpers_sites[1]
+    gradhi1 = gradh.helpers_workers[1]
     hws = gradh.helpers_workers
     if isnothing(hws[1].grad_conf[])
         nelboi_z = _make_nelboi_z_f(h.helpers_sites[1], rnormPM.M[1], i_sites_train[1], ϕqIc, h.θsP)
         for hwi in hws
-            hwi.grad_conf[] = ForwardDiff.GradientConfig(nelboi_z, gradhi1.cv_grad_nelboi)
+            hwi.grad_conf[] = ForwardDiff.GradientConfig(
+                nelboi_z, gradhi1.cv_grad_nelboi, h.diffchunk)
         end 
     end
     cl = ForwardDiffGradNelboiZCl(ϕqIc, h.θsP, gradh.dϕmvecs, gradh.helpers_workers)    
@@ -263,7 +264,7 @@ end
 
 function prepare_gradelbo_helpers(
     ϕg::AbstractVector{TG}, ϕqPc::AbstractVector{TF}, ϕqIc::AbstractVector{TF}; 
-    n_θP, n_θM, n_MC, n_cov, pbm_covar_indices, n_site, n_M
+    n_θP, n_θM, n_MC, n_cov, pbm_covar_indices, n_site, n_M,
     ) where {TG, TF}
     use_ϕm_matrix = isnothing(pbm_covar_indices)
     n_covP =  use_ϕm_matrix ? 0 : length(pbm_covar_indices)
