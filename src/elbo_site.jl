@@ -100,14 +100,15 @@ end
 function prepare_elbo_helpers(ϕg::AbstractArray{TG}, ::AbstractArray{TF};
     n_θP, n_θM, n_site, n_MC, n_cov, n_covP, n_M, 
     use_diff_cache::Val{use_dc} = Val(true),
-    ) where {TG, TF, use_dc}
+    diffchunk::ForwardDiff.Chunk{chunk} = ForwardDiff.Chunk(8),
+    ) where {TG, TF, use_dc, chunk}
     his = Tuple((;
         ζsM_dc = Matrix{TF}(undef, n_θM, n_MC),
         θsM_dc = Matrix{TF}(undef, n_θM, n_MC),
         logσ_ζM_dc = Vector{TF}(undef, n_θM),
         buffer_nθM_dc = Vector{TF}(undef, n_θM),
     ) for i in 1:n_site)
-    helpers_sites = use_dc ? map(hi -> map(x -> PAT.DiffCache(x), hi), his) : his
+    helpers_sites = use_dc ? map(hi -> map(x -> PAT.DiffCache(x, chunk), hi), his) : his
     h = (;
         ζsP = Matrix{TF}(undef, n_θP, n_MC),
         θsP = Matrix{TF}(undef, n_θP, n_MC),
@@ -115,6 +116,7 @@ function prepare_elbo_helpers(ϕg::AbstractArray{TG}, ::AbstractArray{TF};
         ϕms = Matrix{TF}(undef, n_M, n_site),
         ϕms_mcs = Array{TF,3}(undef, n_M, n_MC, n_site),
         xMP = Matrix{TG}(undef, (n_cov + n_covP), n_MC * n_site),
+        diffchunk,
         helpers_sites,
     )
 end

@@ -219,7 +219,7 @@ import ForwardDiff
     # check allocations in gradient of compute_nelboi_z!
     nelboi_z = CP._make_nelboi_z_f(hi1, rnormM1, i_site_train1, ϕqIc, θsP1)
     helpers_workers = ((;
-        grad_conf = Ref(ForwardDiff.GradientConfig(nelboi_z, copy(inputs))), 
+        grad_conf = Ref(ForwardDiff.GradientConfig(nelboi_z, copy(inputs), h2.diffchunk)), 
         cv_grad_nelboi = copy(inputs)),)
     function tmp_g(hi, gradhi, rnormM, i_site_train, inputs, i, dϕmvecs, omit_gradient, helpers_workers)
         ϕms1_ = view(inputs, Val(:ϕm))
