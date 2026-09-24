@@ -47,6 +47,7 @@ export DoubleMM
 
 include("OneBasedVectorWithZero.jl")
 export cat_namedtuple_lastdim, index_at_dim
+export with_channel_element
 include("util.jl")
 
 export WeightedDataLoader
