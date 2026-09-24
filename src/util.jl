@@ -390,8 +390,39 @@ end
 
 
 """
-Reducing function f(acc,t), where both acc and t are tuples
-or named tuples
+    with_channel_element(f::Function, ch::Channel)
+
+Take an element from `ch`, apply `f` to it, and return it to the channel when done.
+The element is guaranteed to be returned to the channel even if `f` throws an error.
+
+# Arguments
+- `f::Function`: A function to apply to the element taken from the channel.
+- `ch::Channel`: A channel to take an element from.
+
+# Returns
+The return value of `f`.
+
+# Throws
+Any exception thrown by `f` is rethrown after the element is returned to the channel.
+
+# Examples
+```julia
+ch = Channel{Int}(3)
+put!(ch, 1)
+put!(ch, 2)
+put!(ch, 3)
+
+result = with_channel_element(ch) do elem
+    elem * 2
+end
 """
 make_tuple_reducer(op) = (acc, t) -> map(op, acc, t)
 
+function with_channel_element(f::Function, ch::Channel)
+    elem = take!(ch)
+    try
+        return f(elem)
+    finally
+        put!(ch, elem)
+    end
+end
