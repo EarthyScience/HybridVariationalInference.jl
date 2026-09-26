@@ -30,15 +30,13 @@ function grad_neg_elbo_sites(
     hw_channel = gradh.hw_channel
     # hw_channel.n_avail_items
     if with_channel_element(x -> isnothing(x.grad_conf[]), hw_channel)
-        nelboi_z = _make_nelboi_z_f(
-            h.helpers_sites[1], rnormPM.M[1], i_sites_train[1];
-            grad_ax = with_channel_element(hw_channel) do hwi
-                hwi.grad_ax
-            end)
         for i in 1:hw_channel.n_avail_items
             with_channel_element(hw_channel) do hwi
+                # build the GradientConfig from the per-worker mutable callable; its
+                # ForwardDiff tag depends only on the callable type, so mutating its
+                # per-site state later keeps the tag valid
                 hwi.grad_conf[] = ForwardDiff.GradientConfig(
-                    nelboi_z, CA.getdata(hwi.cv_grad_nelboi), h.diffchunk)
+                    hwi.nelboi_z, CA.getdata(hwi.cv_grad_nelboi), h.diffchunk)
             end
         end
     end
@@ -140,9 +138,12 @@ function forwarddiff_grad_nelboi_z!(hi, rnormM, i_site_train, ϕm, i,
         view(inputs, Val(:ϕqIc)) .= ϕqIc
         view(inputs, Val(:ϕm)) .= ϕm
         view(inputs, Val(:θsP)) .= θsP
-        # supply something other than nothing to omit gradient to check allocations
-        #grads = ForwardDiff.gradient(
-        nelboi_z = _make_nelboi_z_f(hi, rnormM, i_site_train; grad_ax)
+        # update the preallocated per-worker callable's per-site state in place so that
+        # no closure is constructed per call
+        nelboi_z = hwi.nelboi_z
+        nelboi_z.hi = hi
+        nelboi_z.rnormM = rnormM
+        nelboi_z.i_site_train = i_site_train
         # write the gradient into the preallocated per-worker buffer to avoid
         # the result-vector allocation in ForwardDiff.gradient
         grads_flat = if isnothing(omit_gradient)
@@ -161,16 +162,32 @@ function forwarddiff_grad_nelboi_z!(hi, rnormM, i_site_train, ϕm, i,
     end
 end
 
-function _make_nelboi_z_f(hi, rnormM, i_site_train; grad_ax)
-    # the Flat Vector cv is the flat backing storage of a ComponentArray; rebuild the
-    # ComponentArray as a zero-copy view so that `Val`-keyed access keeps working
-    cv -> begin
-        cv_ = CA.ComponentArray(cv, grad_ax)
-        compute_nelboi_z!(
-            hi, rnormM, i_site_train,
-            view(cv_, Val(:ϕm)), view(cv_, Val(:ϕqIc)), view(cv_, Val(:θsP)),
-        )[1]
-    end
+"""
+    NelboiZCallable
+
+Mutable callable differentiated by `ForwardDiff.gradient!` to obtain the gradient of
+the single-site negative ELBO with respect to the flat vector `(ϕqIc, ϕm, θsP)`.
+
+The per-site state (`hi`, `rnormM`, `i_site_train`) is held in typed mutable fields so
+that one instance can be preallocated per worker and updated in place before every
+`gradient!` call, avoiding a fresh closure allocation per site. The `ForwardDiff`
+tag depends only on this callable's type, so mutating the fields does not invalidate
+a `GradientConfig` built from an instance of the same type.
+"""
+mutable struct NelboiZCallable{TH,TR,TS,TA}
+    hi::TH
+    rnormM::TR
+    i_site_train::TS
+    grad_ax::TA
+end
+function (f::NelboiZCallable)(cv)
+    # cv is the flat backing storage of a ComponentArray; rebuild the ComponentArray as
+    # a zero-copy view so that `Val`-keyed access keeps working
+    cv_ = CA.ComponentArray(cv, f.grad_ax)
+    compute_nelboi_z!(
+        f.hi, f.rnormM, f.i_site_train,
+        view(cv_, Val(:ϕm)), view(cv_, Val(:ϕqIc)), view(cv_, Val(:θsP)),
+    )[1]
 end
 
 function pullback_sample_ζsP!(dϕqc, dζsP, dlogσ_ζP, ζsP, logσ_ζP, rnormP, ϕqc)
@@ -291,6 +308,7 @@ end
 function prepare_gradelbo_helpers(
     ϕg::AbstractVector{TG}, ϕqPc::AbstractVector{TF}, ϕqIc::AbstractVector{TF}; 
     n_θP, n_θM, n_MC, n_cov, pbm_covar_indices, n_site, n_M, n_workers,
+    hi1, rnormM1, i_site_train1,
     ) where {TG, TF}
     use_ϕm_matrix = isnothing(pbm_covar_indices)
     n_covP =  use_ϕm_matrix ? 0 : length(pbm_covar_indices)
@@ -310,6 +328,10 @@ function prepare_gradelbo_helpers(
             # axis used to rebuild the ComponentArray as a zero-copy view of the
             # flat vector handed to ForwardDiff.gradient
             grad_ax = CA.getaxes(cv_grad_nelboi),
+            # per-worker mutable callable differentiated by ForwardDiff; its per-site
+            # state is updated in place before each gradient! call, so it is preallocated
+            # here and never reconstructed per site
+            nelboi_z = NelboiZCallable(hi1, rnormM1, i_site_train1, CA.getaxes(cv_grad_nelboi)),
             # grad_conf = convert(Union{Base.RefValue{Nothing},Base.RefValue{ForwardDiff.GradientConfig}}, 
             #     Ref(nothing))::Union{Base.RefValue{Nothing},Base.RefValue{ForwardDiff.GradientConfig}}
             #Base.RefValue{Union{Nothing, <:ForwardDiff.GradientConfig}}(nothing),
