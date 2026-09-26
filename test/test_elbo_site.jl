@@ -246,7 +246,7 @@ import ForwardDiff
     @test (@allocated tmp_g(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, true, hw_channel)) == 0
     tmp_g(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing, hw_channel)
     @allocated tmp_g(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing, hw_channel)
-    @test (@allocated tmp_g(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing, hw_channel)) <= 1000
+    @test (@allocated tmp_g(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing, hw_channel)) <= 200
     function tmpgn(args...; n = 10_000)
         for i in 1:n
             tmp_g(args...)
