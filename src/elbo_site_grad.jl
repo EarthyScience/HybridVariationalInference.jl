@@ -143,8 +143,13 @@ function forwarddiff_grad_nelboi_z!(hi, rnormM, i_site_train, ϕm, i,
         # supply something other than nothing to omit gradient to check allocations
         #grads = ForwardDiff.gradient(
         nelboi_z = _make_nelboi_z_f(hi, rnormM, i_site_train; grad_ax)
-        grads_flat = !isnothing(omit_gradient) ? flat : ForwardDiff.gradient(
-            nelboi_z, flat, grad_conf)
+        # write the gradient into the preallocated per-worker buffer to avoid
+        # the result-vector allocation in ForwardDiff.gradient
+        grads_flat = if isnothing(omit_gradient)
+            ForwardDiff.gradient!(hwi.grads_buf, nelboi_z, flat, grad_conf)
+        else
+            flat
+        end
         # grads = !isnothing(omit_gradient) ? inputs : ForwardDiff.gradient(
         #     nelboi_z, inputs)
         # rebuild the ComponentArray as a zero-copy view of the flat partials
@@ -300,6 +305,8 @@ function prepare_gradelbo_helpers(
         )
         (;
             cv_grad_nelboi,
+            # preallocated gradient result buffer, written by ForwardDiff.gradient!
+            grads_buf = similar(CA.getdata(cv_grad_nelboi)),
             # axis used to rebuild the ComponentArray as a zero-copy view of the
             # flat vector handed to ForwardDiff.gradient
             grad_ax = CA.getaxes(cv_grad_nelboi),
