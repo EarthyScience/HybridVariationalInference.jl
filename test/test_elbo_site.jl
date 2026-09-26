@@ -229,31 +229,28 @@ import ForwardDiff
     end
     gradh2 = CP.prepare_gradelbo_helpers(ϕg2, ϕqPc, ϕqIc; 
         n_θP, n_θM, n_MC, n_cov, pbm_covar_indices=pbm_covar_indices2, n_site, n_M, 
-        n_workers = 1) # sequential execution, only one buffer
+        n_workers = 1, hi1 = h21, rnormM1 = rnormM1, i_site_train1 = i_site_train1[1]) # sequential execution, only one buffer
     hw_channel = gradh2.hw_channel
     # check allocations in gradient of compute_nelboi_z!
-    nelboi_z = with_channel_element(hw_channel) do hwi
-        CP._make_nelboi_z_f(hi1, rnormM1, i_site_train1; grad_ax = hwi.grad_ax)
-    end
     for i in 1:hw_channel.n_avail_items
         with_channel_element(hw_channel) do hwi
             hwi.grad_conf[] = ForwardDiff.GradientConfig(
-                nelboi_z, CA.getdata(hwi.cv_grad_nelboi), h2.diffchunk)
+                hwi.nelboi_z, CA.getdata(hwi.cv_grad_nelboi), h2.diffchunk)
         end
     end
     dϕmvecs = gradh2.dϕmvecs
-    tmp_g(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, true, hw_channel)
-    @test (@allocated tmp_g(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, true, hw_channel)) == 0
-    tmp_g(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing, hw_channel)
-    @allocated tmp_g(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing, hw_channel)
-    @test (@allocated tmp_g(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing, hw_channel)) <= 200
+    tmp_g(h21, rnormM1, i_site_train1[1], inputs, 1, dϕmvecs, true, hw_channel)
+    @test (@allocated tmp_g(h21, rnormM1, i_site_train1[1], inputs, 1, dϕmvecs, true, hw_channel)) == 0
+    tmp_g(h21, rnormM1, i_site_train1[1], inputs, 1, dϕmvecs, nothing, hw_channel)
+    @allocated tmp_g(h21, rnormM1, i_site_train1[1], inputs, 1, dϕmvecs, nothing, hw_channel)
+    @test (@allocated tmp_g(h21, rnormM1, i_site_train1[1], inputs, 1, dϕmvecs, nothing, hw_channel)) == 0
     function tmpgn(args...; n = 10_000)
         for i in 1:n
             tmp_g(args...)
         end
     end
     #@usingany BenchmarkTools
-    #@benchmark tmp_g(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, true, hw_channel)
+    #@benchmark tmp_g($h21, $rnormM1, $i_site_train1, $inputs, 1, $dϕmvecs, true, $hw_channel)
     #@profview_allocs tmpgn(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, true, hw_channel)
     #@profview_allocs tmpgn(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing, hw_channel)
 end
@@ -554,9 +551,8 @@ end
     n_threads_proc = min(Threads.nthreads(), 4)
     n_workers = Distributed.nworkers() * n_threads_proc
     gradh0 = CP.prepare_gradelbo_helpers(ϕg, ϕqPc, ϕqIc; 
-        n_θP, n_θM, n_MC, n_cov, pbm_covar_indices=nothing, n_site, n_M, n_workers)
-    # gradh0 = CP.prepare_gradelbo_helpers(ϕg, ϕqP; 
-    #     n_θP, n_MC, n_cov, n_covP=n_covP0, n_site, n_M)
+        n_θP, n_θM, n_MC, n_cov, pbm_covar_indices=nothing, n_site, n_M, n_workers,
+        hi1 = h0.helpers_sites[1], rnormM1 = rnormPM.M[1], i_site_train1 = 1)
     CP.check_elbo_helpers(h0, xM, nothing; n_ϕg = length(ϕgv))
     #
     rng1 = StableRNG(1234)
@@ -610,7 +606,8 @@ end
     #
     #---------------- matrix mode with population covariates
     gradh2 = CP.prepare_gradelbo_helpers(ϕg2, ϕqPc, ϕqIc; 
-        n_θP, n_θM, n_MC, n_cov, pbm_covar_indices=pbm_covar_indices2, n_site, n_M, n_workers)
+        n_θP, n_θM, n_MC, n_cov, pbm_covar_indices=pbm_covar_indices2, n_site, n_M, n_workers,
+        hi1 = h2.helpers_sites[1], rnormM1 = rnormPM.M[1], i_site_train1 = 1)
     CP.check_elbo_helpers(h2, xM, pbm_covar_indices2; n_ϕg = length(ϕg2v))
     rng1 = StableRNG(1234)
     CP.randnPM!(rng1, rnormPM)
