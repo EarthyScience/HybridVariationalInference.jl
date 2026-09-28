@@ -83,8 +83,9 @@ Extends CA.static_getproperty(cv, Val(:b)) and @static_unpack.
 But also converts a component that is itself a ComponentVector to a StaticVector
 """
 function static_cv_getproperty(cv::CA.ComponentVector, key::Val) 
-    v = view(cv, key)    
-    if v isa CA.ComponentVector 
+    local v = view(cv, key)    
+    if v isa CA.ComponentVector
+        #SA.SVector{axis_length(CA.getaxes(v)[1])}(CA.getdata(v))
         SA.SVector{axis_length(CA.getaxes(v)[1])}(v)
         # attaching axis -> downstream errors "Dimension is not static. Please file a bug."
         # CA.ComponentVector(
