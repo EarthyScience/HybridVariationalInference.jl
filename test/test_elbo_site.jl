@@ -232,11 +232,13 @@ import ForwardDiff
     end
     alloc_compute_nelboi_z(h21, rnormM1, i_site_train1, ϕms1_, ϕqIc_, θsP1_)
     # 
-    gradh2 = CP.prepare_gradelbo_helpers2(inputs, ϕg, ϕqPc; 
+    gradh2 = CP.prepare_gradelbo_helpers(inputs.ϕqIc, inputs.ϕm, inputs.θsP, ϕg, ϕqPc; 
         pbm_covar_indices=pbm_covar_indices2, n_workers=1,
         hi1 = h2.helpers_sites[1], rnormM1 = rnormPM.M[1], i_site_train1 = 1,
         h2.diffchunk, n_site, n_cov)
     hw_channel = gradh2.hw_channel
+    tmp = with_channel_element(x -> x.inputs_cv, hw_channel)
+    tmp.ϕm
 
     # alternative: invoke forwarddiff_grad_nelboi_z! with ϕqIc_ and θsP_ as views,
     # passing dϕmvecs as the plain array. The views are created once *outside* the
@@ -253,6 +255,7 @@ import ForwardDiff
     ϕqIc_ = view(inputs, Val(:ϕqIc))
     θsP_  = view(inputs, Val(:θsP))
     dϕmvecs = gradh2.dϕmvecs
+    i_site_train_1 = i_site_train1[1]
     function alloc_forwarddiff_grad_nelboi_z(h21, rnormM1, i_site_train_1, ϕm_, ϕqIc_, θsP_, dϕmvecs, hw_channel)
         loop_forwarddiff_grad_nelboi_z(1, h21, rnormM1, i_site_train_1, 1, ϕm_, ϕqIc_, θsP_, dϕmvecs, hw_channel, true)
         @test (@allocated loop_forwarddiff_grad_nelboi_z(100, h21, rnormM1, i_site_train_1, 1, ϕm_, ϕqIc_, θsP_, dϕmvecs, hw_channel, true)) == 0
@@ -590,7 +593,6 @@ end
         xM,
         is_testmode = false,
     )    
-    # make sure to use only one thread per worker so to share preallocated helpers
     basesize = n_site ÷ Distributed.nworkers()
     distributedEx = Transducers.DistributedEx(;basesize, threads_basesize = Int(ceil(basesize / n_threads_proc))) 
     res0_, gradh0_ = CP.grad_neg_elbo_sites( # test deterministic result and distributed
