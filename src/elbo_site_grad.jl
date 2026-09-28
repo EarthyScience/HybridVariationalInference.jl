@@ -9,6 +9,7 @@ function grad_neg_elbo_sites(
     intϕqP, intϕqI,
     xM,
     is_testmode, 
+    n_workers = 1, # TODO compute from executor and Distributed.nworkers and nthreads,...
     executor::Transducers.Executor = Transducers.SequentialEx(),
     kwargs...
 ) where {TG, TF}
@@ -20,26 +21,43 @@ function grad_neg_elbo_sites(
     h_ϕm = h[ϕm_buffer_key]
     gradh = grad_elbo_helpers # here, as object, avoid closure so that can debug easier
     check_elbo_helpers(h, xM, pbm_covar_indices; n_ϕg = length(ϕg))
-    check_gradelbo_helpers(gradh, ϕqI, h_ϕm, h.ζsP; n_ϕg = length(ϕg))
     sample_ζsP!(h.ζsP, h.logσ_ζP, rnormPM.P, ϕqPc) # n_P * n_MC
     g_apply!(h_ϕm, ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
+    n_cov, n_site = size(xM)
+    n_θP, n_MC = size(h.ζsP)
     ladJacTP = transformζ(h.θsP, h.ζsP)  # return value captures ladJacT
     #
-    # # compute the gradients of SL! using ForwardDiff
-    # initialize GradientConfig of each element in the Channel
-    hw_channel = gradh.hw_channel
-    # hw_channel.n_avail_items
-    if with_channel_element(x -> isnothing(x.grad_conf[]), hw_channel)
-        for i in 1:hw_channel.n_avail_items
-            with_channel_element(hw_channel) do hwi
-                # build the GradientConfig from the per-worker mutable callable; its
-                # ForwardDiff tag depends only on the callable type, so mutating its
-                # per-site state later keeps the tag valid
-                hwi.grad_conf[] = ForwardDiff.GradientConfig(
-                    hwi.nelboi_z, CA.getdata(hwi.cv_grad_nelboi), h.diffchunk)
-            end
-        end
+    if isempty(gradh)
+        # need to construct outside of prepare_gradelbo_helpers2 to infer axis
+        cv_grad = CA.ComponentArray(; 
+            ϕqIc, 
+            ϕm = selectdim(h_ϕm, ndims(h_ϕm), 1), 
+            θsP = h.ζsP,
+        )
+        #Main.@infiltrate_main
+        #Main.@inferred_main 
+        gradh = prepare_gradelbo_helpers2(cv_grad, ϕg, ϕqPc; 
+            pbm_covar_indices, n_workers,
+            hi1 = h.helpers_sites[1], rnormM1 = rnormPM.M[1], i_site_train1 = 1,
+            h.diffchunk, n_site, n_cov)
     end
+    check_gradelbo_helpers(gradh, ϕqI, h_ϕm, h.ζsP; n_ϕg = length(ϕg))
+    hw_channel = gradh.hw_channel
+    #
+    # # # compute the gradients of SL! using ForwardDiff
+    # # initialize GradientConfig of each element in the Channel
+    # # hw_channel.n_avail_items
+    # if with_channel_element(x -> isnothing(x.grad_conf[]), hw_channel)
+    #     for i in 1:hw_channel.n_avail_items
+    #         with_channel_element(hw_channel) do hwi
+    #             # build the GradientConfig from the per-worker mutable callable; its
+    #             # ForwardDiff tag depends only on the callable type, so mutating its
+    #             # per-site state later keeps the tag valid
+    #             hwi.grad_conf[] = ForwardDiff.GradientConfig(
+    #                 hwi.nelboi_z, CA.getdata(hwi.cv_grad_nelboi), h.diffchunk)
+    #         end
+    #     end
+    # end
     #hw1 = take!(hw_channel); put!(hw_channel, hw1)
     cl = ForwardDiffGradNelboiZCl(ϕqIc, h.θsP, gradh.dϕmvecs, gradh.hw_channel)    
     ϕm_it = eachslice(h_ϕm; dims = ndims(h_ϕm))
@@ -78,13 +96,13 @@ function grad_neg_elbo_sites(
     ∂elbo_∂ladJacTP = -one(TF)
     #
     # pullback gradients of ϕqm -> gradh.dϕg and gradh.dζsP
-    grad_elbo_helpers.pullback_g_apply!(
+    gradh.pullback_g_apply!(
         gradh.dϕg, gradh.∂elbo_∂ϕm_∂ζP, h_ϕm, ∂elbo_∂ϕqm, 
         ϕg, xM, h.ζsP, pbm_covar_indices, g, is_testmode)
     #
     # pullback gradients of ∂elbo_∂θP to ∂elbo_∂θP_∂ζP
     ∂elbo_∂θP_∂ζP = Matrix{TF}(undef, size(∂elbo_∂θP)) # TODO avoid allocation
-    grad_elbo_helpers.pullback_cl_transformζsP!(
+    gradh.pullback_cl_transformζsP!(
         ∂elbo_∂θP_∂ζP, 
         ∂elbo_∂θP,
         ∂elbo_∂ladJacTP,
@@ -95,7 +113,7 @@ function grad_neg_elbo_sites(
     # pullback gradients of ∂elbo_∂ζP, ∂elbo_∂ϕm_∂ζP, and ∂elbo_∂logσ_ζP to dϕqP
     dϕqP = similar(ϕqPc) # TODO avoid allocation
     #pullback_sample_ζsP!(
-    grad_elbo_helpers.pullback_cl_sample_ζsP!(
+    gradh.pullback_cl_sample_ζsP!(
         dϕqP, 
         ∂elbo_∂θP_∂ζP + gradh.∂elbo_∂ϕm_∂ζP, gradh.∂elbo_∂logσ_ζP,
         h.ζsP, h.logσ_ζP, rnormPM.P, ϕqPc
@@ -105,7 +123,7 @@ function grad_neg_elbo_sites(
     # n_θP, n_MC = size(h.ζsP)
     # ∂ζsP∂ϕqc = zeros(eltype(ζsP), n_θP * n_MC, length(ϕqc))
     # #pullback_sample_ζsP!(∂ζsP∂ϕqc, h.ζsP, h.logσ_ζP, h.rnormP, ϕqPc)
-    (;dϕqP, dϕqI = ∂elbo_∂ϕqI, dϕg = gradh.dϕg)
+    (;dϕqP, dϕqI = ∂elbo_∂ϕqI, dϕg = gradh.dϕg), gradh
 end
 
 """
@@ -120,19 +138,23 @@ end
 function (f::ForwardDiffGradNelboiZCl)(tup)
     hi, rnormM, i_site_train, ϕm, i = tup
     forwarddiff_grad_nelboi_z!(hi, rnormM, i_site_train, ϕm, i,
-        f.ϕqIc, f.θsP, f.dϕmvecs; f.hw_channel)
+        f.ϕqIc, f.θsP, f.dϕmvecs, f.hw_channel)
 end
 
 function forwarddiff_grad_nelboi_z!(hi, rnormM, i_site_train, ϕm, i, 
-    ϕqIc, θsP, dϕmvecs, omit_gradient=nothing; hw_channel) 
+    ϕqIc, θsP, dϕmvecs, hw_channel, omit_gradient=nothing) 
     # aggregate all the derivatives to allow a single call to ForwardDiff.gradient
     #   reshape ϕm and ζsP into a vector to avoid allocations in cv[Val(:ζsP)]
     # Use pre-extracted views to avoid wrapper allocations
     # hw_channel.n_avail_items
+    #_get_val(::Val{T}) where T = T # stored as type parameter for type stability
     with_channel_element(hw_channel) do hwi
-        grad_conf = hwi.grad_conf[]
+    #local hwi = take!(hw_channel)
+        grad_conf = hwi.grad_conf
         inputs = hwi.cv_grad_nelboi
-        grad_ax = hwi.grad_ax
+        #grad_ax = hwi.grad_ax
+        grad_ax = hwi.nelboi_z.ax_plain
+        #grad_ax = _get_val(hwi.nelboi_z.ax)
         flat = CA.getdata(inputs) # flat backing storage, shares memory with inputs
         #inputs = gradhi.cv_grad_nelboi
         view(inputs, Val(:ϕqIc)) .= ϕqIc
@@ -157,9 +179,11 @@ function forwarddiff_grad_nelboi_z!(hi, rnormM, i_site_train, ϕm, i,
         grads = CA.ComponentArray(grads_flat, grad_ax)
         copyto!(view(dϕmvecs, :, i), view(grads, Val(:ϕm))) # second storage, leads to wrong results
         # returning SVector helps avoiding allocations during reduce
-        (; dϕqIc = static_cv_getproperty(grads, Val(:ϕqIc)), 
+        res = (; dϕqIc = static_cv_getproperty(grads, Val(:ϕqIc)), 
             dθsP = static_cv_getproperty(grads, Val(:θsP)))
     end
+    #put!(hw_channel, hwi) 
+    #res
 end
 
 """
@@ -174,16 +198,18 @@ that one instance can be preallocated per worker and updated in place before eve
 tag depends only on this callable's type, so mutating the fields does not invalidate
 a `GradientConfig` built from an instance of the same type.
 """
-mutable struct NelboiZCallable{TH,TR,TS,TA}
+mutable struct NelboiZCallable{AX,TH,TR,TS, TA}
     hi::TH
     rnormM::TR
     i_site_train::TS
-    grad_ax::TA
+    ax::Val{AX}
+    ax_plain::TA
 end
-function (f::NelboiZCallable)(cv)
+function (f::NelboiZCallable{AX})(cv) where AX
     # cv is the flat backing storage of a ComponentArray; rebuild the ComponentArray as
     # a zero-copy view so that `Val`-keyed access keeps working
-    cv_ = CA.ComponentArray(cv, f.grad_ax)
+    # cv_ = CA.ComponentArray(cv, AX)
+    cv_ = CA.ComponentArray(cv, f.ax_plain)
     compute_nelboi_z!(
         f.hi, f.rnormM, f.i_site_train,
         view(cv_, Val(:ϕm)), view(cv_, Val(:ϕqIc)), view(cv_, Val(:θsP)),
@@ -305,38 +331,43 @@ function get_pullback_cl_transformζ!(::AbstractArray{TF};  n_θ, n_MC) where {T
     end
 end
 
-function prepare_gradelbo_helpers(
-    ϕg::AbstractVector{TG}, ϕqPc::AbstractVector{TF}, ϕqIc::AbstractVector{TF}; 
-    n_θP, n_θM, n_MC, n_cov, pbm_covar_indices, n_site, n_M, n_workers,
+function prepare_gradelbo_helpers2(
+    cv_grad::CA.ComponentVector{TF,DT,AX},
+    ϕg::AbstractVector{TG}, ϕqPc::AbstractVector{TF}; 
+    pbm_covar_indices, n_workers,
     hi1, rnormM1, i_site_train1,
-    ) where {TG, TF}
+    diffchunk, n_site, n_cov,
+    ) where {TG, TF, DT,AX}
+    ϕqIc = cv_grad[Val(:ϕqIc)]
+    ϕm = cv_grad[Val(:ϕm)]
+    θsP = cv_grad[Val(:θsP)]
     use_ϕm_matrix = isnothing(pbm_covar_indices)
     n_covP =  use_ϕm_matrix ? 0 : length(pbm_covar_indices)
-    n_ϕmvec = use_ϕm_matrix ? n_M : n_M * n_MC
+    n_ϕmvec = length(ϕm) #use_ϕm_matrix ? n_M : n_M * n_MC
+    n_θP, n_MC = size(θsP)
+    n_M = size(ϕm,1)
     # To sync across procs/threads, use a Channel 
     # https://juliafolds2.github.io/OhMyThreads.jl/stable/literate/tls/tls/#The-safe-way:-Channel
+
     get_helpers_worker = () -> begin
-        cv_grad_nelboi = CA.ComponentArray(; 
-            ϕqIc, 
-            ϕm = use_ϕm_matrix ? Vector{TF}(undef, n_M) : Matrix{TF}(undef, n_M, n_MC), 
-            θsP = Matrix{TF}(undef, n_θP, n_MC),
-        )
+        nelboi_z = NelboiZCallable(hi1, rnormM1, i_site_train1, Val(CA.getaxes(cv_grad)), CA.getaxes(cv_grad))
         (;
-            cv_grad_nelboi,
+            cv_grad_nelboi = similar(cv_grad),
             # preallocated gradient result buffer, written by ForwardDiff.gradient!
-            grads_buf = similar(CA.getdata(cv_grad_nelboi)),
+            grads_buf = similar(CA.getdata(cv_grad)),
             # axis used to rebuild the ComponentArray as a zero-copy view of the
             # flat vector handed to ForwardDiff.gradient
-            grad_ax = CA.getaxes(cv_grad_nelboi),
+            # grad_ax = CA.getaxes(cv_grad),
             # per-worker mutable callable differentiated by ForwardDiff; its per-site
             # state is updated in place before each gradient! call, so it is preallocated
             # here and never reconstructed per site
-            nelboi_z = NelboiZCallable(hi1, rnormM1, i_site_train1, CA.getaxes(cv_grad_nelboi)),
+            nelboi_z,
             # grad_conf = convert(Union{Base.RefValue{Nothing},Base.RefValue{ForwardDiff.GradientConfig}}, 
             #     Ref(nothing))::Union{Base.RefValue{Nothing},Base.RefValue{ForwardDiff.GradientConfig}}
             #Base.RefValue{Union{Nothing, <:ForwardDiff.GradientConfig}}(nothing),
             #grad_conf = grad_conf_n,
-            grad_conf = Ref{Union{Nothing, ForwardDiff.GradientConfig}}(nothing)
+            grad_conf = ForwardDiff.GradientConfig(
+                    nelboi_z, CA.getdata(cv_grad), diffchunk)
         )
     end
     h1 = get_helpers_worker()
@@ -346,10 +377,10 @@ function prepare_gradelbo_helpers(
         put!(hw_channel, get_helpers_worker())
     end    
     (;
-        dϕg = Vector{TG}(undef, length(ϕg)),
+        dϕg = similar(ϕg),
         #∂elbo_∂ζP = Matrix{TF}(undef, n_θP, n_MC),
-        ∂elbo_∂ϕm_∂ζP = Matrix{TF}(undef, n_θP, n_MC),
-        ∂elbo_∂logσ_ζP = Vector{TF}(undef, n_θP),
+        ∂elbo_∂ϕm_∂ζP = similar(θsP),
+        ∂elbo_∂logσ_ζP = Vector{TF}(undef, size(θsP,1)),
         #helpers_sites = map(x -> PAT.DiffCache(x), hi), his),
         dϕmvecs = SharedArrays.SharedArray{TF}(n_ϕmvec, n_site), 
         # helpers_sites = his,
@@ -362,6 +393,7 @@ function prepare_gradelbo_helpers(
             ϕg, ϕqPc; n_θP, n_cov, n_covP, n_MC, n_site, n_M),
     )
 end
+
 
 function check_gradelbo_helpers(gradh::NamedTuple, ϕqI, ϕms, ζsP;
     n_ϕg
@@ -382,7 +414,7 @@ function check_gradelbo_helpers(gradh::NamedTuple, ϕqI, ϕms, ζsP;
         @assert size(hwi.cv_grad_nelboi.ϕm) == size(ϕms)[1:(end-1)]
         # @assert hwi.grad_conf isa Union{
         #     Base.RefValue{Nothing},Base.RefValue{ForwardDiff.GradientConfig}}
-        @assert hwi.grad_conf isa Base.RefValue{Union{Nothing, ForwardDiff.GradientConfig}}
+        @assert hwi.grad_conf isa ForwardDiff.GradientConfig
     end
 end
 
