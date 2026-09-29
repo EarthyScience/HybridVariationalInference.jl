@@ -205,7 +205,7 @@ function get_pullback_g_apply(::AbstractArray{TG}, ::AbstractArray{TF};
         n_MC_f = size(ζsP,1)
         @assert (n_cov, n_covP, n_MC, n_site) == (n_cov_f, n_covP_f, n_MC_f, n_site_f)
         @assert size(dϕms_buffer) == size(dϕm)
-        #
+    
         fill!(dϕg,  zero(eltype(dϕg)))
         fill!(dζsP, zero(eltype(dζsP))) # also output cotangent
         fill!(dxMP_, zero(eltype(dxMP_)))

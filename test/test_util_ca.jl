@@ -79,3 +79,19 @@ end
     tmpf(cv)
 end
 
+@testset "copyto_nested!" begin
+    ϕc = (
+        x = zeros(3),
+        params = (
+            weights = zeros(2, 2),
+            biases = zeros(2),
+            nested = (a = zeros(4), b = zeros(3))
+        ),
+        y = zeros(5)
+    )
+    ϕc_cv = CA.ComponentVector(ϕc)
+    rand!(ϕc_cv)
+    CP.copyto_nested!(ϕc, ϕc_cv)
+    @test ϕc.x == ϕc_cv.x
+    @test ϕc.params.nested.a == ϕc_cv.params.nested.a
+end

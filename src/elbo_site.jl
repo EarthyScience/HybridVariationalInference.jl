@@ -36,6 +36,8 @@ function neg_elbo_sites!(
     @assert size(rnormPM.M[1]) == (n_M, n_MC)
     ϕqPc = intϕqP(ϕqP) 
     ϕqIc = intϕqI(ϕqI)
+    pbm_covar_indices = !isnothing(pbm_covar_indices) && isempty(pbm_covar_indices) ? nothing : pbm_covar_indices
+    #
     sample_ζsP!(h.ζsP, h.logσ_ζP, rnormPM.P, ϕqPc) # n_P * n_MC
     # (n_M x n_sit)  or (n_M x n_MC x n_sit)    
     ϕms_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
@@ -233,15 +235,6 @@ function g_apply_oop(ϕg::AbstractVector{TG}, xM::AbstractMatrix{TG},
     end
 end
 
-# function g_apply(ϕg::AbstractVector{TG}, xM::AbstractMatrix{TG}, 
-#     ζP::AbstractVector{TF}, pbm_covar_indices::AbstractVector{<:Number}, 
-#     g::AbstractModelApplicator,
-#     xMP::AbstractMatrix, is_testmode::Bool=false
-#     ) where {TG, TF}
-#     length(pbm_covar_indices) == 0 && return apply_model(g, xM, ϕg; is_testmode)
-#     update_xMP!(xMP, xM, ζP, pbm_covar_indices)
-#     return apply_model(g, xMP, ϕg; is_testmode)
-# end
 function g_apply!(ϕm::AbstractMatrix{TF}, ϕg::AbstractVector{TG}, xM::AbstractMatrix{TG}, 
     ζsP::AbstractMatrix{TF}, pbm_covar_indices::Nothing, 
     g::AbstractModelApplicator,
@@ -251,28 +244,15 @@ function g_apply!(ϕm::AbstractMatrix{TF}, ϕg::AbstractVector{TG}, xM::Abstract
         apply_model!(ϕm, g, xM, ϕg; is_testmode) # allocates view
         return nothing
 end
-function g_apply!(ϕm::AbstractArray{TF,3}, ϕg::AbstractVector{TG}, xM::AbstractMatrix{TG}, 
-    ζsP::AbstractMatrix{TF}, pbm_covar_indices::AbstractVector{<:Number}, 
-    g::AbstractModelApplicator,
-    xMP::AbstractMatrix,
-    is_testmode::Bool
-    ) where {TG, TF}
-    if length(pbm_covar_indices) == 0 
-        n_M, n_MC, n_site = size(ϕm)
-        @assert size(ζsP,2) == n_MC
-        y1 = view(ϕm,:,1,:)
-        apply_model!(y1, g, xM, ϕg; is_testmode) # allocates view
-        for j in 2:n_MC
-            ϕm[:,j,:] .= y1
-        end
-        return nothing
-    end
+function g_apply!(ϕm::AbstractArray{TF,3}, ϕg::AbstractVector{TG}, xM::AbstractMatrix{TG},
+    ζsP::AbstractMatrix{TF}, pbm_covar_indices::AbstractVector{<:Number},
+    g::AbstractModelApplicator, xMP::AbstractMatrix, is_testmode::Bool) where {TG, TF}
     update_xMP!(xMP, xM, ζsP, pbm_covar_indices)
-    yr = reshape(ϕm, size(ϕm,1),:) # view collapses 3'r dim, apply_model! updates underlying y
+    yr = reshape(ϕm, size(ϕm,1), :)
     apply_model!(yr, g, xMP, ϕg; is_testmode)
-    return nothing # no need to return primal for proper gradients of return to whatever
-    #return y
+    return nothing
 end
+
 function update_xMP!(xMP::AbstractMatrix{TG}, 
     xM::AbstractMatrix{TG}, ζsP::AbstractMatrix{TF}, pbm_covar_indices::AbstractVector{<:Number}
     ) where {TG, TF}

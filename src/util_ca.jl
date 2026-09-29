@@ -97,3 +97,51 @@ function static_cv_getproperty(cv::CA.ComponentVector, key::Val)
     end
 end
 
+"""
+    copyto_nested!(dest::NamedTuple, src::ComponentVector) -> NamedTuple
+
+Copy data from a `ComponentVector` into a preallocated `NamedTuple`, recursively
+handling nested structures.
+
+# Arguments
+- `dest::NamedTuple`: The destination `NamedTuple` with preallocated arrays or
+  nested `NamedTuple`s. The structure must match `src` exactly.
+- `src::ComponentVector`: The source `ComponentVector` containing the data to copy.
+
+# Returns
+The modified `dest` `NamedTuple` (same object, mutated in-place).
+
+# Details
+This function recursively traverses both `dest` and `src` simultaneously:
+- If a field in `dest` is a `NamedTuple` and the corresponding field in `src`
+  is a `ComponentVector`, the function recurses into both.
+- Otherwise, it copies the data from the view of `src` into the array in `dest`
+  using `copyto!`.
+
+This is useful for zero-allocation copying of `ComponentVector` data into a
+preallocated `NamedTuple` structure, which can be beneficial in performance-
+critical code or when interfacing with functions that expect `NamedTuple`s.
+
+# Example
+```julia
+using ComponentArrays
+
+dest = (x = zeros(3), params = (a = zeros(2), b = zeros(4)));
+src = ComponentVector(dest); randn!(src)
+copyto_nested!(dest, src)
+```
+""" 
+function copyto_nested!(dest::NamedTuple, src::CA.ComponentVector)
+    for (k, v) in pairs(dest)
+        if v isa NamedTuple
+            # Recursively handle nested NamedTuples
+            sub_src = getproperty(src, k)
+            copyto_nested!(v, sub_src)
+        else
+            # Copy the view for leaf components
+            copyto!(v, view(src, k))
+        end
+    end
+    return dest
+end
+
