@@ -82,8 +82,9 @@ import ForwardDiff
     ζsP = ζP .+ 0.1 * randn(n_θP, n_MC)
     #
     # without population covariates
-    pbm_covar_indices0 = Int[]   
-    xMP0=zeros(eltype(xM), size(xM,1) + n_covP0, size(xM,2))
+    pbm_covar_indices0 = Int[]   # but better use nothing for efficient dispatch
+    xMP0=zeros(eltype(xM), (size(xM,1)+ n_covP0), size(xM,2) * n_MC)
+    xMP0_old=zeros(eltype(xM), size(xM,1) + n_covP0, size(xM,2))
     #ϕms0vz = CP.g_apply_oop(ϕg, xM, ζsP, pbm_covar_indices0, g, xMP0)[:,1,:] # sites equal
     ϕms0vz = CP.g_apply_oop(ϕgv, xM, ζsP, pbm_covar_indices0, g, xMP0)
     #ϕms0v = convert.(eltype(ϕqP), zero(ϕms0vz))
