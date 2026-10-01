@@ -18,6 +18,7 @@ By this way, we can compute the derivative corresponding to the forward pass
 """
 function neg_elbo_sites!(
     elbo_helpers::NamedTuple,      # tuple of preallocated arrays
+    approx::AbstractHVIApproximation,
     rnormPM::NamedTuple,          # tuple of random numbers
     ϕg::AbstractVector{TG}, ϕqP::AbstractVector{TF}, ϕqI::AbstractVector{TF}, g, 
     pbm_covar_indices::Union{Nothing,AbstractVector{<:Number}}, 
@@ -38,7 +39,7 @@ function neg_elbo_sites!(
     ϕqIc = intϕqI(ϕqI)
     pbm_covar_indices = !isnothing(pbm_covar_indices) && isempty(pbm_covar_indices) ? nothing : pbm_covar_indices
     #
-    sample_ζsP!(h.ζsP, h.logσ_ζP, rnormPM.P, ϕqPc) # n_P * n_MC
+    sample_ζsP!(h.ζsP, h.logσ_ζP, approx, rnormPM.P, ϕqPc) # n_P * n_MC
     # (n_M x n_sit)  or (n_M x n_MC x n_sit)    
     ϕms_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
     #g_apply!(h[ϕms_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode, h.ϕms_mcs2D_buffer) 
@@ -47,9 +48,11 @@ function neg_elbo_sites!(
     # so that one can provide its gradient to the pullback
     ϕm_it = eachslice(h[ϕms_buffer_key]; dims = ndims(h[ϕms_buffer_key]))
     template = ϕqI # only important for gradient
+    θsP = h.θsP
+    # closure with approx and kwargs
     function compute_elboi_z_cl!(hi, rnormM, i_site_train, ϕm) 
-        compute_nelboi_z!(hi, rnormM, i_site_train, ϕm, 
-        ϕqIc, h.θsP; kwargs...) 
+        compute_nelboi_z!(hi, approx, rnormM, i_site_train, ϕm, 
+        ϕqIc, θsP; kwargs...) 
     end
     #res_site = map(compute_nelboi_z!, h.helpers_sites, rnormPM.M, i_sites_train, ϕm_it)
     #MAYBE: distributed mapreduce: 
@@ -64,7 +67,7 @@ function neg_elbo_sites!(
     (; elbo, ζsP=copy(h.ζsP), ϕm=copy(h[ϕms_buffer_key]))
 end
 
-function compute_nelboi_z!(hi, rnormM, i_site_train, ϕm, ϕqIc::AbstractArray{TF}, θsP; 
+function compute_nelboi_z!(hi, approx::AbstractHVIApproximation,rnormM, i_site_train, ϕm, ϕqIc::AbstractArray{TF}, θsP; 
     kwargs...) where TF
         # on update -> sync corresponding function within grad_neg_elbo_sites
         use_dc = hi.ζsM_dc isa PAT.DiffCache
@@ -81,7 +84,7 @@ function compute_nelboi_z!(hi, rnormM, i_site_train, ϕm, ϕqIc::AbstractArray{T
             buffer_nθM = hi.buffer_nθM_dc
         end
         #ζsM, logσ_ζM, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector
-        sample_ζsM!(ζsM, logσ_ζM, rnormM, ϕqIc, ϕm, buffer_nθM)
+        sample_ζsM!(ζsM, logσ_ζM, approx, rnormM, ϕqIc, ϕm, buffer_nθM)
     exp_ladJacTM = transformζ(θsM, ζsM)  # return value captures ladJacT
     # first component needs to be the full elbo
     exp_nL = exp_nLi(θsP, θsM; i_site_train, kwargs...)[1]
@@ -149,7 +152,7 @@ function check_elbo_helpers(h::NamedTuple, xM::AbstractMatrix, pbm_covar_indices
     @assert size(hi.buffer_nθM_dc.du) == (n_θM,)
 end
 
-function sample_ζsP!(ζsP, logσ_ζP, rnormP, ϕqc::AbstractVector{T}) where T
+function sample_ζsP!(ζsP, logσ_ζP, ::DiagonalHVIApproximation,rnormP, ϕqc::AbstractVector{T}) where T
     # TODO replace by proper sampling of full covariance matrix
     μζP = CA.getdata(view(ϕqc,Val(:μζP)))
     logσ_ζP .= view(ϕqc, Val(:logσ_ζP))
@@ -159,7 +162,7 @@ function sample_ζsP!(ζsP, logσ_ζP, rnormP, ϕqc::AbstractVector{T}) where T
 end
 
 # with Vector, all MCs have the same mean
-function sample_ζsM!(ζsM, logσ_ζM, rnorm, ϕqIc::AbstractVector{T}, ϕm::AbstractVector, buffer_nθM::AbstractVector) where T
+function sample_ζsM!(ζsM, logσ_ζM, ::DiagonalHVIApproximation, rnorm, ϕqIc::AbstractVector{T}, ϕm::AbstractVector, buffer_nθM::AbstractVector) where T
     # TODO replace by proper sampling of full covariance matrix
     # TODO add scaling by factor in ϕm / dispatch by approach
     n_θM, n_MC = size(ζsM)
@@ -178,7 +181,7 @@ function sample_ζsM!(ζsM, logσ_ζM, rnorm, ϕqIc::AbstractVector{T}, ϕm::Abs
 end
 
 # with Matrix, there is a site mean for each mc-sample
-function sample_ζsM!(ζsM, logσ_ζM, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector) where T
+function sample_ζsM!(ζsM, logσ_ζM, ::DiagonalHVIApproximation, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector) where T
     n_θM, n_MC = size(ζsM)
     @assert size(rnorm) == (n_θM, n_MC)
     logσ_ζM .= view(ϕqc, Val(:logσ_ζM))
