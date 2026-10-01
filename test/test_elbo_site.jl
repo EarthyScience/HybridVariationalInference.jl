@@ -147,6 +147,7 @@ isUsingSimpleChains = false
     CP.check_elbo_helpers(h0, xM, pbm_covar_indices0; n_ϕg = length(ϕg))
     CP.check_elbo_helpers(h2, xM, pbm_covar_indices2; n_ϕg = length(ϕg2))
     approx = CP.DiagonalHVIApproximation()
+    cor_ends = (P = (n_θP,), M = (n_θM,))
 
 @testset "sample_ζsM!" begin
     h0_1 = h0.helpers_sites[1]
@@ -161,28 +162,28 @@ isUsingSimpleChains = false
     logσ_ζM = zeros(n_θM)
     ϕqIc = intϕqI(ϕqI)
     buffer_nθM = zeros(n_θM)
-    CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, buffer_nθM)
-    @test ((ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, buffer_nθM) -> @allocated CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, buffer_nθM))(
-        ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, buffer_nθM) == 0
+    CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_ends.M, buffer_nθM)
+    @test ((ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, buffer_nθM) -> @allocated CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, buffer_nθM))(
+        ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_ends.M, buffer_nθM) == 0
     #
     # vector version
     ϕm1 = ϕm[:,1] 
-    CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm1, buffer_nθM)
+    CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm1, cor_ends.M, buffer_nθM)
     #allocations because h1 is global
     #  @allocated CP.sample_ζsM!(ζsM, logσ_ζM, rnormM1, ϕqIc, ϕm1, buffer_nθM)
-    tmpf1 = (ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm1, buffer_nθM) -> @allocated CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm1, buffer_nθM)
-    @test (@allocated tmpf1(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm1, buffer_nθM))  == 0
+    tmpf1 = (ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm1, cor_endsM, buffer_nθM) -> @allocated CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm1, cor_endsM, buffer_nθM)
+    @test tmpf1(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm1, cor_ends.M, buffer_nθM)  == 0
 
     # capture global variables in closure to avoid allocations
-    get_f_fd1 = (h1, intϕqI, approx::AbstractHVIApproximation) -> (ϕqP, ϕm1, rnormM1, template) -> begin
+    get_f_fd1 = (h1, intϕqI, approx::AbstractHVIApproximation, cor_endsM) -> (ϕqP, ϕm1, rnormM1, template) -> begin
         local ϕqIc = intϕqI(ϕqP) # without local allocations by @safetestset, shadows global
         ζsMb = PAT.get_tmp(h1.ζsM_dc, template)
         logσ_ζMb = PAT.get_tmp(h1.logσ_ζM_dc, template)
         buffer_nθMb = PAT.get_tmp(h1.buffer_nθM_dc, template)
-        CP.sample_ζsM!(ζsMb, logσ_ζMb, approx, rnormM1, ϕqIc, ϕm1, buffer_nθMb)
+        CP.sample_ζsM!(ζsMb, logσ_ζMb, approx, rnormM1, ϕqIc, ϕm1, cor_endsM, buffer_nθMb)
         sum(ζsMb) + sum(logσ_ζMb)
     end
-    f_fd1 = get_f_fd1(h0_1, intϕqI, approx)
+    f_fd1 = get_f_fd1(h0_1, intϕqI, approx, cor_ends.M)
         # grad_ϕq = ForwardDiff.gradient(f_fd1, ϕqP)
         # ϕqd = convert.(typeof(ForwardDiff.Dual(ϕqP[1])), ϕqP)
         # @allocated f_fd1(ϕqd)
@@ -240,20 +241,20 @@ end
 @testset "compute_nelboi_z!" begin
     ϕqIc = intϕqI(ϕqI)
     ϕqPc = intϕqP(ϕqP)
-    CP.sample_ζsP!(h0.ζsP, h0.logσ_ζP, approx, rnormPM.P, ϕqPc) # n_P * n_MC
+    CP.sample_ζsP!(h0.ζsP, h0.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P) # n_P * n_MC
     CP.g_apply!(h0.ϕms, ϕg, xM, h0.ζsP, nothing, g, h0.xMP, false)     
     hi1 = h0.helpers_sites[1]
     i_site_train1 = 1:n_site
     rnormM1 = rnormPM.M[1]
     ϕms1 = h0.ϕms[:,1]
     θsP1 = h0.θsP
-    CP.compute_nelboi_z!(hi1, approx, rnormM1, i_site_train1, ϕms1, ϕqIc, θsP1)     
+    CP.compute_nelboi_z!(hi1, approx, rnormM1, i_site_train1, ϕms1, ϕqIc, θsP1, cor_ends)     
     #@code_warntype CP.compute_nelboi_z!(hi1, rnormM1, i_site_train1, ϕms1, ϕqIc, θsP1)
     # need two wrap in tmpf to avoid allocations due to boxing
-    function tmpf(hi, approx, rnormM1, i_site_train1, ϕms1, ϕqIc, θsP1)
-        @test (@allocated CP.compute_nelboi_z!(hi, approx, rnormM1, i_site_train1, ϕms1, ϕqIc, θsP1)) == 0
+    function tmpf(hi, approx, rnormM1, i_site_train1, ϕms1, ϕqIc, θsP1, cor_ends)
+        @test (@allocated CP.compute_nelboi_z!(hi, approx, rnormM1, i_site_train1, ϕms1, ϕqIc, θsP1, cor_ends)) == 0
     end
-    tmpf(hi1, approx, rnormM1, i_site_train1, ϕms1, ϕqIc, θsP1)
+    tmpf(hi1, approx, rnormM1, i_site_train1, ϕms1, ϕqIc, θsP1, cor_ends)
         #@profview tmpf()
         #using BenchmarkTools
         #@btime CP.compute_nelboi_z!($hi1, $approx, $rnormM1, $i_site_train1, $ϕms1, $ϕqIc, $θsP1)    
@@ -263,28 +264,28 @@ end
     CP.g_apply!(h2.ϕms_mcs, ϕg2, xM, h2.ζsP, pbm_covar_indices2, g2, h2.xMP, false)     
     ϕm = randn!(similar(h2.ϕms_mcs[:,:,1]))
     inputs = CA.ComponentVector(ϕqIc=ϕqIc, ϕm = ϕm, θsP= θsP1)
-    CP.compute_nelboi_z!(h21, approx, rnormM1, i_site_train1, inputs.ϕm, inputs.ϕqIc, inputs.θsP)
+    CP.compute_nelboi_z!(h21, approx, rnormM1, i_site_train1, inputs.ϕm, inputs.ϕqIc, inputs.θsP, cor_ends)
     # test calling with views
     ϕms1_ = view(inputs, Val(:ϕm))
     ϕqIc_ = view(inputs, Val(:ϕqIc))
     θsP1_ = view(inputs, Val(:θsP))
-    function loop_compute_nelboi_z(n, h21, approx, rnormM1, i_site_train1, ϕms1_, ϕqIc_, θsP1_)
+    function loop_compute_nelboi_z(n, h21, approx, rnormM1, i_site_train1, ϕms1_, ϕqIc_, θsP1_, cor_ends)
         for _ in 1:n
-            @noinline CP.compute_nelboi_z!(h21, approx, rnormM1, i_site_train1, ϕms1_, ϕqIc_, θsP1_)
+            @noinline CP.compute_nelboi_z!(h21, approx, rnormM1, i_site_train1, ϕms1_, ϕqIc_, θsP1_, cor_ends)
         end
         nothing
     end
-    function alloc_compute_nelboi_z(h21, approx, rnormM1, i_site_train1, ϕms1_, ϕqIc_, θsP1_)
+    function alloc_compute_nelboi_z(h21, approx, rnormM1, i_site_train1, ϕms1_, ϕqIc_, θsP1_, cor_ends)
         # avoid global variables -> pass them through function
-        loop_compute_nelboi_z(1, h21, approx, rnormM1, i_site_train1, ϕms1_, ϕqIc_, θsP1_) # thorough warmup
-        @test (@allocated loop_compute_nelboi_z(100,h21, approx, rnormM1, i_site_train1, ϕms1_, ϕqIc_, θsP1_)) == 0
+        loop_compute_nelboi_z(1, h21, approx, rnormM1, i_site_train1, ϕms1_, ϕqIc_, θsP1_, cor_ends) # thorough warmup
+        @test (@allocated loop_compute_nelboi_z(100,h21, approx, rnormM1, i_site_train1, ϕms1_, ϕqIc_, θsP1_, cor_ends)) == 0
     end
-    alloc_compute_nelboi_z(h21, approx, rnormM1, i_site_train1, ϕms1_, ϕqIc_, θsP1_)
+    alloc_compute_nelboi_z(h21, approx, rnormM1, i_site_train1, ϕms1_, ϕqIc_, θsP1_, cor_ends)
     # 
     gradh2 = CP.prepare_gradelbo_helpers(inputs.ϕqIc, inputs.ϕm, inputs.θsP, ϕg, ϕqPc, approx; 
         pbm_covar_indices=pbm_covar_indices2, n_workers=1,
         hi1 = h2.helpers_sites[1], rnormM1 = rnormPM.M[1], i_site_train1 = 1,
-        h2.diffchunk, n_site, n_cov)
+        h2.diffchunk, n_site, n_cov, cor_ends)
     hw_channel = gradh2.hw_channel
     tmp = with_channel_element(x -> x.inputs_cv, hw_channel)
     tmp.ϕm
@@ -293,10 +294,10 @@ end
     # passing dϕmvecs as the plain array. The views are created once *outside* the
     # measured region so that their construction is not counted by @allocated.
     function loop_forwarddiff_grad_nelboi_z(
-        n, hi, approx, rnormM, i_site_train, i, ϕm_, ϕqIc_, θsP_, dϕmvecs_, hw_channel, omit_gradient)
+        n, hi, approx, rnormM, i_site_train, i, ϕm_, ϕqIc_, θsP_, dϕmvecs_, hw_channel, omit_gradient, cor_ends = cor_ends)
         for _ in 1:n
             @noinline CP.forwarddiff_grad_nelboi_z!(hi, approx, rnormM, i_site_train, ϕm_, i, 
-                ϕqIc_, θsP_, dϕmvecs_, hw_channel, omit_gradient)
+                ϕqIc_, θsP_, dϕmvecs_, hw_channel, omit_gradient, cor_ends)
         end
         nothing
     end
@@ -305,13 +306,13 @@ end
     θsP_  = view(inputs, Val(:θsP))
     dϕmvecs = gradh2.dϕmvecs
     i_site_train_1 = i_site_train1[1]
-    function alloc_forwarddiff_grad_nelboi_z(h21, approx, rnormM1, i_site_train_1, ϕm_, ϕqIc_, θsP_, dϕmvecs, hw_channel)
-        loop_forwarddiff_grad_nelboi_z(1, h21, approx, rnormM1, i_site_train_1, 1, ϕm_, ϕqIc_, θsP_, dϕmvecs, hw_channel, true)
-        @test (@allocated loop_forwarddiff_grad_nelboi_z(100, h21, approx, rnormM1, i_site_train_1, 1, ϕm_, ϕqIc_, θsP_, dϕmvecs, hw_channel, true)) == 0
-        loop_forwarddiff_grad_nelboi_z(1, h21, approx, rnormM1, i_site_train_1, 1, ϕm_, ϕqIc_, θsP_, dϕmvecs, hw_channel, nothing)
-        @test (@allocated loop_forwarddiff_grad_nelboi_z(100, h21, approx, rnormM1, i_site_train_1, 1, ϕm_, ϕqIc_, θsP_, dϕmvecs, hw_channel, nothing)) == 0
+    function alloc_forwarddiff_grad_nelboi_z(h21, approx, rnormM1, i_site_train_1, ϕm_, ϕqIc_, θsP_, dϕmvecs, hw_channel, cor_ends = cor_ends)
+        loop_forwarddiff_grad_nelboi_z(1, h21, approx, rnormM1, i_site_train_1, 1, ϕm_, ϕqIc_, θsP_, dϕmvecs, hw_channel, true, cor_ends)
+        @test (@allocated loop_forwarddiff_grad_nelboi_z(100, h21, approx, rnormM1, i_site_train_1, 1, ϕm_, ϕqIc_, θsP_, dϕmvecs, hw_channel, true, cor_ends)) == 0
+        loop_forwarddiff_grad_nelboi_z(1, h21, approx, rnormM1, i_site_train_1, 1, ϕm_, ϕqIc_, θsP_, dϕmvecs, hw_channel, nothing, cor_ends)
+        @test (@allocated loop_forwarddiff_grad_nelboi_z(100, h21, approx, rnormM1, i_site_train_1, 1, ϕm_, ϕqIc_, θsP_, dϕmvecs, hw_channel, nothing, cor_ends)) == 0
     end
-    alloc_forwarddiff_grad_nelboi_z(h21, approx, rnormM1, i_site_train1[1], ϕm_, ϕqIc_, θsP_, dϕmvecs, hw_channel)
+    alloc_forwarddiff_grad_nelboi_z(h21, approx, rnormM1, i_site_train1[1], ϕm_, ϕqIc_, θsP_, dϕmvecs, hw_channel, cor_ends)
 
     #@usingany Cthulhu
     #@descend_code_warntype tmp_g(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing, hw_channel)
@@ -525,6 +526,7 @@ function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by e
         i_sites_train,     
         intϕqP, intϕqI,
         xM,
+        cor_ends,
         is_testmode = false,
         )[1]    
     pbm_covar_indices_nothing = nothing
@@ -628,6 +630,7 @@ end
         i_sites_train = 1:n_site,     
         intϕqP, intϕqI,
         xM,
+        cor_ends,
         is_testmode = false,
     )
     res0, gradh0 = CP.grad_neg_elbo_sites(
@@ -638,6 +641,7 @@ end
         i_sites_train = 1:n_site,     
         intϕqP, intϕqI,
         xM,
+        cor_ends,
         is_testmode = false,
     )    
     basesize = n_site ÷ Distributed.nworkers()
@@ -649,6 +653,7 @@ end
         i_sites_train = 1:n_site,     
         intϕqP, intϕqI,
         xM,
+        cor_ends,
         is_testmode = false,
         executor = distributedEx
     )    
@@ -677,6 +682,7 @@ end
         i_sites_train = 1:n_site,     
         intϕqP, intϕqI,
         xM,
+        cor_ends,
         is_testmode = false,
     )
     res0, gradh2 = CP.grad_neg_elbo_sites(
@@ -687,6 +693,7 @@ end
         i_sites_train = 1:n_site,     
         intϕqP, intϕqI,
         xM,
+        cor_ends,
         is_testmode = false,
     )    
     res0_, gradh2_ = CP.grad_neg_elbo_sites( # test deterministic result
@@ -696,6 +703,7 @@ end
         i_sites_train = 1:n_site,     
         intϕqP, intϕqI,
         xM,
+        cor_ends,
         is_testmode = false,
         executor = distributedEx,
     )    
@@ -713,28 +721,28 @@ end
     end
 
     function loop_grad_neg_elbo_sites(n, h2, gradh2, approx, rnormPM, ϕg2v, ϕqP, ϕqI, g2, pbm_covar_indices2; 
-        i_sites_train, intϕqP, intϕqI, xM, is_testmode)
+        i_sites_train, intϕqP, intϕqI, xM, cor_ends, is_testmode)
         for _ in 1:n
             @noinline CP.grad_neg_elbo_sites(h2, gradh2, approx, rnormPM, ϕg2v, ϕqP, ϕqI, g2, pbm_covar_indices2; 
-        i_sites_train, intϕqP, intϕqI, xM, is_testmode)
+        i_sites_train, intϕqP, intϕqI, xM, cor_ends, is_testmode)
         end
         nothing
     end
     function alloc_grad_neg_elbo_sites(h2, gradh2, approx, rnormPM, ϕg2v, ϕqP, ϕqI, g2, 
-            pbm_covar_indices2; i_sites_train, intϕqP, intϕqI, xM, is_testmode)
+            pbm_covar_indices2; i_sites_train, intϕqP, intϕqI, xM, cor_ends, is_testmode)
         # avoid global variables -> pass them through function
         loop_grad_neg_elbo_sites(1, h2, gradh2, approx, rnormPM, ϕg2v, ϕqP, ϕqI, g2, 
-            pbm_covar_indices2; i_sites_train, intϕqP, intϕqI, xM, is_testmode)
+            pbm_covar_indices2; i_sites_train, intϕqP, intϕqI, xM, cor_ends, is_testmode)
         # @profview_allocs loop_grad_neg_elbo_sites(10_000,h2, gradh2, rnormPM, ϕg2v, 
-        #      ϕqP, ϕqI, g2, pbm_covar_indices2; i_sites_train, intϕqP, intϕqI, xM, is_testmode)
+        #      ϕqP, ϕqI, g2, pbm_covar_indices2; i_sites_train, intϕqP, intϕqI, xM, cor_ends, is_testmode)
         # a_ = @allocated loop_grad_neg_elbo_sites(100,h2, gradh2, rnormPM, ϕg2v, ϕqP, ϕqI, g2, 
-        #     pbm_covar_indices2; i_sites_train, intϕqP, intϕqI, xM, is_testmode)        
+        #     pbm_covar_indices2; i_sites_train, intϕqP, intϕqI, xM, cor_ends, is_testmode)        
         # @show a_
         @test (@allocated loop_grad_neg_elbo_sites(100,h2, gradh2, approx, rnormPM, ϕg2v, ϕqP, ϕqI, g2, 
-            pbm_covar_indices2; i_sites_train, intϕqP, intϕqI, xM, is_testmode)) <= 2_546_672
+            pbm_covar_indices2; i_sites_train, intϕqP, intϕqI, xM, cor_ends, is_testmode)) <= 2_546_672
     end
     alloc_grad_neg_elbo_sites(h2, gradh2, approx, rnormPM, ϕg2v, ϕqP, ϕqI, g2, pbm_covar_indices2; 
-        i_sites_train = 1:n_site, intϕqP, intϕqI, xM, is_testmode = false)
+        i_sites_train = 1:n_site, intϕqP, intϕqI, xM, cor_ends, is_testmode = false)
     #_i_sites_train = 1:n_site    
     #@usingany BenchmarkTools
     #@benchmark CP.grad_neg_elbo_sites($h2, $gradh2, $rnormPM, $ϕg2v, $ϕqP, $ϕqI, $g2, $pbm_covar_indices2; i_sites_train = _i_sites_train, intϕqP=$intϕqP, intϕqI=$intϕqI, xM=$xM, is_testmode = false)
