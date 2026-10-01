@@ -32,6 +32,9 @@ struct MeanHVIApproximation <: AbstractMeanHVIApproximation end
 # for benchmarking changes, before implementing them
 struct MeanHVIApproximationDev <: AbstractMeanHVIApproximation end 
 
+# neglecting correlations
+struct DiagonalHVIApproximation <: AbstractHVIApproximation end
+
 
 abstract type AbstractMeanVarSepHVIApproximation <: AbstractHVIApproximation end
 get_numberof_MLinputs(::AbstractMeanVarSepHVIApproximation, θM) = length(θM)
