@@ -40,22 +40,48 @@ import Zygote
 import Enzyme
 import ForwardDiff
 
-    n_input = n_cov + n_covP0
-    chain0 = Lux.Chain(
-        # dense layer with bias that maps to 8 outputs and applies `tanh` activation
-        Lux.Dense(n_input => n_input * 4, tanh),
-        Lux.Dense(n_input * 4 => n_input * 4, tanh),
-        # dense layer without bias that maps to n outputs and `logistic` activation
-        Lux.Dense(n_input * 4 => n_M, logistic, use_bias = false)
-    )
-    n_input = n_cov + n_covP2
-    chain2 = Lux.Chain(
-        # dense layer with bias that maps to 8 outputs and applies `tanh` activation
-        Lux.Dense(n_input => n_input * 4, tanh),
-        Lux.Dense(n_input * 4 => n_input * 4, tanh),
-        # dense layer without bias that maps to n outputs and `logistic` activation
-        Lux.Dense(n_input * 4 => n_M, logistic, use_bias = false)
-    )
+import SimpleChains
+isUsingSimpleChains = false
+#isUsingSimpleChains = true  # currently does not work with enyzem nor zygote
+#   and provides no general way to compute the pullback wrt. both covariates xM and ϕg
+
+    if isUsingSimpleChains    
+        n_input = n_cov + n_covP0
+        chain0 = SimpleChains.SimpleChain(
+                SimpleChains.static(n_input), # input dimension (optional)
+                # dense layer with bias that maps to 8 outputs and applies `tanh` activation
+                SimpleChains.TurboDense{true}(tanh, n_input * 4),
+                SimpleChains.TurboDense{true}(tanh, n_input * 4),
+                # dense layer without bias that maps to n outputs and `logistic` activation
+                SimpleChains.TurboDense{false}(logistic, n_M)
+            )
+        n_input = n_cov + n_covP2
+        chain2 = SimpleChains.SimpleChain(
+                SimpleChains.static(n_input), # input dimension (optional)
+                # dense layer with bias that maps to 8 outputs and applies `tanh` activation
+                SimpleChains.TurboDense{true}(tanh, n_input * 4),
+                SimpleChains.TurboDense{true}(tanh, n_input * 4),
+                # dense layer without bias that maps to n outputs and `logistic` activation
+                SimpleChains.TurboDense{false}(logistic, n_M)
+            )
+    else
+        n_input = n_cov + n_covP0
+        chain0 = Lux.Chain(
+            # dense layer with bias that maps to 8 outputs and applies `tanh` activation
+            Lux.Dense(n_input => n_input * 4, tanh),
+            Lux.Dense(n_input * 4 => n_input * 4, tanh),
+            # dense layer without bias that maps to n outputs and `logistic` activation
+            Lux.Dense(n_input * 4 => n_M, logistic, use_bias = false)
+        )
+        n_input = n_cov + n_covP2
+        chain2 = Lux.Chain(
+            # dense layer with bias that maps to 8 outputs and applies `tanh` activation
+            Lux.Dense(n_input => n_input * 4, tanh),
+            Lux.Dense(n_input * 4 => n_input * 4, tanh),
+            # dense layer without bias that maps to n outputs and `logistic` activation
+            Lux.Dense(n_input * 4 => n_M, logistic, use_bias = false)
+        )
+    end
     g, ϕg = construct_ChainsApplicator(rng, chain0, Float32)
     ϕgv = collect(ϕg)
     #
@@ -121,73 +147,94 @@ import ForwardDiff
     CP.check_elbo_helpers(h0, xM, pbm_covar_indices0; n_ϕg = length(ϕg))
     CP.check_elbo_helpers(h2, xM, pbm_covar_indices2; n_ϕg = length(ϕg2))
 
-# @testset "sample_ζsM!" begin
-#     h0_1 = h0.helpers_sites[1]
-#     # test allocation
-#     CP.randnPM!(rng, h2)
-#     ϕm = rand(n_θM+1, n_MC)
-#     j = 3
-#     # wrap inside function to aovid allocation due to boxing type unstable globals
-#     ((ϕm, n_θM,j) -> @allocated ϕm[:,j][1:n_θM])(ϕm,n_θM,j)
-#     ((ϕm,n_θM,j) -> @allocated view(ϕm,1:n_θM,j))(ϕm, n_θM,j)  
-#     ζsM = similar(h0_1.rnormM)
-#     logσ_ζM = zeros(n_θM)
-#     ϕqIc = intϕqI(ϕqI)
-#     buffer_nθM = zeros(n_θM)
-#     CP.sample_ζsM!(ζsM, logσ_ζM, h0_1.rnormM, ϕqIc, ϕm, buffer_nθM)
-#     @test ((h1) -> @allocated CP.sample_ζsM!(ζsM, logσ_ζM, h1.rnormM, ϕqIc, ϕm, buffer_nθM))(h0_1) == 0
-#     #
-#     # vector version
-#     CP.randnPM!(rng, h0)
-#     ϕm1 = ϕm[:,1] 
-#     CP.sample_ζsM!(ζsM, logσ_ζM, h0_1.rnormM, ϕqIc, ϕm1, buffer_nθM)
-#     #allocations because h1 is global
-#     #  @allocated CP.sample_ζsM!(ζsM, logσ_ζM, h1.rnormM, ϕqIc, ϕm1, buffer_nθM)
-#     tmpf1 = (h1) -> @allocated CP.sample_ζsM!(ζsM, logσ_ζM, h1.rnormM, ϕqIc, ϕm1, buffer_nθM)
-#     @test (@allocated tmpf1(h0_1))  == 0
+@testset "sample_ζsM!" begin
+    h0_1 = h0.helpers_sites[1]
+    # test allocation
+    ϕm = rand(n_θM+1, n_MC)
+    j = 3
+    # wrap inside function to aovid allocation due to boxing type unstable globals
+    ((ϕm, n_θM,j) -> @allocated ϕm[:,j][1:n_θM])(ϕm,n_θM,j)
+    ((ϕm,n_θM,j) -> @allocated view(ϕm,1:n_θM,j))(ϕm, n_θM,j)  
+    rnormM1 = rnormPM.M[1]
+    ζsM = similar(rnormM1)
+    logσ_ζM = zeros(n_θM)
+    ϕqIc = intϕqI(ϕqI)
+    buffer_nθM = zeros(n_θM)
+    CP.sample_ζsM!(ζsM, logσ_ζM, rnormM1, ϕqIc, ϕm, buffer_nθM)
+    @test ((ζsM, logσ_ζM, rnormM1, ϕqIc, ϕm, buffer_nθM) -> @allocated CP.sample_ζsM!(ζsM, logσ_ζM, rnormM1, ϕqIc, ϕm, buffer_nθM))(
+        ζsM, logσ_ζM, rnormM1, ϕqIc, ϕm, buffer_nθM) == 0
+    #
+    # vector version
+    ϕm1 = ϕm[:,1] 
+    CP.sample_ζsM!(ζsM, logσ_ζM, rnormM1, ϕqIc, ϕm1, buffer_nθM)
+    #allocations because h1 is global
+    #  @allocated CP.sample_ζsM!(ζsM, logσ_ζM, rnormM1, ϕqIc, ϕm1, buffer_nθM)
+    tmpf1 = (ζsM, logσ_ζM, rnormM1, ϕqIc, ϕm1, buffer_nθM) -> @allocated CP.sample_ζsM!(ζsM, logσ_ζM, rnormM1, ϕqIc, ϕm1, buffer_nθM)
+    @test (@allocated tmpf1(ζsM, logσ_ζM, rnormM1, ϕqIc, ϕm1, buffer_nθM))  == 0
 
-#     # capture global variables in closure to avoid allocations
-#     get_f_fd1 = (h1, intϕqI) -> (ϕqP, ϕm1, template) -> begin
-#         local ϕqIc = intϕqI(ϕqP) # without local allocations by @safetestset, shadows global
-#         ζsMb = PAT.get_tmp(h1.ζsM_dc, template)
-#         logσ_ζMb = PAT.get_tmp(h1.logσ_ζM_dc, template)
-#         buffer_nθMb = PAT.get_tmp(h1.buffer_nθM_dc, template)
-#         CP.sample_ζsM!(ζsMb, logσ_ζMb, h1.rnormM, ϕqIc, ϕm1, buffer_nθMb)
-#         sum(ζsMb) + sum(logσ_ζMb)
-#     end
-#     f_fd1 = get_f_fd1(h0_1, intϕqI)
-#     f_fd1(ϕqP, ϕm1, ϕqP)
-#         # grad_ϕq = ForwardDiff.gradient(f_fd1, ϕqP)
-#         # ϕqd = convert.(typeof(ForwardDiff.Dual(ϕqP[1])), ϕqP)
-#         # @allocated f_fd1(ϕqd)
-#     # vector version
-#     @test (@allocated f_fd1(ϕqP, ϕm1, ϕqP)) == 0
-#     ϕqd = convert.(typeof(ForwardDiff.Dual(ϕqP[1])), ϕqP)
-#     @test (@allocated f_fd1(ϕqd, ϕm1, ϕqd)) == 0
-#     # matrix version
-#     @test (@allocated f_fd1(ϕqP, ϕm, ϕqP)) == 0
-#     @test (@allocated f_fd1(ϕqd, ϕm, ϕqd)) == 0
-#     # 
-#     # combine vectors so that a single gradient call is enough
-#     # first call creates dual storage, call wiht larger vector as template, here combined
-#     ϕqm = CA.ComponentArray(; ϕqI, ϕm = ϕm1)
-#     grads_ϕ = ForwardDiff.gradient(ϕqm -> f_fd1(ϕqm[Val(:ϕqI)], ϕqm[Val(:ϕm)], CA.getdata(ϕqm)), ϕqm)
-#     ftmp_ = (ϕ) -> begin
-#         ϕqI_ = view(ϕ, 1:length(ϕqI))
-#         ϕm1_ = view(ϕ, length(ϕqI)+1:length(ϕ))
-#         f_fd1(ϕqI_, ϕm1_, ϕ)
-#     end
-#     grads_ϕ = ForwardDiff.gradient(ftmp_, vcat(ϕqI, ϕm1))
-#     #
-#     # need to calls to gradients for the two vectors
-#     grad_ϕm1 = ForwardDiff.gradient(ϕm1 -> f_fd1(ϕqI, ϕm1, ϕm1), ϕm1)
-#     @test grad_ϕm1 == vcat(fill(n_MC, n_θM), 0)
-#     grad_ϕqI = ForwardDiff.gradient(ϕqI -> f_fd1(ϕqI, ϕm1, ϕqI), ϕqI)
-#     #@test all(intϕqI(grad_ϕq).logσ_ζP .== 0)
-#     #
-#     @test grads_ϕ[1:length(ϕqI)] == grad_ϕqI
-#     @test grads_ϕ[length(ϕqI)+1:end] == grad_ϕm1
-# end
+    # capture global variables in closure to avoid allocations
+    get_f_fd1 = (h1, intϕqI) -> (ϕqP, ϕm1, rnormM1, template) -> begin
+        local ϕqIc = intϕqI(ϕqP) # without local allocations by @safetestset, shadows global
+        ζsMb = PAT.get_tmp(h1.ζsM_dc, template)
+        logσ_ζMb = PAT.get_tmp(h1.logσ_ζM_dc, template)
+        buffer_nθMb = PAT.get_tmp(h1.buffer_nθM_dc, template)
+        CP.sample_ζsM!(ζsMb, logσ_ζMb, rnormM1, ϕqIc, ϕm1, buffer_nθMb)
+        sum(ζsMb) + sum(logσ_ζMb)
+    end
+    f_fd1 = get_f_fd1(h0_1, intϕqI)
+        # grad_ϕq = ForwardDiff.gradient(f_fd1, ϕqP)
+        # ϕqd = convert.(typeof(ForwardDiff.Dual(ϕqP[1])), ϕqP)
+        # @allocated f_fd1(ϕqd)
+    # vector version
+    ϕqd = convert.(typeof(ForwardDiff.Dual(ϕqP[1])), ϕqP)
+    f_fd1(ϕqP, ϕm1, rnormM1, ϕqP)
+    f_fd1(ϕqd, ϕm1, rnormM1, ϕqd)
+    @test (@allocated f_fd1(ϕqP, ϕm1, rnormM1, ϕqP)) == 0
+    @test (@allocated f_fd1(ϕqd, ϕm1, rnormM1, ϕqd)) == 0
+    # matrix version
+    f_fd1(ϕqP, ϕm1, rnormM1, ϕqP)
+    f_fd1(ϕqd, ϕm, rnormM1, ϕqd)
+    @test (@allocated f_fd1(ϕqP, ϕm, rnormM1, ϕqP)) == 0
+    @test (@allocated f_fd1(ϕqd, ϕm, rnormM1, ϕqd)) == 0
+
+    # # Regression: sample_ζsM! must not allocate when reached through the
+    # # ForwardDiff-reconstructed ComponentArray-view path used by
+    # # grad_neg_elbo_sites (make_nelboiz_cl in elbo_site_grad.jl). The tests above
+    # # pass concrete Float64 arrays, which miss this allocation: under ForwardDiff
+    # # the arguments become Dual-element views into a flat ComponentArray, and the
+    # # sampling allocates. Reconstruct cv_ = ComponentArray(cv, ax_inputs) and take
+    # # the Val views, exactly as nelboiz_cl does. The output buffers are obtained
+    # # from DiffCache get_tmp (preallocated, so their construction is not measured)
+    # # and passed into nelboiz_alloc, mirroring compute_nelboi_z!.
+    # cv_grad = CA.ComponentArray(; ϕqIc = ϕqIc, ϕm = ϕm, θsP = h0.θsP)
+    # ax_inputs = CA.getaxes(similar(cv_grad))
+    # x0 = CA.getdata(cv_grad)
+    # chunk = ForwardDiff.Chunk(8)   # must match the DiffCache chunk below
+    # gcv = zeros(length(x0))        # preallocated gradient buffer (mirrors hwi.grads_v)
+    # hi_alloc = (;   # only the reusable buffers are hoisted out of the measured region
+    #     ζsM_dc = PAT.DiffCache(zeros(n_θM, n_MC), 8),
+    #     logσ_ζM_dc = PAT.DiffCache(zeros(n_θM), 8),
+    #     buffer_nθM_dc = PAT.DiffCache(zeros(n_θM), 8),
+    # )
+    # function nelboiz_alloc(cv, hi, rnormM1, ax_inputs, template)
+    #     cv_ = CA.ComponentArray(cv, ax_inputs)
+    #     ζsM = PAT.get_tmp(hi.ζsM_dc, template)
+    #     logσ_ζM = PAT.get_tmp(hi.logσ_ζM_dc, template)
+    #     buffer_nθM = PAT.get_tmp(hi.buffer_nθM_dc, template)
+    #     CP.sample_ζsM!(ζsM, logσ_ζM, rnormM1,
+    #         view(cv_, Val(:ϕqIc)), view(cv_, Val(:ϕm)), buffer_nθM)
+    #     sum(ζsM)
+    # end
+    # nelboi_f = x -> nelboiz_alloc(x, hi_alloc, rnormM1, ax_inputs, x)
+    # nelboi_f(x0)
+    # cfg = ForwardDiff.GradientConfig(nelboi_f, x0, chunk)
+    # gfun = x -> begin
+    #     ForwardDiff.gradient!(gcv, nelboi_f, x, cfg)
+    #     nothing
+    # end
+    # gfun(x0)
+    # @test (@allocated gfun(x0)) == 0
+end
 
 @testset "compute_nelboi_z!" begin
     ϕqIc = intϕqI(ϕqI)
@@ -584,9 +631,7 @@ end
     )
     res0, gradh0 = CP.grad_neg_elbo_sites(
     #@descend_code_warntype CP.neg_elbo_sites!(
-        h0, 
-        #gradh0,
-        (;),
+        h0, (;),
         rnormPM,
         ϕgv, ϕqP, ϕqI, g, nothing;
         i_sites_train = 1:n_site,     
@@ -667,6 +712,32 @@ end
         #hcat(dϕqP2_enz, res0.dϕqP)
     end
 
+    function loop_grad_neg_elbo_sites(n, h2, gradh2, rnormPM, ϕg2v, ϕqP, ϕqI, g2, pbm_covar_indices2; 
+        i_sites_train, intϕqP, intϕqI, xM, is_testmode)
+        for _ in 1:n
+            @noinline CP.grad_neg_elbo_sites(h2, gradh2, rnormPM, ϕg2v, ϕqP, ϕqI, g2, pbm_covar_indices2; 
+        i_sites_train, intϕqP, intϕqI, xM, is_testmode)
+        end
+        nothing
+    end
+    function alloc_grad_neg_elbo_sites(h2, gradh2, rnormPM, ϕg2v, ϕqP, ϕqI, g2, 
+            pbm_covar_indices2; i_sites_train, intϕqP, intϕqI, xM, is_testmode)
+        # avoid global variables -> pass them through function
+        loop_grad_neg_elbo_sites(1, h2, gradh2, rnormPM, ϕg2v, ϕqP, ϕqI, g2, 
+            pbm_covar_indices2; i_sites_train, intϕqP, intϕqI, xM, is_testmode)
+        # @profview_allocs loop_grad_neg_elbo_sites(10_000,h2, gradh2, rnormPM, ϕg2v, 
+        #      ϕqP, ϕqI, g2, pbm_covar_indices2; i_sites_train, intϕqP, intϕqI, xM, is_testmode)
+        # a_ = @allocated loop_grad_neg_elbo_sites(100,h2, gradh2, rnormPM, ϕg2v, ϕqP, ϕqI, g2, 
+        #     pbm_covar_indices2; i_sites_train, intϕqP, intϕqI, xM, is_testmode)        
+        # @show a_
+        @test (@allocated loop_grad_neg_elbo_sites(100,h2, gradh2, rnormPM, ϕg2v, ϕqP, ϕqI, g2, 
+            pbm_covar_indices2; i_sites_train, intϕqP, intϕqI, xM, is_testmode)) <= 2_543_856
+    end
+    alloc_grad_neg_elbo_sites(h2, gradh2, rnormPM, ϕg2v, ϕqP, ϕqI, g2, pbm_covar_indices2; 
+        i_sites_train = 1:n_site, intϕqP, intϕqI, xM, is_testmode = false)
+    #_i_sites_train = 1:n_site    
+    #@usingany BenchmarkTools
+    #@benchmark CP.grad_neg_elbo_sites($h2, $gradh2, $rnormPM, $ϕg2v, $ϕqP, $ϕqI, $g2, $pbm_covar_indices2; i_sites_train = _i_sites_train, intϕqP=$intϕqP, intϕqI=$intϕqI, xM=$xM, is_testmode = false)
 
 end
 

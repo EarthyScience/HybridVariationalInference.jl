@@ -45,17 +45,23 @@ function grad_neg_elbo_sites(
         executor; init)
     ∂elbo_∂ϕqI = gacc.dϕqIc # tuple access
     ∂elbo_∂θP = gacc.dθsP
-    ∂elbo_∂ϕqm = reshape(cl.dϕmvecs, size(h_ϕm)) # shared array
-    gradh.∂elbo_∂logσ_ζP .= -ones(TF, length(h.logσ_ζP))  
+    #∂elbo_∂ϕqm = reshape(cl.dϕmvecs, size(h_ϕm)) # shared array   
+    ∂elbo_∂ϕqm = gradh.∂elbo_∂ϕqm #preallocate to avoid copy in reshape of SharedArray
+    copyto!(∂elbo_∂ϕqm, cl.dϕmvecs) # reshape from shared array
+    #gradh.∂elbo_∂logσ_ζP .= -ones(TF, length(h.logσ_ζP))  
+    gradh.∂elbo_∂logσ_ζP .= -one(TF)  
     ∂elbo_∂ladJacTP = -one(TF)
     #
     # pullback gradients of ϕqm -> gradh.dϕg and gradh.dζsP
+    # gradh.pullback_g_apply!(
+    #     gradh.dϕg, gradh.∂elbo_∂ϕm_∂ζP, h_ϕm, ∂elbo_∂ϕqm, 
+    #     ϕg, xM, h.ζsP, pbm_covar_indices, g, is_testmode, h.ϕms_mcs2D_buffer)
     gradh.pullback_g_apply!(
         gradh.dϕg, gradh.∂elbo_∂ϕm_∂ζP, h_ϕm, ∂elbo_∂ϕqm, 
         ϕg, xM, h.ζsP, pbm_covar_indices, g, is_testmode)
     #
     # pullback gradients of ∂elbo_∂θP to ∂elbo_∂θP_∂ζP
-    ∂elbo_∂θP_∂ζP = Matrix{TF}(undef, size(∂elbo_∂θP)) # TODO avoid allocation
+    ∂elbo_∂θP_∂ζP = gradh.∂elbo_∂θP_∂ζP
     gradh.pullback_cl_transformζsP!(
         ∂elbo_∂θP_∂ζP, 
         ∂elbo_∂θP,
@@ -65,7 +71,7 @@ function grad_neg_elbo_sites(
         )
     #
     # pullback gradients of ∂elbo_∂ζP, ∂elbo_∂ϕm_∂ζP, and ∂elbo_∂logσ_ζP to dϕqP
-    dϕqP = similar(ϕqPc) # TODO avoid allocation
+    dϕqP = gradh.dϕqP
     #pullback_sample_ζsP!(
     gradh.pullback_cl_sample_ζsP!(
         dϕqP, 
@@ -181,9 +187,7 @@ function get_pullback_cl_sample_ζsP(::AbstractArray{TF}; n_θP, n_MC) where TF
     end
 end
 
-# two return values: primal and derivative 
-#   given coderiv dy, parameters and helpers
-# dϕm -> dϕg, dζsP
+
 function get_pullback_g_apply(::AbstractArray{TG}, ::AbstractArray{TF}; 
     n_θP, n_cov, n_covP, n_MC, n_site, n_M,
     ) where {TG, TF}
@@ -215,6 +219,61 @@ function get_pullback_g_apply(::AbstractArray{TG}, ::AbstractArray{TF};
         #copyto!(dζsP_, dζsP) # output, does not need to be preserved
         #
         Enzyme.autodiff(
+            Enzyme.Reverse,
+            #does not make SimpleChains work - currently cannot use SimpleChains
+            #Enzyme.set_runtime_activity(Enzyme.Reverse), # TODO only activate for SimpleChains
+            g_apply!,
+            Enzyme.Duplicated(ϕms_buffer, dϕms_buffer),
+            Enzyme.Duplicated(ϕg, dϕg),
+            Enzyme.Const(xM),
+            Enzyme.Duplicated(ζsP, dζsP),
+            Enzyme.Const(pbm_covar_indices),
+            Enzyme.Const(g),
+            Enzyme.Duplicated(xMP_, dxMP_),
+            Enzyme.Const(is_testmode),
+        )
+    end
+end
+
+# two return values: primal and derivative 
+#   given coderiv dy, parameters and helpers
+# dϕm -> dϕg, dζsP
+function get_pullback_g_apply_ϕms_mcs2D_buffer(::AbstractArray{TG}, ::AbstractArray{TF}; 
+    n_θP, n_cov, n_covP, n_MC, n_site, n_M,
+    ) where {TG, TF}
+    xMP_ = Matrix{TG}(undef, (n_cov + n_covP), n_MC * n_site)
+    dxMP_ = similar(xMP_)
+    ϕms_ = Matrix{TF}(undef, n_M, n_site)
+    ϕms_mcs_ = Array{TF,3}(undef, n_M, n_MC, n_site)
+    dϕms_ = similar(ϕms_)
+    dϕms_mcs_ = similar(ϕms_mcs_)
+    #dζsP_ = Matrix{TF}(undef, n_θP, n_MC)
+    ϕms_mcs2D_buffer_ = Matrix{TF}(undef, n_M, n_MC * n_site)
+    dϕms_mcs2D_buffer_ = similar(ϕms_mcs2D_buffer_)
+    #
+    function pullback_g_apply_ϕms_mcs2D_buffer!(dϕg, dζsP, ϕms, dϕm, ϕg, xM, ζsP,
+                               pbm_covar_indices, g, is_testmode, ϕms_mcs2D_buffer)
+        ϕms_buffer = isnothing(pbm_covar_indices) ? ϕms_ : ϕms_mcs_
+        dϕms_buffer = isnothing(pbm_covar_indices) ? dϕms_ : dϕms_mcs_
+        # assert that buffers were constructed with correct sizes
+        n_cov_f, n_site_f = size(xM)
+        n_covP_f = isnothing(pbm_covar_indices) ? 0 : length(pbm_covar_indices)
+        n_MC_f = size(ζsP,1)
+        @assert (n_cov, n_covP, n_MC, n_site) == (n_cov_f, n_covP_f, n_MC_f, n_site_f)
+        @assert size(dϕms_buffer) == size(dϕm)
+        @assert size(ϕms_mcs2D_buffer_) == size(ϕms_mcs2D_buffer)
+    
+        fill!(dϕg,  zero(eltype(dϕg)))
+        fill!(dζsP, zero(eltype(dζsP))) # also output cotangent
+        fill!(dxMP_, zero(eltype(dxMP_)))
+        fill!(dϕms_mcs2D_buffer_, zero(eltype(dϕms_mcs2D_buffer_)))
+        # primal will be updated as in the forward, but shadow needs to be preserved
+        copyto!(ϕms_buffer, ϕms) # copy to avoid modifying ϕm (although should be the same)
+        copyto!(dϕms_buffer, dϕm) # copy to avoid modifying dϕm
+        #copyto!(dζsP_, dζsP) # output, does not need to be preserved
+        copyto!(ϕms_mcs2D_buffer_, ϕms_mcs2D_buffer) # copy to avoid modifying dϕm
+        #
+        Enzyme.autodiff(
             Enzyme.Reverse, g_apply!,
             Enzyme.Duplicated(ϕms_buffer, dϕms_buffer),
             Enzyme.Duplicated(ϕg, dϕg),
@@ -223,7 +282,9 @@ function get_pullback_g_apply(::AbstractArray{TG}, ::AbstractArray{TF};
             Enzyme.Const(pbm_covar_indices),
             Enzyme.Const(g),
             Enzyme.Duplicated(xMP_, dxMP_),
-            Enzyme.Const(is_testmode))
+            Enzyme.Const(is_testmode),
+            Enzyme.Duplicated(ϕms_mcs2D_buffer_, dϕms_mcs2D_buffer_),
+        )
     end
 end
 
@@ -263,9 +324,9 @@ function prepare_gradelbo_helpers(
         ϕm, # = selectdim(ϕms, ndims(ϕm), 1), 
         θsP,
     )
-    ϕqIc = cv_grad[Val(:ϕqIc)]
-    ϕm = cv_grad[Val(:ϕm)]
-    θsP = cv_grad[Val(:θsP)]
+    # ϕqIc = cv_grad[Val(:ϕqIc)]
+    # ϕm = cv_grad[Val(:ϕm)]
+    # θsP = cv_grad[Val(:θsP)]
     use_ϕm_matrix = isnothing(pbm_covar_indices)
     n_covP =  use_ϕm_matrix ? 0 : length(pbm_covar_indices)
     n_ϕmvec = length(ϕm) #use_ϕm_matrix ? n_M : n_M * n_MC
@@ -287,12 +348,15 @@ function prepare_gradelbo_helpers(
     put!(hw_channel, h1)
     foreach(2:n_workers) do _
         put!(hw_channel, get_helpers_worker())
-    end    
+    end 
     (;
         dϕg = similar(ϕg),
         ∂elbo_∂ϕm_∂ζP = similar(θsP),
         ∂elbo_∂logσ_ζP = Vector{TF}(undef, size(θsP,1)),
+        ∂elbo_∂θP_∂ζP = Matrix{TF}(undef, size(θsP)),
+        dϕqP = similar(ϕqPc),
         dϕmvecs = SharedArrays.SharedArray{TF}(n_ϕmvec, n_site), 
+        ∂elbo_∂ϕqm = Array{TF}(undef, size(ϕm)..., n_site),
         hw_channel,
         pullback_cl_sample_ζsP! = get_pullback_cl_sample_ζsP(CA.getdata(ϕqPc); n_θP, n_MC),
         pullback_cl_transformζsP! = get_pullback_cl_transformζ!(CA.getdata(ϕqPc); n_θ = n_θP, n_MC),

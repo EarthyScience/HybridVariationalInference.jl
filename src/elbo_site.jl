@@ -41,6 +41,7 @@ function neg_elbo_sites!(
     sample_ζsP!(h.ζsP, h.logσ_ζP, rnormPM.P, ϕqPc) # n_P * n_MC
     # (n_M x n_sit)  or (n_M x n_MC x n_sit)    
     ϕms_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
+    #g_apply!(h[ϕms_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode, h.ϕms_mcs2D_buffer) 
     g_apply!(h[ϕms_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
     exp_ladJacTP = transformζ(h.θsP, h.ζsP)  # return value captures ladJacT
     # so that one can provide its gradient to the pullback
@@ -115,8 +116,9 @@ function prepare_elbo_helpers(ϕg::AbstractArray{TG}, ::AbstractArray{TF};
         ζsP = Matrix{TF}(undef, n_θP, n_MC),
         θsP = Matrix{TF}(undef, n_θP, n_MC),
         logσ_ζP = Vector{TF}(undef, n_θP),
-        ϕms = Matrix{TF}(undef, n_M, n_site),
+        ϕms = Matrix{TF}(undef, n_M, n_site),        
         ϕms_mcs = Array{TF,3}(undef, n_M, n_MC, n_site),
+        ϕms_mcs2D_buffer = Matrix{TF}(undef, n_M, n_MC * n_site),        
         xMP = Matrix{TG}(undef, (n_cov + n_covP), n_MC * n_site),
         diffchunk,
         helpers_sites,
@@ -149,7 +151,7 @@ end
 
 function sample_ζsP!(ζsP, logσ_ζP, rnormP, ϕqc::AbstractVector{T}) where T
     # TODO replace by proper sampling of full covariance matrix
-    μζP = CA.getdata(ϕqc[Val(:μζP)])
+    μζP = CA.getdata(view(ϕqc,Val(:μζP)))
     logσ_ζP .= view(ϕqc, Val(:logσ_ζP))
     # ζsP * diagm(v) is the same as ζsP .* v'
     ζsP .= μζP .+ (rnormP .* exp.(logσ_ζP)')
@@ -239,17 +241,27 @@ function g_apply!(ϕm::AbstractMatrix{TF}, ϕg::AbstractVector{TG}, xM::Abstract
     ζsP::AbstractMatrix{TF}, pbm_covar_indices::Nothing, 
     g::AbstractModelApplicator,
     xMP::AbstractMatrix,
-    is_testmode::Bool
+    is_testmode::Bool,
+    ϕms_mcs2D_buffer = nothing, # only required for 3D case
     ) where {TG, TF}
         apply_model!(ϕm, g, xM, ϕg; is_testmode) # allocates view
         return nothing
 end
 function g_apply!(ϕm::AbstractArray{TF,3}, ϕg::AbstractVector{TG}, xM::AbstractMatrix{TG},
     ζsP::AbstractMatrix{TF}, pbm_covar_indices::AbstractVector{<:Number},
-    g::AbstractModelApplicator, xMP::AbstractMatrix, is_testmode::Bool) where {TG, TF}
+    g::AbstractModelApplicator, xMP::AbstractMatrix, is_testmode::Bool,
+    ϕms_mcs2D_buffer = reshape(ϕm, size(ϕm,1), :) # allocates 48 bytes for an escaping view, preallocate 
+    ) where {TG, TF}
     update_xMP!(xMP, xM, ζsP, pbm_covar_indices)
-    yr = reshape(ϕm, size(ϕm,1), :)
-    apply_model!(yr, g, xMP, ϕg; is_testmode)
+    #Main.@infiltrate_main
+    if pointer(parent(ϕms_mcs2D_buffer)) != pointer(parent(ϕm))
+        # if supplied a preallocated array (rather than using the default view) theń copy
+        copyto!(ϕms_mcs2D_buffer, ϕm) # in order to call apply_model only once, stack n_sites * n_MC
+    end
+    apply_model!(ϕms_mcs2D_buffer, g, xMP, ϕg; is_testmode)
+    if pointer(parent(ϕms_mcs2D_buffer)) != pointer(parent(ϕm))
+        copyto!(ϕm, ϕms_mcs2D_buffer) 
+    end
     return nothing
 end
 
