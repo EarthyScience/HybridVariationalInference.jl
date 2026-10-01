@@ -67,7 +67,7 @@ include("RandomEffects.jl")
 
 export AbstractHVIApproximation, AbstractMeanHVIApproximation
 export get_numberof_MLinputs
-export MeanHVIApproximation, MeanHVIApproximationMat
+export MeanHVIApproximation, MeanHVIApproximationMat, DiagonalHVIApproximation
 export AbstractMeanVarSepHVIApproximation, MeanVarSepHVIApproximation
 export AbstractMeanScalingHVIApproximation, MeanScalingHVIApproximation
 include("HVIApproximation.jl")
@@ -155,6 +155,7 @@ include("elbo2.jl")
 
 include("elbo_site.jl")
 include("elbo_site_grad.jl")
+include("elbo_site_corr.jl")
 #export prepare_elbo_helpers
 
 #export get_loss_ran_tr_f

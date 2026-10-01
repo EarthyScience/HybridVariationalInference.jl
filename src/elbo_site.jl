@@ -154,12 +154,11 @@ function check_elbo_helpers(h::NamedTuple, xM::AbstractMatrix, pbm_covar_indices
     @assert size(hi.buffer_nθM_dc.du) == (n_θM,)
 end
 
-function sample_ζsP!(ζsP, logσ_ζP, ::DiagonalHVIApproximation,rnormP, ϕqc::AbstractVector{T}, cor_endsP) where T
+function sample_ζsP!(ζsP, logσ_ζP, ::DiagonalHVIApproximation, rnormP, ϕqc::AbstractVector{T}, cor_endsP) where T
     # TODO replace by proper sampling of full covariance matrix
     μζP = CA.getdata(view(ϕqc,Val(:μζP)))
     logσ_ζP .= view(ϕqc, Val(:logσ_ζP))
-    # ζsP * diagm(v) is the same as ζsP .* v'
-    ζsP .= μζP .+ (rnormP .* exp.(logσ_ζP)')
+    ζsP .= μζP .+ (exp.(logσ_ζP) .* rnormP)
     nothing
 end
 
@@ -169,11 +168,13 @@ function sample_ζsM!(ζsM, logσ_ζM, ::DiagonalHVIApproximation, rnorm, ϕqIc:
     # TODO add scaling by factor in ϕm / dispatch by approach
     n_θM, n_MC = size(ζsM)
     logσ_ζM .= view(ϕqIc, Val(:logσ_ζM))
-    @assert size(buffer_nθM) == (n_θM,)
-    scale = buffer_nθM
-    @. scale = exp(logσ_ζM / T(2))
+    #@assert size(buffer_nθM) == (n_θM,)
+    #scale = buffer_nθM
+    #@. scale = exp(logσ_ζM / T(2))
     μζM = view(ϕm, 1:n_θM)           # view of the mean block (n_θM × n_MC)
-    ζsM .= μζM .+ (rnorm .* scale')    # does not allocate
+    #ζsM .= μζM .+ (scale .* rnorm)    # does not allocate
+    #ζsM .= μζM .+ (exp.(logσ_ζM ./ T(2)) .* rnorm)    # does not allocate
+    ζsM .= μζM .+ (exp.(logσ_ζM) .* rnorm)    # does not allocate
     # @inbounds for j in 1:n_MC
     #     for i in 1:n_θM
     #         ζsM[i,j] = ϕm[i] + rnorm[i,j] * scale[i]
@@ -191,11 +192,14 @@ function sample_ζsM!(ζsM, logσ_ζM, ::DiagonalHVIApproximation, rnorm, ϕqc::
     @assert size(ϕm,2) == n_MC
     # TODO avoid allocation with subsetting non-last column
     # μζM = ϕm[1:n_θM,:]
-    @assert size(buffer_nθM) == (n_θM,)
-    scale = buffer_nθM
-    @. scale = exp(logσ_ζM / T(2))
+    # @assert size(buffer_nθM) == (n_θM,)
+    # scale = buffer_nθM
+    # @. scale = exp(logσ_ζM / T(2))
     μζM = view(ϕm, 1:n_θM, :)           # view of the mean block (n_θM × n_MC)
-    ζsM .= μζM .+ (rnorm .* scale')       # does not allocate
+    #ζsM .= μζM .+ (rnorm .* scale')       # does not allocate
+    #ζsM .= μζM .+ (scale .* rnorm)       # does not allocate
+    #ζsM .= μζM .+ (exp.(logσ_ζM ./ T(2)) .* rnorm)       # does not allocate
+    ζsM .= μζM .+ (exp.(logσ_ζM) .* rnorm)       # does not allocate
     # @inbounds for j in 1:n_MC
     #     for i in 1:n_θM
     #         ζsM[i,j] = ϕm[i,j] + rnorm[i,j] * scale[i]
