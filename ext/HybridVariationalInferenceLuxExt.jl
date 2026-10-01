@@ -31,7 +31,7 @@ function HVI.construct_ChainsApplicator(rng::AbstractRNG, m::Chain, float_type=F
     LuxApplicator(stateful_layer_test, stateful_layer_train, int_ϕ, false), ps_ca
 end
 
-function HVI.apply_model(app::LuxApplicator, x, ϕ; is_testmode=false) 
+@inline function HVI.apply_model(app::LuxApplicator, x, ϕ; is_testmode=false) 
     ϕd = CA.getdata(ϕ)
     if (ϕ isa SubArray) && (ϕ.parent isa GPUArraysCore.AbstractGPUArray)
         # Lux has problems with SubArrays of GPUArrays, need to convert to plain Array
@@ -47,7 +47,8 @@ function HVI.apply_model(app::LuxApplicator, x, ϕ; is_testmode=false)
     end
 end
 
-function HVI.apply_model!(y, app::LuxApplicator, x, ϕ; is_testmode=false) 
+@inline function HVI.apply_model!(y, app::LuxApplicator, x, ϕ; is_testmode=false) 
+    # inlining might help escpae analysis of y being a reshape or view
     ϕd = CA.getdata(ϕ)
     if (ϕ isa SubArray) && (ϕ.parent isa GPUArraysCore.AbstractGPUArray)
         # Lux has problems with SubArrays of GPUArrays, need to convert to plain Array
