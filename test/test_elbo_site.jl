@@ -213,6 +213,8 @@ end
     @test (@allocated f_fd1(ϕqd, ϕm, rnormM1, ϕqd)) == 0
 
     approx2 = MeanHVIApproximation()
+    h2 = CP.prepare_elbo_helpers(approx2, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC, 
+        n_cov, n_covP = n_covP0, n_M, cor_ends, use_diff_cache=Val(false))
     n_MCt = 10_000
     rnormM1t = randn(n_θM, n_MCt)
     ζsMt = similar(rnormM1t)
@@ -225,7 +227,7 @@ end
     CP._setρ_unscaled!(ρsMt, Ut)
     σt = [0.06, 0.08, 0.01]
     ϕqIct = CA.ComponentVector(logσ_ζM=log.(σt), ρsM=ρsMt)
-    CP.sample_ζsM!(ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, sample_buffers)
+    CP.sample_ζsM!(ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2.helpers_sites[1].sample_buffers)
     @test vec(mean(ζsMt, dims=2)) ≈ μt atol=0.01
     @test cor(ζsMt[1,:], ζsMt[2,:]) ≈ Σct[1,2] atol=0.02
     @test cor(ζsMt[1,:], ζsMt[3,:]) ≈ Σct[1,3] atol=0.02
@@ -233,11 +235,16 @@ end
     @test std(ζsMt[1,:]) ≈ σt[1] atol=0.01
     @test std(ζsMt[2,:]) ≈ σt[2] atol=0.01
     @test std(ζsMt[3,:]) ≈ σt[3] atol=0.01  
-
-
-    # @test ((ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, buffer_nθM) -> @allocated CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, buffer_nθM))(
-    #     ζsM, logσ_ζM, approx2, rnormM1, ϕqIc, ϕm, cor_ends.M, buffer_nθM) == 0
-
+    # @test ((ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers) -> 
+    #     @allocated CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers))(
+    #     ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2.helpers_sites[1].sample_buffers) == 0
+    function loop_samplesample_ζsM(n, ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers) 
+        for i in 1:n
+            CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers)
+        end
+    end
+    #@profview_allocs loop_samplesample_ζsM(1000, ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2.helpers_sites[1].sample_buffers)
+    @allocated loop_samplesample_ζsM(1000, ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2.helpers_sites[1].sample_buffers)
 
     # # Regression: sample_ζsM! must not allocate when reached through the
     # # ForwardDiff-reconstructed ComponentArray-view path used by

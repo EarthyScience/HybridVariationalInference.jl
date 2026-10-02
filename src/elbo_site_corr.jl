@@ -29,10 +29,11 @@ function sample_ζsM!(ζsM, logσ_ζM, ::AbstractMeanHVIApproximation, rnorm,
         rnorm_r = view(rnorm, r, :)
         logσ_ζM_r = view(logσ_ζM, r)
         ρ_end = ρ_start-1 + sumn(length(r)-1)
-        U = UpperTriangular(diagm(ones(length(r)))) # TODO preallocate
+        #U = UpperTriangular(diagm(ones(length(r)))) # TODO preallocate
+        U = sample_buffers.Us[ib] # preallocated UpperTriangular matrix
         ρsM_r = view(ρsM, ρ_start:ρ_end)
         _setU_scaled!(U, ρsM_r)
-        ζsM[r,:] .= μζM_r .+ (exp.(logσ_ζM_r) .* U') * rnorm_r  # does not allocate?
+        ζsM[r,:] .= μζM_r .+ exp.(logσ_ζM_r) .* U' * rnorm_r  # does not allocate?
         ρ_start = ρ_end + 1
     end
     @assert ρ_start-1 == length(ρsM)
@@ -45,7 +46,13 @@ end
 @inline view_ϕm(ϕm::AbstractVector, r::UnitRange{Int}) = view(ϕm, r)
 
 function prepare_ind_sample_buffers(approx::AbstractMeanHVIApproximation, cor_endsM)
-    (;)
+    zcor_endsM = OneBasedVectorWithZero(cor_endsM)
+    # make a Tuple, so to be handled by getdiffcache
+    Us = Tuple(begin
+        nb = zcor_endsM[ib] - zcor_endsM[ib-1]
+        U = UpperTriangular(diagm(ones(nb))) 
+    end for ib in axes(cor_endsM, 1))
+    (; Us)
 end
 
 
@@ -55,7 +62,7 @@ function _setU_scaled!(U::AbstractMatrix{T}, ρ::AbstractVector{T}) where {T};
     local n = size(U, 1)
     @inbounds for j in 2:n
         U[j,j] = one(T)  # first reset to one (not set in _vec2uutri!)
-        U[1:j,j] ./= sqrt(sum(abs2, U[1:j,j])) 
+        U[1:j,j] ./= sqrt(sum(abs2, view(U, 1:j, j))) 
     end
     #@assert diag(U' * U) ≈ ones(T, n)
     nothing

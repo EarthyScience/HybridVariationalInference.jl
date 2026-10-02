@@ -119,7 +119,7 @@ function prepare_elbo_helpers(approx::AbstractHVIApproximation,
         sample_buffers = prepare_ind_sample_buffers(approx, cor_ends.M),
     ) for i in 1:n_site)
     get_diffcache(x::AbstractArray) = PAT.DiffCache(x, chunk)
-    get_diffcache(x::NamedTuple) = map(get_diffcache, x)
+    get_diffcache(x::Union{Tuple,NamedTuple}) = map(get_diffcache, x)
     helpers_sites = use_dc ? map(hi -> map(get_diffcache, hi), his) : his
     h = (;
         ζsP = Matrix{TF}(undef, n_θP, n_MC),
