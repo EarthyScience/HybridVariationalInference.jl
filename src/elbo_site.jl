@@ -40,7 +40,7 @@ function neg_elbo_sites!(
     ϕqIc = intϕqI(ϕqI)
     pbm_covar_indices = !isnothing(pbm_covar_indices) && isempty(pbm_covar_indices) ? nothing : pbm_covar_indices
     #
-    sample_ζsP!(h.ζsP, h.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P) # n_P * n_MC
+    sample_ζsP!(h.ζsP, h.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers) # n_P * n_MC
     # (n_M x n_sit)  or (n_M x n_MC x n_sit)    
     ϕms_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
     #g_apply!(h[ϕms_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode, h.ϕms_mcs2D_buffer) 
@@ -133,6 +133,7 @@ function prepare_elbo_helpers(approx::AbstractHVIApproximation,
         ϕms_mcs = Array{TF,3}(undef, n_M, n_MC, n_site),
         ϕms_mcs2D_buffer = Matrix{TF}(undef, n_M, n_MC * n_site),        
         xMP = Matrix{TG}(undef, (n_cov + n_covP), n_MC * n_site),
+        sample_buffers = prepare_sample_buffers(approx, cor_ends.P),
         diffchunk,
         helpers_sites,
     )
@@ -161,13 +162,15 @@ function check_elbo_helpers(h::NamedTuple, xM::AbstractMatrix, pbm_covar_indices
     @assert size(hi.logσ_ζM_dc.du) == (n_θM,)
 end
 
-function sample_ζsP!(ζsP, logσ_ζP, ::DiagonalHVIApproximation, rnormP, ϕqc::AbstractVector{T}, cor_endsP) where T
+function sample_ζsP!(ζsP, logσ_ζP, ::DiagonalHVIApproximation, rnormP, 
+    ϕqc::AbstractVector{T}, cor_endsP, sample_buffers::NamedTuple) where T
     # TODO replace by proper sampling of full covariance matrix
     μζP = CA.getdata(view(ϕqc,Val(:μζP)))
     logσ_ζP .= view(ϕqc, Val(:logσ_ζP))
     ζsP .= μζP .+ (exp.(logσ_ζP) .* rnormP)
     nothing
 end
+prepare_sample_buffers(approx::DiagonalHVIApproximation, cor_endsP) = (;)
 
 # with Vector, all MCs have the same mean
 function sample_ζsM!(ζsM, logσ_ζM, ::DiagonalHVIApproximation, rnorm, ϕqIc::AbstractVector{T}, ϕm::AbstractVector, cor_endsM, sample_buffers) where T
@@ -214,12 +217,7 @@ function sample_ζsM!(ζsM, logσ_ζM, ::DiagonalHVIApproximation, rnorm, ϕqc::
     # end
     nothing         
 end
-
-function prepare_ind_sample_buffers(approx::DiagonalHVIApproximation, cor_endsM)
-    (;)
-end
-
-
+prepare_ind_sample_buffers(approx::DiagonalHVIApproximation, cor_endsM) = (;)
 
 # if pbm_covar_indices is nothing, return only a Matrix (n_m x n_site)
 # otherwise return an Array (n_m x n_MC x n_site)

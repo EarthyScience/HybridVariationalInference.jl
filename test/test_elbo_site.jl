@@ -166,6 +166,39 @@ isUsingSimpleChains = false
     @test v ≈ ϕqIc.ρsM
 end
 
+@testset "sample_ζsP!" begin
+    approx2 = MeanHVIApproximation()
+    n_MCt = 10_000
+    rnormPt = randn(n_θP, n_MCt)
+    ζsPt = similar(rnormPt)
+    logσ_ζPt = zeros(n_θP)
+    Σct = PDMats.PDMat([1.0 0.8 0.0; 0.8 1.0 0.0; 0.0 0.0 1.0])
+    Ut = cholesky(Σct).U
+    ρst = zeros(1)  #zeros(CP.sumn(n_θP-1))
+    CP._setρ_unscaled!(ρst, Ut[1:2,1:2])
+    σt = [0.06, 0.08, 0.01]
+    ϕqPct = CA.ComponentVector(μζP = [-1.0, 0.0, 1.0], logσ_ζP=log.(σt), ρsP=ρst)
+    h2M = CP.prepare_elbo_helpers(approx2, ϕg, ϕqP; n_θM, n_θP, n_site, n_MC = n_MCt, 
+        n_cov, n_covP = n_covP0, n_M, cor_ends, use_diff_cache=Val(false))
+    CP.sample_ζsP!(ζsPt, logσ_ζPt, approx2, rnormPt, ϕqPct, cor_ends.P, h2M.sample_buffers)
+    @test vec(mean(ζsPt, dims=2)) ≈ ϕqPct.μζP atol=0.01
+    @test cor(ζsPt[1,:], ζsPt[2,:]) ≈ Σct[1,2] atol=0.02
+    @test cor(ζsPt[1,:], ζsPt[3,:]) ≈ Σct[1,3] atol=0.02
+    @test cor(ζsPt[2,:], ζsPt[3,:]) ≈ Σct[2,3] atol=0.02
+    @test std(ζsPt[1,:]) ≈ σt[1] atol=0.01
+    @test std(ζsPt[2,:]) ≈ σt[2] atol=0.01
+    @test std(ζsPt[3,:]) ≈ σt[3] atol=0.01  
+    @test ((ζsP, logσ_ζP, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) -> 
+        @allocated CP.sample_ζsP!(ζsP, logσ_ζP, approx, rnormP, ϕqPc, cor_endsP, sample_buffers))(
+        ζsPt, logσ_ζPt, approx2, rnormPt, ϕqPct, cor_ends.P, h2M.sample_buffers) == 0
+    function loop_samplesample_ζsP(n, ζsP, logσ_ζP, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) 
+        for i in 1:n
+            CP.sample_ζsP!(ζsP, logσ_ζP, approx, rnormP, ϕqPc, cor_endsP, sample_buffers)
+        end
+    end
+    #@profview_allocs loop_samplesample_ζsP(1000, ζsPt, logσ_ζPt, approx2, rnormPt, ϕqPct, cor_ends.P, h2M.sample_buffers)
+end
+
 @testset "sample_ζsM!" begin
     ϕqIc = intϕqI(ϕqI)
     h0_1 = h0.helpers_sites[1]
@@ -239,9 +272,9 @@ end
     @test std(ζsMt[1,:]) ≈ σt[1] atol=0.01
     @test std(ζsMt[2,:]) ≈ σt[2] atol=0.01
     @test std(ζsMt[3,:]) ≈ σt[3] atol=0.01  
-    # @test ((ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers) -> 
-    #     @allocated CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers))(
-    #     ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2M.helpers_sites[1].sample_buffers) == 0
+    @test ((ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers) -> 
+        @allocated CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers))(
+        ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2M.helpers_sites[1].sample_buffers) == 0
     function loop_samplesample_ζsM(n, ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers) 
         for i in 1:n
             CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers)
@@ -292,7 +325,7 @@ end
 @testset "compute_nelboi_z!" begin
     ϕqIc = intϕqI(ϕqI)
     ϕqPc = intϕqP(ϕqP)
-    CP.sample_ζsP!(h0.ζsP, h0.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P) # n_P * n_MC
+    CP.sample_ζsP!(h0.ζsP, h0.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P, h0.sample_buffers) # n_P * n_MC
     CP.g_apply!(h0.ϕms, ϕg, xM, h0.ζsP, nothing, g, h0.xMP, false)     
     hi1 = h0.helpers_sites[1]
     i_site_train1 = 1:n_site
@@ -335,7 +368,7 @@ end
     # 
     gradh2 = CP.prepare_gradelbo_helpers(inputs.ϕqIc, inputs.ϕm, inputs.θsP, ϕg, ϕqPc, approx; 
         pbm_covar_indices=pbm_covar_indices2, n_workers=1,
-        hi1 = h2.helpers_sites[1], rnormM1 = rnormPM.M[1], i_site_train1 = 1,
+        h=h2, rnormM1 = rnormPM.M[1], i_site_train1 = 1,
         h2.diffchunk, n_site, n_cov, cor_ends)
     hw_channel = gradh2.hw_channel
     tmp = with_channel_element(x -> x.inputs_cv, hw_channel)
@@ -868,6 +901,32 @@ end
         @test dϕqP2_enz ≈ res0.dϕqP
         #hcat(dϕqP2_enz, res0.dϕqP)
     end
+    #---------------- approxM with non-empty h.sample_buffers
+    rng1 = StableRNG(1234)
+    CP.randnPM!(rng1, rnormPM)
+    randn!(rng1, ϕg2v)
+    randn!(rng1, xM)
+    primal2 = CP.neg_elbo_sites!(
+        h2M, approxM, rnormPM,
+        ϕg2v, ϕqP, ϕqI, g2, pbm_covar_indices2;
+        i_sites_train = 1:n_site,     
+        intϕqP, intϕqI,
+        xM,
+        cor_ends,
+        is_testmode = false,
+    )
+    res0, gradh2M = CP.grad_neg_elbo_sites(
+        h2M, (;), approxM,
+        rnormPM,
+        ϕg2v, ϕqP, ϕqI, g2, pbm_covar_indices2;
+        i_sites_train = 1:n_site,     
+        intϕqP, intϕqI,
+        xM,
+        cor_ends,
+        is_testmode = false,
+        executor = distributedEx,
+    )    
+
 
     function loop_grad_neg_elbo_sites(n, h2, gradh2, approx, rnormPM, ϕg2v, ϕqP, ϕqI, g2, pbm_covar_indices2; 
         i_sites_train, intϕqP, intϕqI, xM, cor_ends, is_testmode)
