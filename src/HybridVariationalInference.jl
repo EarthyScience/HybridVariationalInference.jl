@@ -70,6 +70,7 @@ export get_numberof_MLinputs
 export MeanHVIApproximation, MeanHVIApproximationMat, DiagonalHVIApproximation
 export AbstractMeanVarSepHVIApproximation, MeanVarSepHVIApproximation
 export AbstractMeanScalingHVIApproximation, MeanScalingHVIApproximation
+export MeanUniScalingHVIApproximation
 include("HVIApproximation.jl")
 
 export AbstractComponentArrayInterpreter, ComponentArrayInterpreter,
