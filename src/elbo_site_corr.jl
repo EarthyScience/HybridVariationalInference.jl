@@ -12,13 +12,12 @@ end
 
 function sample_ζsM!(ζsM, logσ_ζM, ::AbstractMeanHVIApproximation, rnorm, 
     ϕqc::AbstractVector{T}, ϕm::Union{AbstractVector, AbstractMatrix}, 
-    cor_endsM,  buffer_nθM::AbstractVector) where T
+    cor_endsM, sample_buffers::NamedTuple) where T
     n_θM, n_MC = size(ζsM)
     @assert size(rnorm) == (n_θM, n_MC)
     logσ_ζM .= view(ϕqc, Val(:logσ_ζM))
     @assert size(ϕm,1) >= n_θM
     assert_ϕm(ϕm, n_MC) # dispatch on vector or matrix
-    μζM = view(ϕm, 1:n_θM, :)           # view of the mean block (n_θM × n_MC)
     ρsM = view(ϕqc, Val(:ρsM))
     zcor_endsM = OneBasedVectorWithZero(cor_endsM)
     # ib = 1
@@ -44,6 +43,11 @@ end
 @inline assert_ϕm(ϕm::AbstractMatrix, n_MC) = size(ϕm,2) == n_MC
 @inline view_ϕm(ϕm::AbstractMatrix, r::UnitRange{Int}) = view(ϕm, r, :)
 @inline view_ϕm(ϕm::AbstractVector, r::UnitRange{Int}) = view(ϕm, r)
+
+function prepare_ind_sample_buffers(approx::AbstractMeanHVIApproximation, cor_endsM)
+    (;)
+end
+
 
 function _setU_scaled!(U::AbstractMatrix{T}, ρ::AbstractVector{T}) where {T};
     _vec2uutri!(U, ρ)

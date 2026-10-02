@@ -78,15 +78,15 @@ function compute_nelboi_z!(hi, approx::AbstractHVIApproximation,
             ζsM = PAT.get_tmp(hi.ζsM_dc, template)
             θsM = PAT.get_tmp(hi.θsM_dc, template)
             logσ_ζM = PAT.get_tmp(hi.logσ_ζM_dc, template)
-            buffer_nθM = PAT.get_tmp(hi.buffer_nθM_dc, template)
+            sample_buffers = map(x -> PAT.get_tmp(x, Ref(template)), hi.sample_buffers)
         else
             ζsM = hi.ζsM_dc
             θsM = hi.θsM_dc
             logσ_ζM = hi.logσ_ζM_dc
-            buffer_nθM = hi.buffer_nθM_dc
+            sample_buffers = hi.sample_buffers
         end
         #ζsM, logσ_ζM, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector
-        sample_ζsM!(ζsM, logσ_ζM, approx, rnormM, ϕqIc, ϕm, cor_endsM, buffer_nθM)
+        sample_ζsM!(ζsM, logσ_ζM, approx, rnormM, ϕqIc, ϕm, cor_endsM, sample_buffers)
     exp_ladJacTM = transformζ(θsM, ζsM)  # return value captures ladJacT
     # first component needs to be the full elbo
     exp_nL = exp_nLi(θsP, θsM; i_site_train, kwargs...)[1]
@@ -105,8 +105,9 @@ function prepare_rnorm(::AbstractVector{TF}; n_θP, n_θM, n_site, n_MC) where T
     # the view yields a small performance cost. So keep the Tuple-pattern 
 end
 
-function prepare_elbo_helpers(ϕg::AbstractArray{TG}, ::AbstractArray{TF};
-    n_θP, n_θM, n_site, n_MC, n_cov, n_covP, n_M, 
+function prepare_elbo_helpers(approx::AbstractHVIApproximation, 
+    ϕg::AbstractArray{TG}, ::AbstractArray{TF};
+    n_θP, n_θM, n_site, n_MC, n_cov, n_covP, n_M, cor_ends,
     use_diff_cache::Val{use_dc} = Val(true),
     diffchunk::ForwardDiff.Chunk{chunk} = ForwardDiff.Chunk(8),
     ) where {TG, TF, use_dc, chunk}
@@ -114,9 +115,12 @@ function prepare_elbo_helpers(ϕg::AbstractArray{TG}, ::AbstractArray{TF};
         ζsM_dc = Matrix{TF}(undef, n_θM, n_MC),
         θsM_dc = Matrix{TF}(undef, n_θM, n_MC),
         logσ_ζM_dc = Vector{TF}(undef, n_θM),
-        buffer_nθM_dc = Vector{TF}(undef, n_θM),
+        #buffer_nθM_dc = Vector{TF}(undef, n_θM),
+        sample_buffers = prepare_ind_sample_buffers(approx, cor_ends.M),
     ) for i in 1:n_site)
-    helpers_sites = use_dc ? map(hi -> map(x -> PAT.DiffCache(x, chunk), hi), his) : his
+    get_diffcache(x::AbstractArray) = PAT.DiffCache(x, chunk)
+    get_diffcache(x::NamedTuple) = map(get_diffcache, x)
+    helpers_sites = use_dc ? map(hi -> map(get_diffcache, hi), his) : his
     h = (;
         ζsP = Matrix{TF}(undef, n_θP, n_MC),
         θsP = Matrix{TF}(undef, n_θP, n_MC),
@@ -151,7 +155,6 @@ function check_elbo_helpers(h::NamedTuple, xM::AbstractMatrix, pbm_covar_indices
     @assert size(hi.ζsM_dc.du) == (n_θM, n_MC)
     @assert size(hi.θsM_dc.du) == (n_θM, n_MC)
     @assert size(hi.logσ_ζM_dc.du) == (n_θM,)
-    @assert size(hi.buffer_nθM_dc.du) == (n_θM,)
 end
 
 function sample_ζsP!(ζsP, logσ_ζP, ::DiagonalHVIApproximation, rnormP, ϕqc::AbstractVector{T}, cor_endsP) where T
@@ -163,7 +166,7 @@ function sample_ζsP!(ζsP, logσ_ζP, ::DiagonalHVIApproximation, rnormP, ϕqc:
 end
 
 # with Vector, all MCs have the same mean
-function sample_ζsM!(ζsM, logσ_ζM, ::DiagonalHVIApproximation, rnorm, ϕqIc::AbstractVector{T}, ϕm::AbstractVector, cor_endsM, buffer_nθM::AbstractVector) where T
+function sample_ζsM!(ζsM, logσ_ζM, ::DiagonalHVIApproximation, rnorm, ϕqIc::AbstractVector{T}, ϕm::AbstractVector, cor_endsM, sample_buffers) where T
     # TODO replace by proper sampling of full covariance matrix
     # TODO add scaling by factor in ϕm / dispatch by approach
     n_θM, n_MC = size(ζsM)
@@ -184,7 +187,7 @@ function sample_ζsM!(ζsM, logσ_ζM, ::DiagonalHVIApproximation, rnorm, ϕqIc:
 end
 
 # with Matrix, there is a site mean for each mc-sample
-function sample_ζsM!(ζsM, logσ_ζM, ::DiagonalHVIApproximation, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, cor_endsM, buffer_nθM::AbstractVector) where T
+function sample_ζsM!(ζsM, logσ_ζM, ::DiagonalHVIApproximation, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, cor_endsM, sample_buffers) where T
     n_θM, n_MC = size(ζsM)
     @assert size(rnorm) == (n_θM, n_MC)
     logσ_ζM .= view(ϕqc, Val(:logσ_ζM))
@@ -207,6 +210,12 @@ function sample_ζsM!(ζsM, logσ_ζM, ::DiagonalHVIApproximation, rnorm, ϕqc::
     # end
     nothing         
 end
+
+function prepare_ind_sample_buffers(approx::DiagonalHVIApproximation, cor_endsM)
+    (;)
+end
+
+
 
 # if pbm_covar_indices is nothing, return only a Matrix (n_m x n_site)
 # otherwise return an Array (n_m x n_MC x n_site)
