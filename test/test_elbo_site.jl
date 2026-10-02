@@ -287,6 +287,41 @@ end
     #@profview_allocs loop_samplesample_ζsM(1000, ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2M.helpers_sites[1].sample_buffers)
     @allocated loop_samplesample_ζsM(1000, ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2M.helpers_sites[1].sample_buffers)
 
+    approxS = MeanUniScalingHVIApproximation()
+    n_MCt = 10_000
+    rnormM1t = randn(n_θM, n_MCt)
+    ζsMt = similar(rnormM1t)
+    logσ_ζMt = zeros(n_θM)
+    μt = randn(n_θM) 
+    scale_fac = 1.2
+    ϕm_scaling = logistic(log(scale_fac))
+    ϕmt = repeat(vcat(μt, ϕm_scaling), 1, n_MCt)
+    Σct = PDMats.PDMat([1.0 0.8 0.6; 0.8 1.0 0.8; 0.6 0.8 1.0])
+    Ut = cholesky(Σct).U
+    ρsMt = zeros(CP.sumn(n_θM-1))
+    CP._setρ_unscaled!(ρsMt, Ut)
+    σt = [0.06, 0.08, 0.01]
+    σt_scaled = σt .* scale_fac
+    ϕqIct = CA.ComponentVector(logσ_ζM_offsets=(log.(σt[2:end]) .- log(σt[1])), ρsM=ρsMt)
+    h2S = CP.prepare_elbo_helpers(approxS, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC = n_MCt, 
+        n_cov, n_covP = n_covP0, n_M, cor_ends, use_diff_cache=Val(false))
+    CP.sample_ζsM!(ζsMt, logσ_ζMt, approxS, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2S.helpers_sites[1].sample_buffers)
+    @test vec(mean(ζsMt, dims=2)) ≈ μt atol=0.01
+    @test cor(ζsMt[1,:], ζsMt[2,:]) ≈ Σct[1,2] atol=0.02
+    @test cor(ζsMt[1,:], ζsMt[3,:]) ≈ Σct[1,3] atol=0.02
+    @test cor(ζsMt[2,:], ζsMt[3,:]) ≈ Σct[2,3] atol=0.02
+    @test std(ζsMt; dims=2) ≈ σt_scaled atol=0.01
+    # @test ((ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers) -> 
+    #     @allocated CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers))(
+    #     ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2S.helpers_sites[1].sample_buffers) == 0
+    # function loop_samplesample_ζsM(n, ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers) 
+    #     for i in 1:n
+    #         CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers)
+    #     end
+    # end
+    # #@profview_allocs loop_samplesample_ζsM(1000, ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2S.helpers_sites[1].sample_buffers)
+    # @allocated loop_samplesample_ζsM(1000, ζsMt, logσ_ζMt, approxS, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2S.helpers_sites[1].sample_buffers)
+
     # # Regression: sample_ζsM! must not allocate when reached through the
     # # ForwardDiff-reconstructed ComponentArray-view path used by
     # # grad_neg_elbo_sites (make_nelboiz_cl in elbo_site_grad.jl). The tests above

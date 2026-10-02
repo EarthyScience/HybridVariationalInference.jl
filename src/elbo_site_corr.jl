@@ -29,17 +29,18 @@ function sample_ζsP!(ζsP, logσ_ζP, approx::AbstractMeanHVIApproximation, rno
     nothing         
 end
 
-function prepare_sample_buffers(approx::AbstractMeanHVIApproximation, cor_endsP)
-    zcor_endsP = OneBasedVectorWithZero(cor_endsP)
+# TODO unify prepare_sample_buffers and prepare_ind_sample_buffers
+function prepare_sample_buffers(approx::Union{MeanHVIApproximation,MeanUniScalingHVIApproximation}, cor_ends)
+    zcor_ends = OneBasedVectorWithZero(cor_ends)
     # make a Tuple, so to be handled by getdiffcache
     Us = Tuple(begin
-        nb = zcor_endsP[ib] - zcor_endsP[ib-1]
+        nb = zcor_ends[ib] - zcor_ends[ib-1]
         U = UpperTriangular(diagm(ones(nb))) 
-    end for ib in axes(cor_endsP, 1))
+    end for ib in axes(cor_ends, 1))
     (; Us)
 end
 
-function sample_ζsM!(ζsM, logσ_ζM, approx::AbstractMeanHVIApproximation, rnorm, 
+function sample_ζsM!(ζsM, logσ_ζM, approx::Union{MeanHVIApproximation,MeanUniScalingHVIApproximation}, rnorm, 
     ϕqc::AbstractVector{T}, ϕm::Union{AbstractVector, AbstractMatrix}, 
     cor_endsM, sample_buffers::NamedTuple) where T
     n_θM, n_MC = size(ζsM)
@@ -73,19 +74,20 @@ function sample_ζsM!(ζsM, logσ_ζM, approx::AbstractMeanHVIApproximation, rno
 end
 
 @inline get_marginal_logσ(::MeanHVIApproximation, ϕqc, ϕm) = view(ϕqc, Val(:logσ_ζM))  
-@inline function get_marginal_std(::MeanUniScalingHVIApproximation, ϕqc, ϕm) 
-    n_θM = length(ϕqc[Val(:logσ_ζM)])
+@inline function get_marginal_logσ(::MeanUniScalingHVIApproximation, ϕqc, ϕm) 
+    n_θM = length(ϕqc[Val(:logσ_ζM_offsets)]) + 1
     ϕm_scaling = ϕm[n_θM+1]
-    logσ2_par_offsets = OneBasedVectorWithZero(ϕqc[Val(:logσ2_ζM_offsets)]) # zero based 
-    @assert length(logσ2_par_offsets) + 1 == n_θM
-    logσ2_site_offset = logit(ϕm_scaling) # (0..1)->(-Inf, +Inf), 0.5->0
+    logσ_par_offsets = OneBasedVectorWithZero(ϕqc[Val(:logσ_ζM_offsets)]) # zero based 
+    @assert length(logσ_par_offsets) + 1 == n_θM
+    logσ_site_offset = logit(ϕm_scaling) # (0..1)->(-Inf, +Inf), 0.5->0
     #
-    logσ2_ζM_base = 0.0 # TODO provide by Approx helper 
-    logσ2_ζMs = logσ2_ζM_base .+ logσ2_par_offsets[0:end] .+ logσ2_site_offset
-    logσ2_ζMs
+    logσ_ζM_base = log(0.06) # TODO provide by Approx helper 
+    logσ_ζMs = logσ_ζM_base .+ logσ_par_offsets[0:end] .+ logσ_site_offset
+    #exp.(logσ_ζMs)
+    logσ_ζMs
 end
 
-function prepare_ind_sample_buffers(approx::AbstractMeanHVIApproximation, cor_endsM)
+function prepare_ind_sample_buffers(approx::Union{MeanHVIApproximation,MeanUniScalingHVIApproximation}, cor_endsM)
     zcor_endsM = OneBasedVectorWithZero(cor_endsM)
     # make a Tuple, so to be handled by getdiffcache
     Us = Tuple(begin
