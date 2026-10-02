@@ -151,10 +151,14 @@ isUsingSimpleChains = false
     h2 = CP.prepare_elbo_helpers(approx, ϕg2, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends)
     CP.check_elbo_helpers(h0, xM, pbm_covar_indices0; n_ϕg = length(ϕg))
     CP.check_elbo_helpers(h2, xM, pbm_covar_indices2; n_ϕg = length(ϕg2))
-
+    randn!(h0.θsP) # for testing should initialized to finite values
+    randn!(h2.θsP) # for testing should initialized to finite values
     approxM = CP.MeanHVIApproximation()
     h0M = CP.prepare_elbo_helpers(approxM, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP0, n_M, cor_ends)
     h2M = CP.prepare_elbo_helpers(approxM, ϕg2, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends)
+    randn!(h0M.θsP) # for testing should initialized to finite values
+    randn!(h2M.θsP) # for testing should initialized to finite values
+
 
 @testset "_setU_scaled!" begin
     ϕqIc = intϕqI(ϕqI)

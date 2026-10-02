@@ -164,7 +164,6 @@ end
 
 function sample_ζsP!(ζsP, logσ_ζP, ::DiagonalHVIApproximation, rnormP, 
     ϕqc::AbstractVector{T}, cor_endsP, sample_buffers::NamedTuple) where T
-    # TODO replace by proper sampling of full covariance matrix
     μζP = CA.getdata(view(ϕqc,Val(:μζP)))
     logσ_ζP .= view(ϕqc, Val(:logσ_ζP))
     ζsP .= μζP .+ (exp.(logσ_ζP) .* rnormP)
@@ -172,43 +171,15 @@ function sample_ζsP!(ζsP, logσ_ζP, ::DiagonalHVIApproximation, rnormP,
 end
 prepare_sample_buffers(approx::DiagonalHVIApproximation, cor_endsP) = (;)
 
-# with Vector, all MCs have the same mean
-function sample_ζsM!(ζsM, logσ_ζM, ::DiagonalHVIApproximation, rnorm, ϕqIc::AbstractVector{T}, ϕm::AbstractVector, cor_endsM, sample_buffers) where T
-    # TODO replace by proper sampling of full covariance matrix
-    # TODO add scaling by factor in ϕm / dispatch by approach
-    n_θM, n_MC = size(ζsM)
-    logσ_ζM .= view(ϕqIc, Val(:logσ_ζM))
-    #@assert size(buffer_nθM) == (n_θM,)
-    #scale = buffer_nθM
-    #@. scale = exp(logσ_ζM / T(2))
-    μζM = view(ϕm, 1:n_θM)           # view of the mean block (n_θM × n_MC)
-    #ζsM .= μζM .+ (scale .* rnorm)    # does not allocate
-    #ζsM .= μζM .+ (exp.(logσ_ζM ./ T(2)) .* rnorm)    # does not allocate
-    ζsM .= μζM .+ (exp.(logσ_ζM) .* rnorm)    # does not allocate
-    # @inbounds for j in 1:n_MC
-    #     for i in 1:n_θM
-    #         ζsM[i,j] = ϕm[i] + rnorm[i,j] * scale[i]
-    #     end
-    # end
-    nothing
-end
-
-# with Matrix, there is a site mean for each mc-sample
-function sample_ζsM!(ζsM, logσ_ζM, ::DiagonalHVIApproximation, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, cor_endsM, sample_buffers) where T
+function sample_ζsM!(ζsM, logσ_ζM, ::DiagonalHVIApproximation, rnorm, 
+    ϕqc::AbstractVector{T}, ϕm::Union{AbstractVector, AbstractMatrix}, 
+    cor_endsM, sample_buffers) where T
     n_θM, n_MC = size(ζsM)
     @assert size(rnorm) == (n_θM, n_MC)
-    logσ_ζM .= view(ϕqc, Val(:logσ_ζM))
     @assert size(ϕm,1) >= n_θM
-    @assert size(ϕm,2) == n_MC
-    # TODO avoid allocation with subsetting non-last column
-    # μζM = ϕm[1:n_θM,:]
-    # @assert size(buffer_nθM) == (n_θM,)
-    # scale = buffer_nθM
-    # @. scale = exp(logσ_ζM / T(2))
-    μζM = view(ϕm, 1:n_θM, :)           # view of the mean block (n_θM × n_MC)
-    #ζsM .= μζM .+ (rnorm .* scale')       # does not allocate
-    #ζsM .= μζM .+ (scale .* rnorm)       # does not allocate
-    #ζsM .= μζM .+ (exp.(logσ_ζM ./ T(2)) .* rnorm)       # does not allocate
+    assert_ϕm(ϕm, n_MC) # dispatch on vector or matrix
+    logσ_ζM .= view(ϕqc, Val(:logσ_ζM))
+    μζM = view_ϕm(ϕm, 1:n_θM)           # dispatch
     ζsM .= μζM .+ (exp.(logσ_ζM) .* rnorm)       # does not allocate
     # @inbounds for j in 1:n_MC
     #     for i in 1:n_θM
@@ -217,6 +188,10 @@ function sample_ζsM!(ζsM, logσ_ζM, ::DiagonalHVIApproximation, rnorm, ϕqc::
     # end
     nothing         
 end
+@inline assert_ϕm(ϕm::AbstractVector, n_MC) = nothing
+@inline assert_ϕm(ϕm::AbstractMatrix, n_MC) = size(ϕm,2) == n_MC
+@inline view_ϕm(ϕm::AbstractMatrix, r::Union{Colon,UnitRange{Int}}) = view(ϕm, r, :)
+@inline view_ϕm(ϕm::AbstractVector, r::Union{Colon,UnitRange{Int}}) = view(ϕm, r)
 prepare_ind_sample_buffers(approx::DiagonalHVIApproximation, cor_endsM) = (;)
 
 # if pbm_covar_indices is nothing, return only a Matrix (n_m x n_site)
