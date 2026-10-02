@@ -24,6 +24,7 @@ import PreallocationTools as PAT
 import JLD2
 import Transducers
 import Profile
+import PDMats
 
 rng = StableRNG(1234)
 
@@ -151,6 +152,16 @@ isUsingSimpleChains = false
     CP.check_elbo_helpers(h2, xM, pbm_covar_indices2; n_ϕg = length(ϕg2))
     approx = CP.DiagonalHVIApproximation()
 
+@testset "_setU_scaled!" begin
+    ϕqIc = intϕqI(ϕqI)
+    U = zeros(n_θM, n_θM)
+    CP._setU_scaled!(U, ϕqIc.ρsM)
+    @test diag(U' * U) ≈ ones(eltype(U), n_θM)
+    v = zeros(n_θM)
+    CP._setρ_unscaled!(v, U)
+    @test v ≈ ϕqIc.ρsM
+end
+
 @testset "sample_ζsM!" begin
     ϕqIc = intϕqI(ϕqI)
     h0_1 = h0.helpers_sites[1]
@@ -202,7 +213,28 @@ isUsingSimpleChains = false
     @test (@allocated f_fd1(ϕqd, ϕm, rnormM1, ϕqd)) == 0
 
     approx2 = MeanHVIApproximation()
-    CP.sample_ζsM!(ζsM, logσ_ζM, approx2, rnormM1, ϕqIc, ϕm, cor_ends.M, buffer_nθM)
+    n_MCt = 10_000
+    rnormM1t = randn(n_θM, n_MCt)
+    ζsMt = similar(rnormM1t)
+    logσ_ζMt = zeros(n_θM)
+    μt = randn(n_θM) 
+    ϕmt = repeat(μt, 1, n_MCt)
+    Σct = PDMats.PDMat([1.0 0.8 0.6; 0.8 1.0 0.8; 0.6 0.8 1.0])
+    Ut = cholesky(Σct).U
+    ρsMt = zeros(CP.sumn(n_θM-1))
+    CP._setρ_unscaled!(ρsMt, Ut)
+    σt = [0.06, 0.08, 0.01]
+    ϕqIct = CA.ComponentVector(logσ_ζM=log.(σt), ρsM=ρsMt)
+    CP.sample_ζsM!(ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, buffer_nθM)
+    @test vec(mean(ζsMt, dims=2)) ≈ μt atol=0.01
+    @test cor(ζsMt[1,:], ζsMt[2,:]) ≈ Σct[1,2] atol=0.02
+    @test cor(ζsMt[1,:], ζsMt[3,:]) ≈ Σct[1,3] atol=0.02
+    @test cor(ζsMt[2,:], ζsMt[3,:]) ≈ Σct[2,3] atol=0.02
+    @test std(ζsMt[1,:]) ≈ σt[1] atol=0.01
+    @test std(ζsMt[2,:]) ≈ σt[2] atol=0.01
+    @test std(ζsMt[3,:]) ≈ σt[3] atol=0.01  
+
+
     # @test ((ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, buffer_nθM) -> @allocated CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, buffer_nθM))(
     #     ζsM, logσ_ζM, approx2, rnormM1, ϕqIc, ϕm, cor_ends.M, buffer_nθM) == 0
 

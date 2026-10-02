@@ -45,15 +45,25 @@ end
 @inline view_ϕm(ϕm::AbstractMatrix, r::UnitRange{Int}) = view(ϕm, r, :)
 @inline view_ϕm(ϕm::AbstractVector, r::UnitRange{Int}) = view(ϕm, r)
 
-function _setU_scaled!(U_scaled::AbstractMatrix{T}, v::AbstractVector{T}) where {T};
-    _vec2uutri!(U_scaled, v)
-    U_scaled[1,1] = one(T)  # first reset to one (not set in _vec2uutri!)
-    local n = size(U_scaled, 1)
+function _setU_scaled!(U::AbstractMatrix{T}, ρ::AbstractVector{T}) where {T};
+    _vec2uutri!(U, ρ)
+    U[1,1] = one(T)  # first reset to one (not set in _vec2uutri!)
+    local n = size(U, 1)
     @inbounds for j in 2:n
-        U_scaled[j,j] = one(T)  # first reset to one (not set in _vec2uutri!)
-        U_scaled[1:j,j] ./= sqrt(sum(abs2, U_scaled[1:j,j])) 
+        U[j,j] = one(T)  # first reset to one (not set in _vec2uutri!)
+        U[1:j,j] ./= sqrt(sum(abs2, U[1:j,j])) 
     end
-    #@assert diag(U_scaled' * U_scaled) ≈ ones(T, n)
+    #@assert diag(U' * U) ≈ ones(T, n)
+    nothing
+end
+
+function _setρ_unscaled!(ρ::AbstractVector{T}, U::AbstractMatrix{T}) where {T};
+    local n = size(U, 1)
+    @inbounds for j in 2:n
+        scale = U[j,j]
+        U[1:j,j] ./= scale
+    end
+    _uutri2vec!(ρ, U)
     nothing
 end
 
@@ -69,4 +79,15 @@ function _vec2uutri!(m::AbstractMatrix{T}, v::AbstractVector{T}) where {T}
     nothing
 end
 
+function _uutri2vec!(v::AbstractVector{T}, m::AbstractMatrix{T}) where {T}
+    local n = size(m,1)
+    @assert size(m,2) == n
+    @assert length(v) == sumn(n-1)
+    local k = 1
+    @inbounds for i in 1:(n-1), j in (i+1):n
+        v[k] = m[i,j]
+        k += 1
+    end
+    nothing
+end
 
