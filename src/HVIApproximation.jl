@@ -45,6 +45,12 @@ struct MeanVarSepHVIApproximation <: AbstractMeanVarSepHVIApproximation end
 abstract type AbstractMeanScalingHVIApproximation <: AbstractHVIApproximation end
 
 """
+    MeanUniScalingHVIApproximation
+
+ML model predicts a single scaling factor uniform for all variance parameters 
+"""
+struct MeanUniScalingHVIApproximation <: AbstractMeanScalingHVIApproximation end
+"""
     MeanScalingHVIApproximation(scalingblocks_ends, logσ2_ζM_base)
 
 An approximation that requires the ML model to predict a scaling factor, 
