@@ -71,26 +71,30 @@ end
 function compute_nelboi_z!(hi, approx::AbstractHVIApproximation,
     rnormM, i_site_train, ϕm, ϕqIc::AbstractArray{TF}, θsP, cor_endsM;
     kwargs...) where TF
-        # on update -> sync corresponding function within grad_neg_elbo_sites
-        use_dc = hi.ζsM_dc isa PAT.DiffCache
-        if use_dc 
-            template = ϕqIc 
-            ζsM = PAT.get_tmp(hi.ζsM_dc, template)
-            θsM = PAT.get_tmp(hi.θsM_dc, template)
-            logσ_ζM = PAT.get_tmp(hi.logσ_ζM_dc, template)
-            sample_buffers = map(x -> PAT.get_tmp(x, Ref(template)), hi.sample_buffers)
-        else
-            ζsM = hi.ζsM_dc
-            θsM = hi.θsM_dc
-            logσ_ζM = hi.logσ_ζM_dc
-            sample_buffers = hi.sample_buffers
-        end
-        #ζsM, logσ_ζM, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector
-        sample_ζsM!(ζsM, logσ_ζM, approx, rnormM, ϕqIc, ϕm, cor_endsM, sample_buffers)
+    # on update -> sync corresponding function within grad_neg_elbo_sites
+    use_dc = hi.ζsM_dc isa PAT.DiffCache
+    if use_dc 
+        template = ϕqIc 
+        ζsM = PAT.get_tmp(hi.ζsM_dc, template)
+        θsM = PAT.get_tmp(hi.θsM_dc, template)
+        logσ_ζM = PAT.get_tmp(hi.logσ_ζM_dc, template)
+        sample_buffers = map(x -> get_tmp_rec_(x, template), hi.sample_buffers)
+    else
+        ζsM = hi.ζsM_dc
+        θsM = hi.θsM_dc
+        logσ_ζM = hi.logσ_ζM_dc
+        sample_buffers = hi.sample_buffers
+    end
+    #ζsM, logσ_ζM, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector
+    sample_ζsM!(ζsM, logσ_ζM, approx, rnormM, ϕqIc, ϕm, cor_endsM, sample_buffers)
     exp_ladJacTM = transformζ(θsM, ζsM)  # return value captures ladJacT
     # first component needs to be the full elbo
     exp_nL = exp_nLi(θsP, θsM; i_site_train, kwargs...)[1]
     elbozi = exp_nL - exp_ladJacTM - sum(logσ_ζM)
+end
+get_tmp_rec_(x::PAT.DiffCache{<:AbstractArray}, template) = PAT.get_tmp(x, template)
+function get_tmp_rec_(x::Union{Tuple,NamedTuple}, template) 
+    map(xi -> get_tmp_rec_(xi, template), x)
 end
 
 

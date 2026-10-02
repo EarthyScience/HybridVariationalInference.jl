@@ -33,7 +33,10 @@ function sample_ζsM!(ζsM, logσ_ζM, ::AbstractMeanHVIApproximation, rnorm,
         U = sample_buffers.Us[ib] # preallocated UpperTriangular matrix
         ρsM_r = view(ρsM, ρ_start:ρ_end)
         _setU_scaled!(U, ρsM_r)
-        ζsM[r,:] .= μζM_r .+ exp.(logσ_ζM_r) .* U' * rnorm_r  # does not allocate?
+        # rotate the noise in place into ζsM[r,:], then scale and add the mean
+        ζsM_r = view(ζsM, r, :)
+        mul!(ζsM_r, U', rnorm_r)
+        ζsM_r .= μζM_r .+ exp.(logσ_ζM_r) .* ζsM_r
         ρ_start = ρ_end + 1
     end
     @assert ρ_start-1 == length(ρsM)
@@ -62,7 +65,7 @@ function _setU_scaled!(U::AbstractMatrix{T}, ρ::AbstractVector{T}) where {T};
     local n = size(U, 1)
     @inbounds for j in 2:n
         U[j,j] = one(T)  # first reset to one (not set in _vec2uutri!)
-        U[1:j,j] ./= sqrt(sum(abs2, view(U, 1:j, j))) 
+        view(U, 1:j, j) ./= sqrt(sum(abs2, view(U, 1:j, j))) 
     end
     #@assert diag(U' * U) ≈ ones(T, n)
     nothing

@@ -152,6 +152,10 @@ isUsingSimpleChains = false
     CP.check_elbo_helpers(h0, xM, pbm_covar_indices0; n_ϕg = length(ϕg))
     CP.check_elbo_helpers(h2, xM, pbm_covar_indices2; n_ϕg = length(ϕg2))
 
+    approxM = CP.MeanHVIApproximation()
+    h0M = CP.prepare_elbo_helpers(approxM, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP0, n_M, cor_ends)
+    h2M = CP.prepare_elbo_helpers(approxM, ϕg2, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends)
+
 @testset "_setU_scaled!" begin
     ϕqIc = intϕqI(ϕqI)
     U = zeros(n_θM, n_θM)
@@ -213,8 +217,6 @@ end
     @test (@allocated f_fd1(ϕqd, ϕm, rnormM1, ϕqd)) == 0
 
     approx2 = MeanHVIApproximation()
-    h2 = CP.prepare_elbo_helpers(approx2, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC, 
-        n_cov, n_covP = n_covP0, n_M, cor_ends, use_diff_cache=Val(false))
     n_MCt = 10_000
     rnormM1t = randn(n_θM, n_MCt)
     ζsMt = similar(rnormM1t)
@@ -227,7 +229,9 @@ end
     CP._setρ_unscaled!(ρsMt, Ut)
     σt = [0.06, 0.08, 0.01]
     ϕqIct = CA.ComponentVector(logσ_ζM=log.(σt), ρsM=ρsMt)
-    CP.sample_ζsM!(ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2.helpers_sites[1].sample_buffers)
+    h2M = CP.prepare_elbo_helpers(approx2, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC = n_MCt, 
+        n_cov, n_covP = n_covP0, n_M, cor_ends, use_diff_cache=Val(false))
+    CP.sample_ζsM!(ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2M.helpers_sites[1].sample_buffers)
     @test vec(mean(ζsMt, dims=2)) ≈ μt atol=0.01
     @test cor(ζsMt[1,:], ζsMt[2,:]) ≈ Σct[1,2] atol=0.02
     @test cor(ζsMt[1,:], ζsMt[3,:]) ≈ Σct[1,3] atol=0.02
@@ -237,14 +241,14 @@ end
     @test std(ζsMt[3,:]) ≈ σt[3] atol=0.01  
     # @test ((ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers) -> 
     #     @allocated CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers))(
-    #     ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2.helpers_sites[1].sample_buffers) == 0
+    #     ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2M.helpers_sites[1].sample_buffers) == 0
     function loop_samplesample_ζsM(n, ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers) 
         for i in 1:n
             CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers)
         end
     end
-    #@profview_allocs loop_samplesample_ζsM(1000, ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2.helpers_sites[1].sample_buffers)
-    @allocated loop_samplesample_ζsM(1000, ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2.helpers_sites[1].sample_buffers)
+    #@profview_allocs loop_samplesample_ζsM(1000, ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2M.helpers_sites[1].sample_buffers)
+    @allocated loop_samplesample_ζsM(1000, ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2M.helpers_sites[1].sample_buffers)
 
     # # Regression: sample_ζsM! must not allocate when reached through the
     # # ForwardDiff-reconstructed ComponentArray-view path used by
@@ -370,7 +374,16 @@ end
     #@profview_allocs tmpgn(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing, hw_channel)
 
     approx2 = MeanHVIApproximation()
-    CP.compute_nelboi_z!(hi1, approx2, rnormM1, i_site_train1, ϕms1, ϕqIc, θsP1, cor_ends.M)     
+    hiM1 = h0M.helpers_sites[1]
+    @test isfinite(CP.compute_nelboi_z!(hiM1, approx2, rnormM1, i_site_train1, 
+        ϕms1, ϕqIc, θsP1, cor_ends.M))
+    function alloc_compute_nelboi_zM!(hiM1, approx2, rnormM1, i_site_train1, 
+        ϕms1, ϕqIc, θsP1, cor_endsM)
+        @test (@allocated CP.compute_nelboi_z!(hiM1, approx2, rnormM1, i_site_train1, 
+        ϕms1, ϕqIc, θsP1, cor_endsM)) == 0 
+    end
+    alloc_compute_nelboi_zM!(hiM1, approx2, rnormM1, i_site_train1, 
+        ϕms1, ϕqIc, θsP1, cor_ends.M)
 end
 
 @testset "pullback_g_apply!" begin
@@ -475,34 +488,7 @@ end
 #     end
 end
 
-# @testset "neg_elbo_sites!" begin
-#     # @usingany Cthulhu
-#     CP.randnPM!(rng, h0)
-#     res0 = CP.neg_elbo_sites!(
-#     #@descend_code_warntype CP.neg_elbo_sites!(
-#         h0,
-#         ϕgv, ϕqP, ϕqI, g, nothing;
-#         n_MC, 
-#         i_sites_train = 1:n_site,     
-#         intϕqP, intϕqI,
-#         xM,
-#         is_testmode = false,
-#     )    
-
-#     # matrix version with population covariates
-#     CP.randnPM!(rng, h2)
-#     res = CP.neg_elbo_sites!(
-#         h2, 
-#         ϕg2v, ϕqP, ϕqI, g2, pbm_covar_indices2;
-#         n_MC, 
-#         i_sites_train = 1:n_site,     
-#         intϕqP, intϕqI,
-#         xM,
-#         is_testmode = false,
-#     )    
-# end
-
-# @testset "pullback_sample_ζsP!" begin
+@testset "pullback_sample_ζsP!" begin
 #     ϕqPc = intϕqP(ϕqP)
 #     rnormP = zero(ζsP)
 #     randn!(rnormP)  # before input gaussian noise
@@ -558,7 +544,7 @@ end
 #     #
 #     # @usingany BenchmarkTools
 #     # @benchmark pb_sample_ζsP(dϕqc, dζsP, dlogσ_ζP)    
-# end
+end
 
 function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by enzyme
     # do not use DiffCache here for helpers_sites
@@ -661,6 +647,115 @@ function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by e
     () -> begin
         #fname = "intermediate/test_enzyme_dphi2.jld2"
         fname = "intermediate/test_enzymeT_dphi2.jld2"
+        mkpath("intermediate")
+        JLD2.jldsave(fname, false, IOStream; primal2_enz, dϕg2_enz, dϕqP2_enz, dϕqI2_enz)
+        primal2_enz, dϕg2_enz, dϕqP2_enz, dϕqI2_enz = JLD2.load(fname, 
+            "primal2_enz", "dϕg2_enz", "dϕqP2_enz", "dϕqI2_enz");
+    end
+end
+
+function grad_neg_elbo_sites_enzyme_Cor() # differentiate entire neg_elbo_sites by enzyme
+    # now with more complicated Correlation approximation
+    # do not use DiffCache here for helpers_sites
+    h0p = CP.prepare_elbo_helpers(approxM, ϕg, ϕqP; 
+        n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP0, n_M, cor_ends, use_diff_cache = Val(false))
+    # and store results to compare to hand-crafted mixed AD
+    dh0p = Enzyme.make_zero(h0p)
+    @test dh0p !== h0p # real copy rather than reference
+    dϕg = zero(ϕgv)
+    dϕqP = zero(ϕqP)
+    dϕqI = zero(ϕqI)
+    _ftmp2 = (ϕgv, h, approx, rnormPM, ϕqP, ϕqI, g, pbm_covar_indices, intϕqP, intϕqI, xM, cor_ends, i_sites_train) -> 
+        CP.neg_elbo_sites!(
+        h, approx, rnormPM, ϕgv, ϕqP, ϕqI, g, pbm_covar_indices;
+        i_sites_train,     
+        intϕqP, intϕqI,
+        xM,
+        cor_ends,
+        is_testmode = false,
+        )[1]    
+    pbm_covar_indices_nothing = nothing
+    #_f(ϕg2v, h, g2, pbm_covar_indices2)
+    
+    Enzyme.make_zero!(dϕg)
+    Enzyme.make_zero!(dϕqP)
+    Enzyme.make_zero!(dϕqI)
+    Enzyme.make_zero!(dh0p)
+    rng1 = StableRNG(1234)
+    CP.randnPM!(rng1, rnormPM)   
+    randn!(rng1, ϕgv)
+    randn!(rng1, xM)
+    primal_enz = _ftmp2(ϕgv, h0p, approxM, rnormPM, ϕqP, ϕqI, g, pbm_covar_indices_nothing, intϕqP, intϕqI, xM, cor_ends,1:n_site)
+    Enzyme.autodiff(
+            Enzyme.set_runtime_activity(Enzyme.Reverse) ,
+            _ftmp2,
+            Enzyme.Active,
+            Enzyme.Duplicated(ϕgv, dϕg),
+            Enzyme.Duplicated(h0p, dh0p),
+            Enzyme.Const(approxM),
+            Enzyme.DuplicatedNoNeed(rnormPM, Enzyme.make_zero(rnormPM)),
+            Enzyme.Duplicated(ϕqP, dϕqP),
+            Enzyme.Duplicated(ϕqI, dϕqI),
+            Enzyme.Const(g),
+            Enzyme.Const(pbm_covar_indices_nothing),
+            Enzyme.Const(intϕqP),
+            Enzyme.Const(intϕqI),
+            Enzyme.Const(xM),
+            Enzyme.Const(cor_ends),
+            Enzyme.Const(1:n_site),
+        )   
+    dϕg0_enz = copy(dϕg)
+    dϕqP0_enz = copy(dϕqP)
+    dϕqI0_enz = copy(dϕqI)
+    () -> begin
+        #@usingany JLD2
+        #fname = "intermediate/test_enzyme_dphi0.jld2"
+        fname = "intermediate/test_enzymeM_dphi0.jld2"
+        mkpath("intermediate")
+        JLD2.jldsave(fname, false, IOStream; primal_enz, dϕg0_enz, dϕqP0_enz, dϕqI0_enz)
+        primal_enz, dϕg0_enz, dϕqP0_enz, dϕqI0_enz = JLD2.load(fname, 
+            "primal_enz", "dϕg0_enz", "dϕqP0_enz", "dϕqI0_enz");
+    end
+
+    h2p = CP.prepare_elbo_helpers(approxM, ϕg2, ϕqP; 
+        n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends, use_diff_cache = Val(false))
+    dϕg2 = zero(ϕg2v)
+    dh2p = Enzyme.make_zero(h2p)
+    @test dh2p !== h2p # real copy rather than reference
+
+    Enzyme.make_zero!(dϕg2)
+    Enzyme.make_zero!(dϕqP)
+    Enzyme.make_zero!(dϕqI)
+    Enzyme.make_zero!(dh2p)
+    rng1 = StableRNG(1234)
+    CP.randnPM!(rng1, rnormPM)   
+    randn!(rng1, ϕg2v)
+    randn!(rng1, xM)
+    primal2_enz = _ftmp2(ϕg2v, h2p, approxM, rnormPM, ϕqP, ϕqI, g2, pbm_covar_indices2, intϕqP, intϕqI, xM, cor_ends, 1:n_site)
+    Enzyme.autodiff(
+            Enzyme.set_runtime_activity(Enzyme.Reverse) ,
+            _ftmp2,
+            Enzyme.Active,
+            Enzyme.Duplicated(ϕg2v, dϕg2),
+            Enzyme.Duplicated(h2p, dh2p),
+            Enzyme.Const(approxM),
+            Enzyme.DuplicatedNoNeed(rnormPM, Enzyme.make_zero(rnormPM)),
+            Enzyme.Duplicated(ϕqP, dϕqP),
+            Enzyme.Duplicated(ϕqI, dϕqI),
+            Enzyme.Const(g2),
+            Enzyme.Const(pbm_covar_indices2),
+            Enzyme.Const(intϕqP),
+            Enzyme.Const(intϕqI),
+            Enzyme.Const(xM),
+            Enzyme.Const(cor_ends),
+            Enzyme.Const(1:n_site),
+        )   
+    dϕg2_enz = copy(dϕg2)
+    dϕqP2_enz = copy(dϕqP)
+    dϕqI2_enz = copy(dϕqI)
+    () -> begin
+        #fname = "intermediate/test_enzyme_dphi2.jld2"
+        fname = "intermediate/test_enzymeM_dphi2.jld2"
         mkpath("intermediate")
         JLD2.jldsave(fname, false, IOStream; primal2_enz, dϕg2_enz, dϕqP2_enz, dϕqI2_enz)
         primal2_enz, dϕg2_enz, dϕqP2_enz, dϕqI2_enz = JLD2.load(fname, 
