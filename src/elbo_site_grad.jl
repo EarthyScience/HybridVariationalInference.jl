@@ -27,11 +27,11 @@ function grad_neg_elbo_sites(
     gradh = !isempty(grad_elbo_helpers) ? grad_elbo_helpers : prepare_gradelbo_helpers(
         ϕqIc, selectdim(h_ϕm, ndims(h_ϕm), 1), h.ζsP, ϕg, ϕqPc, approx; 
         pbm_covar_indices, n_workers,
-        hi1 = h.helpers_sites[1], rnormM1 = rnormPM.M[1], i_site_train1 = 1,
+        h, rnormM1 = rnormPM.M[1], i_site_train1 = 1,
         h.diffchunk, n_site, n_cov, cor_ends)
     hw_channel = gradh.hw_channel
     #
-    sample_ζsP!(h.ζsP, h.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P) # n_P * n_MC
+    sample_ζsP!(h.ζsP, h.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers) # n_P * n_MC
     g_apply!(h_ϕm, ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
     ladJacTP = transformζ(h.θsP, h.ζsP)  # return value captures ladJacT
     #
@@ -78,7 +78,7 @@ function grad_neg_elbo_sites(
     gradh.pullback_cl_sample_ζsP!(
         dϕqP, 
         ∂elbo_∂θP_∂ζP + gradh.∂elbo_∂ϕm_∂ζP, gradh.∂elbo_∂logσ_ζP,
-        h.ζsP, h.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P,
+        h.ζsP, h.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers,
         )
     (;dϕqP, dϕqI = ∂elbo_∂ϕqI, dϕg = gradh.dϕg), gradh
 end
@@ -146,22 +146,26 @@ function make_nelboiz_cl(hi, approx::AbstractHVIApproximation, rnormM, i_site_tr
     end
 end
 
-function get_pullback_cl_sample_ζsP(::AbstractArray{TF}; n_θP, n_MC) where TF
+function get_pullback_cl_sample_ζsP(::AbstractArray{TF}; n_θP, n_MC, sample_buffers) where TF
     #dϕqc, dζsP, dlogσ_ζP, ζsP, logσ_ζP, rnormP, ϕqc)
     ζsP_ = Matrix{TF}(undef, n_θP, n_MC)
     logσ_ζP_ = Vector{TF}(undef, n_θP)
     dζsP_ = similar(ζsP_)  # allocate space for derivatives
     dlogσ_ζP_ = similar(logσ_ζP_)
     drnormP = similar(ζsP_)
+    dsample_buffers = map_recurse_ntuple(similar, sample_buffers) # allocate space for derivatives
     #
     function pullback_cl_sample_ζsP!(dϕqc, dζsP, dlogσ_ζP, ζsP, logσ_ζP, 
-        approx::AbstractHVIApproximation, rnormP, ϕqc, cor_endsP)
+        approx::AbstractHVIApproximation, rnormP, ϕqc, cor_endsP, sample_buffers::NamedTuple)
         Enzyme.make_zero!(dϕqc)
+        Enzyme.make_zero!(dsample_buffers)
         fill!(dϕqc, 0)            # the derivative to compute 
         copyto!(dζsP_, dζsP)      # input cotangents (modified in-place by Enzyme)
         copyto!(dlogσ_ζP_, dlogσ_ζP)
         copyto!(ζsP_, ζsP)        # modified in-place by Enzyme
         copyto!(logσ_ζP_, logσ_ζP)
+        EnzBuffers = isempty(sample_buffers) ? Enzyme.Const(sample_buffers) : 
+            Enzyme.Duplicated(sample_buffers, dsample_buffers)
         Enzyme.autodiff(
             Enzyme.Reverse,
             sample_ζsP!,
@@ -171,9 +175,14 @@ function get_pullback_cl_sample_ζsP(::AbstractArray{TF}; n_θP, n_MC) where TF
             Enzyme.DuplicatedNoNeed(rnormP, drnormP),  
             Enzyme.Duplicated(ϕqc, dϕqc),   
             Enzyme.Const(cor_endsP),
+            EnzBuffers,
         )
     end
 end
+
+map_recurse_ntuple(f, x) = f(x)
+map_recurse_ntuple(f, x::Union{Tuple,NamedTuple}) = map(y -> map_recurse_ntuple(f, y), x)
+
 
 
 function get_pullback_g_apply(::AbstractArray{TG}, ::AbstractArray{TF}; 
@@ -305,10 +314,12 @@ function prepare_gradelbo_helpers(
     ϕg::AbstractVector{TG}, ϕqPc::AbstractVector{TF},
     approx::AbstractHVIApproximation; 
     pbm_covar_indices, n_workers,
-    hi1, rnormM1, i_site_train1,
+    h, rnormM1, i_site_train1,
     diffchunk, n_site, n_cov,
     cor_ends,
     ) where {TG, TF}
+    hi1 = h.helpers_sites[1]
+    # TODO get n_site, n_cov diffchunk from h
     cv_grad = CA.ComponentArray(; 
         ϕqIc, 
         ϕm, # = selectdim(ϕms, ndims(ϕm), 1), 
@@ -348,7 +359,8 @@ function prepare_gradelbo_helpers(
         dϕmvecs = SharedArrays.SharedArray{TF}(n_ϕmvec, n_site), 
         ∂elbo_∂ϕqm = Array{TF}(undef, size(ϕm)..., n_site),
         hw_channel,
-        pullback_cl_sample_ζsP! = get_pullback_cl_sample_ζsP(CA.getdata(ϕqPc); n_θP, n_MC),
+        pullback_cl_sample_ζsP! = get_pullback_cl_sample_ζsP(CA.getdata(ϕqPc); 
+            n_θP, n_MC, sample_buffers = h.sample_buffers),
         pullback_cl_transformζsP! = get_pullback_cl_transformζ!(CA.getdata(ϕqPc); n_θ = n_θP, n_MC),
         pullback_g_apply! = get_pullback_g_apply(
             ϕg, ϕqPc; n_θP, n_cov, n_covP, n_MC, n_site, n_M),

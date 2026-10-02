@@ -1,13 +1,42 @@
-function sample_ζsP!(ζsP, logσ_ζP, approx::AbstractMeanHVIApproximation,rnormP, ϕqc::AbstractVector{T}, cor_endsP) where T
-    # TODO replace by proper sampling of full covariance matrix
+function sample_ζsP!(ζsP, logσ_ζP, approx::AbstractMeanHVIApproximation, rnorm, 
+    ϕqc::AbstractVector{T}, cor_endsP, sample_buffers::NamedTuple) where T
     μζP = CA.getdata(view(ϕqc,Val(:μζP)))
     logσ_ζP .= view(ϕqc, Val(:logσ_ζP))
-    # ρsP = view(ϕqc, Val(:ρsP))
-    # UP = transformU_block_cholesky1(ρsP, cor_endsP)
-    # ζsP * diagm(v) is the same as ζsP .* v'
-    # diagm(v) * ζsP   is the same as ζsP .* v'
-    ζsP .= μζP .+ (rnormP .* exp.(logσ_ζP)')
-    nothing
+    n_θP, n_MC = size(ζsP)
+    @assert size(rnorm) == (n_θP, n_MC)
+    @assert size(μζP) == (n_θP,)
+    ρsP = view(ϕqc, Val(:ρsP))
+    zcor_ends = OneBasedVectorWithZero(cor_endsP)
+    # ib = 2
+    ρ_start = 1
+    for ib in axes(cor_endsP, 1)
+        r = (zcor_ends[ib-1]+1):zcor_ends[ib]
+        μζP_r = view_ϕm(μζP, r)           # dispatch
+        rnorm_r = view(rnorm, r, :)
+        logσ_ζP_r = view(logσ_ζP, r)
+        ρ_end = ρ_start-1 + sumn(length(r)-1)
+        #U = UpperTriangular(diagm(ones(length(r)))) # TODO preallocate
+        U = sample_buffers.Us[ib] # preallocated UpperTriangular matrix
+        ρsP_r = view(ρsP, ρ_start:ρ_end)
+        _setU_scaled!(U, ρsP_r)
+        # rotate the noise in place into ζsM[r,:], then scale and add the mean
+        ζsP_r = view(ζsP, r, :)
+        mul!(ζsP_r, U', rnorm_r)
+        ζsP_r .= μζP_r .+ exp.(logσ_ζP_r) .* ζsP_r
+        ρ_start = ρ_end + 1
+    end
+    @assert ρ_start-1 == length(ρsP)
+    nothing         
+end
+
+function prepare_sample_buffers(approx::AbstractMeanHVIApproximation, cor_endsP)
+    zcor_endsP = OneBasedVectorWithZero(cor_endsP)
+    # make a Tuple, so to be handled by getdiffcache
+    Us = Tuple(begin
+        nb = zcor_endsP[ib] - zcor_endsP[ib-1]
+        U = UpperTriangular(diagm(ones(nb))) 
+    end for ib in axes(cor_endsP, 1))
+    (; Us)
 end
 
 function sample_ζsM!(ζsM, logσ_ζM, ::AbstractMeanHVIApproximation, rnorm, 
@@ -19,11 +48,11 @@ function sample_ζsM!(ζsM, logσ_ζM, ::AbstractMeanHVIApproximation, rnorm,
     @assert size(ϕm,1) >= n_θM
     assert_ϕm(ϕm, n_MC) # dispatch on vector or matrix
     ρsM = view(ϕqc, Val(:ρsM))
-    zcor_endsM = OneBasedVectorWithZero(cor_endsM)
+    zcor_ends = OneBasedVectorWithZero(cor_endsM)
     # ib = 1
     ρ_start = 1
     for ib in axes(cor_endsM, 1)
-        r = (zcor_endsM[ib-1]+1):zcor_endsM[ib]
+        r = (zcor_ends[ib-1]+1):zcor_ends[ib]
         #scale_r = view(scale, r) 
         μζM_r = view_ϕm(ϕm, r)           # dispatch
         rnorm_r = view(rnorm, r, :)
@@ -68,7 +97,7 @@ function _setU_scaled!(U::AbstractMatrix{T}, ρ::AbstractVector{T}) where {T};
         view(U, 1:j, j) ./= sqrt(sum(abs2, view(U, 1:j, j))) 
     end
     #@assert diag(U' * U) ≈ ones(T, n)
-    nothing
+    U
 end
 
 function _setρ_unscaled!(ρ::AbstractVector{T}, U::AbstractMatrix{T}) where {T};
@@ -78,7 +107,7 @@ function _setρ_unscaled!(ρ::AbstractVector{T}, U::AbstractMatrix{T}) where {T}
         U[1:j,j] ./= scale
     end
     _uutri2vec!(ρ, U)
-    nothing
+    ρ
 end
 
 function _vec2uutri!(m::AbstractMatrix{T}, v::AbstractVector{T}) where {T}
@@ -90,7 +119,7 @@ function _vec2uutri!(m::AbstractMatrix{T}, v::AbstractVector{T}) where {T}
         m[i,j] = v[k]
         k += 1
     end
-    nothing
+    m
 end
 
 function _uutri2vec!(v::AbstractVector{T}, m::AbstractMatrix{T}) where {T}
@@ -102,6 +131,6 @@ function _uutri2vec!(v::AbstractVector{T}, m::AbstractMatrix{T}) where {T}
         v[k] = m[i,j]
         k += 1
     end
-    nothing
+    v
 end
 
