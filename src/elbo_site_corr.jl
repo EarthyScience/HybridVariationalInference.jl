@@ -72,10 +72,6 @@ function sample_ζsM!(ζsM, logσ_ζM, ::AbstractMeanHVIApproximation, rnorm,
     nothing         
 end
 
-@inline assert_ϕm(ϕm::AbstractVector, n_MC) = nothing
-@inline assert_ϕm(ϕm::AbstractMatrix, n_MC) = size(ϕm,2) == n_MC
-@inline view_ϕm(ϕm::AbstractMatrix, r::UnitRange{Int}) = view(ϕm, r, :)
-@inline view_ϕm(ϕm::AbstractVector, r::UnitRange{Int}) = view(ϕm, r)
 
 function prepare_ind_sample_buffers(approx::AbstractMeanHVIApproximation, cor_endsM)
     zcor_endsM = OneBasedVectorWithZero(cor_endsM)
