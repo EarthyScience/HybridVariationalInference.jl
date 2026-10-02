@@ -145,12 +145,12 @@ isUsingSimpleChains = false
     # preallocate helpers and shadows
     rnormPM = CP.prepare_rnorm(ϕqP; n_θP, n_θM, n_MC, n_site)
     # size(rnormPM.P)
+    approx = CP.DiagonalHVIApproximation()
     CP.randnPM!(rng, rnormPM)
-    h0 = CP.prepare_elbo_helpers(ϕg, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP0, n_M)
-    h2 = CP.prepare_elbo_helpers(ϕg2, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M)
+    h0 = CP.prepare_elbo_helpers(approx, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP0, n_M, cor_ends)
+    h2 = CP.prepare_elbo_helpers(approx, ϕg2, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends)
     CP.check_elbo_helpers(h0, xM, pbm_covar_indices0; n_ϕg = length(ϕg))
     CP.check_elbo_helpers(h2, xM, pbm_covar_indices2; n_ϕg = length(ϕg2))
-    approx = CP.DiagonalHVIApproximation()
 
 @testset "_setU_scaled!" begin
     ϕqIc = intϕqI(ϕqI)
@@ -174,26 +174,26 @@ end
     rnormM1 = rnormPM.M[1]
     ζsM = similar(rnormM1)
     logσ_ζM = zeros(n_θM)
-    buffer_nθM = zeros(n_θM)
-    CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_ends.M, buffer_nθM)
-    @test ((ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, buffer_nθM) -> @allocated CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, buffer_nθM))(
-        ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_ends.M, buffer_nθM) == 0
+    sample_buffers = h0_1.sample_buffers
+    CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_ends.M, sample_buffers)
+    @test ((ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers) -> @allocated CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers))(
+        ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_ends.M, sample_buffers) == 0
     #
     # vector version
     ϕm1 = ϕm[:,1] 
-    CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm1, cor_ends.M, buffer_nθM)
+    CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm1, cor_ends.M, sample_buffers)
     #allocations because h1 is global
     #  @allocated CP.sample_ζsM!(ζsM, logσ_ζM, rnormM1, ϕqIc, ϕm1, buffer_nθM)
-    tmpf1 = (ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm1, cor_endsM, buffer_nθM) -> @allocated CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm1, cor_endsM, buffer_nθM)
-    @test tmpf1(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm1, cor_ends.M, buffer_nθM)  == 0
+    tmpf1 = (ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm1, cor_endsM, sample_buffers) -> @allocated CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm1, cor_endsM, sample_buffers)
+    @test tmpf1(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm1, cor_ends.M, sample_buffers)  == 0
 
     # capture global variables in closure to avoid allocations
     get_f_fd1 = (h1, intϕqI, approx::AbstractHVIApproximation, cor_endsM) -> (ϕqP, ϕm1, rnormM1, template) -> begin
         local ϕqIc = intϕqI(ϕqP) # without local allocations by @safetestset, shadows global
-        ζsMb = PAT.get_tmp(h1.ζsM_dc, template)
-        logσ_ζMb = PAT.get_tmp(h1.logσ_ζM_dc, template)
-        buffer_nθMb = PAT.get_tmp(h1.buffer_nθM_dc, template)
-        CP.sample_ζsM!(ζsMb, logσ_ζMb, approx, rnormM1, ϕqIc, ϕm1, cor_endsM, buffer_nθMb)
+        local ζsMb = PAT.get_tmp(h1.ζsM_dc, template)
+        local logσ_ζMb = PAT.get_tmp(h1.logσ_ζM_dc, template)
+        local sample_buffers = h1.sample_buffers
+        CP.sample_ζsM!(ζsMb, logσ_ζMb, approx, rnormM1, ϕqIc, ϕm1, cor_endsM, sample_buffers)
         sum(ζsMb) + sum(logσ_ζMb)
     end
     f_fd1 = get_f_fd1(h0_1, intϕqI, approx, cor_ends.M)
@@ -225,7 +225,7 @@ end
     CP._setρ_unscaled!(ρsMt, Ut)
     σt = [0.06, 0.08, 0.01]
     ϕqIct = CA.ComponentVector(logσ_ζM=log.(σt), ρsM=ρsMt)
-    CP.sample_ζsM!(ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, buffer_nθM)
+    CP.sample_ζsM!(ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, sample_buffers)
     @test vec(mean(ζsMt, dims=2)) ≈ μt atol=0.01
     @test cor(ζsMt[1,:], ζsMt[2,:]) ≈ Σct[1,2] atol=0.02
     @test cor(ζsMt[1,:], ζsMt[3,:]) ≈ Σct[1,3] atol=0.02
@@ -466,7 +466,7 @@ end
 #         #@usingany BenchmarkTools
 #         #@benchmark grad2_g_apply!(y, dϕg, dy, ϕg2v, xM, ζP, pbm_covar_indices2, g2, h, fwd, rev)
 #     end
- end
+end
 
 # @testset "neg_elbo_sites!" begin
 #     # @usingany Cthulhu
@@ -555,8 +555,8 @@ end
 
 function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by enzyme
     # do not use DiffCache here for helpers_sites
-    h0p = CP.prepare_elbo_helpers(ϕg, ϕqP; 
-        n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP0, n_M, use_diff_cache = Val(false))
+    h0p = CP.prepare_elbo_helpers(approx, ϕg, ϕqP; 
+        n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP0, n_M, cor_ends, use_diff_cache = Val(false))
     # and store results to compare to hand-crafted mixed AD
     dh0p = Enzyme.make_zero(h0p)
     @test dh0p !== h0p # real copy rather than reference
@@ -615,8 +615,8 @@ function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by e
             "primal_enz", "dϕg0_enz", "dϕqP0_enz", "dϕqI0_enz");
     end
 
-    h2p = CP.prepare_elbo_helpers(ϕg2, ϕqP; 
-        n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M, use_diff_cache = Val(false))
+    h2p = CP.prepare_elbo_helpers(approx, ϕg2, ϕqP; 
+        n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends, use_diff_cache = Val(false))
     dϕg2 = zero(ϕg2v)
     dh2p = Enzyme.make_zero(h2p)
     @test dh2p !== h2p # real copy rather than reference
