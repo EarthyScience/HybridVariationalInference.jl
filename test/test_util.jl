@@ -15,6 +15,25 @@ using LinearAlgebra
     @test v1[2] == 20
     @test v1[3] == 30
     @test v1[[true,true,true]] == [10,20,30]
+    @test v1[0:end] == [0,10,20,30]
+    
+    # testing the view
+    sv = @view(v1[0:end])
+    @test ((v1) -> @allocated(tmp = @view(v1[0:end])))(v1) == 0
+    @test sv == [0,10,20,30]
+    # the view is 1-based, so index 1 reads the zero and indices 2.. read data
+    @test axes(sv) == (Base.OneTo(4),)
+    @test sv[1] == 0
+    @test sv[2] == 10
+    @test sv[4] == 30
+    @test collect(sv) == [0,10,20,30]
+    # index 1 of the view is the protected zero; writing it must error
+    @test_throws BoundsError sv[1] = 100
+    # a positive range still gives a normal SubArray view
+    @test @view(v1[1:2]) == [10,20]
+    @test_throws BoundsError sv[1] = 0 # cannot write to the first index
+    sv[2] = 100  # but can write to other indices and reflect in underlying vector
+    @test v1[1] == 100
 
     v1[1] = 100
     @test v1[1] == 100
@@ -40,6 +59,7 @@ using LinearAlgebra
     v0[1] = 100
     @test v0[1] == 100
     @test v0.data[0] == 100
+    @test 
 
     # bounds for non-zero indices should be 1..length for wrapper independent of underlying axis
     @test v0[0] == 0
