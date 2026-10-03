@@ -49,7 +49,9 @@ abstract type AbstractMeanScalingHVIApproximation <: AbstractHVIApproximation en
 
 ML model predicts a single scaling factor uniform for all variance parameters 
 """
-struct MeanUniScalingHVIApproximation <: AbstractMeanScalingHVIApproximation end
+struct MeanUniScalingHVIApproximation{TF} <: AbstractMeanScalingHVIApproximation 
+    logσ_ζM_base::TF
+end
 """
     MeanScalingHVIApproximation(scalingblocks_ends, logσ2_ζM_base)
 

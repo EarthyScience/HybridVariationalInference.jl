@@ -13,7 +13,7 @@ end
 
 """
 elbo_helpers need to be initialized with new random numbers
-in h.ζsP and hi.ζsM_dc by calling randnPM! before.
+in h.ζsP and hi.ζsM by calling randnPM! before.
 By this way, we can compute the derivative corresponding to the forward pass
 """
 function neg_elbo_sites!(
@@ -34,7 +34,7 @@ function neg_elbo_sites!(
     h = elbo_helpers # preallocated μζP, dμζP, ζsP, ϕms, xMP, dxMP
     @assert size(rnormPM.P) == size(h.ζsP)
     use_dc = h.helpers_sites[1].ζsM isa PAT.DiffCache
-    n_M, n_MC = use_dc ? size(h.helpers_sites[1].ζsM.du) : size(h.helpers_sites[1].ζsM_dc)
+    n_M, n_MC = use_dc ? size(h.helpers_sites[1].ζsM.du) : size(h.helpers_sites[1].ζsM)
     @assert size(rnormPM.M[1]) == (n_M, n_MC)
     ϕqPc = intϕqP(ϕqP) 
     ϕqIc = intϕqI(ϕqI)

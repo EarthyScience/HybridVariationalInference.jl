@@ -97,7 +97,8 @@ isUsingSimpleChains = false
         ρsP = [0.1],
         )
     ϕqIc1 = CA.ComponentVector(
-        logσ_ζM = ones(n_MC) .* log(0.02),
+        #logσ_ζM = ones(n_MC) .* log(0.02),
+        logσ_ζM = log.([0.02, 0.06, 0.04]),
         ρsM = [0.1, 0.2, 0.3],
         )
     ϕqP = ϕqP2 = CA.getdata(ϕqPc1)
@@ -153,11 +154,20 @@ isUsingSimpleChains = false
     CP.check_elbo_helpers(h2, xM, pbm_covar_indices2; n_ϕg = length(ϕg2))
     randn!(h0.θsP) # for testing should initialized to finite values
     randn!(h2.θsP) # for testing should initialized to finite values
+    #
     approxM = CP.MeanHVIApproximation()
     h0M = CP.prepare_elbo_helpers(approxM, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP0, n_M, cor_ends)
     h2M = CP.prepare_elbo_helpers(approxM, ϕg2, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends)
     randn!(h0M.θsP) # for testing should initialized to finite values
     randn!(h2M.θsP) # for testing should initialized to finite values
+    #
+    ϕqIcS = CA.ComponentVector(;logσ_ζM_offsets = ϕqIc1.logσ_ζM[2:end] .- ϕqIc1.logσ_ζM[1], ϕqIc1.ρsM)
+    intϕqIS = get_concrete(ComponentArrayInterpreter(ϕqIcS))
+    approxS = CP.MeanUniScalingHVIApproximation(ϕqIc1.logσ_ζM[1])
+    h0S = CP.prepare_elbo_helpers(approxS, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP0, n_M, cor_ends)
+    h2S = CP.prepare_elbo_helpers(approxS, ϕg2, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends)
+    randn!(h0S.θsP) # for testing should initialized to finite values
+    randn!(h2S.θsP) # for testing should initialized to finite values
 
 
 @testset "_setU_scaled!" begin
@@ -171,7 +181,8 @@ isUsingSimpleChains = false
 end
 
 @testset "sample_ζsP!" begin
-    approxS = MeanUniScalingHVIApproximation()
+    σt = [0.06, 0.08, 0.01]
+    approxS = MeanUniScalingHVIApproximation(σt[1])
     n_MCt = 10_000
     rnormPt = randn(n_θP, n_MCt)
     ζsPt = similar(rnormPt)
@@ -180,7 +191,6 @@ end
     Ut = cholesky(Σct).U
     ρst = zeros(1)  #zeros(CP.sumn(n_θP-1))
     CP._setρ_unscaled!(ρst, Ut[1:2,1:2])
-    σt = [0.06, 0.08, 0.01]
     ϕqPct = CA.ComponentVector(μζP = [-1.0, 0.0, 1.0], logσ_ζP=log.(σt), ρsP=ρst)
     h2M = CP.prepare_elbo_helpers(approxS, ϕg, ϕqP; n_θM, n_θP, n_site, n_MC = n_MCt, 
         n_cov, n_covP = n_covP0, n_M, cor_ends, use_diff_cache=Val(false))
@@ -287,7 +297,8 @@ end
     #@profview_allocs loop_samplesample_ζsM(1000, ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2M.helpers_sites[1].sample_buffers)
     @allocated loop_samplesample_ζsM(1000, ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2M.helpers_sites[1].sample_buffers)
 
-    approxS = MeanUniScalingHVIApproximation()
+    σt = [0.06, 0.08, 0.01]
+    approxS = MeanUniScalingHVIApproximation(log(σt[1]))
     n_MCt = 10_000
     rnormM1t = randn(n_θM, n_MCt)
     ζsMt = similar(rnormM1t)
@@ -300,7 +311,6 @@ end
     Ut = cholesky(Σct).U
     ρsMt = zeros(CP.sumn(n_θM-1))
     CP._setρ_unscaled!(ρsMt, Ut)
-    σt = [0.06, 0.08, 0.01]
     σt_scaled = σt .* scale_fac
     ϕqIct = CA.ComponentVector(logσ_ζM_offsets=(log.(σt[2:end]) .- log(σt[1])), ρsM=ρsMt)
     h2S = CP.prepare_elbo_helpers(approxS, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC = n_MCt, 
@@ -835,6 +845,9 @@ end
     ϕqPc = intϕqP(ϕqP)
     n_threads_proc = min(Threads.nthreads(), 4)
     n_workers = Distributed.nworkers() * n_threads_proc
+    basesize = n_site ÷ Distributed.nworkers()
+    distributedEx = Transducers.DistributedEx(;basesize, threads_basesize = Int(ceil(basesize / n_threads_proc))) 
+
     #
     rng1 = StableRNG(1234)
     CP.randnPM!(rng1, rnormPM)
@@ -860,8 +873,6 @@ end
         cor_ends,
         is_testmode = false,
     )    
-    basesize = n_site ÷ Distributed.nworkers()
-    distributedEx = Transducers.DistributedEx(;basesize, threads_basesize = Int(ceil(basesize / n_threads_proc))) 
     res0_, gradh0_ = CP.grad_neg_elbo_sites( # test deterministic result and distributed
         h0, gradh0, approx,
         rnormPM,
@@ -935,26 +946,26 @@ end
         @test dϕqP2_enz ≈ res0.dϕqP
         #hcat(dϕqP2_enz, res0.dϕqP)
     end
-    #---------------- approxM with non-empty h.sample_buffers
+    #---------------- approxM with non-empty h.sample_buffers and scaling
     rng1 = StableRNG(1234)
     CP.randnPM!(rng1, rnormPM)
     randn!(rng1, ϕg2v)
     randn!(rng1, xM)
     primal2 = CP.neg_elbo_sites!(
-        h2M, approxM, rnormPM,
-        ϕg2v, ϕqP, ϕqI, g2, pbm_covar_indices2;
+        h2S, approxS, rnormPM,
+        ϕg2v, ϕqP, CA.getdata(ϕqIcS), g2, pbm_covar_indices2;
         i_sites_train = 1:n_site,     
-        intϕqP, intϕqI,
+        intϕqP, intϕqI = intϕqIS,
         xM,
         cor_ends,
         is_testmode = false,
     )
-    res0, gradh2M = CP.grad_neg_elbo_sites(
-        h2M, (;), approxM,
+    res0, gradh2S = CP.grad_neg_elbo_sites(
+        h2S, (;), approxS,
         rnormPM,
-        ϕg2v, ϕqP, ϕqI, g2, pbm_covar_indices2;
+        ϕg2v, ϕqP, CA.getdata(ϕqIcS), g2, pbm_covar_indices2;
         i_sites_train = 1:n_site,     
-        intϕqP, intϕqI,
+        intϕqP, intϕqI = intϕqIS,
         xM,
         cor_ends,
         is_testmode = false,
