@@ -153,7 +153,7 @@ function get_pullback_cl_sample_ζsP(::AbstractArray{TF}; n_θP, n_MC, sample_bu
     dζsP_ = similar(ζsP_)  # allocate space for derivatives
     dlogσ_ζP_ = similar(logσ_ζP_)
     drnormP = similar(ζsP_)
-    dsample_buffers = map_recurse_ntuple(similar, sample_buffers) # allocate space for derivatives
+    dsample_buffers = map_leaves_nt(similar, sample_buffers) # allocate space for derivatives
     #
     function pullback_cl_sample_ζsP!(dϕqc, dζsP, dlogσ_ζP, ζsP, logσ_ζP, 
         approx::AbstractHVIApproximation, rnormP, ϕqc, cor_endsP, sample_buffers::NamedTuple)
@@ -179,11 +179,6 @@ function get_pullback_cl_sample_ζsP(::AbstractArray{TF}; n_θP, n_MC, sample_bu
         )
     end
 end
-
-map_recurse_ntuple(f, x) = f(x)
-map_recurse_ntuple(f, x::Union{Tuple,NamedTuple}) = map(y -> map_recurse_ntuple(f, y), x)
-
-
 
 function get_pullback_g_apply(::AbstractArray{TG}, ::AbstractArray{TF}; 
     n_θP, n_cov, n_covP, n_MC, n_site, n_M,

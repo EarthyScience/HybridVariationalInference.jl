@@ -231,8 +231,8 @@ end
     # capture global variables in closure to avoid allocations
     get_f_fd1 = (h1, intϕqI, approx::AbstractHVIApproximation, cor_endsM) -> (ϕqP, ϕm1, rnormM1, template) -> begin
         local ϕqIc = intϕqI(ϕqP) # without local allocations by @safetestset, shadows global
-        local ζsMb = PAT.get_tmp(h1.ζsM_dc, template)
-        local logσ_ζMb = PAT.get_tmp(h1.logσ_ζM_dc, template)
+        local ζsMb = PAT.get_tmp(h1.ζsM, template)
+        local logσ_ζMb = PAT.get_tmp(h1.logσ_ζM, template)
         local sample_buffers = h1.sample_buffers
         CP.sample_ζsM!(ζsMb, logσ_ζMb, approx, rnormM1, ϕqIc, ϕm1, cor_endsM, sample_buffers)
         sum(ζsMb) + sum(logσ_ζMb)

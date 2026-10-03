@@ -426,3 +426,12 @@ function with_channel_element(f::Function, ch::Channel)
         put!(ch, elem)
     end
 end
+
+"""
+    map_leaves_nt(f, x)
+
+Map function f to all leaves of a nested Tuple/NamedTuple.    
+"""
+map_leaves_nt(f, x) = f(x)
+map_leaves_nt(f, x::Union{Tuple,NamedTuple}) = map(y -> map_leaves_nt(f, y), x)
+

@@ -33,8 +33,8 @@ function neg_elbo_sites!(
     # for AD do not put it into closure
     h = elbo_helpers # preallocated μζP, dμζP, ζsP, ϕms, xMP, dxMP
     @assert size(rnormPM.P) == size(h.ζsP)
-    use_dc = h.helpers_sites[1].ζsM_dc isa PAT.DiffCache
-    n_M, n_MC = use_dc ? size(h.helpers_sites[1].ζsM_dc.du) : size(h.helpers_sites[1].ζsM_dc)
+    use_dc = h.helpers_sites[1].ζsM isa PAT.DiffCache
+    n_M, n_MC = use_dc ? size(h.helpers_sites[1].ζsM.du) : size(h.helpers_sites[1].ζsM_dc)
     @assert size(rnormPM.M[1]) == (n_M, n_MC)
     ϕqPc = intϕqP(ϕqP) 
     ϕqIc = intϕqI(ϕqI)
@@ -72,30 +72,20 @@ function compute_nelboi_z!(hi, approx::AbstractHVIApproximation,
     rnormM, i_site_train, ϕm, ϕqIc::AbstractArray{TF}, θsP, cor_endsM;
     kwargs...) where TF
     # on update -> sync corresponding function within grad_neg_elbo_sites
-    use_dc = hi.ζsM_dc isa PAT.DiffCache
-    if use_dc 
-        template = ϕqIc 
-        ζsM = PAT.get_tmp(hi.ζsM_dc, template)
-        θsM = PAT.get_tmp(hi.θsM_dc, template)
-        logσ_ζM = PAT.get_tmp(hi.logσ_ζM_dc, template)
-        sample_buffers = map(x -> get_tmp_rec_(x, template), hi.sample_buffers)
-    else
-        ζsM = hi.ζsM_dc
-        θsM = hi.θsM_dc
-        logσ_ζM = hi.logσ_ζM_dc
-        sample_buffers = hi.sample_buffers
+    if hi.ζsM isa PAT.DiffCache
+        hi = map_leaves_nt(x -> PAT.get_tmp(x, ϕqIc), hi)
     end
     #ζsM, logσ_ζM, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector
-    sample_ζsM!(ζsM, logσ_ζM, approx, rnormM, ϕqIc, ϕm, cor_endsM, sample_buffers)
-    exp_ladJacTM = transformζ(θsM, ζsM)  # return value captures ladJacT
+    sample_ζsM!(hi.ζsM, hi.logσ_ζM, approx, rnormM, ϕqIc, ϕm, cor_endsM, hi.sample_buffers)
+    exp_ladJacTM = transformζ(hi.θsM, hi.ζsM)  # return value captures ladJacT
     # first component needs to be the full elbo
-    exp_nL = exp_nLi(θsP, θsM; i_site_train, kwargs...)[1]
-    elbozi = exp_nL - exp_ladJacTM - sum(logσ_ζM)
+    exp_nL = exp_nLi(θsP, hi.θsM; i_site_train, kwargs...)[1]
+    elbozi = exp_nL - exp_ladJacTM - sum(hi.logσ_ζM)
 end
-get_tmp_rec_(x::PAT.DiffCache{<:AbstractArray}, template) = PAT.get_tmp(x, template)
-function get_tmp_rec_(x::Union{Tuple,NamedTuple}, template) 
-    map(xi -> get_tmp_rec_(xi, template), x)
-end
+# get_tmp_rec_(x::PAT.DiffCache{<:AbstractArray}, template) = PAT.get_tmp(x, template)
+# function get_tmp_rec_(x::Union{Tuple,NamedTuple}, template) 
+#     map(xi -> get_tmp_rec_(xi, template), x)
+# end
 
 
 function prepare_rnorm(::AbstractVector{TF}; n_θP, n_θM, n_site, n_MC) where TF
@@ -116,15 +106,12 @@ function prepare_elbo_helpers(approx::AbstractHVIApproximation,
     diffchunk::ForwardDiff.Chunk{chunk} = ForwardDiff.Chunk(8),
     ) where {TG, TF, use_dc, chunk}
     his = Tuple((;
-        ζsM_dc = Matrix{TF}(undef, n_θM, n_MC),
-        θsM_dc = Matrix{TF}(undef, n_θM, n_MC),
-        logσ_ζM_dc = Vector{TF}(undef, n_θM),
-        #buffer_nθM_dc = Vector{TF}(undef, n_θM),
+        ζsM = Matrix{TF}(undef, n_θM, n_MC),
+        θsM = Matrix{TF}(undef, n_θM, n_MC),
+        logσ_ζM = Vector{TF}(undef, n_θM),
         sample_buffers = prepare_ind_sample_buffers(approx, cor_ends.M, template_TF),
     ) for i in 1:n_site)
-    get_diffcache(x::AbstractArray) = PAT.DiffCache(x, chunk)
-    get_diffcache(x::Union{Tuple,NamedTuple}) = map(get_diffcache, x)
-    helpers_sites = use_dc ? map(hi -> map(get_diffcache, hi), his) : his
+    helpers_sites = use_dc ? map_leaves_nt(x -> PAT.DiffCache(x, chunk), his) : his
     h = (;
         ζsP = Matrix{TF}(undef, n_θP, n_MC),
         θsP = Matrix{TF}(undef, n_θP, n_MC),
@@ -156,10 +143,10 @@ function check_elbo_helpers(h::NamedTuple, xM::AbstractMatrix, pbm_covar_indices
     #
     @assert length(h.helpers_sites) == n_site
     hi = h.helpers_sites[1]
-    n_θM = size(hi.ζsM_dc.du, 1)
-    @assert size(hi.ζsM_dc.du) == (n_θM, n_MC)
-    @assert size(hi.θsM_dc.du) == (n_θM, n_MC)
-    @assert size(hi.logσ_ζM_dc.du) == (n_θM,)
+    n_θM = size(hi.ζsM.du, 1)
+    @assert size(hi.ζsM.du) == (n_θM, n_MC)
+    @assert size(hi.θsM.du) == (n_θM, n_MC)
+    @assert size(hi.logσ_ζM.du) == (n_θM,)
 end
 
 function sample_ζsP!(ζsP, logσ_ζP, ::DiagonalHVIApproximation, rnormP, 
