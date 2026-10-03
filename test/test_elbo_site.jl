@@ -171,7 +171,7 @@ isUsingSimpleChains = false
 end
 
 @testset "sample_ζsP!" begin
-    approx2 = MeanHVIApproximation()
+    approxS = MeanUniScalingHVIApproximation()
     n_MCt = 10_000
     rnormPt = randn(n_θP, n_MCt)
     ζsPt = similar(rnormPt)
@@ -182,9 +182,9 @@ end
     CP._setρ_unscaled!(ρst, Ut[1:2,1:2])
     σt = [0.06, 0.08, 0.01]
     ϕqPct = CA.ComponentVector(μζP = [-1.0, 0.0, 1.0], logσ_ζP=log.(σt), ρsP=ρst)
-    h2M = CP.prepare_elbo_helpers(approx2, ϕg, ϕqP; n_θM, n_θP, n_site, n_MC = n_MCt, 
+    h2M = CP.prepare_elbo_helpers(approxS, ϕg, ϕqP; n_θM, n_θP, n_site, n_MC = n_MCt, 
         n_cov, n_covP = n_covP0, n_M, cor_ends, use_diff_cache=Val(false))
-    CP.sample_ζsP!(ζsPt, logσ_ζPt, approx2, rnormPt, ϕqPct, cor_ends.P, h2M.sample_buffers)
+    CP.sample_ζsP!(ζsPt, logσ_ζPt, approxS, rnormPt, ϕqPct, cor_ends.P, h2M.sample_buffers)
     @test vec(mean(ζsPt, dims=2)) ≈ ϕqPct.μζP atol=0.01
     @test cor(ζsPt[1,:], ζsPt[2,:]) ≈ Σct[1,2] atol=0.02
     @test cor(ζsPt[1,:], ζsPt[3,:]) ≈ Σct[1,3] atol=0.02
@@ -194,13 +194,13 @@ end
     @test std(ζsPt[3,:]) ≈ σt[3] atol=0.01  
     @test ((ζsP, logσ_ζP, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) -> 
         @allocated CP.sample_ζsP!(ζsP, logσ_ζP, approx, rnormP, ϕqPc, cor_endsP, sample_buffers))(
-        ζsPt, logσ_ζPt, approx2, rnormPt, ϕqPct, cor_ends.P, h2M.sample_buffers) == 0
+        ζsPt, logσ_ζPt, approxS, rnormPt, ϕqPct, cor_ends.P, h2M.sample_buffers) == 0
     function loop_samplesample_ζsP(n, ζsP, logσ_ζP, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) 
         for i in 1:n
             CP.sample_ζsP!(ζsP, logσ_ζP, approx, rnormP, ϕqPc, cor_endsP, sample_buffers)
         end
     end
-    #@profview_allocs loop_samplesample_ζsP(1000, ζsPt, logσ_ζPt, approx2, rnormPt, ϕqPct, cor_ends.P, h2M.sample_buffers)
+    #@profview_allocs loop_samplesample_ζsP(1000, ζsPt, logσ_ζPt, approxS, rnormPt, ϕqPct, cor_ends.P, h2M.sample_buffers)
 end
 
 @testset "sample_ζsM!" begin
@@ -311,16 +311,11 @@ end
     @test cor(ζsMt[1,:], ζsMt[3,:]) ≈ Σct[1,3] atol=0.02
     @test cor(ζsMt[2,:], ζsMt[3,:]) ≈ Σct[2,3] atol=0.02
     @test std(ζsMt; dims=2) ≈ σt_scaled atol=0.01
-    # @test ((ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers) -> 
-    #     @allocated CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers))(
-    #     ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2S.helpers_sites[1].sample_buffers) == 0
-    # function loop_samplesample_ζsM(n, ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers) 
-    #     for i in 1:n
-    #         CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers)
-    #     end
-    # end
-    # #@profview_allocs loop_samplesample_ζsM(1000, ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2S.helpers_sites[1].sample_buffers)
-    # @allocated loop_samplesample_ζsM(1000, ζsMt, logσ_ζMt, approxS, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2S.helpers_sites[1].sample_buffers)
+    @test ((ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers) -> 
+        @allocated CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers))(
+        ζsMt, logσ_ζMt, approxS, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2S.helpers_sites[1].sample_buffers) == 0
+    #@profview_allocs loop_samplesample_ζsM(1000, ζsMt, logσ_ζMt, approxS, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2S.helpers_sites[1].sample_buffers)
+    @allocated loop_samplesample_ζsM(1000, ζsMt, logσ_ζMt, approxS, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2S.helpers_sites[1].sample_buffers)
 
     # # Regression: sample_ζsM! must not allocate when reached through the
     # # ForwardDiff-reconstructed ComponentArray-view path used by
