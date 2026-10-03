@@ -47,8 +47,9 @@ function prepare_sample_buffers(
     (;U)
 end
 
-function sample_ζsM!(ζsM, logσ_ζM, approx::Union{MeanHVIApproximation,MeanUniScalingHVIApproximation}, rnorm, 
-    ϕqc::AbstractVector{T}, ϕm::Union{AbstractVector, AbstractMatrix}, 
+function sample_ζsM!(ζsM, logσ_ζM, 
+    approx::Union{MeanHVIApproximation,MeanUniScalingHVIApproximation}, 
+    rnorm, ϕqc::AbstractVector{T}, ϕm::Union{AbstractVector, AbstractMatrix}, 
     cor_endsM, sample_buffers::NamedTuple) where T
     n_θM, n_MC = size(ζsM)
     @assert size(rnorm) == (n_θM, n_MC)
@@ -85,15 +86,14 @@ end
 function set_marginal_logσ!(logσ_ζMs, ::MeanHVIApproximation, ϕqc, ϕm) 
     logσ_ζMs .= view(ϕqc, Val(:logσ_ζM))  
 end
-function set_marginal_logσ!(logσ_ζMs, ::MeanUniScalingHVIApproximation, ϕqc, ϕm) 
+function set_marginal_logσ!(logσ_ζMs, approx::MeanUniScalingHVIApproximation, ϕqc, ϕm) 
     n_θM = length(view(ϕqc, Val(:logσ_ζM_offsets))) + 1
     ϕm_scaling = ϕm[n_θM+1]
     logσ_par_offsets = OneBasedVectorWithZero(view(ϕqc, Val(:logσ_ζM_offsets))) # zero based 
     @assert length(logσ_par_offsets) + 1 == n_θM
     logσ_site_offset = logit(ϕm_scaling) # (0..1)->(-Inf, +Inf), 0.5->0
     #
-    logσ_ζM_base = log(0.06) # TODO provide by Approx helper 
-    logσ_ζMs .= logσ_ζM_base .+ @view(logσ_par_offsets[0:end]) .+ logσ_site_offset
+    logσ_ζMs .= approx.logσ_ζM_base .+ @view(logσ_par_offsets[0:end]) .+ logσ_site_offset
     #logσ_ζMs .= logσ_ζM_base .+ logσ_par_offsets[0:end] .+ logσ_site_offset
     #exp.(logσ_ζMs)
     logσ_ζMs
