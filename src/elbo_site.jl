@@ -110,7 +110,7 @@ function prepare_rnorm(::AbstractVector{TF}; n_θP, n_θM, n_site, n_MC) where T
 end
 
 function prepare_elbo_helpers(approx::AbstractHVIApproximation, 
-    ϕg::AbstractArray{TG}, ::AbstractArray{TF};
+    ϕg::AbstractArray{TG}, template_TF::AbstractArray{TF};
     n_θP, n_θM, n_site, n_MC, n_cov, n_covP, n_M, cor_ends,
     use_diff_cache::Val{use_dc} = Val(true),
     diffchunk::ForwardDiff.Chunk{chunk} = ForwardDiff.Chunk(8),
@@ -120,7 +120,7 @@ function prepare_elbo_helpers(approx::AbstractHVIApproximation,
         θsM_dc = Matrix{TF}(undef, n_θM, n_MC),
         logσ_ζM_dc = Vector{TF}(undef, n_θM),
         #buffer_nθM_dc = Vector{TF}(undef, n_θM),
-        sample_buffers = prepare_ind_sample_buffers(approx, cor_ends.M),
+        sample_buffers = prepare_ind_sample_buffers(approx, cor_ends.M, template_TF),
     ) for i in 1:n_site)
     get_diffcache(x::AbstractArray) = PAT.DiffCache(x, chunk)
     get_diffcache(x::Union{Tuple,NamedTuple}) = map(get_diffcache, x)
@@ -133,7 +133,7 @@ function prepare_elbo_helpers(approx::AbstractHVIApproximation,
         ϕms_mcs = Array{TF,3}(undef, n_M, n_MC, n_site),
         ϕms_mcs2D_buffer = Matrix{TF}(undef, n_M, n_MC * n_site),        
         xMP = Matrix{TG}(undef, (n_cov + n_covP), n_MC * n_site),
-        sample_buffers = prepare_sample_buffers(approx, cor_ends.P),
+        sample_buffers = prepare_sample_buffers(approx, cor_ends.P, template_TF),
         diffchunk,
         helpers_sites,
     )
@@ -169,7 +169,7 @@ function sample_ζsP!(ζsP, logσ_ζP, ::DiagonalHVIApproximation, rnormP,
     ζsP .= μζP .+ (exp.(logσ_ζP) .* rnormP)
     nothing
 end
-prepare_sample_buffers(approx::DiagonalHVIApproximation, cor_endsP) = (;)
+prepare_sample_buffers(approx::DiagonalHVIApproximation, cor_endsP, template_TF) = (;)
 
 function sample_ζsM!(ζsM, logσ_ζM, ::DiagonalHVIApproximation, rnorm, 
     ϕqc::AbstractVector{T}, ϕm::Union{AbstractVector, AbstractMatrix}, 
@@ -192,7 +192,7 @@ end
 @inline assert_ϕm(ϕm::AbstractMatrix, n_MC) = size(ϕm,2) == n_MC
 @inline view_ϕm(ϕm::AbstractMatrix, r::Union{Colon,UnitRange{Int}}) = view(ϕm, r, :)
 @inline view_ϕm(ϕm::AbstractVector, r::Union{Colon,UnitRange{Int}}) = view(ϕm, r)
-prepare_ind_sample_buffers(approx::DiagonalHVIApproximation, cor_endsM) = (;)
+prepare_ind_sample_buffers(approx::DiagonalHVIApproximation, cor_endsM, template_TF) = (;)
 
 # if pbm_covar_indices is nothing, return only a Matrix (n_m x n_site)
 # otherwise return an Array (n_m x n_MC x n_site)
