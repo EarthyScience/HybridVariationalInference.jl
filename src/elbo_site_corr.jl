@@ -9,6 +9,7 @@ function sample_ζsP!(ζsP, logσ_ζP, approx::AbstractMeanHVIApproximation, rno
     zcor_ends = OneBasedVectorWithZero(cor_endsP)
     # ib = 2
     ρ_start = 1
+    Ul = sample_buffers.U
     for ib in axes(cor_endsP, 1)
         r = (zcor_ends[ib-1]+1):zcor_ends[ib]
         μζP_r = view_ϕm(μζP, r)           # dispatch
@@ -16,7 +17,8 @@ function sample_ζsP!(ζsP, logσ_ζP, approx::AbstractMeanHVIApproximation, rno
         logσ_ζP_r = view(logσ_ζP, r)
         ρ_end = ρ_start-1 + sumn(length(r)-1)
         #U = UpperTriangular(diagm(ones(length(r)))) # TODO preallocate
-        U = sample_buffers.Us[ib] # preallocated UpperTriangular matrix
+        #U = sample_buffers.Us[ib] # preallocated UpperTriangular matrix
+        U = LinearAlgebra.UpperTriangular(view(Ul, 1:length(r), 1:length(r)))
         ρsP_r = view(ρsP, ρ_start:ρ_end)
         _setU_scaled!(U, ρsP_r)
         # rotate the noise in place into ζsM[r,:], then scale and add the mean
@@ -30,14 +32,18 @@ function sample_ζsP!(ζsP, logσ_ζP, approx::AbstractMeanHVIApproximation, rno
 end
 
 # TODO unify prepare_sample_buffers and prepare_ind_sample_buffers
-function prepare_sample_buffers(approx::Union{MeanHVIApproximation,MeanUniScalingHVIApproximation}, cor_ends)
-    zcor_ends = OneBasedVectorWithZero(cor_ends)
-    # make a Tuple, so to be handled by getdiffcache
-    Us = Tuple(begin
-        nb = zcor_ends[ib] - zcor_ends[ib-1]
-        U = UpperTriangular(diagm(ones(nb))) 
-    end for ib in axes(cor_ends, 1))
-    (; Us)
+function prepare_sample_buffers(
+    approx::Union{MeanHVIApproximation,MeanUniScalingHVIApproximation}, 
+    cor_ends, template_TF::AbstractArray{TF}) where TF
+    # zcor_ends = OneBasedVectorWithZero(cor_ends)
+    # # make a Tuple, so to be handled by getdiffcache
+    # Us = Tuple(begin
+    #     nb = zcor_ends[ib] - zcor_ends[ib-1]
+    #     U = UpperTriangular(diagm(ones(nb))) 
+    # end for ib in axes(cor_ends, 1))
+    n_θM = cor_ends[end]
+    U = Matrix{TF}(undef, n_θM, n_θM)
+    (;U)
 end
 
 function sample_ζsM!(ζsM, logσ_ζM, approx::Union{MeanHVIApproximation,MeanUniScalingHVIApproximation}, rnorm, 
@@ -51,6 +57,7 @@ function sample_ζsM!(ζsM, logσ_ζM, approx::Union{MeanHVIApproximation,MeanUn
     assert_ϕm(ϕm, n_MC) # dispatch on vector or matrix
     ρsM = view(ϕqc, Val(:ρsM))
     zcor_ends = OneBasedVectorWithZero(cor_endsM)
+    Ul = sample_buffers.U
     # ib = 1
     ρ_start = 1
     for ib in axes(cor_endsM, 1)
@@ -60,7 +67,8 @@ function sample_ζsM!(ζsM, logσ_ζM, approx::Union{MeanHVIApproximation,MeanUn
         logσ_ζM_r = view(logσ_ζM, r)
         ρ_end = ρ_start-1 + sumn(length(r)-1)
         #U = UpperTriangular(diagm(ones(length(r)))) # TODO preallocate
-        U = sample_buffers.Us[ib] # preallocated UpperTriangular matrix
+        #U = sample_buffers.Us[ib] # preallocated UpperTriangular matrix
+        U = LinearAlgebra.UpperTriangular(view(Ul, 1:length(r), 1:length(r)))
         ρsM_r = view(ρsM, ρ_start:ρ_end)
         _setU_scaled!(U, ρsM_r)
         # rotate the noise in place into ζsM[r,:], then scale and add the mean
@@ -87,14 +95,12 @@ end
     logσ_ζMs
 end
 
-function prepare_ind_sample_buffers(approx::Union{MeanHVIApproximation,MeanUniScalingHVIApproximation}, cor_endsM)
-    zcor_endsM = OneBasedVectorWithZero(cor_endsM)
-    # make a Tuple, so to be handled by getdiffcache
-    Us = Tuple(begin
-        nb = zcor_endsM[ib] - zcor_endsM[ib-1]
-        U = UpperTriangular(diagm(ones(nb))) 
-    end for ib in axes(cor_endsM, 1))
-    (; Us)
+function prepare_ind_sample_buffers(
+    approx::Union{MeanHVIApproximation,MeanUniScalingHVIApproximation}, 
+    cor_endsM, template_TF::AbstractArray{TF}) where TF
+    n_θM = cor_endsM[end]
+    U = Matrix{TF}(undef, n_θM, n_θM)
+    (; U)
 end
 
 
