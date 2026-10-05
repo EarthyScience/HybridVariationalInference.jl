@@ -46,7 +46,7 @@ function neg_elbo_sites!(
     ϕms_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
     #g_apply!(h[ϕms_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode, h.ϕms_mcs2D_buffer) 
     g_apply!(h[ϕms_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
-    exp_ladJacTP = transformζ(h.θsP, h.ζsP)  # return value captures ladJacT
+    exp_ladJacTP = transformζ!(h.θsP, transP, h.ζsP)  # return value captures ladJacT
     # so that one can provide its gradient to the pullback
     ϕm_it = eachslice(h[ϕms_buffer_key]; dims = ndims(h[ϕms_buffer_key]))
     template = ϕqI # only important for gradient
@@ -79,7 +79,7 @@ function compute_nelboi_z!(hi, approx::AbstractHVIApproximation,
     #ζsM, logσ_ζM, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector
     sample_ζsM!(hi.ζsM, hi.logσ_ζM, approx, rnormM, ϕqIc, ϕm, cor_endsM, hi.sample_buffers)
     # TODO replace by transM
-    exp_ladJacTM = transformζ(hi.θsM, hi.ζsM)  # return value captures ladJacT
+    exp_ladJacTM = transformζ!(hi.θsM, transM, hi.ζsM)  # return value captures ladJacT
     # first component needs to be the full elbo
     exp_nL = exp_nLi(θsP, hi.θsM; i_site_train, kwargs...)[1]
     elbozi = exp_nL - exp_ladJacTM - sum(hi.logσ_ζM)
@@ -271,11 +271,12 @@ function update_xMP!(xMP::AbstractMatrix{TG},
     end
 end
 
-function transformζ(θs, ζs::AbstractArray{TF}) where TF
-    # TODO implement user-defined parameter transformation
+function transformζ!(θs, trans, ζs::AbstractArray{TF}) where TF
     n_MC = size(ζs,2)
-    θs .= exp.(ζs)
-    ladJacT = sum(ζs) / n_MC
+    # θs1 = exp.(ζs)
+    # ladJacT1 = sum(ζs) / n_MC
+    _, ladJacT_sum = with_logabsdet_jacobian_stacked!(θs, trans, ζs)  # return value captures ladJacT
+    ladJacT = ladJacT_sum / n_MC
 end
 
 """

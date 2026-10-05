@@ -33,36 +33,37 @@ with_logabsdet_jacobian(bs_Exp, x )
     bs = bs_elexp # is allocating ? 
     bs = bs_Exp 
     bs = Stacked((b_Exp,identity), (1:3,4:4))
-    y = similar(x)
+    #y = similar(x)
     lad = zero(eltype(x))
     y_true, logjac_true = with_logabsdet_jacobian(bs, x)
 
-    y, logjac = CP.with_logabsdet_jacobian_stacked!(bs, x, y)
+    y, logjac = CP.with_logabsdet_jacobian_stacked!(y, bs, x)
     @test y == y_true
     @test logjac == logjac_true
-    function alloc_bs(bs, x, y) 
-        @allocated CP.with_logabsdet_jacobian_stacked!(bs, x, y)
+    function alloc_bs(y, bs, x) 
+        @allocated CP.with_logabsdet_jacobian_stacked!(y, bs, x)
     end
-    @test alloc_bs(bs, x, y) == 0
-    function loop_bsExp(n, bs, x, y) 
+    @test alloc_bs(y, bs, x) == 0
+    function loop_bsExp(n, y, bs, x) 
         for i in 1:n
-            CP.with_logabsdet_jacobian_stacked!(bs, x, y)
+            CP.with_logabsdet_jacobian_stacked!(y, bs, x)
         end
     end
-    #@profview_allocs loop_bsExp(10_000, bs, x, y)
+    #@profview_allocs loop_bsExp(10_000, y, bs, x)
 
-    xs = repeat(x, 1, 5)
+    xs6 = repeat(x, 1, 6)
+    xs = xs1[:, 1:5]  # test view
     ys = similar(xs)
-    (ys, logjac) = CP.with_logabsdet_jacobian_stacked!(bs, ys, xs)
+    (ys, logjac) = CP.with_logabsdet_jacobian_stacked!(ys, bs, xs)
     @test ys[:,end] == y_true
     @test logjac == size(xs,2) * logjac_true
-    @test ((bs, ys, xs) -> @allocated with_logabsdet_jacobian_stacked!(bs, ys, xs))(bs, ys, xs) == 0
+    @test ((bs, ys, xs) -> @allocated CP.with_logabsdet_jacobian_stacked!(ys, bs, xs))(bs, ys, xs) == 0
 
-    bsn = @inferred extend_stacked_nrow(bs_Exp, size(xs,2))
-    (ys_, logjac) = CP.with_logabsdet_jacobian_stacked!(bsn, vec(xs'), vec(ys'))
+    bsn = @inferred extend_stacked_nrow(bs, size(xs,2))
+    (ys_, logjac) = CP.with_logabsdet_jacobian_stacked!(vec(ys'), bsn, vec(xs'))
     @test ys[:,end] == y_true
     @test logjac ≈ size(xs,2) * logjac_true
-    @test alloc_bs(bsn, vec(xs'), vec(ys')) == 0
+    @test alloc_bs(vec(ys'), bsn, vec(xs')) == 0
 
     # the loop variant is slightly faster
     #@usingany BenchmarkTools
