@@ -45,12 +45,14 @@ const GROUP = get(ENV, "GROUP", "All") # defined in in CI.yml
     if GROUP == "All" || GROUP == "Basic"
         () -> begin
             LE.with_logger(warn2error_logger) do
-                @safetestset "test" include("test/test_elbo_site.jl")
+                @safetestset "util" include("test/test_util.jl")
+                @safetestset "elbo_sites" include("test/test_elbo_site.jl")
             end
         end
 
 
-        @time @safetestset "test_util" include("test_elbo_site.jl")
+        @time @safetestset "util" include("test_util.jl")
+        @time @safetestset "elbo_sites" include("test_elbo_site.jl")
     end
 end
 

@@ -32,8 +32,8 @@ using LinearAlgebra
     # a positive range still gives a normal SubArray view
     @test @view(v1[1:2]) == [10,20]
     @test_throws BoundsError sv[1] = 0 # cannot write to the first index
-    sv[2] = 100  # but can write to other indices and reflect in underlying vector
-    @test v1[1] == 100
+    sv[2] = 101  # but can write to other indices and reflect in underlying vector
+    @test v1[1] == 101
 
     v1[1] = 100
     @test v1[1] == 100
@@ -59,7 +59,6 @@ using LinearAlgebra
     v0[1] = 100
     @test v0[1] == 100
     @test v0.data[0] == 100
-    @test 
 
     # bounds for non-zero indices should be 1..length for wrapper independent of underlying axis
     @test v0[0] == 0
