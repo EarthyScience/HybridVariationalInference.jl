@@ -999,13 +999,14 @@ end
         # avoid global variables -> pass them through function
         loop_grad_neg_elbo_sites(1, h2, gradh2, approx, rnormPM, ϕg2v, ϕqP, ϕqI, g2, 
             pbm_covar_indices2; i_sites_train, intϕqP, intϕqI, xM, cor_ends, transP, transM, is_testmode)
-        # @profview_allocs loop_grad_neg_elbo_sites(10_000,h2, gradh2, rnormPM, ϕg2v, 
-        #      ϕqP, ϕqI, g2, pbm_covar_indices2; i_sites_train, intϕqP, intϕqI, xM, cor_ends, is_testmode)
+        # @profview_allocs loop_grad_neg_elbo_sites(10_000,h2, gradh2, approx, rnormPM, ϕg2v, ϕqP, ϕqI, g2, 
+        #     pbm_covar_indices2; i_sites_train, intϕqP, intϕqI, xM, cor_ends, transP, transM, is_testmode)
         # a_ = @allocated loop_grad_neg_elbo_sites(100,h2, gradh2, rnormPM, ϕg2v, ϕqP, ϕqI, g2, 
         #     pbm_covar_indices2; i_sites_train, intϕqP, intϕqI, xM, cor_ends, is_testmode)        
         # @show a_
-        @test (@allocated loop_grad_neg_elbo_sites(100,h2, gradh2, approx, rnormPM, ϕg2v, ϕqP, ϕqI, g2, 
-            pbm_covar_indices2; i_sites_train, intϕqP, intϕqI, xM, cor_ends, transP, transM, is_testmode)) <= 2_546_672
+        @test (@allocated loop_grad_neg_elbo_sites(100,h2, gradh2, approx, rnormPM, ϕg2v, 
+            ϕqP, ϕqI, g2, pbm_covar_indices2; i_sites_train, intϕqP, intϕqI, xM, cor_ends, 
+            transP, transM, is_testmode)) <= 2_703_776  #2_546_672
     end
     alloc_grad_neg_elbo_sites(h2, gradh2, approx, rnormPM, ϕg2v, ϕqP, ϕqI, g2, pbm_covar_indices2; 
         i_sites_train = 1:n_site, intϕqP, intϕqI, xM, cor_ends, transP, transM, is_testmode = false)

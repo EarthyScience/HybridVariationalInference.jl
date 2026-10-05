@@ -34,7 +34,7 @@ function grad_neg_elbo_sites(
     #
     sample_ζsP!(h.ζsP, h.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers) # n_P * n_MC
     g_apply!(h_ϕm, ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
-    ladJacTP = transformζ(h.θsP, h.ζsP)  # return value captures ladJacT
+    ladJacTP = transformζ!(h.θsP, transP, h.ζsP)  # return value captures ladJacT
     #
     # parallel ForwardDiffGradient through forwarddiff_grad_nelboi_z!
     cl = ForwardDiffGradNelboiZCl(approx, ϕqIc, h.θsP, gradh.dϕmvecs, gradh.hw_channel, cor_ends.M, transM)    
@@ -70,6 +70,7 @@ function grad_neg_elbo_sites(
         ∂elbo_∂θP,
         ∂elbo_∂ladJacTP,
         h.θsP,
+        transP, 
         h.ζsP,
         )
     #
@@ -289,7 +290,7 @@ function get_pullback_cl_transformζ!(::AbstractArray{TF};  n_θ, n_MC) where {T
     # with an arbitrary dladJacTP we fold it in as a scalar factor, relying on
     # linearity of the reverse-mode adjoint: the pullback then delivers
     # dladJacTP * ∂ladJacT/∂(·) to θs and ζs, as with the former Ref seeding.
-    function pullback_cl_transformζ!(dζs, dθs, dladJacTP, θs, ζs)
+    function pullback_cl_transformζ!(dζs, dθs, dladJacTP, θs, trans, ζs)
         fill!(dζs, zero(eltype(dζs)))
         copyto!(θs_buffer, θs)
         copyto!(dθs_buffer, dθs)
@@ -299,8 +300,9 @@ function get_pullback_cl_transformζ!(::AbstractArray{TF};  n_θ, n_MC) where {T
         # and the adjoints of θs/ζs come out as dladJacTP * ∂/∂(·)
         Enzyme.autodiff(
             Enzyme.Reverse,
-            (θs_, ζs_) -> dladJacTP * transformζ(θs_, ζs_),
+            (θs_, trans_, ζs_) -> dladJacTP * transformζ!(θs_, trans_, ζs_),
             Enzyme.Duplicated(θs_buffer, dθs_buffer),
+            Enzyme.Const(trans),
             Enzyme.Duplicated(ζs, dζs),
         )
     end

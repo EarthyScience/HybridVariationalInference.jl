@@ -57,6 +57,7 @@ function Bijectors.with_logabsdet_jacobian(b::Exp, x)
     return exp.(x), sum(x)
 end
 function Bijectors.with_logabsdet_jacobian!(b::Exp, x::AbstractArray{T}, y, logjac=zero(T)) where T
+    # order of arguemts (y not first) given by Bijectors
     y .= exp.(x)
     logjac_ = sum(x)
     return (y, logjac + logjac_)
@@ -216,9 +217,16 @@ function extend_stacked_nrow(b::Stacked, nrow::Integer)
     bs = Stacked(b.bs, ranges)
 end
 
+#-------------------------- identity
+# in place method that is not allocating
+function Bijectors.with_logabsdet_jacobian!(f::typeof(identity), x::AbstractArray{T}, y, logjac=zero(T)) where T
+    copyto!(y, x)
+    return (y, logjac)
+end
+
 #------------------------- mutating variants 
-function with_logabsdet_jacobian_stacked!(b::Stacked{<:NTuple{N,Any},<:NTuple{N,Any}}, 
-    x::AbstractVector{T}, y, logjac=zero(T)) where {N,T}
+function with_logabsdet_jacobian_stacked!(y, 
+    b::Stacked{<:NTuple{N,Any},<:NTuple{N,Any}}, x::AbstractVector{T}, logjac=zero(T)) where {N,T}
     for i in 1:N
         local rin = b.ranges_in[i]
         local rout = b.ranges_out[i] 
@@ -229,10 +237,10 @@ function with_logabsdet_jacobian_stacked!(b::Stacked{<:NTuple{N,Any},<:NTuple{N,
     (y, logjac)
 end
 
-function with_logabsdet_jacobian_stacked!(bs::Stacked, ys::AbstractMatrix{T}, xs::AbstractMatrix{T}, logjac = zero(T)) where T
+function with_logabsdet_jacobian_stacked!(ys::AbstractMatrix{T}, bs::Stacked, xs::AbstractMatrix{T}, logjac = zero(T)) where T
     @assert size(ys) == size(xs)
     @inbounds for j in 1:size(xs,2)
-        (_, logjac) = with_logabsdet_jacobian_stacked!(bs, view(xs,:,j), view(ys,:,j), logjac)
+        (_, logjac) = with_logabsdet_jacobian_stacked!(view(ys,:,j), bs, view(xs,:,j), logjac)
     end
     (ys, logjac)
 end
