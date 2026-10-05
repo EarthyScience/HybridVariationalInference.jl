@@ -9,46 +9,89 @@ using MLDataDevices
 import CUDA, cuDNN
 using Zygote
 
+gdev = gpu_device()
+cdev = cpu_device()
 
 
 
 x = [0.1, 0.2, 0.3, 0.4]
-gdev = gpu_device()
-cdev = cpu_device()
 
 function trans(x, b) 
        y, logjac = Bijectors.with_logabsdet_jacobian(b, x)
        sum(y .+ logjac)
 end
 
-b2 = elementwise(exp)
-b2s = Stacked((b2,b2),(1:3,4:4))
-b3 = HybridVariationalInference.Exp()
-b3s = Stacked((b3,b3), (1:3,4:4))
+b_elexp = elementwise(exp)
+bs_elexp = Stacked((b_elexp,b_elexp),(1:3,4:4))
+b_Exp = HybridVariationalInference.Exp()
+bs_Exp = Stacked((b_Exp,b_Exp), (1:3,4:4))
 #b3s = Stacked((b3,),(1:4,))
 
+with_logabsdet_jacobian(bs_Exp, x )
 
-y = trans(x, b2)
-dy = Zygote.gradient(x -> trans(x,b2), x)
+@testset "with_logabsdet_jacobian_stacked!" begin
+    bs = bs_elexp # is allocating ? 
+    bs = bs_Exp 
+    y = similar(x)
+    lad = zero(eltype(x))
+    y_true, logjac_true = with_logabsdet_jacobian(bs_Exp, x)
+
+    y, logjac = CP.with_logabsdet_jacobian_stacked!(bs, x, y)
+    @test y == y_true
+    @test logjac == logjac_true
+    function alloc_bs(bs, x, y) 
+        @allocated CP.with_logabsdet_jacobian_stacked!(bs, x, y)
+    end
+    @test alloc_bs(bs, x, y) == 0
+    function loop_bsExp(n, bs, x, y) 
+        for i in 1:n
+            CP.with_logabsdet_jacobian_stacked!(bs, x, y)
+        end
+    end
+    #@profview_allocs loop_bsExp(10_000, bs, x, y)
+
+    xs = repeat(x, 1, 5)
+    ys = similar(xs)
+    (ys, logjac) = CP.with_logabsdet_jacobian_stacked!(bs, ys, xs)
+    @test ys[:,end] == y_true
+    @test logjac == size(xs,2) * logjac_true
+    @test ((bs, ys, xs) -> @allocated with_logabsdet_jacobian_stacked!(bs, ys, xs))(bs, ys, xs) == 0
+
+    bsn = @inferred extend_stacked_nrow(bs_Exp, size(xs,2))
+    (ys_, logjac) = CP.with_logabsdet_jacobian_stacked!(bsn, vec(xs'), vec(ys'))
+    @test ys[:,end] == y_true
+    @test logjac ≈ size(xs,2) * logjac_true
+    @test alloc_bs(bsn, vec(xs'), vec(ys')) == 0
+
+    # the loop variant is slightly faster
+    #@usingany BenchmarkTools
+    # @benchmark with_logabsdet_jacobian_stacked!($bs, $ys, $xs)
+    # @benchmark CP.with_logabsdet_jacobian_stacked!($bsn, $(vec(xs')), $(vec(ys')))
+end
+
+
+
+y = trans(x, b_elexp)
+dy = Zygote.gradient(x -> trans(x,b_elexp), x)
 
 
 @testset "elementwise exp" begin
-    ys = @inferred trans(x,b2s)
+    ys = @inferred trans(x,bs_elexp)
     @test ys == y
-    Zygote.gradient(x -> trans(x,b2s), x)
+    Zygote.gradient(x -> trans(x,bs_elexp), x)
 end;
 
 @testset "Exp" begin
-    y1 = @inferred b3(x)
-    y2 = @inferred b3s(x)
-    @test all(inverse(b3)(y2) .≈ x)
-    @test all(inverse(b3s)(y2) .≈ x)
-    ye = @inferred trans(x, b3)
-    dye = Zygote.gradient(x -> trans(x,b3), x)
+    y1 = @inferred b_Exp(x)
+    y2 = @inferred bs_Exp(x)
+    @test all(inverse(b_Exp)(y2) .≈ x)
+    @test all(inverse(bs_Exp)(y2) .≈ x)
+    ye = @inferred trans(x, b_Exp)
+    dye = Zygote.gradient(x -> trans(x,b_Exp), x)
     @test ye == y
     @test dye == dy
-    ys = @inferred trans(x,b3s)
-    dys = Zygote.gradient(x -> trans(x,b2s), x)
+    ys = @inferred trans(x,bs_Exp)
+    dys = Zygote.gradient(x -> trans(x,bs_elexp), x)
     @test dys == dy
 end;
 
@@ -71,19 +114,19 @@ end;
 if gdev isa MLDataDevices.AbstractGPUDevice
     xd = gdev(x)
     @testset "elementwise exp gpu" begin
-        ys = @inferred trans(xd,b2)
+        ys = @inferred trans(xd,b_elexp)
         @test ys ≈ y
-        @test_broken Zygote.gradient(x -> trans(x,b2), xd)
-        @test_broken Zygote.gradient(x -> trans(x,b2s), xd)
+        @test_broken Zygote.gradient(x -> trans(x,b_elexp), xd)
+        @test_broken Zygote.gradient(x -> trans(x,bs_elexp), xd)
     end;
     
     @testset "Exp" begin
-        ye = @inferred trans(xd, b3)
-        dye = Zygote.gradient(x -> trans(x,b3), xd)
+        ye = @inferred trans(xd, b_Exp)
+        dye = Zygote.gradient(x -> trans(x,b_Exp), xd)
         @test ye ≈ y
         @test all(cdev(dye) .≈ dy)
-        ys = @inferred trans(xd,b3s)
-        dys = Zygote.gradient(x -> trans(x,b3s), xd)
+        ys = @inferred trans(xd,bs_Exp)
+        dys = Zygote.gradient(x -> trans(x,bs_Exp), xd)
         @test ys ≈ y
         @test all(cdev(dys) .≈ dy)
     end;
