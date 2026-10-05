@@ -10,6 +10,7 @@ function grad_neg_elbo_sites(
     intϕqP, intϕqI,
     xM,
     cor_ends,
+    transP::Stacked, transM::Stacked,
     is_testmode, 
     n_workers = 1, # TODO compute from executor and Distributed.nworkers and nthreads,...
     executor::Transducers.Executor = Transducers.SequentialEx(),
@@ -28,7 +29,7 @@ function grad_neg_elbo_sites(
         ϕqIc, selectdim(h_ϕm, ndims(h_ϕm), 1), h.ζsP, ϕg, ϕqPc, approx; 
         pbm_covar_indices, n_workers,
         h, rnormM1 = rnormPM.M[1], i_site_train1 = 1,
-        h.diffchunk, n_site, n_cov, cor_ends)
+        h.diffchunk, n_site, n_cov, cor_ends, transP, transM)
     hw_channel = gradh.hw_channel
     #
     sample_ζsP!(h.ζsP, h.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers) # n_P * n_MC
@@ -36,7 +37,7 @@ function grad_neg_elbo_sites(
     ladJacTP = transformζ(h.θsP, h.ζsP)  # return value captures ladJacT
     #
     # parallel ForwardDiffGradient through forwarddiff_grad_nelboi_z!
-    cl = ForwardDiffGradNelboiZCl(approx, ϕqIc, h.θsP, gradh.dϕmvecs, gradh.hw_channel, cor_ends.M)    
+    cl = ForwardDiffGradNelboiZCl(approx, ϕqIc, h.θsP, gradh.dϕmvecs, gradh.hw_channel, cor_ends.M, transM)    
     ϕm_it = eachslice(h_ϕm; dims = ndims(h_ϕm))
     init = with_channel_element(hw_channel) do hwi 
         (; dϕqIc = zero(static_cv_getproperty(hwi.inputs_cv, Val(:ϕqIc))),
@@ -86,22 +87,23 @@ end
 """
 Callable to make deliver arguments that do not differ by individual to Foldl.mapreduce.
 """
-struct ForwardDiffGradNelboiZCl{TA, Tϕq, Tθ, TD, THWC, TC}
+struct ForwardDiffGradNelboiZCl{TA, Tϕq, Tθ, TD, THWC, TC, TM}
     approx::TA
     ϕqIc::Tϕq
     θsP::Tθ
     dϕmvecs::TD
     hw_channel::THWC
     corendsM::TC
+    transM::TM
 end
 function (f::ForwardDiffGradNelboiZCl)(tup)
     hi, rnormM, i_site_train, ϕm, i = tup
     forwarddiff_grad_nelboi_z!(hi, f.approx, rnormM, i_site_train, ϕm, i,
-        f.ϕqIc, f.θsP, f.dϕmvecs, f.hw_channel, f.corendsM, nothing)
+        f.ϕqIc, f.θsP, f.dϕmvecs, f.hw_channel, f.corendsM, f.transM, nothing)
 end
 
 function forwarddiff_grad_nelboi_z!(hi, approx::AbstractHVIApproximation, rnormM, i_site_train, ϕm, i, 
-    ϕqIc, θsP, dϕmvecs, hw_channel, cor_endsM, omit_gradient=nothing) 
+    ϕqIc, θsP, dϕmvecs, hw_channel::Channel, cor_endsM, transM::Stacked, omit_gradient=nothing) 
     # aggregate all the derivatives to allow a single call to ForwardDiff.gradient
     #   reshape ϕm and ζsP into a vector to avoid allocations in cv[Val(:ζsP)]
     with_channel_element(hw_channel) do hwi
@@ -114,7 +116,7 @@ function forwarddiff_grad_nelboi_z!(hi, approx::AbstractHVIApproximation, rnormM
         view(inputs_cv, Val(:ϕqIc)) .= ϕqIc
         view(inputs_cv, Val(:ϕm)) .= ϕm
         view(inputs_cv, Val(:θsP)) .= θsP
-        nelboi_z = make_nelboiz_cl(hi, approx, rnormM, i_site_train, CA.getaxes(inputs_cv), cor_endsM)
+        nelboi_z = make_nelboiz_cl(hi, approx, rnormM, i_site_train, CA.getaxes(inputs_cv), cor_endsM, transM)
         # write the gradient into the preallocated per-worker buffer to avoid
         # the result-vector allocation in ForwardDiff.gradient
         grads_flat = if isnothing(omit_gradient)
@@ -136,12 +138,12 @@ function forwarddiff_grad_nelboi_z!(hi, approx::AbstractHVIApproximation, rnormM
     #res
 end
 
-function make_nelboiz_cl(hi, approx::AbstractHVIApproximation, rnormM, i_site_train, ax_inputs, cor_endsM)
+function make_nelboiz_cl(hi, approx::AbstractHVIApproximation, rnormM, i_site_train, ax_inputs, cor_endsM, transM)
     function nelboiz_cl(cv) 
         cv_ = CA.ComponentArray(cv, ax_inputs)
         compute_nelboi_z!(
             hi, approx, rnormM, i_site_train,
-            view(cv_, Val(:ϕm)), view(cv_, Val(:ϕqIc)), view(cv_, Val(:θsP)), cor_endsM
+            view(cv_, Val(:ϕm)), view(cv_, Val(:ϕqIc)), view(cv_, Val(:θsP)), cor_endsM, transM,
         )[1]
     end
 end
@@ -312,6 +314,7 @@ function prepare_gradelbo_helpers(
     h, rnormM1, i_site_train1,
     diffchunk, n_site, n_cov,
     cor_ends,
+    transP::Stacked, transM::Stacked,
     ) where {TG, TF}
     hi1 = h.helpers_sites[1]
     # TODO get n_site, n_cov diffchunk from h
@@ -331,7 +334,8 @@ function prepare_gradelbo_helpers(
     # To sync across procs/threads, use a Channel 
     # https://juliafolds2.github.io/OhMyThreads.jl/stable/literate/tls/tls/#The-safe-way:-Channel
     #    
-    nelboi_z = make_nelboiz_cl(hi1, approx, rnormM1, i_site_train1, CA.getaxes(cv_grad), cor_ends.M) 
+    nelboi_z = make_nelboiz_cl(hi1, approx, rnormM1, i_site_train1, CA.getaxes(cv_grad), 
+        cor_ends.M, transM) 
     get_helpers_worker = () -> begin
         (;
             inputs_cv = similar(cv_grad), # collecting inputs into single cv

@@ -32,9 +32,10 @@ with_logabsdet_jacobian(bs_Exp, x )
 @testset "with_logabsdet_jacobian_stacked!" begin
     bs = bs_elexp # is allocating ? 
     bs = bs_Exp 
+    bs = Stacked((b_Exp,identity), (1:3,4:4))
     y = similar(x)
     lad = zero(eltype(x))
-    y_true, logjac_true = with_logabsdet_jacobian(bs_Exp, x)
+    y_true, logjac_true = with_logabsdet_jacobian(bs, x)
 
     y, logjac = CP.with_logabsdet_jacobian_stacked!(bs, x, y)
     @test y == y_true
