@@ -27,6 +27,7 @@ function neg_elbo_sites!(
     intϕqP, intϕqI,
     xM,
     cor_ends,
+    transP::Stacked, transM::Stacked,
     is_testmode, 
     kwargs...
 ) where {TG, TF}
@@ -50,10 +51,10 @@ function neg_elbo_sites!(
     ϕm_it = eachslice(h[ϕms_buffer_key]; dims = ndims(h[ϕms_buffer_key]))
     template = ϕqI # only important for gradient
     θsP = h.θsP
-    # closure with approx and kwargs
+    # closure with approx, transM, and kwargs
     function compute_elboi_z_cl!(hi, rnormM, i_site_train, ϕm) 
         compute_nelboi_z!(hi, approx, rnormM, i_site_train, ϕm, 
-        ϕqIc, θsP, cor_ends.M; kwargs...) 
+        ϕqIc, θsP, cor_ends.M, transM; kwargs...) 
     end
     #res_site = map(compute_nelboi_z!, h.helpers_sites, rnormPM.M, i_sites_train, ϕm_it)
     #MAYBE: distributed mapreduce: 
@@ -69,7 +70,7 @@ function neg_elbo_sites!(
 end
 
 function compute_nelboi_z!(hi, approx::AbstractHVIApproximation,
-    rnormM, i_site_train, ϕm, ϕqIc::AbstractArray{TF}, θsP, cor_endsM;
+    rnormM, i_site_train, ϕm, ϕqIc::AbstractArray{TF}, θsP, cor_endsM, transM;
     kwargs...) where TF
     # on update -> sync corresponding function within grad_neg_elbo_sites
     if hi.ζsM isa PAT.DiffCache
@@ -77,6 +78,7 @@ function compute_nelboi_z!(hi, approx::AbstractHVIApproximation,
     end
     #ζsM, logσ_ζM, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector
     sample_ζsM!(hi.ζsM, hi.logσ_ζM, approx, rnormM, ϕqIc, ϕm, cor_endsM, hi.sample_buffers)
+    # TODO replace by transM
     exp_ladJacTM = transformζ(hi.θsM, hi.ζsM)  # return value captures ladJacT
     # first component needs to be the full elbo
     exp_nL = exp_nLi(θsP, hi.θsM; i_site_train, kwargs...)[1]
