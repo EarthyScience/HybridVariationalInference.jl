@@ -5,8 +5,25 @@ using HybridVariationalInference: HybridVariationalInference as HVI
 using Zygote
 using Distributions
 using LinearAlgebra
+import Folds
 
 
+@testset "unpack_slurp_namedtuple" begin
+    t = (;a=1, b=2, c=3, d=4)
+    HVI.@unpack_slurp_namedtuple(t, a, c, rest)
+    @test (1, 3, (b = 2, d = 4)) == (1, 3, (b = 2, d = 4))
+    HVI.@unpack_slurp_namedtuple((;a=3), a, rest)
+    @test (a, rest) == (3, NamedTuple())
+end
+
+
+@testset "NamedTupleZip" begin
+    subcomponents = (x = (1, 2, 3), y = (4, 5, 6), z = (7, 8, 9))
+    iter = HVI.NamedTupleZip(subcomponents)
+    @test Folds.mapreduce(nt -> nt.x, +, iter) == 6
+    @test ((iter) -> @allocated first(iter).x)(iter) == 0
+    @test ((subcomponents) -> @allocated HVI.NamedTupleZip(subcomponents))(subcomponents) == 0
+end
 
 @testset "OneBasedVectorWithZero" begin
     # Standard Julia 1-based vector (no underlying shift)

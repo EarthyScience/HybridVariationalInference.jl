@@ -1,25 +1,33 @@
 function grad_neg_elbo_sites(
     elbo_helpers::NamedTuple,      # tuple of preallocated arrays
     grad_elbo_helpers::NamedTuple,  # tuple of preallocated arrays pullback closures
-    approx::AbstractHVIApproximation,
-    rnormPM::NamedTuple,          # tuple of random numbers
-    ϕg::AbstractVector{TG}, ϕqP::AbstractVector{TF}, ϕqI::AbstractVector{TF}, g, 
-    pbm_covar_indices::Union{Nothing,AbstractVector{<:Number}}, 
-    args...;
-    i_sites_train,     # indices of sites in training set
-    intϕqP, intϕqI,
-    xM,
-    cor_ends,
-    transP::Stacked, transM::Stacked,
-    is_testmode, 
+    ϕ::NamedTuple,
+    rnormPM::NamedTuple,
+    sample_args::NamedTuple,
+    site_args::NamedTuple;
+    # approx::AbstractHVIApproximation,
+    # rnormPM::NamedTuple,          # tuple of random numbers
+    # ϕg::AbstractVector{TG}, ϕqP::AbstractVector{TF}, ϕqI::AbstractVector{TF}, g, 
+    # pbm_covar_indices::Union{Nothing,AbstractVector{<:Number}}, 
+    # args...;
+    # pbm_args,     # indices of sites in training set
+    # intϕqP, intϕqI,
+    # xM,
+    # cor_ends,
+    # transP::Stacked, transM::Stacked,
+    # is_testmode, 
     n_workers = 1, # TODO compute from executor and Distributed.nworkers and nthreads,...
     executor::Transducers.Executor = Transducers.SequentialEx(),
-    kwargs...
-) where {TG, TF}
+) 
+    h = elbo_helpers # preallocated μζP, dμζP, ζsP, ϕms, xMP, dxMP
+    (;ϕg, ϕqP, ϕqI) = ϕ
+    TF = eltype(ϕqP)
+    (;approx, g, is_testmode, pbm_covar_indices, intϕqP, intϕqI, cor_ends, transP, transM) = sample_args
+    #@unpack_slurp_namedtuple(site_args, xM, pbm_args)
+    xM = site_args.xM; pbm_args = site_args[(:xP, :i_site_train)]
     use_ϕm_matrix = isnothing(pbm_covar_indices)
     ϕqPc = intϕqP(ϕqP) 
     ϕqIc = intϕqI(ϕqI)
-    h = elbo_helpers # preallocated μζP, dμζP, ζsP, ϕms, xMP, dxMP
     ϕm_buffer_key = use_ϕm_matrix ? :ϕms : :ϕms_mcs
     h_ϕm = h[ϕm_buffer_key]
     check_elbo_helpers(h, xM, pbm_covar_indices; n_ϕg = length(ϕg))
@@ -28,7 +36,7 @@ function grad_neg_elbo_sites(
     gradh = !isempty(grad_elbo_helpers) ? grad_elbo_helpers : prepare_gradelbo_helpers(
         ϕqIc, selectdim(h_ϕm, ndims(h_ϕm), 1), h.ζsP, ϕg, ϕqPc, approx; 
         pbm_covar_indices, n_workers,
-        h, rnormM1 = rnormPM.M[1], i_site_train1 = 1,
+        h, rnormMi = rnormPM.M[1], pbm_argsi = map(first, pbm_args),
         h.diffchunk, n_site, n_cov, cor_ends, transP, transM)
     hw_channel = gradh.hw_channel
     #
@@ -44,7 +52,7 @@ function grad_neg_elbo_sites(
         dθsP = zero(static_cv_getproperty(hwi.inputs_cv, Val(:θsP))))
     end
     gacc = Folds.mapreduce(cl, make_tuple_reducer(+), 
-        zip(h.helpers_sites, rnormPM.M, i_sites_train, ϕm_it, axes(i_sites_train,1)),
+        zip(h.helpers_sites, rnormPM.M, NamedTupleZip(pbm_args), ϕm_it, 1:n_site),
         executor; init)
     ∂elbo_∂ϕqI = gacc.dϕqIc # tuple access
     ∂elbo_∂θP = gacc.dθsP
@@ -98,12 +106,17 @@ struct ForwardDiffGradNelboiZCl{TA, Tϕq, Tθ, TD, THWC, TC, TM}
     transM::TM
 end
 function (f::ForwardDiffGradNelboiZCl)(tup)
-    hi, rnormM, i_site_train, ϕm, i = tup
-    forwarddiff_grad_nelboi_z!(hi, f.approx, rnormM, i_site_train, ϕm, i,
-        f.ϕqIc, f.θsP, f.dϕmvecs, f.hw_channel, f.corendsM, f.transM, nothing)
+    hi, rnormM, pbm_argsi, ϕm, i = tup
+    #Main.@infiltrate_main
+
+    forwarddiff_grad_nelboi_z!(hi, f.approx, rnormM, pbm_argsi, ϕm, i,
+        f.ϕqIc, f.θsP, f.dϕmvecs, f.hw_channel, f.corendsM, f.transM, 
+        nothing,
+        #true,
+        )
 end
 
-function forwarddiff_grad_nelboi_z!(hi, approx::AbstractHVIApproximation, rnormM, i_site_train, ϕm, i, 
+function forwarddiff_grad_nelboi_z!(hi, approx::AbstractHVIApproximation, rnormM, pbm_argsi, ϕm, i, 
     ϕqIc, θsP, dϕmvecs, hw_channel::Channel, cor_endsM, transM::Stacked, omit_gradient=nothing) 
     # aggregate all the derivatives to allow a single call to ForwardDiff.gradient
     #   reshape ϕm and ζsP into a vector to avoid allocations in cv[Val(:ζsP)]
@@ -115,7 +128,7 @@ function forwarddiff_grad_nelboi_z!(hi, approx::AbstractHVIApproximation, rnormM
         view(inputs_cv, Val(:ϕqIc)) .= ϕqIc
         view(inputs_cv, Val(:ϕm)) .= ϕm
         view(inputs_cv, Val(:θsP)) .= θsP
-        nelboi_z = make_nelboiz_cl(hi, approx, rnormM, i_site_train, CA.getaxes(inputs_cv), cor_endsM, transM)
+        nelboi_z = make_nelboiz_cl(hi, approx, rnormM, pbm_argsi, CA.getaxes(inputs_cv), cor_endsM, transM)
         # write the gradient into the preallocated per-worker buffer to avoid
         # the result-vector allocation in ForwardDiff.gradient
         grads_flat = if isnothing(omit_gradient)
@@ -137,11 +150,11 @@ function forwarddiff_grad_nelboi_z!(hi, approx::AbstractHVIApproximation, rnormM
     #res
 end
 
-function make_nelboiz_cl(hi, approx::AbstractHVIApproximation, rnormM, i_site_train, ax_inputs, cor_endsM, transM)
+function make_nelboiz_cl(hi, approx::AbstractHVIApproximation, rnormM, pbm_argsi, ax_inputs, cor_endsM, transM)
     function nelboiz_cl(cv) 
         cv_ = CA.ComponentArray(cv, ax_inputs)
         compute_nelboi_z!(
-            hi, approx, rnormM, i_site_train,
+            hi, approx, rnormM, pbm_argsi,
             view(cv_, Val(:ϕm)), view(cv_, Val(:ϕqIc)), view(cv_, Val(:θsP)), cor_endsM, transM,
         )[1]
     end
@@ -311,7 +324,7 @@ function prepare_gradelbo_helpers(
     ϕg::AbstractVector{TG}, ϕqPc::AbstractVector{TF},
     approx::AbstractHVIApproximation; 
     pbm_covar_indices, n_workers,
-    h, rnormM1, i_site_train1,
+    h, rnormMi, pbm_argsi,
     diffchunk, n_site, n_cov,
     cor_ends,
     transP::Stacked, transM::Stacked,
@@ -334,7 +347,7 @@ function prepare_gradelbo_helpers(
     # To sync across procs/threads, use a Channel 
     # https://juliafolds2.github.io/OhMyThreads.jl/stable/literate/tls/tls/#The-safe-way:-Channel
     #    
-    nelboi_z = make_nelboiz_cl(hi1, approx, rnormM1, i_site_train1, CA.getaxes(cv_grad), 
+    nelboi_z = make_nelboiz_cl(hi1, approx, rnormMi, pbm_argsi, CA.getaxes(cv_grad), 
         cor_ends.M, transM) 
     get_helpers_worker = () -> begin
         (;
