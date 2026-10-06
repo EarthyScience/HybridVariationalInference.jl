@@ -452,8 +452,8 @@ end
     #@descend_code_warntype tmp_g2(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing, hw_channel)
     #@usingany BenchmarkTools
     #@benchmark tmp_g($h21, $rnormM1, $i_site_train1, $inputs, 1, $dϕmvecs, true, $hw_channel)
-    #@profview_allocs tmpgn(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, true, hw_channel)
-    #@profview_allocs tmpgn(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, nothing, hw_channel)
+    #@profview_allocs loop_forwarddiff_grad_nelboi_z(h21, rnormM1, i_site_train1, inputs, 1, dϕmvecs, true, hw_channel)
+    #@profview_allocs loop_forwarddiff_grad_nelboi_z(10_000, h21, approx, rnormM1, i_site_train_1, 1, ϕm_, ϕqIc_, θsP_, dϕmvecs, hw_channel, nothing, cor_ends.M, transM)
 
     approx2 = MeanHVIApproximation()
     hiM1 = h0M.helpers_sites[1]

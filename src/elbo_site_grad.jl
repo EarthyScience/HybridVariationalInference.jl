@@ -111,9 +111,7 @@ function forwarddiff_grad_nelboi_z!(hi, approx::AbstractHVIApproximation, rnormM
     #local hwi = take!(hw_channel)
         grad_conf = hwi.grad_conf
         inputs_cv = hwi.inputs_cv
-        #grad_ax = hwi.grad_ax
         inputs_v = CA.getdata(inputs_cv) # flat backing storage, shares memory with inputs
-        #inputs = gradhi.inputs_cv
         view(inputs_cv, Val(:ϕqIc)) .= ϕqIc
         view(inputs_cv, Val(:ϕm)) .= ϕm
         view(inputs_cv, Val(:θsP)) .= θsP

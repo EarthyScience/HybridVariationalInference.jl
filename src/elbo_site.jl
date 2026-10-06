@@ -288,10 +288,7 @@ function exp_nLi(
     θsM::AbstractMatrix;
     # f, py,
     # xP, y_ob, y_unc, itrain_sites::AbstractVector{<:Number};
-    # cor_ends, # =(P=(1,),M=(1,))
-    # int_ϕg_ϕq::AbstractComponentArrayInterpreter,
     # int_ϕq::AbstractComponentArrayInterpreter,
-    # transP, transMs, 
     # priorsP, priorsM,
     # penalty_computer = ZeroPenaltyComputer(),
     # is_omit_priors,
