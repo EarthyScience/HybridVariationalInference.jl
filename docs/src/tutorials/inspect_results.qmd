@@ -56,7 +56,7 @@ _xM = probo.train_dataloader.data[1]
 _xP = probo.train_dataloader.data[2]
 tmp = predict_point_hvi(rng, probo, xM = _xM, xP = _xP)
 
-f_batch = PBMPopulationApplicator(
+f_batch = PBMPopulationApplicatorTr(
   f_doubleMM_sites, probo.n_batch; probo.θP, probo.θM, θFix, xPvec=_xP_batch[:,1])
 probo = HybridProblem(probo; f_batch)
 ```

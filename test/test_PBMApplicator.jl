@@ -20,7 +20,7 @@ end
     include("test/test_scratch.jl")
 end
 
-@testset "PBMPopulationApplicator" begin
+@testset "PBMPopulationApplicatorTr" begin
     n_obs = 3
     n_site = 5
     xPvec = CA.ComponentVector(s1 = 1.0:n_obs)
@@ -32,7 +32,7 @@ end
     θMs = (ones(n_site) .* θM') .+ abs2.(randn(n_site, length(θM)) .* 0.1)
     θs = hcat(ones(n_site) .* θP', θMs)
     y_obs = f_pop(θs, xPc)
-    g = PBMPopulationApplicator(f_pop, n_site; θP, θM, θFix, xPvec)
+    g = PBMPopulationApplicatorTr(f_pop, n_site; θP, θM, θFix, xPvec)
     ret = g(θP, θMs, xPc)
     @test ret ≈ y_obs
 
