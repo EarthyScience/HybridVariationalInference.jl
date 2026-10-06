@@ -43,6 +43,9 @@ import ForwardDiff, DiffResults, PreallocationTools as PAT
 
 import Folds, Transducers
 
+using LazyArrays: Vcat
+
+
 export DoubleMM
 
 include("OneBasedVectorWithZero.jl")
@@ -85,9 +88,10 @@ export NullModelApplicator, MagnitudeModelApplicator, NormalScalingModelApplicat
 export RangeScalingModelApplicator
 include("ModelApplicator.jl")
 
-export AbstractPBMApplicator, NullPBMApplicator, PBMSiteApplicator, PBMPopulationApplicator
-export DirectPBMApplicator, PBMPopulationGlobalApplicator
+export AbstractPBMApplicator, NullPBMApplicator, PBMSiteApplicator, PBMPopulationApplicatorTr
+export DirectPBMApplicator, PBMPopulationGlobalApplicator, PBMPopulationApplicator
 export create_nsite_applicator
+include("PBMApplicatorTr.jl")
 include("PBMApplicator.jl")
 
 # export AbstractGPUDataHandler, NullGPUDataHandler, get_default_GPUHandler

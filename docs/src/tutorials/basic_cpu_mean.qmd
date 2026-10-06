@@ -366,17 +366,17 @@ end
 Again, the function should not rely on the order of parameters but use symbolic indexing 
 to extract the parameter vectors. 
 
-A corresponding [`PBMPopulationApplicator`](@ref) transforms calls with 
+A corresponding [`PBMPopulationApplicatorTr`](@ref) transforms calls with 
 partitioned global and site parameters to calls of this matrix version of the PBM.
 The HVI Problem needs to be updated with this new applicatior.
 
 ```{julia}
-f_batch = PBMPopulationApplicator(f_doubleMM_sites, n_batch; θP, θM, θFix, xPvec=xP[:,1])
+f_batch = PBMPopulationApplicatorTr(f_doubleMM_sites, n_batch; θP, θM, θFix, xPvec=xP[:,1])
 probo_sites = HybridProblem(probo; f_batch)
 ```
 
 For numerical efficiency, the number of sites within one batch is part of the 
-`PBMPopulationApplicator`. The problem stores an applicator for `n_batch` sites, 
+`PBMPopulationApplicatorTr`. The problem stores an applicator for `n_batch` sites, 
 however, an applicator for `n_site_pred` sites can be obtained by 
 `create_nsite_applicator(f_batch, n_site_pred)`.
 
@@ -399,7 +399,7 @@ of the PBM in module `DoubleMM` rather than what we defined in
 module `Main` to allow for easier reloading with JLD2.
 
 ```{julia}
-f_batch = PBMPopulationApplicator(DoubleMM.f_doubleMM_sites, n_batch; θP, θM, θFix, xPvec=xP[:,1])
+f_batch = PBMPopulationApplicatorTr(DoubleMM.f_doubleMM_sites, n_batch; θP, θM, θFix, xPvec=xP[:,1])
 probo2 = HybridProblem(probo; f_batch)
 ```
 

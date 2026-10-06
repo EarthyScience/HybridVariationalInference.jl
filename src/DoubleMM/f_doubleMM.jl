@@ -294,7 +294,7 @@ function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario::Val{scen}) 
         PBMSiteApplicator(f_doubleMM; pt.θP, pt.θM, θFix, xPvec)
     else
         n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-        PBMPopulationApplicator(f_doubleMM_sites, n_batch; pt.θP, pt.θM, θFix, xPvec)
+        PBMPopulationApplicatorTr(f_doubleMM_sites, n_batch; pt.θP, pt.θM, θFix, xPvec)
     end
 end
 
