@@ -1,8 +1,3 @@
-function neg_elbo_sites(rng::AbstractRNG, elbo_helpers::NamedTuple, args; kwargs...)
-    CP.randnPM!(rng, h)    
-    neg_elbo_sites!(h, args...; kwargs...)
-end
-
 function randnPM!(rng, rnorm::NamedTuple)
     randn!(rng, rnorm.P) # n_P * n_MC
     for i in 1:length(rnorm.M)
@@ -18,21 +13,17 @@ By this way, we can compute the derivative corresponding to the forward pass
 """
 function neg_elbo_sites!(
     elbo_helpers::NamedTuple,      # tuple of preallocated arrays
-    approx::AbstractHVIApproximation,
-    rnormPM::NamedTuple,          # tuple of random numbers
-    ϕg::AbstractVector{TG}, ϕqP::AbstractVector{TF}, ϕqI::AbstractVector{TF}, g, 
-    pbm_covar_indices::Union{Nothing,AbstractVector{<:Number}}, 
-    args...;
-    i_sites_train,     # indices of sites in training set
-    intϕqP, intϕqI,
-    xM,
-    cor_ends,
-    transP::Stacked, transM::Stacked,
-    is_testmode, 
-    kwargs...
-) where {TG, TF}
+    ϕ::NamedTuple,
+    rnormPM::NamedTuple,
+    sample_args::NamedTuple,
+    site_args::NamedTuple;
+) 
     # for AD do not put it into closure
     h = elbo_helpers # preallocated μζP, dμζP, ζsP, ϕms, xMP, dxMP
+    (;ϕg, ϕqP, ϕqI) = ϕ
+    (;approx, g, is_testmode, pbm_covar_indices, intϕqP, intϕqI, cor_ends, transP, transM) = sample_args
+    #@unpack_slurp_namedtuple(site_args, xM, pbm_args)
+    xM = site_args.xM; pbm_args = site_args[(:xP, :i_site_train)]
     @assert size(rnormPM.P) == size(h.ζsP)
     use_dc = h.helpers_sites[1].ζsM isa PAT.DiffCache
     n_M, n_MC = use_dc ? size(h.helpers_sites[1].ζsM.du) : size(h.helpers_sites[1].ζsM)
@@ -52,15 +43,15 @@ function neg_elbo_sites!(
     template = ϕqI # only important for gradient
     θsP = h.θsP
     # closure with approx, transM, and kwargs
-    function compute_elboi_z_cl!(hi, rnormM, i_site_train, ϕm) 
-        compute_nelboi_z!(hi, approx, rnormM, i_site_train, ϕm, 
-        ϕqIc, θsP, cor_ends.M, transM; kwargs...) 
+    function compute_elboi_z_cl!(hi, rnormM, pbm_argsi, ϕm) 
+        compute_nelboi_z!(hi, approx, rnormM, pbm_argsi, ϕm, 
+        ϕqIc, θsP, cor_ends.M, transM) 
     end
     #res_site = map(compute_nelboi_z!, h.helpers_sites, rnormPM.M, i_sites_train, ϕm_it)
     #MAYBE: distributed mapreduce: 
     #   https://docs.julialang.org/en/v1/stdlib/Distributed/#Distributed.@distributed
     #   https://github.com/SupaeroDataScience/DE/blob/main/notebooks/Introduction%20to%20MapReduce.ipynb
-    elbo_z = mapreduce(compute_elboi_z_cl!, +, h.helpers_sites, rnormPM.M, i_sites_train, ϕm_it)
+    elbo_z = mapreduce(compute_elboi_z_cl!, +, h.helpers_sites, rnormPM.M, NamedTupleZip(pbm_args), ϕm_it)
     # E = sum(x -> x.E, res_site)
     # loglik = sum(x -> x.loglik, res_site)
     # costTrans = sum(x -> x.costTrans, res_site)
@@ -70,8 +61,9 @@ function neg_elbo_sites!(
 end
 
 function compute_nelboi_z!(hi, approx::AbstractHVIApproximation,
-    rnormM, i_site_train, ϕm, ϕqIc::AbstractArray{TF}, θsP, cor_endsM, transM;
+    rnormM, pbm_argsi, ϕm, ϕqIc::AbstractArray{TF}, θsP, cor_endsM, transM;
     kwargs...) where TF
+    (;xP, i_site_train) = pbm_argsi
     # on update -> sync corresponding function within grad_neg_elbo_sites
     if hi.ζsM isa PAT.DiffCache
         hi = map_leaves_nt(x -> PAT.get_tmp(x, ϕqIc), hi)
