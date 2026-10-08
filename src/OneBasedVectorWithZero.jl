@@ -61,36 +61,6 @@ function Base.setindex!(v::OneBasedVectorWithZero, value, i::Integer)
     end
 end
 
-"""
-    OneBasedVectorWithZeroView
-
-A non-allocating 1-based `AbstractVector` view into a `OneBasedVectorWithZero`
-returned by `Base.view` for an index range that includes `0` (e.g.
-`@view(v[0:end])`). It presents the extended vector `[val_at_zero, data...]`
-under ordinary 1-based indexing, so it compares equal to a plain `Vector`.
-
-Index `1` of the view maps to the parent's protected index `0`, so reading it
-returns `val_at_zero` and writing to it throws a `BoundsError`. Ranges that
-never include `0` fall back to the default `SubArray` behavior.
-"""
-struct OneBasedVectorWithZeroView{E,V<:AbstractVector{E},R<:AbstractUnitRange{<:Integer}} <: AbstractVector{E}
-    parent::OneBasedVectorWithZero{E,V}
-    r::R
-end
-
-Base.parent(vw::OneBasedVectorWithZeroView) = vw.parent
-Base.size(vw::OneBasedVectorWithZeroView) = (length(vw.r),)
-Base.axes(vw::OneBasedVectorWithZeroView) = (Base.OneTo(length(vw.r)),)
-
-function Base.getindex(vw::OneBasedVectorWithZeroView, j::Integer)
-    return vw.parent[first(vw.r) + (j - 1)]
-end
-
-function Base.setindex!(vw::OneBasedVectorWithZeroView, x, j::Integer)
-    vw.parent[first(vw.r) + (j - 1)] = x
-    return vw
-end
-
 function Base.view(v::OneBasedVectorWithZero, r::AbstractUnitRange{<:Integer})
     return first(r) >= 1 ? Base.SubArray(v, (r,)) : OneBasedVectorWithZeroView(v, r)
 end
@@ -143,3 +113,35 @@ if isdefined(Main, :Zygote) || isdefined(HybridVariationalInference, :Zygote)
         )
     end
 end
+
+"""
+    OneBasedVectorWithZeroView
+
+A non-allocating 1-based `AbstractVector` view into a `OneBasedVectorWithZero`
+returned by `Base.view` for an index range that includes `0` (e.g.
+`@view(v[0:end])`). It presents the extended vector `[val_at_zero, data...]`
+under ordinary 1-based indexing, so it compares equal to a plain `Vector`.
+
+Index `1` of the view maps to the parent's protected index `0`, so reading it
+returns `val_at_zero` and writing to it throws a `BoundsError`. Ranges that
+never include `0` fall back to the default `SubArray` behavior.
+"""
+struct OneBasedVectorWithZeroView{E,V<:AbstractVector{E},R<:AbstractUnitRange{<:Integer}} <: AbstractVector{E}
+    parent::OneBasedVectorWithZero{E,V}
+    r::R
+end
+
+Base.parent(vw::OneBasedVectorWithZeroView) = vw.parent
+Base.size(vw::OneBasedVectorWithZeroView) = (length(vw.r),)
+Base.axes(vw::OneBasedVectorWithZeroView) = (Base.OneTo(length(vw.r)),)
+
+function Base.getindex(vw::OneBasedVectorWithZeroView, j::Integer)
+    return vw.parent[first(vw.r) + (j - 1)]
+end
+
+function Base.setindex!(vw::OneBasedVectorWithZeroView, x, j::Integer)
+    vw.parent[first(vw.r) + (j - 1)] = x
+    return vw
+end
+
+

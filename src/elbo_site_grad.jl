@@ -23,8 +23,9 @@ function grad_neg_elbo_sites(
     (;ϕg, ϕqP, ϕqI) = ϕ
     TF = eltype(ϕqP)
     (;approx, g, is_testmode, pbm_covar_indices, intϕqP, intϕqI, cor_ends, transP, transM) = sample_args
-    #@unpack_slurp_namedtuple(indiv_args, xM, nljoint_args_inds)
-    xM = indiv_args.xM; nljoint_args_inds = indiv_args[(:xP, :y_o, :y_unc, :i_indiv_train)]
+    @assert keys(indiv_args)[1] == :xM
+    xM = indiv_args.xM; r2end = 2:length(indiv_args)
+    nljoint_args_inds = NamedTuple{keys(indiv_args)[r2end]}(values(indiv_args)[r2end])
     use_ϕm_matrix = isnothing(pbm_covar_indices)
     ϕqPc = intϕqP(ϕqP) 
     ϕqIc = intϕqI(ϕqI)
@@ -33,10 +34,12 @@ function grad_neg_elbo_sites(
     check_elbo_helpers(h, xM, pbm_covar_indices; n_ϕg = length(ϕg))
     n_cov, n_site = size(xM)
     n_θP, n_MC = size(h.ζsP)
+    nljoint_args_indi = NamedTuple{keys(nljoint_args_inds)}(
+        first(zip_eachlastdims(nljoint_args_inds)))
     gradh = !isempty(grad_elbo_helpers) ? grad_elbo_helpers : prepare_gradelbo_helpers(
         ϕqIc, selectdim(h_ϕm, ndims(h_ϕm), 1), h.ζsP, ϕg, ϕqPc, approx; 
         pbm_covar_indices, n_workers,
-        h, rnormMi = rnormPM.M[1], nljoint_args_indi = map(first, nljoint_args_inds),
+        h, rnormMi = rnormPM.M[1], nljoint_args_indi,
         h.diffchunk, n_site, n_cov, cor_ends, transP, transM)
     hw_channel = gradh.hw_channel
     #
@@ -45,14 +48,16 @@ function grad_neg_elbo_sites(
     ladJacTP = transformζ!(h.θsP, transP, h.ζsP)  # return value captures ladJacT
     #
     # parallel ForwardDiffGradient through forwarddiff_grad_nelboi_z!
-    cl = ForwardDiffGradNelboiZCl(approx, ϕqIc, h.θsP, gradh.dϕmvecs, gradh.hw_channel, cor_ends.M, transM)    
+    cl = ForwardDiffGradNelboiZCl(
+        approx, ϕqIc, h.θsP, gradh.dϕmvecs, gradh.hw_channel, cor_ends.M, transM,
+        Val(keys(nljoint_args_inds)),)    
     ϕm_it = eachslice(h_ϕm; dims = ndims(h_ϕm))
     init = with_channel_element(hw_channel) do hwi 
         (; dϕqIc = zero(static_cv_getproperty(hwi.inputs_cv, Val(:ϕqIc))),
         dθsP = zero(static_cv_getproperty(hwi.inputs_cv, Val(:θsP))))
     end
     gacc = Folds.mapreduce(cl, make_tuple_reducer(+), 
-        zip(h.helpers_sites, rnormPM.M, NamedTupleZip(nljoint_args_inds), ϕm_it, 1:n_site),
+        zip(h.helpers_sites, rnormPM.M, zip_eachlastdims(nljoint_args_inds), ϕm_it, 1:n_site),
         executor; init)
     ∂elbo_∂ϕqI = gacc.dϕqIc # tuple access
     ∂elbo_∂θP = gacc.dθsP
@@ -96,7 +101,7 @@ end
 """
 Callable to make deliver arguments that do not differ by individual to Foldl.mapreduce.
 """
-struct ForwardDiffGradNelboiZCl{TA, Tϕq, Tθ, TD, THWC, TC, TM}
+struct ForwardDiffGradNelboiZCl{KEYS, TA, Tϕq, Tθ, TD, THWC, TC, TM}
     approx::TA
     ϕqIc::Tϕq
     θsP::Tθ
@@ -104,11 +109,13 @@ struct ForwardDiffGradNelboiZCl{TA, Tϕq, Tθ, TD, THWC, TC, TM}
     hw_channel::THWC
     corendsM::TC
     transM::TM
+    # need to store KEYS in type parameter otherwise allocation in NamedTuple(keys)
+    keys_nljoint_args_indi::Val{KEYS}
 end
-function (f::ForwardDiffGradNelboiZCl)(tup)
-    hi, rnormM, nljoint_args_indi, ϕm, i = tup
-    #Main.@infiltrate_main
-
+function (f::ForwardDiffGradNelboiZCl{KEYS})(tup) where KEYS
+    hi, rnormM, nljoint_args_indi_tup, ϕm, i = tup
+    #nljoint_args_indi = NamedTuple{f.keys_nljoint_args_indi}(nljoint_args_indi_tup)
+    nljoint_args_indi = NamedTuple{KEYS}(nljoint_args_indi_tup)
     forwarddiff_grad_nelboi_z!(hi, f.approx, rnormM, nljoint_args_indi, ϕm, i,
         f.ϕqIc, f.θsP, f.dϕmvecs, f.hw_channel, f.corendsM, f.transM, 
         nothing,
@@ -155,7 +162,8 @@ function make_nelboiz_cl(hi, approx::AbstractHVIApproximation, rnormM, nljoint_a
         cv_ = CA.ComponentArray(cv, ax_inputs)
         compute_nelboi_z!(
             hi, approx, rnormM, nljoint_args_indi,
-            view(cv_, Val(:ϕm)), view(cv_, Val(:ϕqIc)), view(cv_, Val(:θsP)), cor_endsM, transM,
+            view(cv_, Val(:ϕm)), view(cv_, Val(:ϕqIc)), view(cv_, Val(:θsP)), 
+            cor_endsM, transM, 
         )[1]
     end
 end
@@ -347,6 +355,7 @@ function prepare_gradelbo_helpers(
     # To sync across procs/threads, use a Channel 
     # https://juliafolds2.github.io/OhMyThreads.jl/stable/literate/tls/tls/#The-safe-way:-Channel
     #    
+    @assert length(nljoint_args_indi.xP) > 1
     nelboi_z = make_nelboiz_cl(hi1, approx, rnormMi, nljoint_args_indi, CA.getaxes(cv_grad), 
         cor_ends.M, transM) 
     get_helpers_worker = () -> begin
