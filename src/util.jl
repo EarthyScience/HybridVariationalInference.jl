@@ -168,6 +168,39 @@ function index_at_dim(x::AbstractArray{T, N}, i::AbstractVector{Int}; dim::Int) 
     return x[colons...]
 end
 
+"""
+    eachlastdim(x)
+
+Iterates the 
+- the last dimension of x, if x isa several-dimensiontal array
+- x itself, if x is one-dimensional or not an array
+"""
+eachlastdim(x::AbstractArray) = eachslice(x; dims=ndims(x))
+eachlastdim(x::AbstractVector) = x
+eachlastdim(x) = x
+
+"""
+    zip_eachlastdims(xs)
+
+Maps `eachlastdim` to the given x (Tuple, or NamedTuple, ...)
+and zips the iterators, so that each iterated item 
+is a Tuple.
+
+If x is a NamedTuple, the names can be restored on the
+iterated tuples given the keys of x
+```julia
+n_indiv = 3
+cv1 = CA.ComponentVector(a=1, b=2)
+ca = CA.ComponentArray(repeat(Vector(cv1), 1, n_indiv), CA.getaxes(cv1)[1], CA.FlatAxis())
+x = (s1 = collect(1:n_indiv), ca)
+i1 = first(HVI.zip_eachlastdims(x))
+i1n = NamedTuple{keys(sub2)}(i1)  # restore names
+i1n.ca.b == ca[:b,1]
+```
+"""
+zip_eachlastdims(xs) = zip(map(eachlastdim, xs)...)
+
+
 
 
 using LinearAlgebra
@@ -435,82 +468,4 @@ Map function f to all leaves of a nested Tuple/NamedTuple.
 map_leaves_nt(f, x) = f(x)
 map_leaves_nt(f, x::Union{Tuple,NamedTuple}) = map(y -> map_leaves_nt(f, y), x)
 
-"""
-    split_namedtuple(nt::NamedTuple, keys::Symbol...) -> (NamedTuple, NamedTuple)
 
-Split a `NamedTuple` into two parts: one containing the specified `keys` and
-one containing the remaining keys.
-
-# Arguments
-- `nt::NamedTuple`: The NamedTuple to split.
-- `keys::Symbol...`: The keys to extract into the first returned NamedTuple.
-
-# Returns
-A tuple `(selected, remaining)` where:
-- `selected`: A `NamedTuple` containing only the specified `keys`.
-- `remaining`: A `NamedTuple` containing all keys *not* in `keys`.
-
-# Errors
-- Throws a `KeyError` if any of the specified `keys` are not present in `nt`.
-
-# Examples
-```julia
-t = (;a=1, b=2, c=3)
-(a = 1, b = 2, c = 3)
-(;a), rest = split_namedtuple(t, :a)
-(;a,c), rest = split_namedtuple(t, :a, :c)
-(;a), rest = split_namedtuple((;a=2), :a)
-```
-"""
-function split_namedtuple(nt::NamedTuple, keys::Symbol...)
-    selected  = NamedTuple{keys}(nt)
-    remaining = Base.structdiff(nt, NamedTuple{keys}(ntuple(_ -> nothing, length(keys))))
-    return selected, remaining
-end
-
-
-"""
-    @unpack_slurp_namedtuple(nt, keys..., rest)
-
-Destructure a `NamedTuple` by extracting the specified keys into individual
-variables and collecting the remaining keys into a single `NamedTuple`.
-The last argument is the "slurp" variable that captures the remainder.
-
-# Arguments
-- `nt`: The `NamedTuple` to destructure.
-- `keys...`: The keys to extract as bare symbols (without colons). All
-  arguments except the last are treated as keys to extract.
-- `rest`: The last argument, a bare symbol that will be bound to a
-  `NamedTuple` of all remaining keys.
-
-# Note  
-Function `split_namedtuple` from package HybridVariationalInference must be in Namespace
-
-# Examples
-```julia
-# using HybridVariationalInference 
-# import HybridVariationalInference as HVI
-t = (;a=1, b=2, c=3, d=4)
-HVI.@unpack_slurp_namedtuple(t, a, c, rest)
-(a, c, rest) # (1, 3, (b = 2, d = 4))
-HVI.@unpack_slurp_namedtuple((;a=3), a, rest)
-(a, rest) # (3, NamedTuple())
-# @macroexpand HVI.@unpack_slurp_namedtuple(t, a, c, rest)
-```
-"""
-macro unpack_slurp_namedtuple(nt, args...)
-    # created by Claude Sonnet
-    length(args) >= 1 || error("@unpack_slurp_namedtuple requires at least one argument after the NamedTuple (the rest variable)")
-    keys     = collect(args[1:end-1])  # symbols to extract
-    rest_var = args[end]                # symbol to bind the remainder to
-    key_symbols     = Expr(:tuple, QuoteNode.(keys)...)
-    key_destructure = Expr(:tuple, Expr(:parameters, keys...))
-    lhs             = Expr(:tuple, key_destructure, rest_var)
-    # Qualify split_namedtuple with the module where this macro is defined
-    split_fn = GlobalRef(@__MODULE__, :split_namedtuple)
-    expr = quote
-        $lhs = $(split_fn)($nt, $(key_symbols)...)
-        nothing
-    end
-    return esc(expr)
-end

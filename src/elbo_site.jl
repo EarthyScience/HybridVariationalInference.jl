@@ -22,8 +22,9 @@ function neg_elbo_sites!(
     h = elbo_helpers # preallocated μζP, dμζP, ζsP, ϕms, xMP, dxMP
     (;ϕg, ϕqP, ϕqI) = ϕ
     (;approx, g, is_testmode, pbm_covar_indices, intϕqP, intϕqI, cor_ends, transP, transM) = sample_args
-    #@unpack_slurp_namedtuple(indiv_args, xM, nljoint_args_inds)
-    xM = indiv_args.xM; nljoint_args_inds = indiv_args[(:xP, :y_o, :y_unc, :i_indiv_train)]
+    @assert keys(indiv_args)[1] == :xM
+    xM = indiv_args.xM; r2end = 2:length(indiv_args)
+    nljoint_args_inds = NamedTuple{keys(indiv_args)[r2end]}(values(indiv_args)[r2end])
     @assert size(rnormPM.P) == size(h.ζsP)
     use_dc = h.helpers_sites[1].ζsM isa PAT.DiffCache
     n_M, n_MC = use_dc ? size(h.helpers_sites[1].ζsM.du) : size(h.helpers_sites[1].ζsM)
@@ -42,8 +43,10 @@ function neg_elbo_sites!(
     ϕm_it = eachslice(h[ϕms_buffer_key]; dims = ndims(h[ϕms_buffer_key]))
     template = ϕqI # only important for gradient
     θsP = h.θsP
+    keys_nljoint_args_indi = keys(nljoint_args_inds)
     # closure with approx, transM, and kwargs
-    function compute_elboi_z_cl!(hi, rnormM, nljoint_args_indi, ϕm) 
+    function compute_elboi_z_cl!(hi, rnormM, nljoint_args_indi_tup, ϕm) 
+        nljoint_args_indi = NamedTuple{keys_nljoint_args_indi}(nljoint_args_indi_tup)
         compute_nelboi_z!(hi, approx, rnormM, nljoint_args_indi, ϕm, 
         ϕqIc, θsP, cor_ends.M, transM) 
     end
@@ -51,7 +54,7 @@ function neg_elbo_sites!(
     #MAYBE: distributed mapreduce: 
     #   https://docs.julialang.org/en/v1/stdlib/Distributed/#Distributed.@distributed
     #   https://github.com/SupaeroDataScience/DE/blob/main/notebooks/Introduction%20to%20MapReduce.ipynb
-    elbo_z = mapreduce(compute_elboi_z_cl!, +, h.helpers_sites, rnormPM.M, NamedTupleZip(nljoint_args_inds), ϕm_it)
+    elbo_z = mapreduce(compute_elboi_z_cl!, +, h.helpers_sites, rnormPM.M, zip_eachlastdims(nljoint_args_inds), ϕm_it)
     # E = sum(x -> x.E, res_site)
     # loglik = sum(x -> x.loglik, res_site)
     # costTrans = sum(x -> x.costTrans, res_site)
@@ -61,8 +64,7 @@ function neg_elbo_sites!(
 end
 
 function compute_nelboi_z!(hi, approx::AbstractHVIApproximation,
-    rnormM, nljoint_args_indi, ϕm, ϕqIc::AbstractArray{TF}, θsP, cor_endsM, transM;
-    kwargs...) where TF
+    rnormM, nljoint_args_indi, ϕm, ϕqIc::AbstractArray{TF}, θsP, cor_endsM, transM) where TF
     (;xP, i_indiv_train) = nljoint_args_indi
     # on update -> sync corresponding function within grad_neg_elbo_sites
     if hi.ζsM isa PAT.DiffCache
@@ -289,6 +291,7 @@ function exp_nLi(
     # frac_cluster_all,
 ) 
     (;xP, y_o, y_unc, i_indiv_train) = nljoint_args_indi
+    @assert size(xP,2) == length(i_indiv_train)
     n_MC = size(θsP,2)
     nL = (5 * sum(θsP) + 3 * sum(θsM)) / n_MC
     (; nL=nL,)

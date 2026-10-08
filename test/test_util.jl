@@ -2,28 +2,35 @@ using Test
 using HybridVariationalInference: vectuptotupvec_allowmissing, vectuptotupvec, insert_zeros
 using HybridVariationalInference: replace_columns_matrix
 using HybridVariationalInference: HybridVariationalInference as HVI
+import ComponentArrays as CA
 using Zygote
 using Distributions
 using LinearAlgebra
 import Folds
 
 
-@testset "unpack_slurp_namedtuple" begin
-    t = (;a=1, b=2, c=3, d=4)
-    HVI.@unpack_slurp_namedtuple(t, a, c, rest)
-    @test (1, 3, (b = 2, d = 4)) == (1, 3, (b = 2, d = 4))
-    HVI.@unpack_slurp_namedtuple((;a=3), a, rest)
-    @test (a, rest) == (3, NamedTuple())
+@testset "zip_eachlastdims" begin
+    n_indiv = 3
+    cv1 = CA.ComponentVector(a=1, b=2)
+    #ca = reduce(hcat, fill(cv1, n_indiv-1), init = cv1) # performance and edge cases
+    ca = CA.ComponentArray(repeat(Vector(cv1), 1, n_indiv), CA.getaxes(cv1)[1], CA.FlatAxis())
+    sub2 = (x = collect(1:n_indiv), ca)
+    # 
+    @test first(HVI.eachlastdim(2:6)) == 2
+    @test first(HVI.eachlastdim(collect(2:6))) == 2 # rather than zero-dim Array
+    @test first(HVI.eachlastdim(I(3))) == [1,0,0] 
+    @test first(HVI.eachlastdim(repeat(I(3),1,1,2)))== I(3)
+    first(HVI.eachlastdim(ca))
+    it2 = zip(map(HVI.eachlastdim, sub2)...)
+    it2 = HVI.zip_eachlastdims(sub2)
+    i1 = first(it2)
+    i1n = NamedTuple{keys(sub2)}(i1)
+    @test i1n.x == 1
+    @test i1n.ca == ca[:,1]
+    @test i1n.ca.b == ca[:b,1]
 end
 
 
-@testset "NamedTupleZip" begin
-    subcomponents = (x = (1, 2, 3), y = (4, 5, 6), z = (7, 8, 9))
-    iter = HVI.NamedTupleZip(subcomponents)
-    @test Folds.mapreduce(nt -> nt.x, +, iter) == 6
-    @test ((iter) -> @allocated first(iter).x)(iter) == 0
-    @test ((subcomponents) -> @allocated HVI.NamedTupleZip(subcomponents))(subcomponents) == 0
-end
 
 @testset "OneBasedVectorWithZero" begin
     # Standard Julia 1-based vector (no underlying shift)

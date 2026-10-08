@@ -7,12 +7,14 @@ function sample_ζsP!(ζsP, logσ_ζP,
     @assert size(rnorm) == (n_θP, n_MC)
     @assert size(μζP) == (n_θP,)
     ρsP = view(ϕqc, Val(:ρsP))
-    zcor_ends = OneBasedVectorWithZero(cor_endsP)
+    #zcor_ends = OneBasedVectorWithZero(cor_endsP)
     # ib = 2
     ρ_start = 1
     Ul = sample_buffers.U
     for ib in axes(cor_endsP, 1)
-        r = (zcor_ends[ib-1]+1):zcor_ends[ib]
+        # r = (view(zcor_ends,ib-1)+1):view(zcor_ends,ib) # fails
+        zcor_before_start = (ib == 1) ? zero(eltype(cor_endsP)) : cor_endsP[ib-1]
+        r = (zcor_before_start+1):cor_endsP[ib] # allocates with Enzyme?
         μζP_r = view_ϕm(μζP, r)           # dispatch
         rnorm_r = view(rnorm, r, :)
         logσ_ζP_r = view(logσ_ζP, r)

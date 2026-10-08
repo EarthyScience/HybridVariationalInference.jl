@@ -44,18 +44,12 @@ import ForwardDiff, DiffResults, PreallocationTools as PAT
 import Folds, Transducers
 
 using LazyArrays: Vcat
-import SplittablesBase # used in NamedTupleZip to make Iterator work with Folds.mapreduce
-
 
 export DoubleMM
 
-export NamedTupleZip
-include("NamedTupleZip.jl")
-
 include("OneBasedVectorWithZero.jl")
-export cat_namedtuple_lastdim, index_at_dim
+export cat_namedtuple_lastdim, index_at_dim, eachlastdim, zip_eachlastdims
 export with_channel_element
-export split_namedtuple, @unpack_slurp_namedtuple
 include("util.jl")
 
 export WeightedDataLoader

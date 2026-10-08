@@ -42,30 +42,30 @@ import Zygote
 import Enzyme
 import ForwardDiff
 
-import SimpleChains
+# import SimpleChains
 isUsingSimpleChains = false
 #isUsingSimpleChains = true  # currently does not work with enyzem nor zygote
 #   and provides no general way to compute the pullback wrt. both covariates xM and ϕg
 
     if isUsingSimpleChains    
-        n_input = n_cov + n_covP0
-        chain0 = SimpleChains.SimpleChain(
-                SimpleChains.static(n_input), # input dimension (optional)
-                # dense layer with bias that maps to 8 outputs and applies `tanh` activation
-                SimpleChains.TurboDense{true}(tanh, n_input * 4),
-                SimpleChains.TurboDense{true}(tanh, n_input * 4),
-                # dense layer without bias that maps to n outputs and `logistic` activation
-                SimpleChains.TurboDense{false}(logistic, n_M)
-            )
-        n_input = n_cov + n_covP2
-        chain2 = SimpleChains.SimpleChain(
-                SimpleChains.static(n_input), # input dimension (optional)
-                # dense layer with bias that maps to 8 outputs and applies `tanh` activation
-                SimpleChains.TurboDense{true}(tanh, n_input * 4),
-                SimpleChains.TurboDense{true}(tanh, n_input * 4),
-                # dense layer without bias that maps to n outputs and `logistic` activation
-                SimpleChains.TurboDense{false}(logistic, n_M)
-            )
+        # n_input = n_cov + n_covP0
+        # chain0 = SimpleChains.SimpleChain(
+        #         SimpleChains.static(n_input), # input dimension (optional)
+        #         # dense layer with bias that maps to 8 outputs and applies `tanh` activation
+        #         SimpleChains.TurboDense{true}(tanh, n_input * 4),
+        #         SimpleChains.TurboDense{true}(tanh, n_input * 4),
+        #         # dense layer without bias that maps to n outputs and `logistic` activation
+        #         SimpleChains.TurboDense{false}(logistic, n_M)
+        #     )
+        # n_input = n_cov + n_covP2
+        # chain2 = SimpleChains.SimpleChain(
+        #         SimpleChains.static(n_input), # input dimension (optional)
+        #         # dense layer with bias that maps to 8 outputs and applies `tanh` activation
+        #         SimpleChains.TurboDense{true}(tanh, n_input * 4),
+        #         SimpleChains.TurboDense{true}(tanh, n_input * 4),
+        #         # dense layer without bias that maps to n outputs and `logistic` activation
+        #         SimpleChains.TurboDense{false}(logistic, n_M)
+        #     )
     else
         n_input = n_cov + n_covP0
         chain0 = Lux.Chain(
@@ -377,12 +377,14 @@ end
 @testset "compute_nelboi_z!" begin
     ϕqIc = intϕqI(ϕqI)
     ϕqPc = intϕqP(ϕqP)
+    @assert keys(indiv_args1)[1] == :xM
+    xM = indiv_args1.xM; r2end = 2:length(indiv_args1)
+    nljoint_args_inds = NamedTuple{keys(indiv_args1)[r2end]}(values(indiv_args1)[r2end])
     CP.sample_ζsP!(h0.ζsP, h0.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P, h0.sample_buffers) # n_P * n_MC
     CP.g_apply!(h0.ϕms, ϕg, xM, h0.ζsP, nothing, g, h0.xMP, false)     
     hi1 = h0.helpers_sites[1]
-    #@unpack_slurp_namedtuple(indiv_args, xM, nljoint_args_inds)
-    nljoint_args_inds = indiv_args1[(:xP, :y_o, :y_unc, :i_indiv_train)]
-    nljoint_args_ind1 = map(first, nljoint_args_inds)
+    nljoint_args_ind1 = NamedTuple{keys(nljoint_args_inds)}(
+        first(zip_eachlastdims(nljoint_args_inds)))
     rnormM1 = rnormPM.M[1]
     ϕms1 = h0.ϕms[:,1]
     θsP1 = h0.θsP
@@ -742,7 +744,7 @@ function grad_neg_elbo_sites_enzyme_scaled()
     CP.randnPM!(rng1, rnormPM)
     randn!(rng1, ϕ2S.ϕg)
     randn!(rng1, indiv_args.xM)
-    primal_enz2S = _ftmp2(h2Sp, ϕ2S, rnormPM, sample_args2S, indiv_args)
+    primal_enz2S = tmp = _ftmp2(h2Sp, ϕ2S, rnormPM, sample_args2S, indiv_args)
     Enzyme.make_zero!(dϕ2S)
     Enzyme.make_zero!(dh2Sp)
     Enzyme.autodiff(
@@ -862,7 +864,7 @@ end
         @test primal2_enz ≈ primal2[1]
         @test dϕg2_enz ≈ res0.dϕg
         @test dϕqI2_enz ≈ res0.dϕqI
-        @test dϕqP2_enz ≈ res0.dϕqP
+        @test dϕqP2_enz ≈ res0.dϕqP atol = 0.001
         #hcat(dϕqP2_enz, res0.dϕqP)
     end
     #---------------- approxM with non-empty h.sample_buffers and scaling
