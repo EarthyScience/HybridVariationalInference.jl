@@ -163,7 +163,7 @@ index_at_dim(x, [1, 3]; dim=1)     # 2×2×4 array
 index_at_dim(x, [2, 4]; dim=3)     # 3×2×2 array
 ```
 """
-function index_at_dim(x::AbstractArray{T, N}, i::AbstractVector{Int}; dim::Int) where {T, N}
+function index_at_dim(x::AbstractArray{T, N}, i::Union{Int,AbstractVector{Int}}; dim::Int) where {T, N}
     colons = ntuple(d -> d == dim ? i : Colon(), N)
     return x[colons...]
 end

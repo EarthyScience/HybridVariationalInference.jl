@@ -168,15 +168,16 @@ function forwarddiff_grad_nelboi_z!(hi, approx::AbstractHVIApproximation, rnormM
             ForwardDiff.gradient!(hwi.grad_θsP, nelboi_z_mat, CA.getdata(θsP), hwi.grad_conf_mat)
             hwi.grad_θsP
         else
-            CA.getdata(θsP)
+            θsP
         end
         grad_ϕm, grad_ϕqI = if isnothing(omit_gradient)
-            ϕm_ϕqI = Vcat(CA.getdata(ϕm), CA.getdata(ϕqIc))    
+            local ϕm_ϕqI
+            ϕm_ϕqI = Vcat(ϕm, CA.getdata(ϕqIc))    
             ForwardDiff.gradient!(hwi.grad_ϕm_ϕqI, nelboi_z_vec, ϕm_ϕqI, hwi.grad_conf_vec)
             hwi.grad_ϕm_ϕqI.args[1], hwi.grad_ϕm_ϕqI.args[2]
 
         else
-            CA.getdata(ϕm), ϕqIc
+            ϕm, CA.getdata(ϕqIc)
         end
         copyto!(view(dϕmvecs, :, i), grad_ϕm) 
         # returning SVector helps avoiding allocations during reduce
@@ -188,6 +189,48 @@ function forwarddiff_grad_nelboi_z!(hi, approx::AbstractHVIApproximation, rnormM
         )
     end
 end
+
+# ϕm matrix version
+function forwarddiff_grad_nelboi_z!(hi, approx::AbstractHVIApproximation, rnormM, 
+    nljoint_args_indi, ϕm::AbstractMatrix{TF}, i, 
+    ϕqIc, θsP, dϕmvecs, hw_channel::Channel, cor_endsM, transM::Stacked, 
+    nljoint_args_fix,
+    omit_gradient=nothing) where {TF}
+    # need to calls to ForwardDiff.gradient! to avoid reshape
+    # group arrays of same dimensionality (here grad_ϕm and grad_ϕqI) into a Vcat
+    ax_ϕqI = CA.getaxes(ϕqIc)[1]
+    with_channel_element(hw_channel) do hwi
+        #grad_conf = hwi.grad_conf
+        nelboi_z_mat, nelboi_z_vec = make_nelboiz_lazy_cls(hi, approx, rnormM, nljoint_args_indi, 
+            ϕm, ϕqIc, θsP,
+            cor_endsM, transM, nljoint_args_fix,
+            ax_ϕqI, Val(2), ## 2
+            )
+        grad_θsP, grad_ϕm = if isnothing(omit_gradient)
+            local θsP_ϕm
+            θsP_ϕm = Vcat(θsP, ϕm)    
+            ForwardDiff.gradient!(hwi.grad_θsP_ϕm, nelboi_z_mat, θsP_ϕm, hwi.grad_conf_mat)
+            hwi.grad_θsP_ϕm.args[1], hwi.grad_θsP_ϕm.args[2]
+        else
+            θsP, ϕm
+        end
+        grad_ϕqI = if isnothing(omit_gradient)
+            ForwardDiff.gradient!(hwi.grad_ϕm_ϕqI, nelboi_z_vec, CA.getdata(ϕqIc), hwi.grad_conf_vec)
+            hwi.grad_ϕm_ϕqI.args[1], hwi.grad_ϕm_ϕqI.args[2]
+        else
+            CA.getdata(ϕqIc)
+        end
+        copyto!(view(dϕmvecs, :, i), grad_ϕm) 
+        # returning SVector helps avoiding allocations during reduce
+        # n_MC not static -> inferred Tuple{Vararg{StaticArraysCore.SVector{n_θP, Float64}}}
+        dθsP = Tuple(SA.SVector{axis_length(nljoint_args_fix.ax_θP)}(grad_θP) for grad_θP in eachcol(grad_θsP))
+        res = (; 
+            dϕqIc = SA.SVector{axis_length(CA.getaxes(ϕqIc)[1])}(grad_ϕqI),
+            dθsP, 
+        )
+    end
+end
+
 
 function make_nelboiz_lazy_cls(hi, approx::AbstractHVIApproximation, rnormM, nljoint_args_indi, 
     ϕm, ϕqIc, θsP,
@@ -206,7 +249,7 @@ function make_nelboiz_lazy_cls(hi, approx::AbstractHVIApproximation, rnormM, nlj
         )[1]
         
     end
-    function nelboiz_cl_vec(vec) 
+    function nelboiz_cl_vec(vec::Vcat) 
         ϕm_dual = vec.args[1]
         ϕqI_dual = CA.ComponentVector(vec.args[2], ax_ϕqI)
         compute_nelboi_z!(
@@ -217,6 +260,36 @@ function make_nelboiz_lazy_cls(hi, approx::AbstractHVIApproximation, rnormM, nlj
     end
     nelboiz_cl_mat, nelboiz_cl_vec
 end
+
+# ϕm Matrix case
+function make_nelboiz_lazy_cls(hi, approx::AbstractHVIApproximation, rnormM, nljoint_args_indi, 
+    ϕm, ϕqIc, θsP,
+    cor_endsM, transM, nljoint_args_fix,
+    ax_ϕqI::CA.Axis, ndim_ϕ::Val{2}, 
+    )
+    # mat is Vcat(θsP, ϕm)
+    # vec is ϕqI
+    function nelboiz_cl_mat(mat::Vcat) 
+        θsP_dual = mat.args[1]
+        ϕm_dual = mat.args[2]
+        compute_nelboi_z!(
+            hi, approx, rnormM, nljoint_args_indi,
+            ϕm, ϕqIc, θsP_dual, 
+            cor_endsM, transM, nljoint_args_fix,
+        )[1]
+        
+    end
+    function nelboiz_cl_vec(vec::AbstractVector) 
+        ϕqI_dual = CA.ComponentVector(vec, ax_ϕqI)
+        compute_nelboi_z!(
+            hi, approx, rnormM, nljoint_args_indi,
+            ϕm_dual, ϕqI_dual, θsP, 
+            cor_endsM, transM, nljoint_args_fix,
+        )[1]
+    end
+    nelboiz_cl_mat, nelboiz_cl_vec
+end
+
 
 function get_pullback_cl_sample_ζsP(::AbstractArray{TF}; n_θP, n_MC, sample_buffers) where TF
     #dϕqc, dζsP, dlogσ_ζP, ζsP, logσ_ζP, rnormP, ϕqc)
@@ -415,21 +488,30 @@ function prepare_gradelbo_helpers(
         cor_ends.M, transM, nljoint_args_fix,
         CA.getaxes(ϕqIc)[1], Val(ND),
         ) 
-    if use_ϕm_vector
-        grad_ϕm_ϕqI() = Vcat(similar(CA.getdata(ϕm)), similar(CA.getdata(ϕqIc))) 
-        grad_conf_mat() = ForwardDiff.GradientConfig(nelboi_z_mat, CA.getdata(θsP), diffchunk)
-        grad_ϕm_ϕqI1 = grad_ϕm_ϕqI()
-        function grad_conf_vec() 
+    grad_ϕm_ϕqI() = Vcat(similar(index_at_dim(ϕm,1,dim=1)), similar(CA.getdata(ϕqIc))) 
+    grad_θP_ϕm() = Vcat(similar(θsP), similar(ϕm))
+    grad_conf_mat, grad_conf_vec = if use_ϕm_vector
+        grad_conf_mat_ϕmvec() = ForwardDiff.GradientConfig(nelboi_z_mat, CA.getdata(θsP), diffchunk)
+        local grad_ϕm_ϕqI1 = grad_ϕm_ϕqI()
+        function grad_conf_vec_ϕmvec() 
             cfg_vec = ForwardDiff.GradientConfig(nelboi_z_vec, grad_ϕm_ϕqI1, diffchunk)
-            # similar Vcat returns a vector, need to convert dual of cfg to Vcat
-            duals_vcat = Vcat(cfg_vec.duals[axes(grad_ϕm_ϕqI1.args[1],1)], cfg_vec.duals[axes(grad_ϕm_ϕqI1.args[2],1)]);
-            T,V,N = typeof(cfg_vec).parameters[1:3]
-            cfg = ForwardDiff.GradientConfig{T,V,N,typeof(duals_vcat)}(cfg_vec.seeds, duals_vcat)
-            @assert cfg.duals isa Vcat
-            cfg
+            update_duals_Vcat(cfg_vec, grad_ϕm_ϕqI1)
+            # # similar Vcat returns a vector, need to convert dual of cfg to Vcat
+            # duals_vcat = Vcat(cfg_vec.duals[axes(grad_ϕm_ϕqI1.args[1],1)], cfg_vec.duals[axes(grad_ϕm_ϕqI1.args[2],1)]);
+            # T,V,N = typeof(cfg_vec).parameters[1:3]
+            # cfg = ForwardDiff.GradientConfig{T,V,N,typeof(duals_vcat)}(cfg_vec.seeds, duals_vcat)
+            # @assert cfg.duals isa Vcat
+            # cfg
         end
+        grad_conf_mat_ϕmvec, grad_conf_vec_ϕmvec
     else
-        error("implement gradient config for matrix case")
+        grad_conf_vec_ϕmmat() = ForwardDiff.GradientConfig(nelboi_z_vec, CA.getdata(ϕqIc), diffchunk)
+        local rad_θP_ϕm1 = grad_θP_ϕm()
+        function grad_conf_mat_ϕmmat() 
+            cfg_mat = ForwardDiff.GradientConfig(nelboi_z_vec, rad_θP_ϕm1, diffchunk)
+            cfg = update_duals_Vcat(cfg_mat, rad_θP_ϕm1)
+        end
+        grad_conf_mat_ϕmmat, grad_conf_vec_ϕmmat
     end
     get_helpers_worker = () -> begin
         (;
@@ -441,6 +523,7 @@ function prepare_gradelbo_helpers(
             grad_conf_mat = grad_conf_mat(),
             grad_θsP = similar(θsP),
             grad_ϕm_ϕqI = grad_ϕm_ϕqI(),
+            grad_θP_ϕm= grad_θP_ϕm(),
         )
     end
     h1 = get_helpers_worker()
@@ -466,6 +549,17 @@ function prepare_gradelbo_helpers(
         pullback_g_apply! = get_pullback_g_apply(
             ϕg, ϕqPc; n_θP, n_cov, n_covP, n_MC, n_site, n_M),
     )
+end
+
+@inline function update_duals_Vcat(cfg::ForwardDiff.GradientConfig, vc::Vcat)
+    # similar Vcat returns a vector, need to convert dual of cfg to Vcat
+    # no view, but copy with index_at_dim
+    duals_vcat = Vcat(index_at_dim(cfg.duals, axes(vc.args[1], 1); dim=1), 
+                      index_at_dim(cfg.duals, axes(vc.args[2], 1); dim=1));
+    T,V,N = typeof(cfg).parameters[1:3]
+    cfg = ForwardDiff.GradientConfig{T,V,N,typeof(duals_vcat)}(cfg.seeds, duals_vcat)
+    @assert cfg.duals isa Vcat
+    cfg
 end
 
 
