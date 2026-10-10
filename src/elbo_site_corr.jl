@@ -11,9 +11,10 @@ function sample_ζsP!(ζsP, logσ_ζP,
     # ib = 2
     ρ_start = 1
     Ul = sample_buffers.U
+    zcor_before_start = 0
     for ib in axes(cor_endsP, 1)
         # r = (view(zcor_ends,ib-1)+1):view(zcor_ends,ib) # fails
-        zcor_before_start = (ib == 1) ? zero(eltype(cor_endsP)) : cor_endsP[ib-1]
+        #zcor_before_start = (ib == 1) ? zero(eltype(cor_endsP)) : cor_endsP[ib-1]
         r = (zcor_before_start+1):cor_endsP[ib] # allocates with Enzyme?
         μζP_r = view_ϕm(μζP, r)           # dispatch
         rnorm_r = view(rnorm, r, :)
@@ -27,8 +28,12 @@ function sample_ζsP!(ζsP, logσ_ζP,
         # rotate the noise in place into ζsM[r,:], then scale and add the mean
         ζsP_r = view(ζsP, r, :)
         mul!(ζsP_r, U', rnorm_r)
-        ζsP_r .= μζP_r .+ exp.(logσ_ζP_r) .* ζsP_r
+        #ζsP_r .= μζP_r .+ exp.(logσ_ζP_r) .* ζsP_r # allocates more than loop with Enzyme 
+        @inbounds for i in axes(ζsP_r,1), j in axes(ζsP_r,2)
+            ζsP_r[i,j] = μζP_r[i] + exp(logσ_ζP_r[i]) * ζsP_r[i,j] 
+        end
         ρ_start = ρ_end + 1
+        zcor_before_start = cor_endsP[ib]
     end
     @assert ρ_start-1 == length(ρsP)
     nothing         
@@ -113,10 +118,20 @@ end
 function _setU_scaled!(U::AbstractMatrix{T}, ρ::AbstractVector{T}) where {T};
     _vec2uutri!(U, ρ)
     U[1,1] = one(T)  # first reset to one (not set in _vec2uutri!)
-    local n = size(U, 1)
+    local n, fac, s
+    n = size(U, 1)
     @inbounds for j in 2:n
         U[j,j] = one(T)  # first reset to one (not set in _vec2uutri!)
-        view(U, 1:j, j) ./= sqrt(sum(abs2, view(U, 1:j, j))) 
+        #view(U, 1:j, j) ./= sqrt(sum(abs2, view(U, 1:j, j))) # allocates during Enzyme
+        #fac = sqrt(sum(abs2, view(U, 1:j, j))) # still callocates during Enzyme -> loop
+        s = zero(T)
+        for i in 1:j
+            s += abs2(U[i, j])
+        end
+        fac = sqrt(s) 
+        for i in 1:j
+            U[i, j] = U[i, j] / fac
+        end
     end
     #@assert diag(U' * U) ≈ ones(T, n)
     U

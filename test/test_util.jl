@@ -6,8 +6,155 @@ import ComponentArrays as CA
 using Zygote
 using Distributions
 using LinearAlgebra
+using LazyArrays
 import Folds
 
+# @testset "VCat views" begin
+#     using LazyArrays
+#     n_MC = 4
+#     n_obs = 6
+#     n_θP = 2; n_θM = 3
+#     pt = CA.ComponentVector(NamedTuple(Symbol("p"*string(i)) => i for i in 1:n_θP))
+#     mt = CA.ComponentVector(NamedTuple(Symbol("m"*string(i)) => i for i in 1:n_θM))
+#     ft = CA.ComponentVector{eltype(pt)}()
+#     m1 = rand(n_θP,n_MC)
+#     m2 = rand(n_θM,n_MC)
+#     m3 = rand(0,n_MC)
+#     m1c = CA.ComponentMatrix(m1, CA.getaxes(pt)[1], CA.FlatAxis())
+#     m2c = CA.ComponentMatrix(m2, CA.getaxes(mt)[1], CA.FlatAxis())
+#     m3c = CA.ComponentMatrix(m3, CA.getaxes(ft)[1], CA.FlatAxis())
+#     xPvec = ones(n_obs)
+#     vt = vcat(vcat(pt,mt),ft)
+#     function loop_Vcat!(n, y, m1::AbstractArray{T},m2, m3, xPvec, vt) where T
+#         local x = zero(T)
+#         vraw = Vcat(CA.getdata(m1),CA.getdata(m2),CA.getdata(m3))
+#         v = m1 isa CA.ComponentArray ? CA.ComponentArray(vraw, CA.getaxes(vt)) : vraw
+#         for i in 1:n
+#             use_Vcat!(y, v, xPvec)
+#             x += sum(y)
+#         end
+#         x
+#     end
+#     function use_Vcat!(pred, θs, xPvec)
+#         local n_θP, n_θM, n_MC, θsPc, θsMc
+#         n_θP = 2; n_θM = 3
+#         #n_θ, n_MC = size(θs)
+#         #pred .= θs[:,1]
+#         n_obs = size(pred,1)
+#         if θs isa CA.ComponentArray
+#             a1s = view(θs,Val(:p1),:)
+#             a2s = view(θs,Val(:p2),:)
+#         else
+#             a1s = view(θs,1,:)
+#             a2s = view(θs,2,:)
+#         end
+#         for i = 1:n_obs
+#             #pred[i,:] = view(θs,1,:) # ✓
+#             #pred[i,:] = a1s + a2s    # ✓
+#             pred[i,:] .= (a1s .+ a2s) .* xPvec[i]  # ✓
+#             # single-row access seems ok, others allocate
+#             #pred[i,:] = sum(view(θs,1:2,:), dims=1) # does allocate
+#             #pred[i,:] .= view(θs,1,:) # does allocate
+#             #view(pred,i,:) .= view(θs,1,:) # does allocate
+#         end
+#         pred .= xPvec .* (a1s .+ a2s)'
+#         pred
+#         # pred .= view(θs,1,:) + 
+#         # θsPc = view(θs, 1:n_θP, :)
+#         # θsMc = view(θs, n_θP .+ (1:n_θM), :)
+#         # pred .= (5 * sum(θsPc) + 3 * sum(θsMc)) / n_obs
+#     end
+#     y = zeros(n_obs, n_MC)
+#     nL1 = loop_Vcat!(1, y, m1, m2, m3, xPvec, vt)
+#     @test loop_Vcat!(1, y, m1c, m2c, m3c, xPvec, vt) == nL1
+#     @test (@allocated loop_Vcat!(1, y, m1c, m2c, m3c, xPvec, vt)) == 0
+#     @test (@allocated loop_Vcat!(100, y, m1c, m2c, m3c, xPvec, vt)) == 0
+#     #@profview_allocs loop_Vcat(10_000, y, m1, m2)
+#     #
+#     # also works with reshaped views
+#     inputs = CA.ComponentVector((;m1=m1c, m2=m2c, m3=m3c))
+#     m1v = view(inputs, Val(:m1))
+#     m2v = view(inputs, Val(:m2))
+#     m3v = view(inputs, Val(:m3))
+#     @test loop_Vcat!(1, y, m1v, m2v, m3v, xPvec, vt) == nL1
+#     @test (@allocated loop_Vcat!(1, y, m1v, m3v, xPvec, vt)) == 0
+#     @test (@allocated loop_Vcat!(1, y, m1v, m2v, m3c, xPvec, vt)) == 0
+#     #@test (@allocated loop_Vcat!(100, y, m1v, m2v, m3v, xPvec, vt)) == 0
+#     #
+#     # Vcat allocates when fed ReshapedArray views (as produced by
+#     # view(cv, Val(:...)) 
+#     cv = CA.ComponentVector(θsP = rand(n_θP, n_MC), θsM = rand(n_θM, n_MC))
+#     θsPv = view(cv, Val(:θsP))
+#     θsMv = view(cv, Val(:θsM))
+#     loop_Vcat!(1, y, θsPv, θsMv, xPvec, vt) 
+#     @test (@allocated loop_Vcat!(1, y, θsPv, θsMv, xPvec, vt)) == 0
+#     #    
+#     θFixm0 = CA.ComponentMatrix(zeros(0, n_MC), (CA.FlatAxis(), CA.FlatAxis()))
+#     alloc_vcat_views = (θsPv, θsMv, θFixm0) -> @allocated Vcat(CA.getdata(θsPv), CA.getdata(θsMv), CA.getdata(θFixm0))
+#     alloc_vcat_plain = (θsPv, θsMv, θFixm0) -> @allocated Vcat(Matrix(CA.getdata(θsPv)), Matrix(CA.getdata(θsMv)), CA.getdata(θFixm0))
+#     @test alloc_vcat_views(θsPv, θsMv, θFixm0) > 0   # ReshapedArray views allocate
+#     # @test alloc_vcat_plain(θsPv, θsMv, θFixm0) == 0  # plain Matrix blocks do not    
+# end
+
+@testset "VcatCMs" begin
+    n_MC = 4; n_θP = 2; n_θM = 3
+    pt = CA.ComponentVector(NamedTuple(Symbol("p"*string(i)) => i for i in 1:n_θP))
+    mt = CA.ComponentVector(NamedTuple(Symbol("m"*string(i)) => i for i in 1:n_θM))
+    ft = CA.ComponentVector{eltype(pt)}()
+    m1 = rand(n_θP,n_MC)
+    m2 = rand(n_θM,n_MC)
+    m1c = CA.ComponentMatrix(m1, CA.getaxes(pt)[1], CA.FlatAxis())
+    m2c = CA.ComponentMatrix(m2, CA.getaxes(mt)[1], CA.FlatAxis())
+    cv = CA.ComponentVector((;θsP = m1c, θsM = m2c))
+    θsPv = view(cv, Val(:θsP))
+    θsPvc = CA.ComponentArray(view(cv, Val(:θsP)), CA.getaxes(m1c)) # reshaped view
+    θsMv = view(cv, Val(:θsM))
+    #θFixm0 = CA.ComponentMatrix(zeros(0, n_MC), (CA.FlatAxis(), CA.FlatAxis()))
+    θFixm0 = zeros(0, n_MC)
+    templates = (pt,mt,ft)
+    axs = map(cv -> CA.getaxes(cv)[1], templates)
+    ccat = @inferred HVI.VcatCMs(templates, θsPv, θsMv, θFixm0)
+    ccat = @inferred HVI.VcatCMs(axs, θsPv, θsMv, θFixm0)
+    @test @inferred HVI.viewindex(ccat, Val(:p1)) == m1c[:p1, :]
+    @test @inferred HVI.viewindex(ccat, Val(:p1), 1:2) == m1c[:p1, 1:2]
+    @test @inferred HVI.viewindex(ccat, Val(:p1), 2) == m1c[Val(:p1), 2]
+    # () -> begin
+    #     # essentially the same lowered code as accessing ComponentMatrix
+    #     @code_llvm m1c[Val(:p1), 2]
+    #     @code_llvm HVI.viewindex(ccat, Val(:p1), 2)
+    #     @code_llvm view(ccat, Val(:p1), 2)
+    #     #
+    #     tmp = view(θsPvc, Val(:p1), 1:2) # SubArray{ReshapedArray{SubArray}}}
+    #     tmp[1]
+    #     tmpcv = CA.ComponentVector(dummy=4, a=CA.ComponentVector(dummy=5:6,b=1:3))
+    #     v_tmpcv = @inferred view(tmpcv, Val(:a))
+    #     vv_tmpcv = @inferred view(v_tmpcv, Val(:b))
+    #     typeof(vv_tmpcv) # plain SubArray
+    #     @code_llvm θsPvc[Val(:p1), 2] # 
+    #     @code_llvm θsPvc[Val(:p1), 2]
+    #     @code_llvm tmp[1]
+    # end
+    @test HVI.viewindex(ccat, Val(:m2)) == m2c[:m2, :]
+    @test_throws ErrorException HVI.viewindex(ccat, Val(:non_existing)) 
+    alloc_VcatCMs(templates, θsPv, θsMv, θFixm0) = @allocated HVI.VcatCMs(templates, θsPv, θsMv, θFixm0)
+    @test alloc_VcatCMs(axs, θsPv, θsMv, θFixm0) == 0
+    @test alloc_VcatCMs(templates, m1,m2,θFixm0) > 0 # allocates, use axs
+    sum_view(ccat, valsym) = sum(HVI.viewindex(ccat, valsym))
+    sum_view(ccat, Val(:m2))
+    alloc_viewindex(ccat, valsym) = @allocated sum_view(ccat, valsym)
+    @test alloc_viewindex(ccat, Val(:m2)) == 0
+    @test view(ccat, Val(:m2), :) == m2c[:m2, :]
+    @test size(ccat) == size(vcat(θsPv, θsMv, θFixm0))
+    @test eltype(ccat) == eltype(θsPv)
+    #
+    # can also access larger
+    lt2 = CA.ComponentVector(a=1:3, b=1:2)
+    lm = rand(length(lt2), n_MC)
+    axs = map(cv -> CA.getaxes(cv)[1], (lt2, ft))
+    ccat = HVI.VcatCMs(axs, lm, θFixm0)
+    @test (@inferred view(ccat, Val(:a), :)) == lm[1:3,:]
+    @test alloc_viewindex(ccat, Val(:a)) == 0
+end
 
 @testset "zip_eachlastdims" begin
     n_indiv = 3

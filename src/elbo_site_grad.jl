@@ -4,7 +4,8 @@ function grad_neg_elbo_sites(
     ϕ::NamedTuple,
     rnormPM::NamedTuple,
     sample_args::NamedTuple,
-    indiv_args::NamedTuple;
+    indiv_args::NamedTuple,
+    nljoint_args_fix::NamedTuple;
     # approx::AbstractHVIApproximation,
     # rnormPM::NamedTuple,          # tuple of random numbers
     # ϕg::AbstractVector{TG}, ϕqP::AbstractVector{TF}, ϕqI::AbstractVector{TF}, g, 
@@ -40,7 +41,7 @@ function grad_neg_elbo_sites(
         ϕqIc, selectdim(h_ϕm, ndims(h_ϕm), 1), h.ζsP, ϕg, ϕqPc, approx; 
         pbm_covar_indices, n_workers,
         h, rnormMi = rnormPM.M[1], nljoint_args_indi,
-        h.diffchunk, n_site, n_cov, cor_ends, transP, transM)
+        h.diffchunk, n_site, n_cov, cor_ends, transP, transM, nljoint_args_fix)
     hw_channel = gradh.hw_channel
     #
     sample_ζsP!(h.ζsP, h.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers) # n_P * n_MC
@@ -50,7 +51,7 @@ function grad_neg_elbo_sites(
     # parallel ForwardDiffGradient through forwarddiff_grad_nelboi_z!
     cl = ForwardDiffGradNelboiZCl(
         approx, ϕqIc, h.θsP, gradh.dϕmvecs, gradh.hw_channel, cor_ends.M, transM,
-        Val(keys(nljoint_args_inds)),)    
+        Val(keys(nljoint_args_inds)), nljoint_args_fix,)    
     ϕm_it = eachslice(h_ϕm; dims = ndims(h_ϕm))
     init = with_channel_element(hw_channel) do hwi 
         (; dϕqIc = zero(static_cv_getproperty(hwi.inputs_cv, Val(:ϕqIc))),
@@ -101,7 +102,7 @@ end
 """
 Callable to make deliver arguments that do not differ by individual to Foldl.mapreduce.
 """
-struct ForwardDiffGradNelboiZCl{KEYS, TA, Tϕq, Tθ, TD, THWC, TC, TM}
+struct ForwardDiffGradNelboiZCl{KEYS, TA, Tϕq, Tθ, TD, THWC, TC, TM, TAF}
     approx::TA
     ϕqIc::Tϕq
     θsP::Tθ
@@ -111,20 +112,24 @@ struct ForwardDiffGradNelboiZCl{KEYS, TA, Tϕq, Tθ, TD, THWC, TC, TM}
     transM::TM
     # need to store KEYS in type parameter otherwise allocation in NamedTuple(keys)
     keys_nljoint_args_indi::Val{KEYS}
+    nljoint_args_fix::TAF
 end
 function (f::ForwardDiffGradNelboiZCl{KEYS})(tup) where KEYS
     hi, rnormM, nljoint_args_indi_tup, ϕm, i = tup
     #nljoint_args_indi = NamedTuple{f.keys_nljoint_args_indi}(nljoint_args_indi_tup)
     nljoint_args_indi = NamedTuple{KEYS}(nljoint_args_indi_tup)
     forwarddiff_grad_nelboi_z!(hi, f.approx, rnormM, nljoint_args_indi, ϕm, i,
-        f.ϕqIc, f.θsP, f.dϕmvecs, f.hw_channel, f.corendsM, f.transM, 
+        f.ϕqIc, f.θsP, f.dϕmvecs, f.hw_channel, f.corendsM, f.transM, f.nljoint_args_fix,
         nothing,
         #true,
         )
 end
 
-function forwarddiff_grad_nelboi_z!(hi, approx::AbstractHVIApproximation, rnormM, nljoint_args_indi, ϕm, i, 
-    ϕqIc, θsP, dϕmvecs, hw_channel::Channel, cor_endsM, transM::Stacked, omit_gradient=nothing) 
+function forwarddiff_grad_nelboi_z!(hi, approx::AbstractHVIApproximation, rnormM, 
+    nljoint_args_indi, ϕm::AbstractArray{TF,DM}, i, 
+    ϕqIc, θsP, dϕmvecs, hw_channel::Channel, cor_endsM, transM::Stacked, 
+    nljoint_args_fix,
+    omit_gradient=nothing) where {TF,DM}
     # aggregate all the derivatives to allow a single call to ForwardDiff.gradient
     #   reshape ϕm and ζsP into a vector to avoid allocations in cv[Val(:ζsP)]
     with_channel_element(hw_channel) do hwi
@@ -135,7 +140,8 @@ function forwarddiff_grad_nelboi_z!(hi, approx::AbstractHVIApproximation, rnormM
         view(inputs_cv, Val(:ϕqIc)) .= ϕqIc
         view(inputs_cv, Val(:ϕm)) .= ϕm
         view(inputs_cv, Val(:θsP)) .= θsP
-        nelboi_z = make_nelboiz_cl(hi, approx, rnormM, nljoint_args_indi, CA.getaxes(inputs_cv), cor_endsM, transM)
+        nelboi_z = make_nelboiz_cl(hi, approx, rnormM, nljoint_args_indi, 
+            CA.getaxes(inputs_cv), cor_endsM, transM, nljoint_args_fix)
         # write the gradient into the preallocated per-worker buffer to avoid
         # the result-vector allocation in ForwardDiff.gradient
         grads_flat = if isnothing(omit_gradient)
@@ -157,13 +163,14 @@ function forwarddiff_grad_nelboi_z!(hi, approx::AbstractHVIApproximation, rnormM
     #res
 end
 
-function make_nelboiz_cl(hi, approx::AbstractHVIApproximation, rnormM, nljoint_args_indi, ax_inputs, cor_endsM, transM)
+function make_nelboiz_cl(hi, approx::AbstractHVIApproximation, rnormM, nljoint_args_indi, 
+    ax_inputs, cor_endsM, transM, nljoint_args_fix)
     function nelboiz_cl(cv) 
         cv_ = CA.ComponentArray(cv, ax_inputs)
         compute_nelboi_z!(
             hi, approx, rnormM, nljoint_args_indi,
             view(cv_, Val(:ϕm)), view(cv_, Val(:ϕqIc)), view(cv_, Val(:θsP)), 
-            cor_endsM, transM, 
+            cor_endsM, transM, nljoint_args_fix,
         )[1]
     end
 end
@@ -336,6 +343,7 @@ function prepare_gradelbo_helpers(
     diffchunk, n_site, n_cov,
     cor_ends,
     transP::Stacked, transM::Stacked,
+    nljoint_args_fix,
     ) where {TG, TF}
     hi1 = h.helpers_sites[1]
     # TODO get n_site, n_cov diffchunk from h
@@ -357,7 +365,7 @@ function prepare_gradelbo_helpers(
     #    
     @assert length(nljoint_args_indi.xP) > 1
     nelboi_z = make_nelboiz_cl(hi1, approx, rnormMi, nljoint_args_indi, CA.getaxes(cv_grad), 
-        cor_ends.M, transM) 
+        cor_ends.M, transM, nljoint_args_fix) 
     get_helpers_worker = () -> begin
         (;
             inputs_cv = similar(cv_grad), # collecting inputs into single cv
@@ -387,6 +395,7 @@ function prepare_gradelbo_helpers(
             ϕg, ϕqPc; n_θP, n_cov, n_covP, n_MC, n_site, n_M),
     )
 end
+
 
 
 

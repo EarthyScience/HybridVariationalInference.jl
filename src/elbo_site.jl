@@ -16,7 +16,8 @@ function neg_elbo_sites!(
     ϕ::NamedTuple,
     rnormPM::NamedTuple,
     sample_args::NamedTuple,
-    indiv_args::NamedTuple;
+    indiv_args::NamedTuple,
+    nljoint_args_fix::NamedTuple;
 ) 
     # for AD do not put it into closure
     h = elbo_helpers # preallocated μζP, dμζP, ζsP, ϕms, xMP, dxMP
@@ -48,7 +49,7 @@ function neg_elbo_sites!(
     function compute_elboi_z_cl!(hi, rnormM, nljoint_args_indi_tup, ϕm) 
         nljoint_args_indi = NamedTuple{keys_nljoint_args_indi}(nljoint_args_indi_tup)
         compute_nelboi_z!(hi, approx, rnormM, nljoint_args_indi, ϕm, 
-        ϕqIc, θsP, cor_ends.M, transM) 
+        ϕqIc, θsP, cor_ends.M, transM, nljoint_args_fix) 
     end
     #res_site = map(compute_nelboi_z!, h.helpers_sites, rnormPM.M, i_sites_train, ϕm_it)
     #MAYBE: distributed mapreduce: 
@@ -64,7 +65,10 @@ function neg_elbo_sites!(
 end
 
 function compute_nelboi_z!(hi, approx::AbstractHVIApproximation,
-    rnormM, nljoint_args_indi, ϕm, ϕqIc::AbstractArray{TF}, θsP, cor_endsM, transM) where TF
+    rnormM, nljoint_args_indi, ϕm::AbstractArray{TF,DM}, ϕqIc::AbstractArray{TF}, θsP, cor_endsM, transM,
+    nljoint_args_fix, ) where {TF,DM}
+    # DM is 1 (vector) if no population covariates - constant across MC
+    #       2 (Matrix) if g is driven by population covariates - differs across MC
     (;xP, i_indiv_train) = nljoint_args_indi
     # on update -> sync corresponding function within grad_neg_elbo_sites
     if hi.ζsM isa PAT.DiffCache
@@ -75,7 +79,7 @@ function compute_nelboi_z!(hi, approx::AbstractHVIApproximation,
     # TODO replace by transM
     exp_ladJacTM = transformζ!(hi.θsM, transM, hi.ζsM)  # return value captures ladJacT
     # first component needs to be the full elbo
-    exp_nL = exp_nLi(θsP, hi.θsM, nljoint_args_indi)[1]
+    exp_nL = exp_nLi!(hi.y, θsP, hi.θsM, nljoint_args_indi, nljoint_args_fix)[1]
     elbozi = exp_nL - exp_ladJacTM - sum(hi.logσ_ζM)
 end
 # get_tmp_rec_(x::PAT.DiffCache{<:AbstractArray}, template) = PAT.get_tmp(x, template)
@@ -97,7 +101,7 @@ end
 
 function prepare_elbo_helpers(approx::AbstractHVIApproximation, 
     ϕg::AbstractArray{TG}, template_TF::AbstractArray{TF};
-    n_θP, n_θM, n_site, n_MC, n_cov, n_covP, n_M, cor_ends,
+    n_θP, n_θM, n_site, n_MC, n_cov, n_covP, n_M, cor_ends, n_obs,
     use_diff_cache::Val{use_dc} = Val(true),
     diffchunk::ForwardDiff.Chunk{chunk} = ForwardDiff.Chunk(8),
     ) where {TG, TF, use_dc, chunk}
@@ -105,6 +109,7 @@ function prepare_elbo_helpers(approx::AbstractHVIApproximation,
         ζsM = Matrix{TF}(undef, n_θM, n_MC),
         θsM = Matrix{TF}(undef, n_θM, n_MC),
         logσ_ζM = Vector{TF}(undef, n_θM),
+        y = Matrix{TF}(undef, n_obs, n_MC),
         sample_buffers = prepare_ind_sample_buffers(approx, cor_ends.M, template_TF),
     ) for i in 1:n_site)
     helpers_sites = use_dc ? map_leaves_nt(x -> PAT.DiffCache(x, chunk), his) : his
@@ -140,8 +145,10 @@ function check_elbo_helpers(h::NamedTuple, xM::AbstractMatrix, pbm_covar_indices
     @assert length(h.helpers_sites) == n_site
     hi = h.helpers_sites[1]
     n_θM = size(hi.ζsM.du, 1)
+    n_obs = size(hi.y.du, 1)
     @assert size(hi.ζsM.du) == (n_θM, n_MC)
     @assert size(hi.θsM.du) == (n_θM, n_MC)
+    @assert size(hi.y.du) == (n_obs, n_MC)
     @assert size(hi.logσ_ζM.du) == (n_θM,)
 end
 
@@ -277,10 +284,12 @@ end
 compute the expected value of the neative log joint density of observations
 and parameters
 """
-function exp_nLi(
+function exp_nLi!(
+    y::AbstractMatrix, 
     θsP::AbstractMatrix,
     θsM::AbstractMatrix,
     nljoint_args_indi::NamedTuple,
+    nljoint_args_fix::NamedTuple,
     # f, py,
     # priorsP, priorsM,
     # penalty_computer = ZeroPenaltyComputer(),
@@ -292,29 +301,37 @@ function exp_nLi(
 ) 
     (;xP, y_o, y_unc, i_indiv_train) = nljoint_args_indi
     @assert size(xP,2) == length(i_indiv_train)
+    (;f!,) = nljoint_args_fix
+    #θsPc = CA.ComponentMatrix(θsP, axθP, CA.FlatAxis())
+    #θsMc = CA.ComponentMatrix(θsM, axθM, CA.FlatAxis())
+    apply_model!(y, f!, θsP, θsM, xP)
     n_MC = size(θsP,2)
-    nL = (5 * sum(θsP) + 3 * sum(θsM)) / n_MC
-    (; nL=nL,)
-    # ζMs = sample_ζMs(zMs, ϕMs, intθMs)
-    # ϕc = int_ϕg_ϕq(ϕ)
-    # VT= typeof(@view(ϕ[1:1]))
-    # ϕg = CA.getdata(ϕc[Val(:ϕq)])
-    # ϕqc = ϕc[Val(:ϕq)]
-    # #ϕq = CA.getdata(ϕqc)::VT
-    # if(!all(isfinite.(ϕ)))
-    #     @show ϕqc
-    #     @show ϕg
-    #     error("encountered non-finite optimized parameters")
-    # end
-    # ζsP, ζsMs_tr, σ = generate_ζ(approx, rng, g, ϕ, xM; n_MC, cor_ends, pbm_covar_indices,
-    #     int_ϕq, int_ϕg_ϕq, is_testmode, itrain_sites, ranef)
-    # ζsP_cpu = cdev(ζsP) # fetch to CPU, because for <1000 sites (n_batch) this is faster
-    # ζsMs_tr_cpu = cdev(ζsMs_tr) # fetch to CPU, because for <1000 sites (n_batch) this is faster
-    # #
-    # # maybe: translate ζ once and supply to both neg_elbo and negloglik_meanθ
+    # TODO compute Likelihood
+    nL = sum(y) / n_MC
+    # nL = (5 * sum(θsP) + 3 * sum(θsM)) / n_MC
+    (; nL,)
     # loss_comps = neg_elbo_ζtf(
     #     ζsP_cpu[:,1:n_MC], ζsMs_tr_cpu[:,:,1:n_MC], σ, f, py, xP, y_ob, y_unc;
     #     n_MC_cap, transP, transMs, priorsP, priorsM, 
     #     penalty_computer, ϕg, ϕqc, is_omit_priors, zero_prior_logdensity, 
     #     itrain_sites, intθMs, intθP, ranef, frac_cluster_all)
 end
+
+function fθpop_dummy1!(pred, θs::VcatCMs{AX}, xPc::CA.ComponentVector) where AX
+    local n_θP, n_θM, n_MC, θsPc, θsMc
+    T = eltype(θs)
+    # regression to nL = (5 * sum(θsP) + 3 * sum(θsM)) / n_MC
+    #n_θP = 3; n_θM = 3
+    n_obs = length(view(xPc, Val(:S1)))
+    n_θ, n_MC = size(θs)
+    pred .= zero(eltype(pred))
+    for i in (Val(:a1), Val(:a2), Val(:a3))
+        pred .+= (xPc ./ xPc) .* T(5) .* view(θs,i,:)'
+    end
+    for i = (Val(:b1), Val(:b2), Val(:b3))  #(Val(k) for k in keys(AX[2]))
+        pred .+= (xPc ./ xPc) .* T(3) .* view(θs,i,:)'
+    end
+    pred ./= n_obs
+    pred
+end
+

@@ -47,6 +47,9 @@ using LazyArrays: Vcat
 
 export DoubleMM
 
+#export VcatCMs
+include("VcatCA.jl")
+
 include("OneBasedVectorWithZero.jl")
 export cat_namedtuple_lastdim, index_at_dim, eachlastdim, zip_eachlastdims
 export with_channel_element
