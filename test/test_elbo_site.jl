@@ -128,7 +128,8 @@ isUsingSimpleChains = false
         HVI.fθpop_dummy1!, n_MC; θP=θP_tmplt, θM=θM_tmplt, θFix=CA.ComponentVector{Float64}(), xPvec)
     nljoint_args_fix =(;
          f! = pbm, 
-         #axθP = CA.getaxes(θP_tmplt)[1], axθM = CA.getaxes(θM_tmplt)[1], 
+         ax_θP = CA.getaxes(θP_tmplt)[1],
+         #axθM = CA.getaxes(θM_tmplt)[1], 
          )
     #
     ζP = randn(n_θP)
@@ -442,6 +443,20 @@ end
     end
     alloc_compute_nelboi_z(h21, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_ends.M, transM, nljoint_args_fix)
     # 
+    gradh1 = @inferred CP.prepare_gradelbo_helpers(inputs.ϕqIc, inputs.ϕm[:,1], inputs.θsP, ϕg, ϕqPc, approx; 
+        pbm_covar_indices=nothing, n_workers=1,
+        h=h0, rnormMi = rnormPM.M[1], nljoint_args_indi=nljoint_args_ind1,
+        h0.diffchunk, n_site, n_cov, cor_ends, transP, transM, nljoint_args_fix, 
+    )
+    CP.compute_nelboi_z!(hi1, approx, rnormM1, nljoint_args_ind1, inputs.ϕm[:,1], inputs.ϕqIc, 
+        inputs.θsP, cor_ends.M, transM, nljoint_args_fix)
+    # not fully inferred because unknonw n_MC
+    res1 = CP.forwarddiff_grad_nelboi_z!(hi1, approx, rnormM1, nljoint_args_ind1, ϕm_[:,1], 1, 
+        ϕqIc_, θsP_, gradh1.dϕmvecs, hw_channel, cor_ends.M, transM, nljoint_args_fix, 
+        gradh1.ax_θP, true)
+    res1 = CP.forwarddiff_grad_nelboi_z!(hi1, approx, rnormM1, nljoint_args_ind1, ϕm_[:,1], 1, 
+        ϕqIc_, θsP_, gradh1.dϕmvecs, hw_channel, cor_ends.M, transM, nljoint_args_fix, 
+        gradh1.ax_θP, nothing)
     gradh2 = CP.prepare_gradelbo_helpers(inputs.ϕqIc, inputs.ϕm, inputs.θsP, ϕg, ϕqPc, approx; 
         pbm_covar_indices=pbm_covar_indices2, n_workers=1,
         h=h2, rnormMi = rnormPM.M[1], nljoint_args_indi=nljoint_args_ind1,
@@ -449,7 +464,6 @@ end
     hw_channel = gradh2.hw_channel
     tmp = with_channel_element(x -> x.inputs_cv, hw_channel)
     tmp.ϕm
-
     # alternative: invoke forwarddiff_grad_nelboi_z! with ϕqIc_ and θsP_ as views,
     # passing dϕmvecs as the plain array. The views are created once *outside* the
     # measured region so that their construction is not counted by @allocated.
@@ -673,7 +687,7 @@ function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by e
     dϕ = map(zero, ϕ)
     sample_args = (;
         approx, g, is_testmode, pbm_covar_indices = nothing, intϕqP, intϕqI, cor_ends, 
-        transP, transM)
+        transP, transM, ax_)
     #
     rng1 = StableRNG(1234)
     CP.randnPM!(rng1, rnormPM)
