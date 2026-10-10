@@ -58,7 +58,10 @@ function Bijectors.with_logabsdet_jacobian(b::Exp, x)
 end
 function Bijectors.with_logabsdet_jacobian!(b::Exp, x::AbstractArray{T}, y, logjac=zero(T)) where T
     # order of arguemts (y not first) given by Bijectors
-    y .= exp.(x)
+    y .= exp.(x)  
+    # for i in eachindex(y) # did not decrease allocations with Enzyme
+    #     y[i] = exp(x[i])
+    # end
     logjac_ = sum(x)
     return (y, logjac + logjac_)
 end
