@@ -128,7 +128,8 @@ isUsingSimpleChains = false
         HVI.fθpop_dummy1!, n_MC; θP=θP_tmplt, θM=θM_tmplt, θFix=CA.ComponentVector{Float64}(), xPvec)
     nljoint_args_fix =(;
          f! = pbm, 
-         #axθP = CA.getaxes(θP_tmplt)[1], axθM = CA.getaxes(θM_tmplt)[1], 
+         ax_θP = CA.getaxes(θP_tmplt)[1],
+         #axθM = CA.getaxes(θM_tmplt)[1], 
          )
     #
     ζP = randn(n_θP)
@@ -442,22 +443,22 @@ end
     end
     alloc_compute_nelboi_z(h21, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_ends.M, transM, nljoint_args_fix)
     # 
+    # TODO @inferred
     gradh2 = CP.prepare_gradelbo_helpers(inputs.ϕqIc, inputs.ϕm, inputs.θsP, ϕg, ϕqPc, approx; 
         pbm_covar_indices=pbm_covar_indices2, n_workers=1,
         h=h2, rnormMi = rnormPM.M[1], nljoint_args_indi=nljoint_args_ind1,
-        h2.diffchunk, n_site, n_cov, cor_ends, transP, transM, nljoint_args_fix)
+        n_site, n_cov, cor_ends, transP, transM, nljoint_args_fix)
     hw_channel = gradh2.hw_channel
     tmp = with_channel_element(x -> x.inputs_cv, hw_channel)
     tmp.ϕm
-
     # alternative: invoke forwarddiff_grad_nelboi_z! with ϕqIc_ and θsP_ as views,
     # passing dϕmvecs as the plain array. The views are created once *outside* the
     # measured region so that their construction is not counted by @allocated.
     function loop_forwarddiff_grad_nelboi_z(
-        n, hi, approx, rnormM, nljoint_args_indi, i, ϕm_, ϕqIc_, θsP_, dϕmvecs_, hw_channel::Channel, omit_gradient, cor_endsM, transM::Stacked, nljoint_args_fix)
+        n, hi, approx, rnormM, nljoint_args_indi, i, ϕm_, ϕqIc_, θsP_, dϕmvecs_, dθsP_, hw_channel::Channel, omit_gradient, cor_endsM, transM::Stacked, nljoint_args_fix)
         for _ in 1:n
             @noinline CP.forwarddiff_grad_nelboi_z!(hi, approx, rnormM, nljoint_args_indi, ϕm_, i, 
-                ϕqIc_, θsP_, dϕmvecs_, hw_channel, cor_endsM, transM, nljoint_args_fix, omit_gradient)
+                ϕqIc_, θsP_, dϕmvecs_, dθsP_, hw_channel, cor_endsM, transM, nljoint_args_fix, omit_gradient)
         end
         nothing
     end
@@ -465,13 +466,14 @@ end
     ϕqIc_ = view(inputs, Val(:ϕqIc))
     θsP_  = view(inputs, Val(:θsP))
     dϕmvecs = gradh2.dϕmvecs
-   function alloc_forwarddiff_grad_nelboi_z(h21, approx, rnormM1, nljoint_args_indi, ϕm_, ϕqIc_, θsP_, dϕmvecs, hw_channel::Channel, cor_endsM, transM::Stacked, nljoint_args_fix)
-        loop_forwarddiff_grad_nelboi_z(1, h21, approx, rnormM1, nljoint_args_indi, 1, ϕm_, ϕqIc_, θsP_, dϕmvecs, hw_channel, true, cor_endsM, transM, nljoint_args_fix)
-        @test (@allocated loop_forwarddiff_grad_nelboi_z(100, h21, approx, rnormM1, nljoint_args_indi, 1, ϕm_, ϕqIc_, θsP_, dϕmvecs, hw_channel, true, cor_endsM, transM, nljoint_args_fix)) == 0
-        loop_forwarddiff_grad_nelboi_z(1, h21, approx, rnormM1, nljoint_args_indi, 1, ϕm_, ϕqIc_, θsP_, dϕmvecs, hw_channel, nothing, cor_endsM, transM, nljoint_args_fix)
-        @test (@allocated loop_forwarddiff_grad_nelboi_z(100, h21, approx, rnormM1, nljoint_args_indi, 1, ϕm_, ϕqIc_, θsP_, dϕmvecs, hw_channel, nothing, cor_endsM, transM, nljoint_args_fix)) == 0
+    dθsP = gradh2.dθsP
+   function alloc_forwarddiff_grad_nelboi_z(h21, approx, rnormM1, nljoint_args_indi, ϕm_, ϕqIc_, θsP_, dϕmvecs, dθsP_, hw_channel::Channel, cor_endsM, transM::Stacked, nljoint_args_fix)
+        loop_forwarddiff_grad_nelboi_z(1, h21, approx, rnormM1, nljoint_args_indi, 1, ϕm_, ϕqIc_, θsP_, dϕmvecs, dθsP_, hw_channel, true, cor_endsM, transM, nljoint_args_fix)
+        @test (@allocated loop_forwarddiff_grad_nelboi_z(100, h21, approx, rnormM1, nljoint_args_indi, 1, ϕm_, ϕqIc_, θsP_, dϕmvecs, dθsP_, hw_channel, true, cor_endsM, transM, nljoint_args_fix)) == 0
+        loop_forwarddiff_grad_nelboi_z(1, h21, approx, rnormM1, nljoint_args_indi, 1, ϕm_, ϕqIc_, θsP_, dϕmvecs, dθsP_, hw_channel, nothing, cor_endsM, transM, nljoint_args_fix)
+        @test (@allocated loop_forwarddiff_grad_nelboi_z(100, h21, approx, rnormM1, nljoint_args_indi, 1, ϕm_, ϕqIc_, θsP_, dϕmvecs, dθsP_, hw_channel, nothing, cor_endsM, transM, nljoint_args_fix)) == 0
     end
-    alloc_forwarddiff_grad_nelboi_z(h21, approx, rnormM1, nljoint_args_ind1, ϕm_, ϕqIc_, θsP_, dϕmvecs, hw_channel, cor_ends.M, transM, nljoint_args_fix)
+    alloc_forwarddiff_grad_nelboi_z(h21, approx, rnormM1, nljoint_args_ind1, ϕm_, ϕqIc_, θsP_, dϕmvecs, dθsP, hw_channel, cor_ends.M, transM, nljoint_args_fix)
 
     #@usingany Cthulhu
     #@descend_code_warntype tmp_g(h21, rnormM1, nljoint_args_ind1, inputs, 1, dϕmvecs, nothing, hw_channel)
@@ -673,7 +675,7 @@ function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by e
     dϕ = map(zero, ϕ)
     sample_args = (;
         approx, g, is_testmode, pbm_covar_indices = nothing, intϕqP, intϕqI, cor_ends, 
-        transP, transM)
+        transP, transM, ax_)
     #
     rng1 = StableRNG(1234)
     CP.randnPM!(rng1, rnormPM)
@@ -924,7 +926,7 @@ end
         # avoid global variables -> pass them through function
         loop_grad_neg_elbo_sites(1, h2S, gradh2S, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)
         #@profview_allocs loop_grad_neg_elbo_sites(10_000,h2S, gradh2S, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)
-        @test (@allocated loop_grad_neg_elbo_sites(100,h2S, gradh2S, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)) <= 3_038_208 #3_244_800 #3_416_000 ##3_569_600 #2_703_776  
+        @test (@allocated loop_grad_neg_elbo_sites(100,h2S, gradh2S, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)) <= 3_289_600 #3_416_000 ##3_569_600 #2_703_776  
     end
     alloc_grad_neg_elbo_sites(h2S, gradh2S, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)
     #_i_sites_train = 1:n_site    

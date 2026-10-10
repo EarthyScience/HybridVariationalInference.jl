@@ -64,19 +64,23 @@ function neg_elbo_sites!(
     (; elbo, ζsP=copy(h.ζsP), ϕm=copy(h[ϕms_buffer_key]))
 end
 
+
+
+
 function compute_nelboi_z!(hi, approx::AbstractHVIApproximation,
-    rnormM, nljoint_args_indi, ϕm::AbstractArray{TF,DM}, ϕqIc::AbstractArray{TF}, θsP, cor_endsM, transM,
-    nljoint_args_fix, ) where {TF,DM}
+    rnormM, nljoint_args_indi, ϕm::AbstractArray, ϕqIc::AbstractArray, θsP, 
+    cor_endsM, transM, nljoint_args_fix, ) 
     # DM is 1 (vector) if no population covariates - constant across MC
     #       2 (Matrix) if g is driven by population covariates - differs across MC
     (;xP, i_indiv_train) = nljoint_args_indi
     # on update -> sync corresponding function within grad_neg_elbo_sites
     if hi.ζsM isa PAT.DiffCache
-        hi = map_leaves_nt(x -> PAT.get_tmp(x, ϕqIc), hi)
+        # Gradiend called twice because of different dimensions need to pick the Dual
+        template = eltype(ϕqIc) <: ForwardDiff.Dual ? ϕqIc : θsP
+        hi = map_leaves_nt(x -> PAT.get_tmp(x, template), hi)
     end
     #ζsM, logσ_ζM, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector
     sample_ζsM!(hi.ζsM, hi.logσ_ζM, approx, rnormM, ϕqIc, ϕm, cor_endsM, hi.sample_buffers)
-    # TODO replace by transM
     exp_ladJacTM = transformζ!(hi.θsM, transM, hi.ζsM)  # return value captures ladJacT
     # first component needs to be the full elbo
     exp_nL = exp_nLi!(hi.y, θsP, hi.θsM, nljoint_args_indi, nljoint_args_fix)[1]
@@ -122,7 +126,7 @@ function prepare_elbo_helpers(approx::AbstractHVIApproximation,
         ϕms_mcs2D_buffer = Matrix{TF}(undef, n_M, n_MC * n_site),        
         xMP = Matrix{TG}(undef, (n_cov + n_covP), n_MC * n_site),
         sample_buffers = prepare_sample_buffers(approx, cor_ends.P, template_TF),
-        diffchunk,
+        #diffchunk,
         helpers_sites,
     )
 end
@@ -318,6 +322,25 @@ function exp_nLi!(
 end
 
 function fθpop_dummy1!(pred, θs::VcatCMs{AX}, xPc::CA.ComponentVector) where AX
+    local n_θP, n_θM, n_MC, θsPc, θsMc
+    T = eltype(θs)
+    # regression to nL = (5 * sum(θsP) + 3 * sum(θsM)) / n_MC
+    #n_θP = 3; n_θM = 3
+    n_obs = length(view(xPc, Val(:S1)))
+    n_θ, n_MC = size(θs)
+    pred .= zero(eltype(pred))
+    # i = Val(:a1)
+    for i in (Val(:a1), Val(:a2), Val(:a3))
+        pred .+= (xPc ./ xPc) .* T(5) .* view(θs,i,:)'
+    end
+    for i = (Val(:b1), Val(:b2), Val(:b3))  #(Val(k) for k in keys(AX[2]))
+        pred .+= (xPc ./ xPc) .* T(3) .* view(θs,i,:)'
+    end
+    pred ./= n_obs
+    pred
+end
+
+function loglik_dummy1!(pred, θs::VcatCMs{AX}, xPc::CA.ComponentVector) where AX
     local n_θP, n_θM, n_MC, θsPc, θsMc
     T = eltype(θs)
     # regression to nL = (5 * sum(θsP) + 3 * sum(θsM)) / n_MC

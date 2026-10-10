@@ -115,16 +115,16 @@ function prepare_ind_sample_buffers(
 end
 
 
-function _setU_scaled!(U::AbstractMatrix{T}, ρ::AbstractVector{T}) where {T};
+function _setU_scaled!(U::AbstractMatrix{TU}, ρ::AbstractVector{TR}) where {TU, TR};
     _vec2uutri!(U, ρ)
-    U[1,1] = one(T)  # first reset to one (not set in _vec2uutri!)
+    U[1,1] = one(TU)  # first reset to one (not set in _vec2uutri!)
     local n, fac, s
     n = size(U, 1)
     @inbounds for j in 2:n
-        U[j,j] = one(T)  # first reset to one (not set in _vec2uutri!)
+        U[j,j] = one(TU)  # first reset to one (not set in _vec2uutri!)
         #view(U, 1:j, j) ./= sqrt(sum(abs2, view(U, 1:j, j))) # allocates during Enzyme
         #fac = sqrt(sum(abs2, view(U, 1:j, j))) # still callocates during Enzyme -> loop
-        s = zero(T)
+        s = zero(TU)
         for i in 1:j
             s += abs2(U[i, j])
         end
@@ -137,7 +137,7 @@ function _setU_scaled!(U::AbstractMatrix{T}, ρ::AbstractVector{T}) where {T};
     U
 end
 
-function _setρ_unscaled!(ρ::AbstractVector{T}, U::AbstractMatrix{T}) where {T};
+function _setρ_unscaled!(ρ::AbstractVector, U::AbstractMatrix)
     local n = size(U, 1)
     @inbounds for j in 2:n
         scale = U[j,j]
@@ -147,7 +147,7 @@ function _setρ_unscaled!(ρ::AbstractVector{T}, U::AbstractMatrix{T}) where {T}
     ρ
 end
 
-function _vec2uutri!(m::AbstractMatrix{T}, v::AbstractVector{T}) where {T}
+function _vec2uutri!(m::AbstractMatrix, v::AbstractVector) 
     local n = size(m,1)
     @assert size(m,2) == n
     @assert length(v) == sumn(n-1)
@@ -159,7 +159,7 @@ function _vec2uutri!(m::AbstractMatrix{T}, v::AbstractVector{T}) where {T}
     m
 end
 
-function _uutri2vec!(v::AbstractVector{T}, m::AbstractMatrix{T}) where {T}
+function _uutri2vec!(v::AbstractVector, m::AbstractMatrix)
     local n = size(m,1)
     @assert size(m,2) == n
     @assert length(v) == sumn(n-1)
