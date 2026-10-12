@@ -9,6 +9,59 @@ using LinearAlgebra
 using LazyArrays
 import Folds
 
+
+
+@testset "@row_valviews" begin
+    n_MC = 4
+    n_θP = 3
+    pt = CA.ComponentVector(NamedTuple(Symbol("p"*string(i)) => i for i in 1:n_θP))
+    m1 = rand(n_θP,n_MC)
+    cm = CA.ComponentMatrix(m1, CA.getaxes(pt)[1], CA.FlatAxis())
+
+    @testset "two variables" begin
+        @row_valviews p1, p3 = cm
+        @test p1 == cm[:p1,:]
+        @test p3 == cm[:p3,:]
+        # test modifying the view
+        p1[1] = 0.1
+        @test cm[:p1,1] == 0.1
+        view(p1, 1:2) .= (0.01, 0.02)
+        @test cm[:p1,1:2] == [0.01, 0.02]
+    end
+
+    @testset "single variable" begin
+        @row_valviews p1 = cm
+        @test p1 == cm[:p1,:]
+    end
+
+    @testset "hygiene: works with locally scoped cm" begin
+        function f()
+            cm1 = cm .* 2.0
+            @row_valviews p1, p2 = cm1
+            return p1, p2
+        end
+        pp1, pp2 = f()
+        @test pp1 == cm[:p1,:] .* 2.0
+    end
+
+    @testset "rhs can be an arbitrary expression" begin
+        @noinline make_cm() = cm .* 3.0
+        @row_valviews p1, p3 = make_cm()
+        @test p1 == cm[:p1,:] .* 3.0
+        @test p3 == cm[:p3,:] .* 3.0
+    end
+
+    @testset "expansion structure" begin
+        ex = @macroexpand @row_valviews a, b = cm
+        @test ex.head == :block
+        @test length(ex.args) == 2
+    end
+
+    @testset "invalid syntax throws" begin
+        @test_throws LoadError eval(:(@row_valviews (a, b)))  # not an assignment
+    end
+end
+
 @testset "VCat views" begin
     using LazyArrays
     n_MC = 4
