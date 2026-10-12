@@ -449,8 +449,6 @@ end
         h=h2, rnormMi = rnormPM.M[1], nljoint_args_indi=nljoint_args_ind1,
         n_site, n_cov, cor_ends, transP, transM, nljoint_args_fix, n_MC_val)
     hw_channel = gradh2.hw_channel
-    tmp = with_channel_element(x -> x.inputs_cv, hw_channel)
-    tmp.ϕm
     # alternative: invoke forwarddiff_grad_nelboi_z! with ϕqIc_ and θsP_ as views,
     # passing dϕmvecs as the plain array. The views are created once *outside* the
     # measured region so that their construction is not counted by @allocated.
