@@ -321,26 +321,27 @@ function exp_nLi!(
     #     itrain_sites, intθMs, intθP, ranef, frac_cluster_all)
 end
 
-function fθpop_dummy1!(pred, θs::VcatCMs{AX}, xPc::CA.ComponentVector) where AX
-    local n_θP, n_θM, n_MC, θsPc, θsMc
-    T = eltype(θs)
-    # regression to nL = (5 * sum(θsP) + 3 * sum(θsM)) / n_MC
-    #n_θP = 3; n_θM = 3
-    n_obs = length(view(xPc, Val(:S1)))
-    n_θ, n_MC = size(θs)
-    pred .= zero(eltype(pred))
-    # i = Val(:a1)
-    for i in (Val(:a1), Val(:a2), Val(:a3))
-        pred .+= (xPc ./ xPc) .* T(5) .* view(θs,i,:)'
-    end
-    for i = (Val(:b1), Val(:b2), Val(:b3))  #(Val(k) for k in keys(AX[2]))
-        pred .+= (xPc ./ xPc) .* T(3) .* view(θs,i,:)'
-    end
-    pred ./= n_obs
-    pred
-end
+# function fθpop_dummy1!(pred, θs, xPc::CA.ComponentVector)
+#     local n_θP, n_θM, n_MC, θsPc, θsMc
+#     T = eltype(θs)
+#     # regression to nL = (5 * sum(θsP) + 3 * sum(θsM)) / n_MC
+#     #n_θP = 3; n_θM = 3
+#     n_obs = length(view(xPc, Val(:S1)))
+#     n_θ, n_MC = size(θs)
+#     pred .= zero(eltype(pred))
+#     # i = Val(:a1)
+#     for i in (Val(:a1), Val(:a2), Val(:a3))
+#         # @allocated pred .+= (xPc ./ xPc) .* T(5) .* view(θs,i,:)'
+#         pred .+= (xPc ./ xPc) .* T(5) .* view(θs,i,:)'
+#     end
+#     for i = (Val(:b1), Val(:b2), Val(:b3))  
+#         pred .+= (xPc ./ xPc) .* T(3) .* view(θs,i,:)'
+#     end
+#     pred ./= n_obs
+#     pred
+# end
 
-function loglik_dummy1!(pred, θs::VcatCMs{AX}, xPc::CA.ComponentVector) where AX
+function fθpop_dummy1!(pred, θs, xPc::CA.ComponentVector)
     local n_θP, n_θM, n_MC, θsPc, θsMc
     @row_valviews a1,a2,a3,b1,b2,b3 = θs
     T = eltype(θs)
@@ -349,10 +350,10 @@ function loglik_dummy1!(pred, θs::VcatCMs{AX}, xPc::CA.ComponentVector) where A
     n_obs = length(view(xPc, Val(:S1)))
     n_θ, n_MC = size(θs)
     pred .= zero(eltype(pred))
-    for θa in (:a1,:a2,:a3)
+    for θa in (a1,a2,a3)
         pred .+= (xPc ./ xPc) .* T(5) .* θa'
     end
-    for θb in (:b1,:b2,:b3)
+    for θb in (b1,b2,b3)
         pred .+= (xPc ./ xPc) .* T(3) .* θb'
     end
     pred ./= n_obs
