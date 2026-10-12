@@ -437,18 +437,6 @@ function get_pullback_cl_transformζ!(::AbstractArray{TF};  n_θ, n_MC) where {T
     end
 end
 
-"""
-compute the maximum number of entries in derivative for vector and for matrix 
-depending on whether ϕm is a vector (vcat with ϕqI) or a matrix (vcat with θsP)
-However, need to be a statically typed number, so cannot use it.
-"""
-function max_diff_chunk(ndimϕ::Val{1}; n_ϕqI, n_ϕm, n_θP, n_MC)
-    (; n_vec = n_ϕqI + n_ϕm, n_mat = n_θP * n_MC)
-end
-function max_diff_chunk(ndimϕ::Val{2}; n_ϕqI, n_ϕm, n_θP, n_MC)
-    (; n_vec = n_ϕqI, n_mat = (n_θP +  + n_ϕm) * n_MC)
-end
-
 function prepare_gradelbo_helpers(
     ϕqIc, ϕm::AbstractArray{TF,ND}, θsP,
     ϕg::AbstractVector{TG}, ϕqPc::AbstractVector{TF},

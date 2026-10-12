@@ -1,7 +1,8 @@
-struct PBMPopulationApplicator{AXS, MFT, IXT, F} <: AbstractPBMApplicator 
+struct PBMPopulationApplicator{AXS, AXC, MFT, IXT, F} <: AbstractPBMApplicator 
     fθpop!::F
     θFixm::MFT 
-    axθ::Val{AXS} # 3-tuple of axes of θP, θM and θFix
+    axθcomp::Val{AXS} # 3-tuple of axes of θP, θM and θFix
+    axθcat::Val{AXC}
     int_xP::IXT
 end
 
@@ -38,8 +39,11 @@ function PBMPopulationApplicator(fθpop!, n_MC:: Integer;
     θFixm = CA.getdata(θFix) .* is_MC
     # θ = vcat(vcat(θPm, θMm), θFixm)
     axθ = (CA.getaxes(θP)[1], CA.getaxes(θM)[1], CA.getaxes(θFix)[1])
+    # dummycat = vcat(vcat(θP, θM), θFix) # allocates
+    # axθcat = CA.getaxes(dummycat)[1]
+    axθcat = CA.Axis()
     int_xP = get_concrete(ComponentArrayInterpreter(xPvec))
-    PBMPopulationApplicator(fθpop!, θFixm, Val(axθ), int_xP)        
+    PBMPopulationApplicator(fθpop!, θFixm, Val(axθ), Val(axθcat), int_xP)        
 end
 
 get_axis_θP(::PBMPopulationApplicator{AX}) where AX = AX[1]
@@ -62,7 +66,7 @@ function create_nsite_applicator(app::PBMPopulationApplicator, n_site)
     # PBMPopulationApplicator(app.fθpop!, θFixm, rep_fac, intθ, int_xP)        
 end
 
-function apply_model!(pred, app::PBMPopulationApplicator{AXS}, θsP::AbstractMatrix, θsM::AbstractMatrix, xP) where AXS
+function apply_model!(pred, app::PBMPopulationApplicator{AXS,AXC}, θsP::AbstractMatrix, θsM::AbstractMatrix, xP) where {AXS,AXC}
     # function tmpf(θsP, θsM, app) 
     #     @allocated Vcat(CA.getdata(θsP), CA.getdata(θsM), CA.getdata(app.θFixm))
     # end
@@ -76,6 +80,10 @@ function apply_model!(pred, app::PBMPopulationApplicator{AXS}, θsP::AbstractMat
     # local data_view = Vcat(CA.getdata(θsP), CA.getdata(θsM), CA.getdata(app.θFixm))  # lazy, no copy!
     # local θc = CA.ComponentArray(data_view, app.axθ)
     local θc, xPc
+    # Symbol access into Vcat allocates in Gradient, roll own VcatCMs
+    # θc = CA.ComponentMatrix(
+    #     Vcat(CA.getdata(θsP), CA.getdata(θsM), CA.getdata(app.θFixm)),
+    #     AXC, CA.FlatAxis())
     θc = VcatCMs(AXS, CA.getdata(θsP), CA.getdata(θsM), CA.getdata(app.θFixm))
     xPc = app.int_xP(CA.getdata(xP))
     app.fθpop!(pred, θc, xPc)  
