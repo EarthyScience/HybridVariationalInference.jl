@@ -42,11 +42,14 @@ function grad_neg_elbo_sites(
     ax_θM = get_axis_θM(nljoint_args_fix.f!)
     nljoint_args_indi = NamedTuple{keys(nljoint_args_inds)}(
         first(zip_eachlastdims(nljoint_args_inds)))
-    gradh = !isempty(grad_elbo_helpers) ? grad_elbo_helpers : prepare_gradelbo_helpers(
+    gradh = !isempty(grad_elbo_helpers) ? grad_elbo_helpers : 
+    #@Main.inferred_main prepare_gradelbo_helpers(
+    prepare_gradelbo_helpers(
         ϕqIc, selectdim(h_ϕm, ndims(h_ϕm), 1), h.ζsP, ϕg, ϕqPc, approx; 
         pbm_covar_indices, n_workers,
         h, rnormMi = rnormPM.M[1], nljoint_args_indi,
         n_site, n_cov, cor_ends, transP, transM, nljoint_args_fix, n_MC_val)
+      
     hw_channel = gradh.hw_channel
     #
     sample_ζsP!(h.ζsP, h.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers) # n_P * n_MC
@@ -521,10 +524,6 @@ function prepare_gradelbo_helpers(
     end
     get_helpers_worker = () -> begin
         (;
-            # TODO remove inputs_cv and grads_v and test with @inferred
-            inputs_cv = similar(cv_grad), # collecting inputs into single cv
-            grads_v = similar(CA.getdata(cv_grad)), # buffer to store gradient
-            #grad_conf = ForwardDiff.GradientConfig(nelboi_z, CA.getdata(cv_grad), diffchunk),
             grad_conf_vec = grad_conf_vec(), 
             grad_conf_mat = grad_conf_mat(),
             grad_θsP = similar(θsP),
