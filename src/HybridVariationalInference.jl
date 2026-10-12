@@ -47,6 +47,9 @@ using LazyArrays: Vcat
 
 export DoubleMM
 
+export @row_valviews
+include("row_valviews.jl")
+
 #export VcatCMs
 include("VcatCA.jl")
 
