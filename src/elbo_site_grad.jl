@@ -43,13 +43,12 @@ function grad_neg_elbo_sites(
     nljoint_args_indi = NamedTuple{keys(nljoint_args_inds)}(
         first(zip_eachlastdims(nljoint_args_inds)))
     gradh = !isempty(grad_elbo_helpers) ? grad_elbo_helpers : 
-    #@Main.inferred_main prepare_gradelbo_helpers(
-    prepare_gradelbo_helpers(
+    Test.@inferred prepare_gradelbo_helpers(
+    #prepare_gradelbo_helpers(
         ϕqIc, selectdim(h_ϕm, ndims(h_ϕm), 1), h.ζsP, ϕg, ϕqPc, approx; 
         pbm_covar_indices, n_workers,
         h, rnormMi = rnormPM.M[1], nljoint_args_indi,
         n_site, n_cov, cor_ends, transP, transM, nljoint_args_fix, n_MC_val)
-      
     hw_channel = gradh.hw_channel
     #
     sample_ζsP!(h.ζsP, h.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers) # n_P * n_MC
@@ -491,33 +490,29 @@ function prepare_gradelbo_helpers(
         cor_ends.M, transM, nljoint_args_fix,
         CA.getaxes(ϕqIc)[1], Val(ND),
         ) 
-    grad_ϕm_ϕqI(ϕm::AbstractVector) = Vcat(similar(ϕm), similar(CA.getdata(ϕqIc))) 
-    grad_ϕm_ϕqI(ϕm::AbstractMatrix) = Vcat(similar(ϕm[1:0,:1]), similar(CA.getdata(ϕqIc))) # not used
-    grad_θsP_ϕm(ϕm::AbstractVector) = Vcat(similar(θsP[:,1:0]), similar(θsP[:,1:0])) # not used
-    grad_θsP_ϕm(ϕm::AbstractMatrix) = Vcat(similar(θsP), similar(ϕm))
     grad_conf_mat, grad_conf_vec = if use_ϕm_vector
-        local grad_ϕm_ϕqI1, diffchunks
-        diffchunks = (;vec = ForwardDiff.Chunk(min(8, 
-            axis_length(CA.getaxes(ϕqIc)[1]) + axis_length(ax_θM))),
-            mat = ForwardDiff.Chunk(min(8, 
-            axis_length(CA.getaxes(ϕqPc)[1])))) 
-        grad_conf_mat_ϕmvec() = ForwardDiff.GradientConfig(nelboi_z_mat, CA.getdata(θsP), diffchunks.mat)
-        grad_ϕm_ϕqI1 = grad_ϕm_ϕqI(ϕm)
+        local grad_ϕm_ϕqI1, diffchunks_vec, diffchunks_mat
+        diffchunk_vec = ForwardDiff.Chunk(min(8, 
+            axis_length(CA.getaxes(ϕqIc)[1]) + axis_length(ax_θM)))
+        diffchunk_mat = ForwardDiff.Chunk(min(8, 
+            axis_length(CA.getaxes(ϕqPc)[1])))
+        grad_conf_mat_ϕmvec() = ForwardDiff.GradientConfig(nelboi_z_mat, CA.getdata(θsP), diffchunk_mat)
+        grad_ϕm_ϕqI1 = grad_ϕm_ϕqI(ϕm, ϕqIc)
         function grad_conf_vec_ϕmvec() 
-            cfg_vec = ForwardDiff.GradientConfig(nelboi_z_vec, grad_ϕm_ϕqI1, diffchunks.vec)
+            cfg_vec = ForwardDiff.GradientConfig(nelboi_z_vec, grad_ϕm_ϕqI1, diffchunk_vec)
             update_duals_Vcat(cfg_vec, grad_ϕm_ϕqI1)
         end
         grad_conf_mat_ϕmvec, grad_conf_vec_ϕmvec
     else
-        local rad_θP_ϕm1, diffchunks
-        diffchunks = (;vec = ForwardDiff.Chunk(min(8, 
-            axis_length(CA.getaxes(ϕqIc)[1]))),
-            mat = ForwardDiff.Chunk(min(8, 
-            NMC*(axis_length(CA.getaxes(ϕqPc)[1]) + axis_length(ax_θM))))) 
-        grad_conf_vec_ϕmmat() = ForwardDiff.GradientConfig(nelboi_z_vec, CA.getdata(ϕqIc), diffchunks.vec)
-        rad_θP_ϕm1 = grad_θsP_ϕm(ϕm)
+        local rad_θP_ϕm1, diffchunks_vec, diffchunks_mat
+        diffchunks_vec = ForwardDiff.Chunk(min(8, 
+            axis_length(CA.getaxes(ϕqIc)[1])))
+        diffchunks_mat = ForwardDiff.Chunk(min(8, 
+            NMC*(axis_length(CA.getaxes(ϕqPc)[1]) + axis_length(ax_θM))))
+        grad_conf_vec_ϕmmat() = ForwardDiff.GradientConfig(nelboi_z_vec, CA.getdata(ϕqIc), diffchunks_vec)
+        rad_θP_ϕm1 = grad_θsP_ϕm(ϕm, θsP)
         function grad_conf_mat_ϕmmat() 
-            cfg_mat = ForwardDiff.GradientConfig(nelboi_z_mat, rad_θP_ϕm1, diffchunks.mat)
+            cfg_mat = ForwardDiff.GradientConfig(nelboi_z_mat, rad_θP_ϕm1, diffchunks_mat)
             update_duals_Vcat(cfg_mat, rad_θP_ϕm1)
         end
         grad_conf_mat_ϕmmat, grad_conf_vec_ϕmmat
@@ -527,8 +522,8 @@ function prepare_gradelbo_helpers(
             grad_conf_vec = grad_conf_vec(), 
             grad_conf_mat = grad_conf_mat(),
             grad_θsP = similar(θsP),
-            grad_ϕm_ϕqI = grad_ϕm_ϕqI(ϕm),
-            grad_θsP_ϕm= grad_θsP_ϕm(ϕm),
+            grad_ϕm_ϕqI = grad_ϕm_ϕqI(ϕm, ϕqIc),
+            grad_θsP_ϕm= grad_θsP_ϕm(ϕm, θsP),
             grad_ϕqI = similar(CA.getdata(ϕqIc)),
         )
     end
@@ -558,13 +553,17 @@ function prepare_gradelbo_helpers(
         dθsP = SharedArrays.SharedArray{TF}(n_θP, n_MC), 
     )
 end
+@inline grad_ϕm_ϕqI(ϕm::AbstractVector, ϕqIc) = Vcat(similar(ϕm), similar(CA.getdata(ϕqIc))) 
+@inline grad_ϕm_ϕqI(ϕm::AbstractMatrix, ϕqIc) = Vcat(similar(ϕm[1:0,:1]), similar(CA.getdata(ϕqIc))) # not used but preallocated
+@inline grad_θsP_ϕm(ϕm::AbstractVector, θsP) = Vcat(similar(θsP[:,1:0]), similar(θsP[:,1:0])) # not used but preallocated
+@inline grad_θsP_ϕm(ϕm::AbstractMatrix, θsP) = Vcat(similar(θsP), similar(ϕm))
 
-@inline function update_duals_Vcat(cfg::ForwardDiff.GradientConfig, vc::Vcat)
+
+@inline function update_duals_Vcat(cfg::ForwardDiff.GradientConfig{T,V,N}, vc::Vcat) where {T,V,N}
     # similar Vcat returns a vector, need to convert dual of cfg to Vcat
     # no view, but copy with index_at_dim
     duals_vcat = Vcat(index_at_dim(cfg.duals, axes(vc.args[1], 1); dim=1), 
                       index_at_dim(cfg.duals, axes(vc.args[2], 1); dim=1));
-    T,V,N = typeof(cfg).parameters[1:3]
     cfg = ForwardDiff.GradientConfig{T,V,N,typeof(duals_vcat)}(cfg.seeds, duals_vcat)
     @assert cfg.duals isa Vcat
     cfg
