@@ -58,37 +58,16 @@ function grad_neg_elbo_sites(
         approx, ϕqIc, h.θsP, gradh.dϕmvecs, gradh.dθsP, gradh.hw_channel, cor_ends.M, transM,
         Val(keys(nljoint_args_inds)), nljoint_args_fix,)    
     ϕm_it = eachslice(h_ϕm; dims = ndims(h_ϕm))
-    init = with_channel_element(hw_channel) do hwi 
-        dθsP = Tuple(zero(SA.SVector{axis_length(ax_θP)}(grad_θP)) for 
-            grad_θP in eachcol(gradh.∂elbo_∂θP))
-        res = (; 
-            dϕqIc = zero(SA.SVector{axis_length(CA.getaxes(ϕqIc)[1])}(ϕqIc)),
-            dθsP, 
-        )
-        # (; dϕqIc = zero(static_cv_getproperty(hwi.inputs_cv, Val(:ϕqIc))),
-        # dθsP = zero(static_cv_getproperty(hwi.inputs_cv, Val(:θsP))))
-    end
-    # sum gradient across sites for ϕqIc and θsP
-    # because of non-static n_MC, reduce a Tuple of cols for dθsP
-    function red_grad(x,y) 
-        (;
-            dϕqIc = x.dϕqIc + y.dϕqIc,
-            dθsP = map(+, x.dθsP, y.dθsP)# its a Tuple of columns
-        )
-    end
-    gacc = Folds.mapreduce(cl, red_grad, #make_tuple_reducer(+), 
+    # sum gradient across sites for ϕqIc (∂elbo_∂θP, ∂elbo_∂θm by SharedArray)
+    init = zero(SA.SVector{axis_length(CA.getaxes(ϕqIc)[1])}(ϕqIc))
+    dϕqI = Folds.mapreduce(cl, +, #red_grad, #make_tuple_reducer(+), 
         zip(h.helpers_sites, rnormPM.M, zip_eachlastdims(nljoint_args_inds), ϕm_it, 1:n_site),
         executor; init)
-    ∂elbo_∂ϕqI = gacc.dϕqIc # tuple access
-    # copy Tuple of SVector columns into preallocated array for ∂elbo_∂θP
+    # copy SharedArray into preallocated plain array for ∂elbo_∂θP
     ∂elbo_∂θP = gradh.∂elbo_∂θP
-    # for i in axes(∂elbo_∂θP,2)
-    #     copyto!(view(∂elbo_∂θP,:,i), gacc.dθsP[i])
-    # end
     copyto!(∂elbo_∂θP, cl.dθsP)
-    #∂elbo_∂ϕqm = reshape(cl.dϕmvecs, size(h_ϕm)) # shared array   
-    ∂elbo_∂ϕqm = gradh.∂elbo_∂ϕqm #preallocate to avoid copy in reshape of SharedArray
-    copyto!(∂elbo_∂ϕqm, cl.dϕmvecs) # reshape from shared array
+    ∂elbo_∂ϕqm = gradh.∂elbo_∂ϕqm 
+    copyto!(∂elbo_∂ϕqm, cl.dϕmvecs) # copy from shared array
     #gradh.∂elbo_∂logσ_ζP .= -ones(TF, length(h.logσ_ζP))  
     gradh.∂elbo_∂logσ_ζP .= -one(TF)  
     ∂elbo_∂ladJacTP = -one(TF)
@@ -120,7 +99,7 @@ function grad_neg_elbo_sites(
         ∂elbo_∂θP_∂ζP + gradh.∂elbo_∂ϕm_∂ζP, gradh.∂elbo_∂logσ_ζP,
         h.ζsP, h.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers,
         )
-    (;dϕqP, dϕqI = ∂elbo_∂ϕqI, dϕg = gradh.dϕg), gradh
+    (;dϕqP, dϕqI, dϕg = gradh.dϕg), gradh
 end
 
 """
@@ -184,12 +163,8 @@ function forwarddiff_grad_nelboi_z!(hi, approx::AbstractHVIApproximation, rnormM
         copyto!(view(dϕmvecs, :, i), grad_ϕm) 
         dθsP .+= grad_θsP # SharedArray, cannot return SVector because n_MC not static
         # returning SVector helps avoiding allocations during reduce
-        # n_MC not static -> inferred Tuple{Vararg{StaticArraysCore.SVector{n_θP, Float64}}}
-        # dθsP = Tuple(SA.SVector{axis_length(nljoint_args_fix.ax_θP)}(grad_θP) for grad_θP in eachcol(grad_θsP))
-        res = (; 
-            dϕqIc = SA.SVector{axis_length(CA.getaxes(ϕqIc)[1])}(grad_ϕqI),
-            dθsP = (), 
-        )
+        local dϕqIc
+        dϕqIc = SA.SVector{axis_length(CA.getaxes(ϕqIc)[1])}(grad_ϕqI)
     end
 end
 
@@ -232,12 +207,8 @@ function forwarddiff_grad_nelboi_z!(hi, approx::AbstractHVIApproximation, rnormM
         copyto!(view(dϕmvecs, :, i), grad_ϕm) 
         dθsP .+= grad_θsP # SharedArray, cannot return SVector because n_MC not static
         # returning SVector helps avoiding allocations during reduce
-        # n_MC not static -> inferred Tuple{Vararg{StaticArraysCore.SVector{n_θP, Float64}}}
-        #dθsP = Tuple(SA.SVector{axis_length(nljoint_args_fix.ax_θP)}(grad_θP) for grad_θP in eachcol(grad_θsP))
-        res = (; 
-            dϕqIc = SA.SVector{axis_length(CA.getaxes(ϕqIc)[1])}(grad_ϕqI),
-            dθsP = (), 
-        )
+        local dϕqIc
+        dϕqIc = SA.SVector{axis_length(CA.getaxes(ϕqIc)[1])}(grad_ϕqI)
     end
 end
 
