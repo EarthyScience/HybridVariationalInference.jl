@@ -7,6 +7,7 @@ function grad_neg_elbo_sites(
     sample_args::NamedTuple,
     indiv_args::NamedTuple,
     nljoint_args_fix::NamedTuple;
+    n_MC_val::Val{NMC},     # need to pass by value for type inference on chunks
     # approx::AbstractHVIApproximation,
     # rnormPM::NamedTuple,          # tuple of random numbers
     # ϕg::AbstractVector{TG}, ϕqP::AbstractVector{TF}, ϕqI::AbstractVector{TF}, g, 
@@ -20,7 +21,7 @@ function grad_neg_elbo_sites(
     # is_testmode, 
     n_workers = 1, # TODO compute from executor and Distributed.nworkers and nthreads,...
     executor::Transducers.Executor = Transducers.SequentialEx(),
-) 
+) where NMC
     h = elbo_helpers # preallocated μζP, dμζP, ζsP, ϕms, xMP, dxMP
     (;ϕg, ϕqP, ϕqI) = ϕ
     TF = eltype(ϕqP)
@@ -36,13 +37,16 @@ function grad_neg_elbo_sites(
     check_elbo_helpers(h, xM, pbm_covar_indices; n_ϕg = length(ϕg))
     n_cov, n_site = size(xM)
     n_θP, n_MC = size(h.ζsP)
+    @assert n_MC == NMC
+    ax_θP = get_axis_θP(nljoint_args_fix.f!)
+    ax_θM = get_axis_θM(nljoint_args_fix.f!)
     nljoint_args_indi = NamedTuple{keys(nljoint_args_inds)}(
         first(zip_eachlastdims(nljoint_args_inds)))
     gradh = !isempty(grad_elbo_helpers) ? grad_elbo_helpers : prepare_gradelbo_helpers(
         ϕqIc, selectdim(h_ϕm, ndims(h_ϕm), 1), h.ζsP, ϕg, ϕqPc, approx; 
         pbm_covar_indices, n_workers,
         h, rnormMi = rnormPM.M[1], nljoint_args_indi,
-        n_site, n_cov, cor_ends, transP, transM, nljoint_args_fix)
+        n_site, n_cov, cor_ends, transP, transM, nljoint_args_fix, n_MC_val)
     hw_channel = gradh.hw_channel
     #
     sample_ζsP!(h.ζsP, h.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers) # n_P * n_MC
@@ -55,7 +59,7 @@ function grad_neg_elbo_sites(
         Val(keys(nljoint_args_inds)), nljoint_args_fix,)    
     ϕm_it = eachslice(h_ϕm; dims = ndims(h_ϕm))
     init = with_channel_element(hw_channel) do hwi 
-        dθsP = Tuple(zero(SA.SVector{axis_length(nljoint_args_fix.ax_θP)}(grad_θP)) for 
+        dθsP = Tuple(zero(SA.SVector{axis_length(ax_θP)}(grad_θP)) for 
             grad_θP in eachcol(gradh.∂elbo_∂θP))
         res = (; 
             dϕqIc = zero(SA.SVector{axis_length(CA.getaxes(ϕqIc)[1])}(ϕqIc)),
@@ -480,8 +484,11 @@ function prepare_gradelbo_helpers(
     n_site, n_cov, cor_ends,
     transP::Stacked, transM::Stacked,
     nljoint_args_fix,
-    ) where {TG, TF, ND}
+    n_MC_val::Val{NMC},
+    ) where {TG, TF, ND, NMC}
     hi1 = h.helpers_sites[1]
+    ax_θP = get_axis_θP(nljoint_args_fix.f!)
+    ax_θM = get_axis_θM(nljoint_args_fix.f!)
     # TODO get n_site, n_cov from h
     cv_grad = CA.ComponentArray(; 
         ϕqIc, 
@@ -495,7 +502,8 @@ function prepare_gradelbo_helpers(
     n_covP =  use_ϕm_vector ? 0 : length(pbm_covar_indices)
     n_ϕmvec = length(ϕm) #use_ϕm_matrix ? n_M : n_M * n_MC
     n_θP, n_MC = size(θsP)
-    @assert n_θP == axis_length(nljoint_args_fix.ax_θP)
+    @assert n_MC == NMC
+    @assert n_θP == axis_length(ax_θP)
     n_M = size(ϕm,1)
     # To sync across procs/threads, use a Channel 
     # https://juliafolds2.github.io/OhMyThreads.jl/stable/literate/tls/tls/#The-safe-way:-Channel
@@ -508,15 +516,17 @@ function prepare_gradelbo_helpers(
         cor_ends.M, transM, nljoint_args_fix,
         CA.getaxes(ϕqIc)[1], Val(ND),
         ) 
-    diffchunks = (;vec = ForwardDiff.Chunk(min(8, axis_length(CA.getaxes(ϕqIc)[1]))),
-        mat = ForwardDiff.Chunk(min(8, axis_length(CA.getaxes(ϕqPc)[1])))) # assuming n_MC = 1
     grad_ϕm_ϕqI(ϕm::AbstractVector) = Vcat(similar(ϕm), similar(CA.getdata(ϕqIc))) 
     grad_ϕm_ϕqI(ϕm::AbstractMatrix) = Vcat(similar(ϕm[1:0,:1]), similar(CA.getdata(ϕqIc))) # not used
     grad_θsP_ϕm(ϕm::AbstractVector) = Vcat(similar(θsP[:,1:0]), similar(θsP[:,1:0])) # not used
     grad_θsP_ϕm(ϕm::AbstractMatrix) = Vcat(similar(θsP), similar(ϕm))
     grad_conf_mat, grad_conf_vec = if use_ϕm_vector
+        local grad_ϕm_ϕqI1, diffchunks
+        diffchunks = (;vec = ForwardDiff.Chunk(min(8, 
+            axis_length(CA.getaxes(ϕqIc)[1]) + axis_length(ax_θM))),
+            mat = ForwardDiff.Chunk(min(8, 
+            axis_length(CA.getaxes(ϕqPc)[1])))) 
         grad_conf_mat_ϕmvec() = ForwardDiff.GradientConfig(nelboi_z_mat, CA.getdata(θsP), diffchunks.mat)
-        local grad_ϕm_ϕqI1
         grad_ϕm_ϕqI1 = grad_ϕm_ϕqI(ϕm)
         function grad_conf_vec_ϕmvec() 
             cfg_vec = ForwardDiff.GradientConfig(nelboi_z_vec, grad_ϕm_ϕqI1, diffchunks.vec)
@@ -524,8 +534,13 @@ function prepare_gradelbo_helpers(
         end
         grad_conf_mat_ϕmvec, grad_conf_vec_ϕmvec
     else
+        local rad_θP_ϕm1, diffchunks
+        diffchunks = (;vec = ForwardDiff.Chunk(min(8, 
+            axis_length(CA.getaxes(ϕqIc)[1]))),
+            mat = ForwardDiff.Chunk(min(8, 
+            NMC*(axis_length(CA.getaxes(ϕqPc)[1]) + axis_length(ax_θM))))) 
         grad_conf_vec_ϕmmat() = ForwardDiff.GradientConfig(nelboi_z_vec, CA.getdata(ϕqIc), diffchunks.vec)
-        local rad_θP_ϕm1 = grad_θsP_ϕm(ϕm)
+        rad_θP_ϕm1 = grad_θsP_ϕm(ϕm)
         function grad_conf_mat_ϕmmat() 
             cfg_mat = ForwardDiff.GradientConfig(nelboi_z_mat, rad_θP_ϕm1, diffchunks.mat)
             update_duals_Vcat(cfg_mat, rad_θP_ϕm1)
@@ -560,7 +575,6 @@ function prepare_gradelbo_helpers(
         ∂elbo_∂θP_∂ζP = Matrix{TF}(undef, size(θsP)),
         dϕqP = similar(ϕqPc),
         ∂elbo_∂ϕqm = Array{TF}(undef, size(ϕm)..., n_site),
-        ax_θP = nljoint_args_fix.ax_θP,
         hw_channel,
         pullback_cl_sample_ζsP! = get_pullback_cl_sample_ζsP(CA.getdata(ϕqPc); 
             n_θP, n_MC, sample_buffers = h.sample_buffers),

@@ -42,6 +42,9 @@ function PBMPopulationApplicator(fθpop!, n_MC:: Integer;
     PBMPopulationApplicator(fθpop!, θFixm, Val(axθ), int_xP)        
 end
 
+get_axis_θP(::PBMPopulationApplicator{AX}) where AX = AX[1]
+get_axis_θM(::PBMPopulationApplicator{AX}) where AX = AX[2]
+
 function create_nsite_applicator(app::PBMPopulationApplicator, n_site) 
     error("implenment create_nsite_applicator(app::PBMPopulationApplicator")
     # θFix = app.θFixm[1,:]
