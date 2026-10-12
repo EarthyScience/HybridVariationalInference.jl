@@ -50,7 +50,7 @@ export DoubleMM
 export @row_valviews
 include("row_valviews.jl")
 
-#export VcatCMs
+#export VcatCAs
 include("VcatCA.jl")
 
 include("OneBasedVectorWithZero.jl")

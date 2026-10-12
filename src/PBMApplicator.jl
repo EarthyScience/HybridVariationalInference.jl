@@ -80,11 +80,11 @@ function apply_model!(pred, app::PBMPopulationApplicator{AXS,AXC}, θsP::Abstrac
     # local data_view = Vcat(CA.getdata(θsP), CA.getdata(θsM), CA.getdata(app.θFixm))  # lazy, no copy!
     # local θc = CA.ComponentArray(data_view, app.axθ)
     local θc, xPc
-    # Symbol access into Vcat allocates in Gradient, roll own VcatCMs
+    # Symbol access into Vcat allocates in Gradient, roll own VcatCAs
     # θc = CA.ComponentMatrix(
     #     Vcat(CA.getdata(θsP), CA.getdata(θsM), CA.getdata(app.θFixm)),
     #     AXC, CA.FlatAxis())
-    θc = VcatCMs(AXS, CA.getdata(θsP), CA.getdata(θsM), CA.getdata(app.θFixm))
+    θc = VcatCAs(AXS, CA.getdata(θsP), CA.getdata(θsM), CA.getdata(app.θFixm))
     xPc = app.int_xP(CA.getdata(xP))
     app.fθpop!(pred, θc, xPc)  
     pred
