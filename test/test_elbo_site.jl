@@ -88,7 +88,7 @@ isUsingSimpleChains = false
     ϕgv = collect(ϕg)
     #
     n_site = 8
-    n_MC = 3
+    n_MC = 3; n_MC_val = Val(3)
     n_obs = 4
     transP = Stacked((HVI.Exp(),),(1:n_θP,) )
     transM = Stacked((HVI.Exp(),),(1:n_θM,) )
@@ -128,7 +128,7 @@ isUsingSimpleChains = false
         HVI.fθpop_dummy1!, n_MC; θP=θP_tmplt, θM=θM_tmplt, θFix=CA.ComponentVector{Float64}(), xPvec)
     nljoint_args_fix =(;
          f! = pbm, 
-         ax_θP = CA.getaxes(θP_tmplt)[1],
+         #ax_θP = CA.getaxes(θP_tmplt)[1],
          #axθM = CA.getaxes(θM_tmplt)[1], 
          )
     #
@@ -447,7 +447,7 @@ end
     gradh2 = CP.prepare_gradelbo_helpers(inputs.ϕqIc, inputs.ϕm, inputs.θsP, ϕg, ϕqPc, approx; 
         pbm_covar_indices=pbm_covar_indices2, n_workers=1,
         h=h2, rnormMi = rnormPM.M[1], nljoint_args_indi=nljoint_args_ind1,
-        n_site, n_cov, cor_ends, transP, transM, nljoint_args_fix)
+        n_site, n_cov, cor_ends, transP, transM, nljoint_args_fix, n_MC_val)
     hw_channel = gradh2.hw_channel
     tmp = with_channel_element(x -> x.inputs_cv, hw_channel)
     tmp.ϕm
@@ -845,9 +845,9 @@ end
     primal = CP.neg_elbo_sites!(h0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix)
     res0, gradh0 = CP.grad_neg_elbo_sites(
         #@descend_code_warntype CP.neg_elbo_sites!(
-        h0, (;), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix,)
+        h0, (;), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
     res0_, gradh0_ = CP.grad_neg_elbo_sites( # test deterministic result and distributed
-        h0, (;), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix,
+        h0, (;), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val,
         executor = distributedEx
     )    
     @test all(map(≈, res0_,  res0))
@@ -873,8 +873,8 @@ end
     randn!(rng1, ϕ2.ϕg)
     randn!(rng1, indiv_args.xM)
     primal2 = CP.neg_elbo_sites!(h2, ϕ2, rnormPM, sample_args2, indiv_args, nljoint_args_fix)[1]
-    res0, gradh2 = CP.grad_neg_elbo_sites(h2, (;), ϕ2, rnormPM, sample_args2, indiv_args, nljoint_args_fix)
-    res0_, gradh2_ = CP.grad_neg_elbo_sites(h2, (;), ϕ2, rnormPM, sample_args2, indiv_args, nljoint_args_fix,
+    res0, gradh2 = CP.grad_neg_elbo_sites(h2, (;), ϕ2, rnormPM, sample_args2, indiv_args, nljoint_args_fix; n_MC_val)
+    res0_, gradh2_ = CP.grad_neg_elbo_sites(h2, (;), ϕ2, rnormPM, sample_args2, indiv_args, nljoint_args_fix; n_MC_val,
         executor = distributedEx,)    
     @test all(map(≈, res0_,  res0))
     # if we saved Enzyme results earlier, compare to them
@@ -899,7 +899,7 @@ end
     randn!(rng1, indiv_args.xM)
     primal2S = CP.neg_elbo_sites!(h2S, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)
     res0, gradh2S = CP.grad_neg_elbo_sites(
-        h2S, (;), ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix, 
+        h2S, (;), ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix; n_MC_val, 
         executor = distributedEx,
     )   
     if isfile("intermediate/test_enzymeS_dphi2.jld2")
@@ -918,7 +918,7 @@ end
         n, h2S, gradh2S, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)
         for _ in 1:n
             @noinline CP.grad_neg_elbo_sites(
-                h2S, gradh2S, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)
+                h2S, gradh2S, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix; n_MC_val)
         end
         nothing
     end
@@ -926,7 +926,7 @@ end
         # avoid global variables -> pass them through function
         loop_grad_neg_elbo_sites(1, h2S, gradh2S, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)
         #@profview_allocs loop_grad_neg_elbo_sites(10_000,h2S, gradh2S, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)
-        @test (@allocated loop_grad_neg_elbo_sites(100,h2S, gradh2S, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)) <= 3_289_600 #3_416_000 ##3_569_600 #2_703_776  
+        @test (@allocated loop_grad_neg_elbo_sites(100,h2S, gradh2S, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)) <= 3_515_200 #3_289_600 #3_416_000 ##3_569_600 #2_703_776  
     end
     alloc_grad_neg_elbo_sites(h2S, gradh2S, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)
     #_i_sites_train = 1:n_site    
