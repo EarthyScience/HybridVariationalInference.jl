@@ -68,6 +68,8 @@ function grad_neg_elbo_sites(
     copyto!(∂elbo_∂θP, cl.dθsP)
     ∂elbo_∂ϕqm = gradh.∂elbo_∂ϕqm 
     copyto!(∂elbo_∂ϕqm, cl.dϕmvecs) # copy from shared array
+    # copy StaticVector into preallocated ComponentVector
+    copyto!(gradh.dϕqIc, dϕqI)
     #gradh.∂elbo_∂logσ_ζP .= -ones(TF, length(h.logσ_ζP))  
     gradh.∂elbo_∂logσ_ζP .= -one(TF)  
     ∂elbo_∂ladJacTP = -one(TF)
@@ -92,14 +94,13 @@ function grad_neg_elbo_sites(
         )
     #
     # pullback gradients of ∂elbo_∂ζP, ∂elbo_∂ϕm_∂ζP, and ∂elbo_∂logσ_ζP to dϕqP
-    dϕqP = gradh.dϕqP
     #pullback_sample_ζsP!(
     gradh.pullback_cl_sample_ζsP!(
-        dϕqP, 
+        gradh.dϕqPc, 
         ∂elbo_∂θP_∂ζP + gradh.∂elbo_∂ϕm_∂ζP, gradh.∂elbo_∂logσ_ζP,
         h.ζsP, h.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers,
         )
-    (;dϕqP, dϕqI, dϕg = gradh.dϕg), gradh
+    (;dϕqPc = gradh.dϕqPc, dϕqIc = gradh.dϕqIc, dϕg = gradh.dϕg), gradh
 end
 
 """
@@ -540,11 +541,12 @@ function prepare_gradelbo_helpers(
     end 
     (;
         dϕg = similar(ϕg),
+        dϕqPc = similar(ϕqPc),
+        dϕqIc = similar(ϕqIc),
         ∂elbo_∂θP = similar(θsP),
         ∂elbo_∂ϕm_∂ζP = similar(θsP),
         ∂elbo_∂logσ_ζP = Vector{TF}(undef, size(θsP,1)),
         ∂elbo_∂θP_∂ζP = Matrix{TF}(undef, size(θsP)),
-        dϕqP = similar(ϕqPc),
         ∂elbo_∂ϕqm = Array{TF}(undef, size(ϕm)..., n_site),
         hw_channel,
         pullback_cl_sample_ζsP! = get_pullback_cl_sample_ζsP(CA.getdata(ϕqPc); 

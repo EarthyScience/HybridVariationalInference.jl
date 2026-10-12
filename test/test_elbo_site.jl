@@ -858,10 +858,10 @@ end
             "primal_enz", "dϕg0_enz", "dϕqP0_enz", "dϕqI0_enz");
         @test primal_enz ≈ primal[1]
         @test dϕg0_enz ≈ res0.dϕg
-        @test dϕqI0_enz ≈ res0.dϕqI
-        @test dϕqP0_enz ≈ res0.dϕqP
-        #hcat(dϕqI0_enz, CA.getdata(res0.dϕqI))
-        #hcat(dϕqP0_enz, CA.getdata(res0.dϕqP))
+        @test dϕqI0_enz ≈ res0.dϕqIc
+        @test dϕqP0_enz ≈ res0.dϕqPc
+        #hcat(dϕqI0_enz, CA.getdata(res0.dϕqIc))
+        #hcat(dϕqP0_enz, CA.getdata(res0.dϕqPc))
         #dϕqP0_enz - CA.getdata(res0.dϕqP)
     end
     #
@@ -884,8 +884,8 @@ end
             "primal2_enz", "dϕg2_enz", "dϕqP2_enz", "dϕqI2_enz");
         @test primal2_enz ≈ primal2[1]
         @test dϕg2_enz ≈ res0.dϕg
-        @test dϕqI2_enz ≈ res0.dϕqI
-        @test dϕqP2_enz ≈ res0.dϕqP atol = 0.001
+        @test dϕqI2_enz ≈ res0.dϕqIc
+        @test dϕqP2_enz ≈ res0.dϕqPc atol = 0.001
         #hcat(dϕqP2_enz, res0.dϕqP)
     end
     #---------------- approxM with non-empty h.sample_buffers and scaling
@@ -908,8 +908,8 @@ end
             "primal_enz2S", "dϕg2S_enz", "dϕqP2S_enz", "dϕqI2S_enz");
         @test primal_enz2S ≈ primal2S[1]
         @test dϕg2S_enz ≈ res0.dϕg
-        @test dϕqI2S_enz ≈ res0.dϕqI atol=0.01
-        @test dϕqP2S_enz ≈ res0.dϕqP atol=0.01
+        @test dϕqI2S_enz ≈ res0.dϕqIc atol=0.01
+        @test dϕqP2S_enz ≈ res0.dϕqPc atol=0.01
         #hcat(dϕqP2_enz, res0.dϕqP)
         #hcat(dϕqI2S_enz, res0.dϕqI)
     end
