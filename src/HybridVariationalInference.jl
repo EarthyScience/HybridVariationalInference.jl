@@ -47,7 +47,7 @@ using LazyArrays: Vcat
 
 export DoubleMM
 
-export @row_valviews
+export @row_valviews, @unpack_val
 include("row_valviews.jl")
 
 #export VcatCAs
@@ -56,6 +56,7 @@ include("VcatCA.jl")
 include("OneBasedVectorWithZero.jl")
 export cat_namedtuple_lastdim, index_at_dim, eachlastdim, zip_eachlastdims
 export with_channel_element
+export concat_tuples
 include("util.jl")
 
 export WeightedDataLoader

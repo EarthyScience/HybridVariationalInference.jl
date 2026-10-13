@@ -470,4 +470,22 @@ Map function f to all leaves of a nested Tuple/NamedTuple.
 map_leaves_nt(f, x) = f(x)
 map_leaves_nt(f, x::Union{Tuple,NamedTuple}) = map(y -> map_leaves_nt(f, y), x)
 
+"""
+    compile-time stable concatenation of tuples
 
+Only for small tuples because it compiles a method for each tail-subset.    
+```julia
+@inferred concat_tuples(((1, 2), (3, 4), (5, 6, 7)))
+```
+"""
+concat_tuples_gen(ts...) = concat_tuples(ts)
+concat_tuples(::Tuple{}) = ()
+concat_tuples(ts::Tuple) = (ts[1]..., concat_tuples(Base.tail(ts))...)
+
+concat_ntuples_gen(ts...) = concat_ntuples(ts)
+concat_ntuples(::Tuple{}) = ()
+# need to provide the tail first, to get inferred
+#concat_ntuples(ts::Tuple) = (;ts[1]..., concat_ntuples(Base.tail(ts))...) 
+concat_ntuples(ts::Tuple) = (;concat_ntuples(Base.tail(ts))..., ts[1]...)
+
+#concat_ntuples(ts::Tuple) = (; ts[1]..., Base.tail(ts)...)
