@@ -341,10 +341,12 @@ end
 #     pred
 # end
 
-function fθpop_dummy1!(pred, θs, xPc::CA.ComponentVector)
+function fθpop_dummy1!(pred, θs, xPc::CA.ComponentVector{T}) where T
+    # variant that computes the model jointly across parameter vectors in a broadcast
+    #   using @row_valviews
     local n_θP, n_θM, n_MC, θsPc, θsMc
+    a1 = view(θs, Val(:a1), :)
     @row_valviews a1,a2,a3,b1,b2,b3 = θs
-    T = eltype(θs)
     # regression to nL = (5 * sum(θsP) + 3 * sum(θsM)) / n_MC
     #n_θP = 3; n_θM = 3
     n_obs = length(view(xPc, Val(:S1)))
@@ -355,6 +357,25 @@ function fθpop_dummy1!(pred, θs, xPc::CA.ComponentVector)
     end
     for θb in (b1,b2,b3)
         pred .+= (xPc ./ xPc) .* T(3) .* θb'
+    end
+    pred ./= n_obs
+    pred
+end
+
+function fθpop_dummy2!(pred, θs, xPc::CA.ComponentVector{T}) where T
+    # variant that runs the model separately for each parameter vector
+    #   using eachcol(θs) and @unpack_val
+    #   using view(pred,:,j) to avoid intermediate allocations
+    pred .= zero(eltype(pred))
+    n_obs = length(view(xPc, Val(:S1)))
+    for (j,θ) in enumerate(eachcol(θs))
+        @unpack_val a1,a2,a3,b1,b2,b3 = θ # now scalar parameters
+        for θa in (a1,a2,a3)
+            view(pred,:,j) .+= (xPc ./ xPc) .* T(5) .* θa
+        end
+        for θb in (b1,b2,b3)
+            view(pred,:,j) .+= (xPc ./ xPc) .* T(3) .* θb
+        end
     end
     pred ./= n_obs
     pred

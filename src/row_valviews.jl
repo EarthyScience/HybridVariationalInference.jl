@@ -59,3 +59,41 @@ macro row_valviews(ex)
     
     return Expr(:block, assignments...)
 end
+
+"""
+    @unpack_val a, b, ... = cv
+
+Mirrors Parameters.jl's @unpack syntax but uses Val-based indexing 
+(which is important for ComponentVectors, since cv[Val(:a)] is 
+inferred/type‑stable, unlike cv[:a] or cv.a)
+
+```jldoctest
+import ComponentArrays as CA
+n_θP = 3;
+cv = CA.ComponentVector(NamedTuple(Symbol("p"*string(i)) => randn() for i in 1:n_θP));
+@unpack_val p1, p2, p3 = cv
+p1 == cv[:p1]
+```
+
+This expands to:
+```julia
+p1 = cv[Val(:p1)]
+p2 = cv[Val(:p2)]
+p3 = cv[Val(:p3)]
+```
+"""
+macro unpack_val(ex)
+    ex.head == :(=) || error("Expression must be of the form `@unpack_val a, b = cv`")
+    lhs, rhs = ex.args
+
+    # lhs is either a single Symbol (`a = cv`) or an Expr(:tuple, :a, :b, ...) (`a, b = cv`)
+    names = isa(lhs, Symbol) ? (lhs,) : Tuple(lhs.args)
+
+    cv_sym = gensym(:cv)
+    assignments = [:($(esc(n)) = $cv_sym[Val($(QuoteNode(n)))]) for n in names]
+
+    return quote
+        $cv_sym = $(esc(rhs))   # evaluate cv just once
+        $(assignments...)
+    end
+end
