@@ -20,6 +20,17 @@ import Folds
     ntuple(i -> tmps[i], 2)
 end
 
+@testset "findfirst_keyed" begin
+    tmp = CA.ComponentVector(a=1, b=2)
+    tmp2 = CA.ComponentVector(c=3, d=4, e=5)
+    axs = map(x -> CA.getaxes(x)[1], (tmp,tmp2))
+    @test (@inferred HVI.findfirst_keyed(axs, Val(:b))) == Val(1)
+    #@code_llvm HVI.findfirst_keyed(axs, Val(:e))
+    @test (@inferred HVI.findfirst_keyed(axs, Val(:e))) == Val(2)
+    @test (@inferred HVI.findfirst_keyed(axs, Val(:e))) == Val(2)
+    @test_throws ErrorException HVI.findfirst_keyed(axs, Val(:wrongkey))
+end
+
 @testset "VcatCAs vector" begin
     # need [] to compare with scalars, because it returns a zero-dimenstional view
     n_θP = 2; n_θM = 3
@@ -130,12 +141,18 @@ end
     # can also access larger
     lt2 = CA.ComponentVector(a=1:3, b=1:2)
     lm = rand(length(lt2), n_MC)
+    lmc = CA.ComponentMatrix(lm, CA.getaxes(lt2)[1], CA.FlatAxis())
     axs = map(cv -> CA.getaxes(cv)[1], (lt2, ft))
     ccat2 = @inferred HVI.VcatCAs(axs, lm, θFixm0)
     tmp = view(ccat2, Val(:a), :, 1:2)
     @inferred view(ccat2, Val(:a))
     @test (@inferred view(ccat2, Val(:a))) == lm[1:3,:]
     @test alloc_viewindex(ccat2, Val(:a)) == 0
+    @test (@inferred ccat2[Val(:b),:]) == lm[4:5,:]
+    @test (@inferred view(ccat2, Val(:b), 2, 1:3)) == lm[5,1:3] 
+    typeof(view(ccat2, Val(:b), 2, 1:3))
+    # test on direct Subarray rather than reshape
+    view(ccat2, Val(:b), 1:2, 1:3) isa (SubArray{FT, 2, <:Matrix} where FT)
     #
     it = eachcol(ccat2)
     v2 = iterate(it,2)[1]

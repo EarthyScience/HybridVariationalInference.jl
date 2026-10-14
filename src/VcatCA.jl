@@ -28,11 +28,10 @@ Type parameters
 - `SM`: NamedTuple: mapping symbol to number of underlying array that holds the entry, 
 - `T`: types of the underlying arrays (to make type concrete)
 """
-struct VcatCAs{AX, NC, SM, T}
+struct VcatCAs{AX, NC, T}
     axs::Val{AX}
     cms::T
     colons::NTuple{NC, Colon}
-    sym_map::Val{SM}
 end
 function VcatCAs(templates::Tuple{Vararg{<:CA.ComponentVector}}, ms...) 
     @assert length(templates) == length(ms)
@@ -45,25 +44,13 @@ function VcatCAs(templates::Tuple{Vararg{<:CA.ComponentVector}}, ms...)
 end
 @inline function VcatCAs(axs::Tuple{Vararg{<:CA.Axis}}, 
     ms::Vararg{<:AbstractArray{<:Any,N},NM}) where {N, NM}
-    sym_map_t = ntuple(NM) do i
-        ax = axs[i]
-        NamedTuple{keys(ax)}(ntuple(_ -> i, length(keys(ax))))
-    end
-    sym_map = concat_ntuples(sym_map_t)
-    # provide constructor where can provide sym_map already (for eachcol)
-    VcatCAs(Val(axs), Val(sym_map), ms)
-end
-@inline function VcatCAs(axs_val::Val{AXS}, sym_map_val::Val{SM},
-    ms::Tuple{Vararg{<:AbstractArray{<:Any,N},NM}}) where {AXS, N, NM, SM}
-    @assert length(AXS) == NM
-    @assert length(SM) == sum(map(x -> length(keys(x)), AXS))
     flataxes = ntuple(i -> CA.FlatAxis(), N-1)
-    cms = map(ms, AXS) do m,ax
+    cms = map(ms, axs) do m,ax
         @assert size(m,1) == axis_length(ax)
         CA.ComponentArray(CA.getdata(m), ax, flataxes...)
     end
     colons = ntuple(_->Colon(), N-1)
-    VcatCAs(axs_val, cms, colons, sym_map_val)
+    VcatCAs(Val(axs), cms, colons)
 end
 
 
@@ -74,20 +61,15 @@ Base.eltype(ccat::VcatCAs) = eltype(ccat.cms[1])
 
 Base.view(ccat::VcatCAs, valsym::Val, cols...) = viewindex(ccat, valsym, cols...) 
 
-# @inline function viewindex(ccat::VcatCAs{AX}, val::Val{sym}) where {AX,sym}
-#     local i = 1
-#     while i <= length(AX)
-#         sym ∈ keys(AX[i]) && return view(ccat.cms[i], val, :)
-#         i += 1
-#     end
-#     error(string(sym) * " not a key of VcatCAs object")
-# end
-# avoid the loop because i is runtime value and AX[i] not compile time, use recursion
 
-@inline function viewindex(ccat::VcatCAs{AX,NC,SM}, ::Val{sym}, cols...) where {AX,NC,SM,sym}
+@inline function viewindex(ccat::VcatCAs{AX}, sym_val::Val{sym}, cols...) where {AX, sym}
     #_vi(ccat, Val(sym), AX, ccat.cms, cols...)
+    i_val = findfirst_keyed(AX, sym_val)
+    viewindex(ccat, i_val, sym_val, cols)
+end
+@inline function viewindex(ccat::VcatCAs, ::Val{I}, ::Val{sym}, cols::Tuple) where {I, sym}
     local cm, v
-    cm = ccat.cms[SM[sym]]
+    cm = ccat.cms[I]
     v = view(cm, Val(sym), ccat.colons...)
     if cols == ()
         v
@@ -98,48 +80,49 @@ Base.view(ccat::VcatCAs, valsym::Val, cols...) = viewindex(ccat, valsym, cols...
     end
 end
 
-# @inline function _vi(ccat, ::Val{sym}, axs::Tuple{Head,Vararg{Any,N}}, cms::Tuple{CM,Vararg{Any,N}}, cols...) where {sym,Head,CM,N}
-#     if sym ∈ keys(axs[1])
-#         # indexing with cols into array allocates, indexing into the view does not
-#         # cols isa Integer ? view(first(cms), Val(sym), :)[cols] : view(view(first(cms), Val(sym), :), cols)
-#         ND = ndims(first(cms))
-#         local colons, v
-#         #colons = (Colon() for i in 2:ND)
-#         #Main.@infiltrate_main
-#         #colons = ntuple(_->Colon(), ND-1)
-#         v = view(first(cms), Val(sym), ccat.colons...)
-#         if cols == ()
-#             v
-#         elseif cols isa (NTuple{N, <:Int} where N) # all scalars indices -> scalar value
-#             v[cols...]
-#         else 
-#             view(v, cols...)
-#         end
-#     else
-#         _vi(ccat, Val(sym), Base.tail(axs), Base.tail(cms), cols...)
-#     end
-# end
-# @inline _vi(ccat, ::Val{sym}, axs::Tuple{}, cms::Tuple{}, cols...) where {sym} = error(
-#     string(sym) * " is not a key of VcatCAs object")
+"""
+static compile-time computation for finding the index among axs that
+hold the symbol. 
+axs is a tuple of objects with method keys defined.
 
-@inline function Base.getindex(ccat::VcatCAs{AX,NC,SM}, ::Val{sym}, cols...) where {AX,NC,SM,sym}
-    #_gi(ccat, Val(sym), AX, ccat.cms, cols...)
-    local cm, v
-    cm = ccat.cms[SM[sym]]
-    getindex(cm, Val(sym), cols...)
+Only invoke with short tuples axs, because a method is generated for
+each key.
+"""
+@noinline function findfirst_keyed(axs::Tuple, key::Val{KEY}) where {KEY} 
+    i = findfirst_keyed_(axs, key, 1) # using plain Int here, works because of inlining
+    Val(i)   # return Val so that can be used for type stable indexing
+    # Claude Sonnet 4.6 told:
+    # For the second call HVI.findfirst_keyed(axs, Val(:e)) with identical argument types:
+    # No, the compiler does no work. Julia caches compiled specializations keyed by 
+    # argument types. Since the types are identical to the first call, the cached compiled 
+    # code (which already has the constant folded in) is looked up and reused directly.
+    # The "work" of:
+    #     type inference
+    #     inlining findfirst_keyed_
+    #     constant folding to Val{2}()
+    #     code generation
+    # all happened once, during the first call, and the result is in Julia's method cache.
+    #  The second call with identical types is purely a cache lookup
+end
+@inline function findfirst_keyed_(axs::Tuple, key::Val{KEY}, i::Int) where {KEY} 
+    KEY ∈ keys(first(axs)) ? i : findfirst_keyed_(Base.tail(axs), key, i+1)
+end
+@inline function findfirst_keyed_(axs::Tuple{}, key::Val{KEY}, i::Int) where {KEY}
+    error("key " * string(KEY) * " not found in any of the axes.")
 end
 
-# @inline function _gi(ccat, ::Val{sym}, axs::Tuple{Head,Vararg{Any,N}}, cms::Tuple{CM,Vararg{Any,N}}, cols...) where {sym,Head,CM,N}
-#     if sym ∈ keys(axs[1])
-#         ND = ndims(first(cms))
-#         colons = (Colon() for i in 2:ND)
-#         getindex(first(cms), Val(sym), cols...)
-#     else
-#         _gi(ccat, Val(sym), Base.tail(axs), Base.tail(cms), cols...)
-#     end
-# end
-# @inline _gi(ccat, ::Val{sym}, axs::Tuple{}, cms::Tuple{}, cols...) where {sym} = error(
-#     string(sym) * " is not a key of VcatCAs object")
+
+@inline function Base.getindex(ccat::VcatCAs{AX}, sym_val::Val{sym}, cols...) where {AX,sym}
+    local ival
+    i_val = findfirst_keyed(AX, sym_val)
+    Base.getindex(ccat, i_val, sym_val, cols)
+end
+
+@inline function Base.getindex(ccat::VcatCAs{AX}, ::Val{I}, ::Val{sym}, cols::Tuple) where {AX, I,sym}
+    local cm
+    cm = ccat.cms[I]
+    getindex(cm, Val(sym), cols...)
+end
 
 Base.eachcol(ccat::VcatCAs{AX,2-1}) where {AX} = VcatCAEachCol(ccat)
 
@@ -159,8 +142,8 @@ Base.eltype(ec::VcatCAEachCol) =
     return (_col(ec.ccat, j), j + 1)
 end
 
-@inline function _col(ccat::VcatCAs{AX,2-1,SM}, j::Int) where {AX, SM}
+@inline function _col(ccat::VcatCAs{AX,2-1}, j::Int) where {AX}
     cols = map(cm -> view(CA.getdata(cm), :, j), ccat.cms)
-    VcatCAs(Val(AX), Val(SM), cols)
+    VcatCAs(AX, cols...)
 end
 

@@ -478,14 +478,18 @@ Only for small tuples because it compiles a method for each tail-subset.
 @inferred concat_tuples(((1, 2), (3, 4), (5, 6, 7)))
 ```
 """
-concat_tuples_gen(ts...) = concat_tuples(ts)
-concat_tuples(::Tuple{}) = ()
-concat_tuples(ts::Tuple) = (ts[1]..., concat_tuples(Base.tail(ts))...)
-
-concat_ntuples_gen(ts...) = concat_ntuples(ts)
-concat_ntuples(::Tuple{}) = ()
+@noinline concat_tuples_gen(ts...) = concat_tuples_(ts)
+@noinline concat_tuples(ts::Tuple) = concat_tuples_(ts)
+# the @noinline for the non-recursive entries is important to avoid
+# generating many methods for callers
+@inline concat_tuples_(::Tuple{}) = ()
+@inline concat_tuples_(ts::Tuple) = (ts[1]..., concat_tuples_(Base.tail(ts))...)
+#
+@noinline concat_ntuples_gen(ts...) = concat_ntuples_(ts)
+@noinline concat_ntuples(ts) = concat_ntuples_(ts)
+@inline concat_ntuples_(::Tuple{}) = ()
 # need to provide the tail first, to get inferred
-#concat_ntuples(ts::Tuple) = (;ts[1]..., concat_ntuples(Base.tail(ts))...) 
-concat_ntuples(ts::Tuple) = (;concat_ntuples(Base.tail(ts))..., ts[1]...)
+#@inline concat_ntuples_(ts::Tuple) = (;ts[1]..., concat_ntuples_(Base.tail(ts))...) 
+@inline concat_ntuples_(ts::Tuple) = (;concat_ntuples_(Base.tail(ts))..., ts[1]...)
 
 #concat_ntuples(ts::Tuple) = (; ts[1]..., Base.tail(ts)...)
