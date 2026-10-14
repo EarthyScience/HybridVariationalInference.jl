@@ -90,6 +90,13 @@ end
     ccat = @inferred HVI.VcatCAs(axs, θsPv, θsMv, θFixm0)
     @test ((axs, θsPv, θsMv, θFixm0) -> @allocated HVI.VcatCAs(axs, θsPv, θsMv, θFixm0))(
         axs, θsPv, θsMv, θFixm0) == 0
+    # function loop_VcatCAs(n, axs, θsPv, θsMv, θFixm0)
+    #     for i in 1:n
+    #         HVI.VcatCAs(axs, θsPv, θsMv, θFixm0)
+    #     end
+    # end
+    # @profview_allocs loop_VcatCAs(10_000, axs, θsPv, θsMv, θFixm0)
+    # @profview_allocs loop_VcatCAs(10_000, axs, m1c, m2c, θFixm0)
     @test @inferred HVI.viewindex(ccat, Val(:p1), :) == m1c[:p1, :]
     @test @inferred HVI.viewindex(ccat, Val(:p1), 1:2) == m1c[:p1, 1:2]
     @test @inferred HVI.viewindex(ccat, Val(:p1), 2) == m1c[Val(:p1), 2]

@@ -32,6 +32,7 @@ struct VcatCAs{AX, NC, T}
     axs::Val{AX}
     cms::T
     colons::NTuple{NC, Colon}
+    flataxes::NTuple{NC, CA.FlatAxis}
 end
 function VcatCAs(templates::Tuple{Vararg{<:CA.ComponentVector}}, ms...) 
     @assert length(templates) == length(ms)
@@ -45,12 +46,11 @@ end
 @inline function VcatCAs(axs::Tuple{Vararg{<:CA.Axis}}, 
     ms::Vararg{<:AbstractArray{<:Any,N},NM}) where {N, NM}
     flataxes = ntuple(i -> CA.FlatAxis(), N-1)
-    cms = map(ms, axs) do m,ax
+    map(ms, axs) do m,ax
         @assert size(m,1) == axis_length(ax)
-        CA.ComponentArray(CA.getdata(m), ax, flataxes...)
     end
     colons = ntuple(_->Colon(), N-1)
-    VcatCAs(Val(axs), cms, colons)
+    VcatCAs(Val(axs), ms, colons, flataxes)
 end
 
 
@@ -67,9 +67,9 @@ Base.view(ccat::VcatCAs, valsym::Val, cols...) = viewindex(ccat, valsym, cols...
     i_val = findfirst_keyed(AX, sym_val)
     viewindex(ccat, i_val, sym_val, cols)
 end
-@inline function viewindex(ccat::VcatCAs, ::Val{I}, ::Val{sym}, cols::Tuple) where {I, sym}
+@inline function viewindex(ccat::VcatCAs{AX,NC}, ::Val{I}, ::Val{sym}, cols::Tuple) where {I, sym, AX, NC}
     local cm, v
-    cm = ccat.cms[I]
+    cm = CA.ComponentArray(ccat.cms[I], AX[I], ccat.flataxes...)
     v = view(cm, Val(sym), ccat.colons...)
     if cols == ()
         v
@@ -89,6 +89,7 @@ Only invoke with short tuples axs, because a method is generated for
 each key.
 """
 @noinline function findfirst_keyed(axs::Tuple, key::Val{KEY}) where {KEY} 
+    # @noinline to avoid many methods of calling functions, but replaced by constant anyway
     i = findfirst_keyed_(axs, key, 1) # using plain Int here, works because of inlining
     Val(i)   # return Val so that can be used for type stable indexing
     # Claude Sonnet 4.6 told:
@@ -120,7 +121,7 @@ end
 
 @inline function Base.getindex(ccat::VcatCAs{AX}, ::Val{I}, ::Val{sym}, cols::Tuple) where {AX, I,sym}
     local cm
-    cm = ccat.cms[I]
+    cm = CA.ComponentArray(ccat.cms[I], AX[I], ccat.flataxes...)
     getindex(cm, Val(sym), cols...)
 end
 
