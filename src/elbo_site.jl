@@ -285,11 +285,11 @@ function transformζ!(θs, trans, ζs::AbstractArray{TF}) where TF
 end
 
 """
-compute the expected value of the neative log joint density of observations
+compute the expected value of the negative log joint density of observations
 and parameters
 """
 function exp_nLi!(
-    y::AbstractMatrix, 
+    y_pred::AbstractMatrix, 
     θsP::AbstractMatrix,
     θsM::AbstractMatrix,
     nljoint_args_indi::NamedTuple,
@@ -303,15 +303,17 @@ function exp_nLi!(
     # ranef::AbstractRandomEffectsComputer,
     # frac_cluster_all,
 ) 
+    n_obs, n_MC = size(y_pred)
     (;xP, y_o, y_unc, i_indiv_train) = nljoint_args_indi
-    @assert size(xP,2) == length(i_indiv_train)
-    (;f!,) = nljoint_args_fix
+    @assert size(y_o) == size(y_unc) == (n_obs,)
+    @assert size(θsP,2) == size(θsM,2) == n_MC
+    (;f!,fLogLik) = nljoint_args_fix
     #θsPc = CA.ComponentMatrix(θsP, axθP, CA.FlatAxis())
     #θsMc = CA.ComponentMatrix(θsM, axθM, CA.FlatAxis())
-    apply_model!(y, f!, θsP, θsM, xP)
-    n_MC = size(θsP,2)
-    # TODO compute Likelihood
-    nL = sum(y) / n_MC
+    apply_model!(y_pred, f!, θsP, θsM, xP)
+    nL_reg = sum(y_pred) / n_MC
+    nL = fLogLik(y_pred, y_o, y_unc)
+
     # nL = (5 * sum(θsP) + 3 * sum(θsM)) / n_MC
     (; nL,)
     # loss_comps = neg_elbo_ζtf(
@@ -320,26 +322,6 @@ function exp_nLi!(
     #     penalty_computer, ϕg, ϕqc, is_omit_priors, zero_prior_logdensity, 
     #     itrain_sites, intθMs, intθP, ranef, frac_cluster_all)
 end
-
-# function fθpop_dummy1!(pred, θs, xPc::CA.ComponentVector)
-#     local n_θP, n_θM, n_MC, θsPc, θsMc
-#     T = eltype(θs)
-#     # regression to nL = (5 * sum(θsP) + 3 * sum(θsM)) / n_MC
-#     #n_θP = 3; n_θM = 3
-#     n_obs = length(view(xPc, Val(:S1)))
-#     n_θ, n_MC = size(θs)
-#     pred .= zero(eltype(pred))
-#     # i = Val(:a1)
-#     for i in (Val(:a1), Val(:a2), Val(:a3))
-#         # @allocated pred .+= (xPc ./ xPc) .* T(5) .* view(θs,i,:)'
-#         pred .+= (xPc ./ xPc) .* T(5) .* view(θs,i,:)'
-#     end
-#     for i = (Val(:b1), Val(:b2), Val(:b3))  
-#         pred .+= (xPc ./ xPc) .* T(3) .* view(θs,i,:)'
-#     end
-#     pred ./= n_obs
-#     pred
-# end
 
 function fθpop_dummy1!(pred, θs, xPc::CA.ComponentVector{T}) where T
     # variant that computes the model jointly across parameter vectors in a broadcast
@@ -379,5 +361,10 @@ function fθpop_dummy2!(pred, θs, xPc::CA.ComponentVector{T}) where T
     end
     pred ./= n_obs
     pred
+end
+
+function fLogLik_dummy(y_pred, y_o, y_unc)
+    n_obs, n_MC = size(y_pred)
+    sum(y_pred) / n_MC
 end
 

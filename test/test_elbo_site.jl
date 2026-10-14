@@ -130,6 +130,7 @@ isUsingSimpleChains = false
         HVI.fθpop_dummy2!, n_MC; θP=θP_tmplt, θM=θM_tmplt, θFix=CA.ComponentVector{Float64}(), xPvec)
     nljoint_args_fix =(;
          f! = pbm, 
+         fLogLik = HVI.fLogLik_dummy,
          #ax_θP = CA.getaxes(θP_tmplt)[1],
          #axθM = CA.getaxes(θM_tmplt)[1], 
          )
@@ -910,7 +911,7 @@ end
     ϕ2S = (;ϕ2..., ϕqI=CA.getdata(ϕqIcS))
     sample_args2S = (;sample_args2..., approx=approxS, intϕqI=intϕqIS)
     #nljoint_args_fix2S = nljoint_args_fix =(; f! = pbm_col)
-    nljoint_args_fix2S = (; f! = pbm_col)
+    nljoint_args_fix2S = (; nljoint_args_fix..., f! = pbm_col)
     # h2Sp = CP.prepare_elbo_helpers(sample_args2S.approx, ϕg2, ϕqP; 
     #     n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends, use_diff_cache = Val(false))
     rng1 = StableRNG(1234)
