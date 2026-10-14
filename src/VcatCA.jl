@@ -70,6 +70,8 @@ end
 @inline function viewindex(ccat::VcatCAs{AX,NC}, ::Val{I}, ::Val{sym}, cols::Tuple) where {I, sym, AX, NC}
     local cm, v
     cm = CA.ComponentArray(ccat.cms[I], AX[I], ccat.flataxes...)
+    # indexing other dimesnions inside the ComponentArray without Val is type instable
+    #    better view again into the returned SubArray-View
     v = view(cm, Val(sym), ccat.colons...)
     if cols == ()
         v
