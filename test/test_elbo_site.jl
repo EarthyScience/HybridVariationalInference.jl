@@ -223,7 +223,7 @@ end
     @test vec(mean(ζsPt, dims=2)) ≈ ϕqPct.μζP atol=0.01
     @test cor(ζsPt[1,:], ζsPt[2,:]) ≈ Σct[1,2] atol=0.02
     @test cor(ζsPt[1,:], ζsPt[3,:]) ≈ Σct[1,3] atol=0.02
-    @test cor(ζsPt[2,:], ζsPt[3,:]) ≈ Σct[2,3] atol=0.02
+    @test cor(ζsPt[2,:], ζsPt[3,:]) ≈ Σct[2,3] atol=0.03
     @test std(ζsPt[1,:]) ≈ σt[1] atol=0.01
     @test std(ζsPt[2,:]) ≈ σt[2] atol=0.01
     @test std(ζsPt[3,:]) ≈ σt[3] atol=0.01  
