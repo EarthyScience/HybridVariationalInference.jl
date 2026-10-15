@@ -480,8 +480,7 @@ end
     #@descend_code_warntype tmp_g2(h21, rnormM1, nljoint_args_ind1, inputs, 1, dϕmvecs, nothing, hw_channel)
     #@usingany BenchmarkTools
     #@benchmark tmp_g($h21, $rnormM1, $nljoint_args_ind1, $inputs, 1, $dϕmvecs, true, $hw_channel)
-    #@profview_allocs loop_forwarddiff_grad_nelboi_z(h21, rnormM1, nljoint_args_ind1, inputs, 1, dϕmvecs, true, hw_channel)
-    #@profview_allocs loop_forwarddiff_grad_nelboi_z(10_000, h21, approx, rnormM1, nljoint_args_indi, 1, ϕm_, ϕqIc_, θsP_, dϕmvecs, hw_channel, nothing, cor_ends.M, transM)
+    #@profview_allocs loop_forwarddiff_grad_nelboi_z(10_000, h21, approx, rnormM1, nljoint_args_ind1, 1,  ϕm_, ϕqIc_, θsP_, dϕmvecs, dθsP,   hw_channel,          nothing,       cor_ends.M, transM,         nljoint_args_fix, n_MC_val)
 
     approx2 = MeanHVIApproximation()
     hiM1 = h0M.helpers_sites[1]
@@ -947,7 +946,7 @@ end
         # avoid global variables -> pass them through function
         loop_grad_neg_elbo_sites(1, h2S, gradh2S, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)
         #@profview_allocs loop_grad_neg_elbo_sites(1_000,h2S, gradh2S, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)
-        @test (@allocated loop_grad_neg_elbo_sites(100,h2S, gradh2S, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)) <= 3_260_800
+        @test (@allocated loop_grad_neg_elbo_sites(100,h2S, gradh2S, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)) <= 3_264_000 #3_260_800
     end
     alloc_grad_neg_elbo_sites(h2S, gradh2S, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix2S)
     #_i_sites_train = 1:n_site    

@@ -1,8 +1,8 @@
-struct PBMPopulationApplicator{AXS, AXC, MFT, IXT, F} <: AbstractPBMApplicator 
+struct PBMPopulationApplicator{AXS, MFT, MFTD, IXT, F} <: AbstractPBMApplicator 
     fθpop!::F
     θFixm::MFT 
+    θFixm_dc::MFTD 
     axθcomp::Val{AXS} # 3-tuple of axes of θP, θM and θFix
-    axθcat::Val{AXC}
     int_xP::IXT
 end
 
@@ -31,19 +31,19 @@ can be column-indexed by Symbols.
 """
 function PBMPopulationApplicator(fθpop!, n_MC:: Integer; 
     θP::CA.ComponentVector, θM::CA.ComponentVector, θFix::CA.ComponentVector, 
-    xPvec::CA.ComponentVector
-    )
+    xPvec::CA.ComponentVector,
+    diffchunk::ForwardDiff.Chunk{chunk} = ForwardDiff.Chunk(8),
+    ) where chunk
     is_MC = ones(n_MC)'
     # θPm = CA.ComponentMatrix(CA.getdata(θP) .* is_MC, (CA.getaxes(θP)[1], CA.FlatAxis()))
     # θMm = CA.ComponentMatrix(CA.getdata(θM) .* is_MC, (CA.getaxes(θM)[1], CA.FlatAxis()))
     θFixm = CA.getdata(θFix) .* is_MC
     # θ = vcat(vcat(θPm, θMm), θFixm)
     axθ = (CA.getaxes(θP)[1], CA.getaxes(θM)[1], CA.getaxes(θFix)[1])
-    # dummycat = vcat(vcat(θP, θM), θFix) # allocates
-    # axθcat = CA.getaxes(dummycat)[1]
-    axθcat = CA.Axis()
     int_xP = get_concrete(ComponentArrayInterpreter(xPvec))
-    PBMPopulationApplicator(fθpop!, θFixm, Val(axθ), Val(axθcat), int_xP)        
+    # TODO create PAT.DiffCache
+    θFixm_dc = PAT.DiffCache(θFixm, chunk)
+    PBMPopulationApplicator(fθpop!, θFixm, θFixm_dc, Val(axθ), int_xP)        
 end
 
 get_axis_θP(::PBMPopulationApplicator{AX}) where AX = AX[1]
@@ -79,12 +79,18 @@ function apply_model!(pred, app::PBMPopulationApplicator{AXS,AXC}, θsP::Abstrac
     #
     # local data_view = Vcat(CA.getdata(θsP), CA.getdata(θsM), CA.getdata(app.θFixm))  # lazy, no copy!
     # local θc = CA.ComponentArray(data_view, app.axθ)
-    local θc, xPc
+    local θc, xPc, θFixm_dual
     # Symbol access into Vcat allocates in Gradient, roll own VcatCAs
     # θc = CA.ComponentMatrix(
     #     Vcat(CA.getdata(θsP), CA.getdata(θsM), CA.getdata(app.θFixm)),
     #     AXC, CA.FlatAxis())
-    θc = VcatCAs(AXS, CA.getdata(θsP), CA.getdata(θsM), CA.getdata(app.θFixm))
+    # TODO provide PreallocationTools for app.θFixm
+    #θc = VcatCAs(AXS, CA.getdata(θsP), CA.getdata(θsM), CA.getdata(app.θFixm))
+    θFixm_dual = PAT.get_tmp(app.θFixm_dc, CA.getdata(θsP))
+    if typeof(θFixm_dual) != typeof(app.θFixm)
+        copyto!(θFixm_dual, app.θFixm)
+    end
+    θc = VcatCAs(AXS, CA.getdata(θsP), CA.getdata(θsM), θFixm_dual)
     xPc = app.int_xP(CA.getdata(xP))
     app.fθpop!(pred, θc, xPc)  
     pred
