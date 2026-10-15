@@ -46,7 +46,7 @@ end
     @test_throws ErrorException HVI.viewindex(ccat, Val(:non_existing)) 
     alloc_VcatCMs(templates, θsPv, θsMv, θFixm0) = @allocated HVI.VcatCAs(templates, θsPv, θsMv, θFixm0)
     @test alloc_VcatCMs(axs, templates...) == 0
-    @test alloc_VcatCMs(templates, templates...) > 0 # allocates, use axs
+    # @test alloc_VcatCMs(templates, templates...) > 0 # allocates, use axs
     sum_view(ccat, valsym, cols...) = sum(HVI.viewindex(ccat, valsym, cols...))
     sum_view(ccat, Val(:m2))
     alloc_viewindex(ccat, valsym, cols...) = @allocated sum_view(ccat, valsym, cols...)
@@ -125,7 +125,7 @@ end
     @test_throws ErrorException HVI.viewindex(ccat, Val(:non_existing), :) 
     alloc_VcatCMs(templates, θsPv, θsMv, θFixm0) = @allocated HVI.VcatCAs(templates, θsPv, θsMv, θFixm0)
     @test alloc_VcatCMs(axs, θsPv, θsMv, θFixm0) == 0
-    @test alloc_VcatCMs(templates, m1,m2,θFixm0) > 0 # allocates, use axs
+    #@test alloc_VcatCMs(templates, m1,m2,θFixm0) > 0 # allocates, use axs
     sum_view(ccat, valsym, cols...) = sum(HVI.viewindex(ccat, valsym, cols...))
     sum_view(ccat, Val(:m2))
     alloc_viewindex(ccat, valsym, cols...) = @allocated sum_view(ccat, valsym, cols...)

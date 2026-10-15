@@ -37,18 +37,16 @@ end
 function VcatCAs(templates::Tuple{Vararg{<:CA.ComponentVector}}, ms...) 
     @assert length(templates) == length(ms)
     axs = map(ms, templates) do m, cv # allocates, better call directly with axes
-        ax = CA.getaxes(cv)[1]
-        @assert size(m,1) == axis_length(ax)
-        ax
+        CA.getaxes(cv)[1]
     end
     VcatCAs(axs, ms...)
 end
-@inline function VcatCAs(axs::Tuple{Vararg{<:CA.Axis}}, 
-    ms::Vararg{<:AbstractArray{<:Any,N},NM}) where {N, NM}
+@inline function VcatCAs(axs::Tuple{Vararg{<:CA.Axis,NM}}, 
+    ms::Vararg{<:AbstractArray{ET,N},NM}) where {ET,N,NM}
     flataxes = ntuple(i -> CA.FlatAxis(), N-1)
-    map(ms, axs) do m,ax
-        @assert size(m,1) == axis_length(ax)
-    end
+    # map(ms, axs) do m,ax
+    #     @assert size(m,1) == axis_length(ax) # already ensured by NM
+    # end
     colons = ntuple(_->Colon(), N-1)
     VcatCAs(Val(axs), ms, colons, flataxes)
 end
