@@ -252,7 +252,7 @@ function make_nelboiz_lazy_cls(hi, hwi_dc, approx::AbstractHVIApproximation, rno
         local θsP_dual, ϕm_dual, ϕqIc_dual
         ϕm_dual = vec.args[1]
         ϕqIc_dual = CA.ComponentVector(vec.args[2], ax_ϕqI)
-        θsP_dual = copyto!(PAT.get_tmp(hwi_dc.θsP_dc, vec), θsP)
+        θsP_dual = copyto!(PAT.get_tmp(hwi_dc.θsP_dc, vec), θsP) # reshape(reinterpred(
         compute_nelboi_z!(
             hi, approx, rnormM, nljoint_args_indi,
             ϕm_dual, ϕqIc_dual, θsP_dual, 
