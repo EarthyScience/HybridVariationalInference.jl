@@ -43,11 +43,16 @@ function VcatCAs(templates::Tuple{Vararg{<:CA.ComponentVector}}, ms...)
 end
 @inline function VcatCAs(axs::Tuple{Vararg{<:CA.Axis,NM}}, 
     ms::Vararg{<:AbstractArray{ET,N},NM}) where {ET,N,NM}
+    # inline seems to be important for type stability
     flataxes = ntuple(i -> CA.FlatAxis(), N-1)
-    # map(ms, axs) do m,ax
-    #     @assert size(m,1) == axis_length(ax) # already ensured by NM
-    # end
     colons = ntuple(_->Colon(), N-1)
+    #Test.@inferred ms[sample(1:2)] # probably fails because of different AbstractArrays
+    # e.g. one Matrix another ReshapedArray{ from PAT.get_tmp
+    # but indexing into it is type-stable - returns Arrays
+    #Test.@inferred (ms[1][1, colons...],  ms[2][1, colons...])[sample(1:2)]
+    #Test.@inferred (map(m -> m[:,colons...], ms)[sample(1:2)])
+    #ccat = VcatCAs(Val(axs), ms, colons, flataxes)
+    #Test.@inferred view(ccat, Val(:a1))
     VcatCAs(Val(axs), ms, colons, flataxes)
 end
 
