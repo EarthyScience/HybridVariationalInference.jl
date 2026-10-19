@@ -152,6 +152,17 @@ function f_doubleMM_sites(θc_tr::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
     #(rep_fac .* r0') .+ (rep_fac .* r1') .* S1 ./ ((rep_fac .* K1') .+ S1) .* S2 ./ ((rep_fac .* K2') .+ S2)
 end
 
+function f_doubleMM_pop!(pred, θs, xPc::CA.ComponentVector{T}) where T
+    S1 = view(xPc, Val(:S1), :)
+    S2 = view(xPc, Val(:S2), :)
+    is_valid = isfinite.(S1) .&& isfinite.(S2)
+    @row_valviews r0, r1, K1, K2 = θs
+    # each variable is a matrix (n_obs x n_site)
+    pred .= r0' .+ r1' .* S1 ./ (K1' .+ S1) .* S2 ./ (K2' .+ S2)
+    pred
+end
+
+
 # function f_doubleMM_sites(θc_tr::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
 #     # extract the parameters as vectors
 #     VT = typeof(CA.getdata(θc_tr)[:,1])   # workaround for non-type-stable Symbol-indexing
@@ -292,6 +303,9 @@ function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario::Val{scen}) 
     xPvec = int_xP1(vcat(xP_S1, xP_S2))
     if (:useSitePBM ∈ scen)
         PBMSiteApplicator(f_doubleMM; pt.θP, pt.θM, θFix, xPvec)
+    elseif (:usePopPBM ∈ scen)
+        local n_MC = 4
+        PBMPopulationApplicator(f_doubleMM_pop!, n_MC; pt.θP, pt.θM, θFix, xPvec)     
     else
         n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
         PBMPopulationApplicatorTr(f_doubleMM_sites, n_batch; pt.θP, pt.θM, θFix, xPvec)
@@ -404,13 +418,18 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     θMs_true = int_θMs_sites(transM_sites(ζMs_true))
     f_batch = get_hybridproblem_PBmodel(prob; scenario)
     f = create_nsite_applicator(f_batch, n_site)
+    f1 = create_nsite_applicator(f_batch, 1)
     #xP = fill((; S1 = xP_S1, S2 = xP_S2), n_siteall)
     int_xP_sites = ComponentArrayInterpreter(int_xP1, (n_site,))
     xP = int_xP_sites(vcat(repeat(xP_S1, 1, n_site), repeat(xP_S2, 1, n_site)))
     #xP[:S1,:]
     #θP = get_θP(prob) # for DoubleMMCase par_templates gives correct θP
     θP = get_hybridproblem_θP(prob; scenario)
-    (y_true, _) = f(θP, θMs_true', xP)
+    n_obs = 8 #TODO?
+    y_true = zeros(8, n_site)
+    for i_site in 1:n_site
+        HVI.apply_model!(y_true[:,i_site], f1, reshape(θP,length(θP),1), θMs_true[:,i_site:i_site], xP[:,i_site])
+    end
     σ_o = FloatType(0.01)
     #σ_o = FloatType(0.002)
     logσ2_o = FloatType(2) .* log.(σ_o)
@@ -471,6 +490,8 @@ function HVI.get_hybridproblem_HVIApproximation(prob::DoubleMMCase; scenario::Va
         MeanScalingHVIApproximation(block_ends, FT(2) .* log.(FT(0.1) .* θM[block_ends]))
     elseif (:sepvar ∈ scen) 
         MeanVarSepHVIApproximation() 
+    elseif (:uniscaling ∈ scen) 
+        MeanUniScalingHVIApproximation(log(0.1)) 
     else
         MeanHVIApproximationMat()
     end

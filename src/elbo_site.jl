@@ -312,7 +312,8 @@ function exp_nLi!(
     #θsMc = CA.ComponentMatrix(θsM, axθM, CA.FlatAxis())
     apply_model!(y_pred, f!, θsP, θsM, xP)
     nL_reg = sum(y_pred) / n_MC
-    nL = fLogLik(y_pred, y_o, y_unc)
+    nL = fLogLik(y_pred, y_o, y_unc) / n_MC
+
 
     # nL = (5 * sum(θsP) + 3 * sum(θsM)) / n_MC
     (; nL,)
@@ -364,7 +365,6 @@ function fθpop_dummy2!(pred, θs, xPc::CA.ComponentVector{T}) where T
 end
 
 function fLogLik_dummy(y_pred, y_o, y_unc)
-    n_obs, n_MC = size(y_pred)
-    sum(y_pred) / n_MC
+    sum(y_pred) 
 end
 
