@@ -249,10 +249,14 @@ function apply_model!(y, app::NormalScalingModelApplicator, x, ϕ; kwargs...)
         #y[app.range_scaled,:] .= norminvcdf.(app.μ, app.σ, view(y,app.range_scaled,:))
         # = works with Enzyme but allocates a fresh array
         #y[app.range_scaled,:] = norminvcdf.(app.μ, app.σ, view(y,app.range_scaled,:))
-        # need to code the loop by hand
+        # need to code the loop by hand, there activity is clear
         @inbounds for j in axes(y,2), (i,ri) in enumerate(app.range_scaled)
             y[ri,j] = norminvcdf(app.μ[i], app.σ[i], y[ri,j])
         end
+        # shortcircuits the might_alias but Enzyme still gets a mismatched activity of
+        #   the not-taken runtime branch (activity differs on wheter its copied or not)
+        # v = view(y,app.range_scaled,:)
+        # v .= norminvcdf.(app.μ, app.σ, v)
     else
         y .= norminvcdf.(app.μ, app.σ, y) 
     end

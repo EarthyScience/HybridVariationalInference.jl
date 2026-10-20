@@ -46,7 +46,7 @@ function neg_elbo_sites!(
     θsP = h.θsP
     keys_nljoint_args_indi_val = Val(keys(nljoint_args_inds))
     # closure with approx, transM, and kwargs
-    function compute_elboi_z_cl!(hi, rnormM, nljoint_args_indi_tup, ϕm) 
+    function compute_nelboi_z_cl!(hi, rnormM, nljoint_args_indi_tup, ϕm) 
         #nljoint_args_indi = NamedTuple{keys_nljoint_args_indi}(nljoint_args_indi_tup)
         nljoint_args_indi = add_names(nljoint_args_indi_tup, keys_nljoint_args_indi_val)
         compute_nelboi_z!(hi, approx, rnormM, nljoint_args_indi, ϕm, 
@@ -56,7 +56,7 @@ function neg_elbo_sites!(
     #MAYBE: distributed mapreduce: 
     #   https://docs.julialang.org/en/v1/stdlib/Distributed/#Distributed.@distributed
     #   https://github.com/SupaeroDataScience/DE/blob/main/notebooks/Introduction%20to%20MapReduce.ipynb
-    elbo_z = mapreduce(compute_elboi_z_cl!, +, h.helpers_sites, rnormPM.M, zip_eachlastdims(nljoint_args_inds), ϕm_it)
+    elbo_z = mapreduce(compute_nelboi_z_cl!, +, h.helpers_sites, rnormPM.M, zip_eachlastdims(nljoint_args_inds), ϕm_it)
     # E = sum(x -> x.E, res_site)
     # loglik = sum(x -> x.loglik, res_site)
     # costTrans = sum(x -> x.costTrans, res_site)
@@ -85,7 +85,7 @@ function compute_nelboi_z!(hi, approx::AbstractHVIApproximation,
     exp_ladJacTM = transformζ!(hi.θsM, transM, hi.ζsM)  # return value captures ladJacT
     # first component needs to be the full elbo
     exp_nL = exp_nLi!(hi.y, θsP, hi.θsM, nljoint_args_indi, nljoint_args_fix)[1]
-    elbozi = exp_nL - exp_ladJacTM - sum(hi.logσ_ζM)
+    nelboi_z = exp_nL - exp_ladJacTM - sum(hi.logσ_ζM)
 end
 # get_tmp_rec_(x::PAT.DiffCache{<:AbstractArray}, template) = PAT.get_tmp(x, template)
 # function get_tmp_rec_(x::Union{Tuple,NamedTuple}, template) 
