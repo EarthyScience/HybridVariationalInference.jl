@@ -240,7 +240,10 @@ pbm_covar_indices = SA.SVector{length(pbm_covars)}([findfirst(==(k), keys(par_te
     #_i_sites_train = 1:n_site    
     #@usingany BenchmarkTools
     #@benchmark CP.grad_neg_elbo_sites($h2, $gradh2, $rnormPM, $ϕg2v, $ϕqP, $ϕqI, $g2, $pbm_covar_indices2; i_sites_train = _i_sites_train, intϕqP=$intϕqP, intϕqI=$intϕqI, xM=$xM, is_testmode = false)
+end
 
+@testset "HybridPointSolverSite" begin
+    
 end
 
 
