@@ -9,12 +9,12 @@ returns the number of required outputs of the machine learning model
 per site for a parameter vector `θM`.
 
 Subtypes must implement method 
-`get_numberof_θM(::AbstractHVIApproximation, ml_pred::AbstractArray)` that 
-returns the number compponents mean parameters `θM` given the machine learning
-model predictions, if it differs from the default implementation of
-returning their number of rows.
-For example, [`MeanScalingHVIApproximation`](@ref) there are more outputs than
-the mean parameters with the ML model.
+- `get_numberof_θM(::AbstractHVIApproximation, ml_pred::AbstractArray)`: 
+  returns the number of mean parameters in `θM` given the machine learning
+  model predictions, if it differs from the default implementation of
+  returning their number of rows.
+  For example, [`MeanScalingHVIApproximation`](@ref) there are more outputs than
+  the mean parameters with the ML model.
 """
 abstract type AbstractHVIApproximation end,
 function get_numberof_MLinputs end
@@ -52,6 +52,21 @@ ML model predicts a single scaling factor uniform for all variance parameters
 struct MeanUniScalingHVIApproximation{TF} <: AbstractMeanScalingHVIApproximation 
     logσ_ζM_base::TF
 end
+function MeanUniScalingHVIApproximation(app::MeanUniScalingHVIApproximation; 
+    logσ_ζM_base = app.logσ_ζM_base)
+    MeanUniScalingHVIApproximation(logσ_ζM_base)
+end
+function get_numberof_MLinputs(::MeanUniScalingHVIApproximation, θM) 
+    length(θM) + 1
+end
+function get_numberof_θM(::MeanUniScalingHVIApproximation, ml_pred::AbstractArray) 
+    # scalingblocks_ends reports the end position of the parameters, hence, the last
+    # corresponds to the number of overall parameters.
+    length(ml_pred) - 1
+end
+
+
+
 """
     MeanScalingHVIApproximation(scalingblocks_ends, logσ2_ζM_base)
 
