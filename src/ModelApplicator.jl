@@ -177,7 +177,7 @@ It usually corresponds to the type used in other ML-parts of the model, e.g. `Fl
 """
 function NormalScalingModelApplicator(
     app::AbstractModelApplicator, lowers, uppers, FT::Type; 
-    range_scaled = 1:0,
+    range_scaled = nothing, #1:0,
     repeat_inner::Integer = 1) 
     pars = map(lowers, uppers) do lower, upper
         dζ = fit(Normal, @qp_l(lower), @qp_u(upper))
@@ -217,7 +217,7 @@ function apply_model(app::NormalScalingModelApplicator, x, ϕ; kwargs...)
     # @show typeof(app.μ)
     # @show typeof(ϕ)
     @assert eltype(app.μ) == eltype(ϕ)
-    ans = if !isempty(app.range_scaled)
+    ans = if !isnothing(app.range_scaled)
         ans_scaled = norminvcdf.(app.μ, app.σ, index_firstdim(y_perc,app.range_scaled)) # from StatsFuns
         combine_range(y_perc, ans_scaled, app.range_scaled)
     else
@@ -231,8 +231,43 @@ function apply_model(app::NormalScalingModelApplicator, x, ϕ; kwargs...)
     # end
 end
 
-index_firstdim(v::AbstractVector, i) = v[i]
-index_firstdim(v::AbstractMatrix, i) = v[i,:]
+function apply_model!(y, app::NormalScalingModelApplicator, x, ϕ; kwargs...)
+    apply_model!(y, app.app, x, ϕ; kwargs...)
+    # @show typeof(app.μ)
+    # @show typeof(ϕ)
+    @assert eltype(app.μ) == eltype(ϕ)
+    if !isnothing(app.range_scaled)
+        for x in app.range_scaled; @assert(x ∈ axes(y,1)); end
+        # .= fails with Enzyme
+        # The destination is dotview(y, r, :), a view aliasing the active array y. 
+        # The in-place materialize! path runs preprocess → broadcast_unalias → unalias → 
+        # mightalias. Because the destination view may alias an RHS operand (view(y,r,:)), 
+        # Julia inserts a runtime aliasing branch: if they alias, one operand is copied into 
+        # a fresh temporary Vector{Float32}. That conditionally-allocated temp is 
+        # active-or-constant depending on runtime flow — precisely the "Mismatched activity" 
+        # phi node and "Unknown object of type Vector{Float32}"        
+        #y[app.range_scaled,:] .= norminvcdf.(app.μ, app.σ, view(y,app.range_scaled,:))
+        # = works with Enzyme but allocates a fresh array
+        #y[app.range_scaled,:] = norminvcdf.(app.μ, app.σ, view(y,app.range_scaled,:))
+        # need to code the loop by hand, there activity is clear
+        @inbounds for j in axes(y,2), (i,ri) in enumerate(app.range_scaled)
+            y[ri,j] = norminvcdf(app.μ[i], app.σ[i], y[ri,j])
+        end
+        # shortcircuits the might_alias but Enzyme still gets a mismatched activity of
+        #   the not-taken runtime branch (activity differs on wheter its copied or not)
+        # v = view(y,app.range_scaled,:)
+        # v .= norminvcdf.(app.μ, app.σ, v)
+    else
+        y .= norminvcdf.(app.μ, app.σ, y) 
+    end
+    y
+end
+
+
+@inline index_firstdim(v::AbstractVector, i) = v[i]
+@inline index_firstdim(v::AbstractMatrix, i) = v[i,:]
+@inline view_firstdim(v::AbstractVector, i) = view(v, i)
+@inline view_firstdim(v::AbstractMatrix, i) = view(v,i,:)
 
 """
     RangeScalingModelApplicator(app, y0)

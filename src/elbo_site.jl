@@ -44,10 +44,11 @@ function neg_elbo_sites!(
     ϕm_it = eachslice(h[ϕms_buffer_key]; dims = ndims(h[ϕms_buffer_key]))
     template = ϕqI # only important for gradient
     θsP = h.θsP
-    keys_nljoint_args_indi = keys(nljoint_args_inds)
+    keys_nljoint_args_indi_val = Val(keys(nljoint_args_inds))
     # closure with approx, transM, and kwargs
-    function compute_elboi_z_cl!(hi, rnormM, nljoint_args_indi_tup, ϕm) 
-        nljoint_args_indi = NamedTuple{keys_nljoint_args_indi}(nljoint_args_indi_tup)
+    function compute_nelboi_z_cl!(hi, rnormM, nljoint_args_indi_tup, ϕm) 
+        #nljoint_args_indi = NamedTuple{keys_nljoint_args_indi}(nljoint_args_indi_tup)
+        nljoint_args_indi = add_names(nljoint_args_indi_tup, keys_nljoint_args_indi_val)
         compute_nelboi_z!(hi, approx, rnormM, nljoint_args_indi, ϕm, 
         ϕqIc, θsP, cor_ends.M, transM, nljoint_args_fix) 
     end
@@ -55,14 +56,15 @@ function neg_elbo_sites!(
     #MAYBE: distributed mapreduce: 
     #   https://docs.julialang.org/en/v1/stdlib/Distributed/#Distributed.@distributed
     #   https://github.com/SupaeroDataScience/DE/blob/main/notebooks/Introduction%20to%20MapReduce.ipynb
-    elbo_z = mapreduce(compute_elboi_z_cl!, +, h.helpers_sites, rnormPM.M, zip_eachlastdims(nljoint_args_inds), ϕm_it)
+    elbo_z = mapreduce(compute_nelboi_z_cl!, +, h.helpers_sites, rnormPM.M, zip_eachlastdims(nljoint_args_inds), ϕm_it)
     # E = sum(x -> x.E, res_site)
     # loglik = sum(x -> x.loglik, res_site)
     # costTrans = sum(x -> x.costTrans, res_site)
     #elbo = sum(first, res_site) - sum(h.logσ_ζP)
     elbo = elbo_z - exp_ladJacTP - sum(h.logσ_ζP)
-    (; elbo, ζsP=copy(h.ζsP), ϕm=copy(h[ϕms_buffer_key]))
 end
+
+add_names(tup, ::Val{KEYS}) where KEYS = NamedTuple{KEYS}(tup)
 
 
 
@@ -72,7 +74,6 @@ function compute_nelboi_z!(hi, approx::AbstractHVIApproximation,
     cor_endsM, transM, nljoint_args_fix, ) 
     # DM is 1 (vector) if no population covariates - constant across MC
     #       2 (Matrix) if g is driven by population covariates - differs across MC
-    (;xP, i_indiv_train) = nljoint_args_indi
     # on update -> sync corresponding function within grad_neg_elbo_sites
     if hi.ζsM isa PAT.DiffCache
         # Gradiend called twice because of different dimensions need to pick the Dual
@@ -84,7 +85,7 @@ function compute_nelboi_z!(hi, approx::AbstractHVIApproximation,
     exp_ladJacTM = transformζ!(hi.θsM, transM, hi.ζsM)  # return value captures ladJacT
     # first component needs to be the full elbo
     exp_nL = exp_nLi!(hi.y, θsP, hi.θsM, nljoint_args_indi, nljoint_args_fix)[1]
-    elbozi = exp_nL - exp_ladJacTM - sum(hi.logσ_ζM)
+    nelboi_z = exp_nL - exp_ladJacTM - sum(hi.logσ_ζM)
 end
 # get_tmp_rec_(x::PAT.DiffCache{<:AbstractArray}, template) = PAT.get_tmp(x, template)
 # function get_tmp_rec_(x::Union{Tuple,NamedTuple}, template) 
@@ -312,8 +313,7 @@ function exp_nLi!(
     #θsMc = CA.ComponentMatrix(θsM, axθM, CA.FlatAxis())
     apply_model!(y_pred, f!, θsP, θsM, xP)
     nL_reg = sum(y_pred) / n_MC
-    nL = fLogLik(y_pred, y_o, y_unc)
-
+    nL = fLogLik(y_pred, y_o, y_unc) / n_MC
     # nL = (5 * sum(θsP) + 3 * sum(θsM)) / n_MC
     (; nL,)
     # loss_comps = neg_elbo_ζtf(
@@ -364,7 +364,6 @@ function fθpop_dummy2!(pred, θs, xPc::CA.ComponentVector{T}) where T
 end
 
 function fLogLik_dummy(y_pred, y_o, y_unc)
-    n_obs, n_MC = size(y_pred)
-    sum(y_pred) / n_MC
+    sum(y_pred)
 end
 

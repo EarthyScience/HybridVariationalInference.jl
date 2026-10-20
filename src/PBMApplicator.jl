@@ -1,9 +1,9 @@
-struct PBMPopulationApplicator{AXS, MFT, MFTD, IXT, F} <: AbstractPBMApplicator 
+struct PBMPopulationApplicator{AXS, AXP, MFT, MFTD, F} <: AbstractPBMApplicator 
     fθpop!::F
     θFixm::MFT 
     θFixm_dc::MFTD 
     axθcomp::Val{AXS} # 3-tuple of axes of θP, θM and θFix
-    int_xP::IXT
+    ax_xP::Val{AXP}
 end
 
 # let fmap not descend into isP, because indexing with isP on cpu is faster
@@ -30,43 +30,34 @@ can be column-indexed by Symbols.
 - `xPvec`: `ComponentVector` template of model drivers for a single site
 """
 function PBMPopulationApplicator(fθpop!, n_MC:: Integer; 
-    θP::CA.ComponentVector, θM::CA.ComponentVector, θFix::CA.ComponentVector, 
+    θP::CA.ComponentVector{FT}, θM::CA.ComponentVector, θFix::CA.ComponentVector, 
     xPvec::CA.ComponentVector,
     diffchunk::ForwardDiff.Chunk{chunk} = ForwardDiff.Chunk(8),
-    ) where chunk
-    is_MC = ones(n_MC)'
+    ) where {FT,chunk}
+    is_MC = ones(FT, n_MC)'
     # θPm = CA.ComponentMatrix(CA.getdata(θP) .* is_MC, (CA.getaxes(θP)[1], CA.FlatAxis()))
     # θMm = CA.ComponentMatrix(CA.getdata(θM) .* is_MC, (CA.getaxes(θM)[1], CA.FlatAxis()))
-    θFixm = CA.getdata(θFix) .* is_MC
+    θFixm = convert.(FT,CA.getdata(θFix)) .* is_MC
+    θFixm_dc = PAT.DiffCache(θFixm, chunk)
     # θ = vcat(vcat(θPm, θMm), θFixm)
     axθ = (CA.getaxes(θP)[1], CA.getaxes(θM)[1], CA.getaxes(θFix)[1])
-    int_xP = get_concrete(ComponentArrayInterpreter(xPvec))
-    # TODO create PAT.DiffCache
-    θFixm_dc = PAT.DiffCache(θFixm, chunk)
-    PBMPopulationApplicator(fθpop!, θFixm, θFixm_dc, Val(axθ), int_xP)        
+    ax_xP = CA.getaxes(xPvec)[1]
+    PBMPopulationApplicator(fθpop!, θFixm, θFixm_dc, Val(axθ), Val(ax_xP))        
 end
 
 get_axis_θP(::PBMPopulationApplicator{AX}) where AX = AX[1]
 get_axis_θM(::PBMPopulationApplicator{AX}) where AX = AX[2]
 
-function create_nsite_applicator(app::PBMPopulationApplicator, n_site) 
-    error("implenment create_nsite_applicator(app::PBMPopulationApplicator")
-    # θFix = app.θFixm[1,:]
-    # isFix = repeat(axes(θFix, 1)', n_site)
-    # θFixm = if length(θFix) == 0
-    #     CA.ComponentMatrix(θFix[isFix], (CA.FlatAxis(), CA.FlatAxis()))
-    # else
-    #     CA.ComponentMatrix(θFix[isFix], (CA.FlatAxis(), CA.getaxes(θFix)[1]))
-    # end
-    # #
-    # intθ = get_concrete(ComponentArrayInterpreter((n_site,), (CA.getaxes(app.intθ)[2],),()))
-    # int_xP = get_concrete(ComponentArrayInterpreter(
-    #     (), (CA.getaxes(app.int_xP)[1],), (n_site,)))
-    # rep_fac = ones_similar_x(θFix, n_site) # to reshape into matrix, avoiding repeat
-    # PBMPopulationApplicator(app.fθpop!, θFixm, rep_fac, intθ, int_xP)        
+function create_nsite_applicator(app::PBMPopulationApplicator, n_MC;
+    diffchunk::ForwardDiff.Chunk{chunk} = ForwardDiff.Chunk(8),
+    ) where chunk
+    is_MC = ones(eltype(app.θFixm), n_MC)'
+    θFixm = CA.getdata(app.θFixm[:,1]) .* is_MC
+    θFixm_dc = PAT.DiffCache(θFixm, chunk)
+    PBMPopulationApplicator(app.fθpop!, θFixm, θFixm_dc, app.axθcomp, app.ax_xP)        
 end
 
-function apply_model!(pred, app::PBMPopulationApplicator{AXS,AXC}, θsP::AbstractMatrix, θsM::AbstractMatrix, xP) where {AXS,AXC}
+function apply_model!(pred, app::PBMPopulationApplicator{AXS,AXP}, θsP::AbstractMatrix, θsM::AbstractMatrix, xP) where {AXS,AXP}
     # function tmpf(θsP, θsM, app) 
     #     @allocated Vcat(CA.getdata(θsP), CA.getdata(θsM), CA.getdata(app.θFixm))
     # end
@@ -86,15 +77,47 @@ function apply_model!(pred, app::PBMPopulationApplicator{AXS,AXC}, θsP::Abstrac
     #     AXC, CA.FlatAxis())
     # TODO provide PreallocationTools for app.θFixm
     #θc = VcatCAs(AXS, CA.getdata(θsP), CA.getdata(θsM), CA.getdata(app.θFixm))
-    θFixm_dual = PAT.get_tmp(app.θFixm_dc, CA.getdata(θsP))
-    if typeof(θFixm_dual) != typeof(app.θFixm)
-        copyto!(θFixm_dual, app.θFixm)
+    θFixm_dual = if eltype(θsP) <: ForwardDiff.Dual
+        copyto!(PAT.get_tmp(app.θFixm_dc, CA.getdata(θsP)), app.θFixm)
+    else
+        app.θFixm
     end
     θc = VcatCAs(AXS, CA.getdata(θsP), CA.getdata(θsM), θFixm_dual)
-    xPc = app.int_xP(CA.getdata(xP))
+    #xPc = app.int_xP(CA.getdata(xP))
+    #xPc = CA.ComponentArray(CA.getdata(xP), AXP, θc.flataxes...)
+    xPc = CA.ComponentVector(CA.getdata(xP), AXP)
     app.fθpop!(pred, θc, xPc)  
+    #app.fθpop!(pred, θc, xP)  
     pred
 end
 
+function (app::PBMPopulationApplicator)(θP::AbstractMatrix{FT}, θMs_tr::AbstractArray, xP::AbstractMatrix) where FT
+    local n_obs, n_site, n_par, n_MC, pred
+    n_obs = get_n_obs(xP[:,1])
+    n_site, n_par, n_MC = size(θMs_tr)
+    # @assert n_MC = size(θP,2)
+    pred = zeros(FT, n_obs, n_site, n_MC)
+    for i_site in 1:n_site
+        HVI.apply_model!(pred[:,i_site,:], app, θP, θMs_tr[i_site,:,:], xP[:,i_site])
+    end
+    (pred, nothing)
+end
+function (app::PBMPopulationApplicator)(θP::AbstractVector{FT}, θMs_tr::AbstractMatrix, xP::AbstractMatrix) where FT
+    # for a single MC-run
+    local n_obs, n_site, pred, θsP, θsM
+    n_obs = get_n_obs(xP[:,1])
+    n_site, n_θM = size(θMs_tr)
+    θsP = reshape(θP, length(θP), 1)
+    pred = zeros(FT, n_obs, n_site, 1)
+    # i_site = 1
+    for i_site in 1:n_site
+        θsM = reshape(view(θMs_tr,i_site,:), n_θM, 1)
+        apply_model!(view(pred,:,i_site,:), app, θsP, θsM, xP[:,i_site])
+    end
+    (pred[:,:,1], nothing)
+end
 
+function get_n_obs(xP::CA.ComponentVector)
+    isempty(keys(xP)) ? length(xP) : length(xP[keys(xP)[1]])
+end
 

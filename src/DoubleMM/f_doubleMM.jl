@@ -152,6 +152,17 @@ function f_doubleMM_sites(θc_tr::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
     #(rep_fac .* r0') .+ (rep_fac .* r1') .* S1 ./ ((rep_fac .* K1') .+ S1) .* S2 ./ ((rep_fac .* K2') .+ S2)
 end
 
+function f_doubleMM_pop!(pred, θs, xPc::CA.ComponentVector{T}) where T
+    S1 = view(xPc, Val(:S1), :)
+    S2 = view(xPc, Val(:S2), :)
+    # is_valid = isfinite.(S1) .&& isfinite.(S2)
+    @row_valviews r0, r1, K1, K2 = θs
+    # each variable is a matrix (n_obs x n_site)
+    pred .= r0' .+ r1' .* S1 ./ (K1' .+ S1) .* S2 ./ (K2' .+ S2)
+    pred
+end
+
+
 # function f_doubleMM_sites(θc_tr::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
 #     # extract the parameters as vectors
 #     VT = typeof(CA.getdata(θc_tr)[:,1])   # workaround for non-type-stable Symbol-indexing
@@ -226,10 +237,13 @@ function HVI.get_hybridproblem_MLapplicator(
     (; transM) = get_hybridproblem_transforms(prob; scenario)
     lowers, uppers = HVI.get_quantile_transformed(priors, transM)
     #n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-    range_scaled = if any((:scalingall, :clustered_sites, :clustered_sites2) .∈ Ref(scen))
+    approx = get_hybridproblem_HVIApproximation(prob; scenario)
+    range_scaled = if approx isa AbstractMeanScalingHVIApproximation
+    #range_scaled = if any((:scalingall, :clustered_sites, :clustered_sites2, :uniscaling) .∈ Ref(scen))
+        # TODO make this dependent on approx
         1:length(θM)
     else
-        1:0
+        nothing
     end
     g = if (:use_rangescaling ∈ scen)
         RangeScalingModelApplicator(g_nomag, lowers, uppers, eltype(ϕ_g0); range_scaled)
@@ -292,6 +306,9 @@ function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario::Val{scen}) 
     xPvec = int_xP1(vcat(xP_S1, xP_S2))
     if (:useSitePBM ∈ scen)
         PBMSiteApplicator(f_doubleMM; pt.θP, pt.θM, θFix, xPvec)
+    elseif (:usePopPBM ∈ scen)
+        local n_MC = 1  # default n_MC to implement no-MC version of apply_model
+        PBMPopulationApplicator(f_doubleMM_pop!, n_MC; pt.θP, pt.θM, θFix, xPvec)     
     else
         n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
         PBMPopulationApplicatorTr(f_doubleMM_sites, n_batch; pt.θP, pt.θM, θFix, xPvec)
@@ -324,8 +341,12 @@ end
 #     return pred_global, pred_sites
 # end
 
-function HVI.get_hybridproblem_neg_logden_obs(::DoubleMMCase; scenario::Val)
-    neg_logden_indep_normal
+function HVI.get_hybridproblem_neg_logden_obs(::DoubleMMCase; scenario::Val{scen}) where scen
+    if (:usePopPBM ∈ scen)    
+        HVI.neg_logden_indep_normal_sum
+    else
+        neg_logden_indep_normal
+    end
 end
 
 # function HVI.get_hybridproblem_float_type(::DoubleMMCase; scenario)
@@ -410,7 +431,7 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     #xP[:S1,:]
     #θP = get_θP(prob) # for DoubleMMCase par_templates gives correct θP
     θP = get_hybridproblem_θP(prob; scenario)
-    (y_true, _) = f(θP, θMs_true', xP)
+    (y_true, _) = f(θP, θMs_true', xP)    
     σ_o = FloatType(0.01)
     #σ_o = FloatType(0.002)
     logσ2_o = FloatType(2) .* log.(σ_o)
@@ -471,6 +492,8 @@ function HVI.get_hybridproblem_HVIApproximation(prob::DoubleMMCase; scenario::Va
         MeanScalingHVIApproximation(block_ends, FT(2) .* log.(FT(0.1) .* θM[block_ends]))
     elseif (:sepvar ∈ scen) 
         MeanVarSepHVIApproximation() 
+    elseif (:uniscaling ∈ scen) 
+        MeanUniScalingHVIApproximation(log(0.1)) 
     else
         MeanHVIApproximationMat()
     end
