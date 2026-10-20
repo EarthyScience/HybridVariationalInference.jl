@@ -155,7 +155,7 @@ end
 function f_doubleMM_pop!(pred, θs, xPc::CA.ComponentVector{T}) where T
     S1 = view(xPc, Val(:S1), :)
     S2 = view(xPc, Val(:S2), :)
-    is_valid = isfinite.(S1) .&& isfinite.(S2)
+    # is_valid = isfinite.(S1) .&& isfinite.(S2)
     @row_valviews r0, r1, K1, K2 = θs
     # each variable is a matrix (n_obs x n_site)
     pred .= r0' .+ r1' .* S1 ./ (K1' .+ S1) .* S2 ./ (K2' .+ S2)
@@ -243,7 +243,7 @@ function HVI.get_hybridproblem_MLapplicator(
         # TODO make this dependent on approx
         1:length(θM)
     else
-        1:0
+        nothing
     end
     g = if (:use_rangescaling ∈ scen)
         RangeScalingModelApplicator(g_nomag, lowers, uppers, eltype(ϕ_g0); range_scaled)

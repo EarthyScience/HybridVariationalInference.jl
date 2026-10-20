@@ -44,10 +44,11 @@ function neg_elbo_sites!(
     ϕm_it = eachslice(h[ϕms_buffer_key]; dims = ndims(h[ϕms_buffer_key]))
     template = ϕqI # only important for gradient
     θsP = h.θsP
-    keys_nljoint_args_indi = keys(nljoint_args_inds)
+    keys_nljoint_args_indi_val = Val(keys(nljoint_args_inds))
     # closure with approx, transM, and kwargs
     function compute_elboi_z_cl!(hi, rnormM, nljoint_args_indi_tup, ϕm) 
-        nljoint_args_indi = NamedTuple{keys_nljoint_args_indi}(nljoint_args_indi_tup)
+        #nljoint_args_indi = NamedTuple{keys_nljoint_args_indi}(nljoint_args_indi_tup)
+        nljoint_args_indi = add_names(nljoint_args_indi_tup, keys_nljoint_args_indi_val)
         compute_nelboi_z!(hi, approx, rnormM, nljoint_args_indi, ϕm, 
         ϕqIc, θsP, cor_ends.M, transM, nljoint_args_fix) 
     end
@@ -61,8 +62,9 @@ function neg_elbo_sites!(
     # costTrans = sum(x -> x.costTrans, res_site)
     #elbo = sum(first, res_site) - sum(h.logσ_ζP)
     elbo = elbo_z - exp_ladJacTP - sum(h.logσ_ζP)
-    (; elbo, ζsP=copy(h.ζsP), ϕm=copy(h[ϕms_buffer_key]))
 end
+
+add_names(tup, ::Val{KEYS}) where KEYS = NamedTuple{KEYS}(tup)
 
 
 

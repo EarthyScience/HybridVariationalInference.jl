@@ -43,8 +43,8 @@ function grad_neg_elbo_sites(
     nljoint_args_indi = NamedTuple{keys(nljoint_args_inds)}(
         first(zip_eachlastdims(nljoint_args_inds)))
     gradh = !isempty(grad_elbo_helpers) ? grad_elbo_helpers : 
-    Test.@inferred prepare_gradelbo_helpers(
-    #prepare_gradelbo_helpers(
+    #Test.@inferred prepare_gradelbo_helpers(
+    prepare_gradelbo_helpers(
         ϕqIc, selectdim(h_ϕm, ndims(h_ϕm), 1), h.ζsP, ϕg, ϕqPc, approx; 
         pbm_covar_indices, n_workers,
         h, rnormMi = rnormPM.M[1], nljoint_args_indi,
@@ -349,7 +349,7 @@ function get_pullback_g_apply(::AbstractArray{TG}, ::AbstractArray{TF};
         # assert that buffers were constructed with correct sizes
         n_cov_f, n_site_f = size(xM)
         n_covP_f = isnothing(pbm_covar_indices) ? 0 : length(pbm_covar_indices)
-        n_MC_f = size(ζsP,1)
+        n_MC_f = size(ζsP,2)
         @assert (n_cov, n_covP, n_MC, n_site) == (n_cov_f, n_covP_f, n_MC_f, n_site_f)
         @assert size(dϕms_buffer) == size(dϕm)
     

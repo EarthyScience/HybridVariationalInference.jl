@@ -67,11 +67,13 @@ function neg_logden_indep_normal(obs::AbstractArray{TO,DO}, μ::AbstractArray{TP
 
 end
 
-function neg_logden_indep_normal_sum(obs::AbstractArray{TO,DO}, μ::AbstractArray{TP,DP}, logσ2::AbstractArray{TO}; 
-    i_finobs = .! isnan.(obs), # TODO provide with y_unc to save allocations
-    σfac=one(TO)) where {TO, TP, DO, DP}
+function neg_logden_indep_normal_sum(obs::AbstractArray{TO,DO}, μ::AbstractArray, logσ2::AbstractArray; 
+    #i_finobs = .! isnan.(obs), # TODO provide with y_unc to save allocations
+    σfac=one(TO)) where {TO, DO}
+    return sum(obs)
     sum(        
-        i_finobs .* (σfac .* logσ2 .+ abs2.(obs .- μ) .* exp.(.-logσ2)) ./ eltype(μ)(2)
+        #i_finobs .* (σfac .* logσ2 .+ abs2.(obs .- μ) .* exp.(.-logσ2)) ./ eltype(μ)(2)
+        (σfac .* logσ2 .+ abs2.(obs .- μ) .* exp.(.-logσ2)) ./ eltype(μ)(2)
     )
 end
 
