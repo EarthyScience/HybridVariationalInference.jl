@@ -15,6 +15,7 @@ using Bijectors
 #import PreallocationTools as PAT
 import JLD2
 import PDMats
+import StaticArrays as SA
 
 import Lux
 # import Enzyme
@@ -36,7 +37,7 @@ n_θM = length(par_templates.θM)
 n_cov = get_hybridproblem_n_covar(prob; scenario)
 pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
 n_covP = length(pbm_covars)
-
+pbm_covar_indices = SA.SVector{length(pbm_covars)}([findfirst(==(k), keys(par_templates.θP)) for k in pbm_covars])
 
 
     g, ϕg = get_hybridproblem_MLapplicator(prob; scenario)
@@ -47,15 +48,19 @@ n_covP = length(pbm_covars)
     transP, transM  = get_hybridproblem_transforms(prob; scenario)
     #
     cor_ends = get_hybridproblem_cor_ends(prob; scenario)
+    approx1 = get_hybridproblem_HVIApproximation(prob; scenario)
+
     # TODO update init_hybrid_ϕunc
+    ϕq, approx = init_hybrid_ϕunc(approx1, cor_ends; transM, par_templates.θM, n_site)
     ϕqPc1 = CA.ComponentVector(
         μζP = log.(CA.getdata(par_templates.θP)),
-        logσ_ζP = ones(n_θP) .* log(0.01),
-        ρsP = [0.1],
+        #logσ_ζP = ones(n_θP) .* log(0.01),
+        logσ_ζP = ϕq.logσ_ζP,
+        ρsP = ϕq.ρsP,
         )
     ϕqIc1 = CA.ComponentVector(
-        logσ_ζM = ones(n_θM) .* log(0.01),
-        ρsM = [0.1],
+        logσ_ζM_offsets = ϕq.logσ_ζM_offsets,
+        ρsM = ϕq.ρsM,
         )
     ϕqP = ϕqP2 = CA.getdata(ϕqPc1)
     ϕqI = CA.getdata(ϕqIc1)
@@ -64,7 +69,7 @@ n_covP = length(pbm_covars)
     #
     indiv_args1 = (;xM = CA.getdata(xM)[:,i_indiv_batch], xP = CA.getdata(xP)[:,i_indiv_batch], 
         y_o = CA.getdata(y_o)[:,i_indiv_batch], y_unc = CA.getdata(y_unc)[:,i_indiv_batch], 
-        indiv_train = i_indiv_batch) 
+        i_indiv_train = i_indiv_batch) 
     #
     pbm = create_nsite_applicator(get_hybridproblem_PBmodel(prob; scenario), n_MC; diffchunk)      
     nljoint_args_fix =(;
@@ -72,13 +77,14 @@ n_covP = length(pbm_covars)
          fLogLik = get_hybridproblem_neg_logden_obs(prob; scenario)
          )
 
-    ϕqIcS = CA.ComponentVector(;logσ_ζM_offsets = ϕqIc1.logσ_ζM[2:end] .- ϕqIc1.logσ_ζM[1], ϕqIc1.ρsM)
-    intϕqIS = get_concrete(ComponentArrayInterpreter(ϕqIcS))
-    approxS_ = CP.MeanUniScalingHVIApproximation(ϕqIc1.logσ_ζM[1])
-    approxS = get_hybridproblem_HVIApproximation(prob; scenario)
-    n_M = get_numberof_MLinputs(approxS, par_templates.θM)
-    h0S = CP.prepare_elbo_helpers(approxS, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP, n_M, cor_ends, n_obs);
-    randn!(h0S.θsP) # for testing should initialized to finite values
+    # ϕqIcS = CA.ComponentVector(;logσ_ζM_offsets = ϕqIc1.logσ_ζM[2:end] .- ϕqIc1.logσ_ζM[1], ϕqIc1.ρsM)
+    # intϕqIS = get_concrete(ComponentArrayInterpreter(ϕqIcS))
+    # approxS_ = CP.MeanUniScalingHVIApproximation(ϕqIc1.logσ_ζM[1])
+    # approxS = get_hybridproblem_HVIApproximation(prob; scenario)
+    n_M = get_numberof_MLinputs(approx, par_templates.θM)
+    h0 = CP.prepare_elbo_helpers(approx, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP, n_M, cor_ends, n_obs);
+    randn!(h0.θsP) # for testing should initialized to finite values
+    rnormPM = CP.prepare_rnorm(ϕqP; n_θP, n_θM, n_MC, n_site)
 
 #-------------------------------------------------------------
 
@@ -183,359 +189,10 @@ n_covP = length(pbm_covars)
         ϕms1, ϕqIc, θsP1, cor_ends.M, transM, nljoint_args_fix)
 end
 
-@testset "pullback_g_apply!" begin
-    #     @test ϕms0 == ϕms0z
-    #     @test ϕms2 == ϕms2z
-    #     @test size(ϕms0) == (n_M, n_site) 
-    #     @test size(ϕms2) == (n_M, n_MC, n_site) 
-    #     () -> begin # gradient(sum)
-    #         gr_zygote = Zygote.gradient((ϕg2) -> sum(CP.g_apply_oop(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)), ϕg2v )
-    #         s, pullback_s_zygote = Zygote.pullback((ϕg2) -> sum(CP.g_apply_oop(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP)), ϕg2v )
-    #         #gr_zygote2 = pullback_s_zygote(ones(eltype(ϕg2v), size(ϕg2v)...))
-    #         gr_zygote2 = pullback_s_zygote(one(eltype(ϕg2v)))
-    #         @test gr_zygote2[1] ≈ gr_zygote[1]
-    #         y, pullback_zygote = Zygote.pullback((ϕg2) -> CP.g_apply_oop(ϕg2, xM, ζP, pbm_covar_indices2, g2, xMP), ϕg2v )
-    #         gr_zygote3 = pullback_zygote(ones(eltype(y), size(y)...))
-    #         gr_zygote3[1] ≈ gr_zygote[1]
-    #     end
-    #     # 
-    #     # concatenate function f3(g(ϕ_g))
-    #     f3 = (x) -> sum(3.0 .* x)
-    #     CP.g_apply_oop(ϕg2, xM, ζsP, pbm_covar_indices2, g2, xMP)
-    #     # one pass of composed function
-    #     gr_zygote = Zygote.gradient((ϕg2, ζsP) -> f3(CP.g_apply_oop(ϕg2, xM, ζsP, pbm_covar_indices2, g2, xMP)), ϕg2v, ζsP )
-    #     s, pullback_s_zygote = Zygote.pullback((ϕg2) -> f3(CP.g_apply_oop(ϕg2, xM, ζsP, pbm_covar_indices2, g2, xMP)), ϕg2v )
-    #     gr_zygote2 = pullback_s_zygote(one(eltype(s)))
-    #     @test gr_zygote2[1] ≈ gr_zygote[1]
-    #     # mixed AD, differentiate f3 by FowardDiff and pull back through g
-    #     y_oop = CP.g_apply_oop(ϕg2, xM, ζsP, pbm_covar_indices2, g2, xMP)
-    #     #gr_h = Zygote.gradient(y -> sum(f3(y)), y1)[1]
-    #     gr_h = ForwardDiff.gradient(y -> sum(f3(y)), y_oop)
-    #     y, pullback_zygote = Zygote.pullback((ϕg2) -> CP.g_apply_oop(ϕg2, xM, ζsP, pbm_covar_indices2, g2, xMP), ϕg2v )
-    #     @test y == y_oop
-    #     gr_zygote3 = pullback_zygote(gr_h)
-    #     gr_zygote3[1] ≈ gr_zygote[1]
-    #     #
-    #     dϕg = zero(ϕg2v)
-    #     dζsP = zero(ζsP)
-    #     #Enzyme.make_one!(y)
-    #     y .= rand()
-    #     dϕg .= rand() # check that initial values do not effect result
-    #     dζsP .= rand() # check that initial values do not effect result
-    #     dy = convert.(eltype(y), gr_h)
-    #     CP.pullback_g_apply!(y, dϕg, dζsP, dy, ϕg2v, xM, ζsP, pbm_covar_indices2, g2, h)
-    #     @test y == y_oop
-    #     @test dϕg ≈ gr_zygote[1]
-    #     @test dζsP ≈ gr_zygote[2] rtol=1e-3
-    #     @test dy ≈ gr_h # not modified
-    #     #@benchmark CP.pullback_g_apply!(y, dϕg, dy, ϕg2v, xM, ζsP, pbm_covar_indices2, g2, h)
-    #     #
-        # () -> begin # explicitly splitting the forward and backward pass
-        #     # they get cached anymay and require allocating the Duplicated Wrappers twice
-        #     #   hence there is no performance benefit
-        #     # Compile once outside the hot loop
-        #     fwd, rev = Enzyme.autodiff_thunk(
-        #         Enzyme.ReverseSplitNoPrimal,
-        #         Enzyme.Const{typeof(g_apply!)},
-        #         Enzyme.Const,
-        #         Enzyme.Duplicated{typeof(y)},
-        #         Enzyme.Duplicated{typeof(ϕg2v)},
-        #         Enzyme.Const{typeof(xM)},
-        #         Enzyme.Const{typeof(ζP)},
-        #         Enzyme.Const{typeof(pbm_covar_indices2)},
-        #         Enzyme.Const{typeof(g2)},
-        #         Enzyme.Duplicated{typeof(h.xMP)}
-        #     )
-        #     # take care, dy is also modified
-        #     function grad2_g_apply!(y, dϕg, dy, ϕg, xM, ζP, pbm_covar_indices, g, h, fwd, rev)
-        #         fill!(dϕg, zero(eltype(dϕg)))
-        #         fill!(h.dxMP,  zero(eltype(h.dxMP)))
-        #         copyto!(h.dy, dy) # copy to avoid modifying dy
-        #         tape, _, _ = fwd(
-        #             Enzyme.Const(g_apply!),
-        #             Enzyme.Duplicated(y, h.dy),
-        #             Enzyme.Duplicated(ϕg, dϕg),
-        #             Enzyme.Const(xM),
-        #             Enzyme.Const(ζP),
-        #             Enzyme.Const(pbm_covar_indices),
-        #             Enzyme.Const(g),
-        #             Enzyme.Duplicated(h.xMP, h.dxMP)
-        #         )
-        #         rev(
-        #             Enzyme.Const(g_apply!),
-        #             Enzyme.Duplicated(y, h.dy),
-        #             Enzyme.Duplicated(ϕg, dϕg),
-        #             Enzyme.Const(xM),
-        #             Enzyme.Const(ζP),
-        #             Enzyme.Const(pbm_covar_indices),
-        #             Enzyme.Const(g),
-        #             Enzyme.Duplicated(h.xMP, h.dxMP),
-        #             tape
-        #         )
-        #         return nothing
-        #     end
-
-    #         dy = convert.(eltype(y), gr_h) 
-    #         grad2_g_apply!(y, dϕg, dy, ϕg2v, xM, ζP, pbm_covar_indices2, g2, h, fwd, rev)
-    #         @test y == y_oop
-    #         @test dϕg ≈ gr_zygote[1]
-    #         @test dy ≈ gr_h # not modified
-    #         #@usingany BenchmarkTools
-    #         #@benchmark grad2_g_apply!(y, dϕg, dy, ϕg2v, xM, ζP, pbm_covar_indices2, g2, h, fwd, rev)
-    #     end
-end
-
-@testset "pullback_sample_ζsP!" begin
-    #     ϕqPc = intϕqP(ϕqP)
-    #     rnormP = zero(ζsP)
-    #     randn!(rnormP)  # before input gaussian noise
-    #     ζsP .= 0
-    #     #logσ_ζP = zero(ϕqPc.logσ_ζP) # cretes a view rather than copy
-    #     logσ_ζP = zero(ϕqPc.logσ_ζP)
-    #     CP.sample_ζsP!(ζsP, logσ_ζP, rnormP, ϕqPc)
-    #     mean(ζsP; dims=2)
-    #     ζsP1 = copy(ζsP)
-
-    #     # Enzyme result via the mutating routine (2-D: n_θP * n_MC × n_in)
-    #     dζsP = zero(ζsP) .+ one(eltype(ζsP))
-    #     dlogσ_ζP = zero(logσ_ζP) .+ one(eltype(ζsP))
-    #     dϕqc = zero(ϕqPc) 
-
-    #     randn!(dϕqc) # test that is zerod inside pullback
-    #     dζsP_ = copy(dζsP)
-    #     rnormP_ = copy(rnormP)
-    #     logσ_ζP_ = copy(logσ_ζP)
-    #     dlogσ_ζP_ = copy(dlogσ_ζP)
-    #     #CP.pullback_sample_ζsP!(dϕqc, dζsP, dlogσ_ζP, rnormP, logσ_ζP, ϕqPc) # needs rnormP to be noise
-    #     CP.pullback_sample_ζsP!(dϕqc, dζsP, dlogσ_ζP, ζsP, logσ_ζP, rnormP, ϕqPc)
-    #     @test ζsP == ζsP1 # same forward result
-    #     @test rnormP == rnormP_
-    #     @test dζsP == dζsP_
-    #     @test dlogσ_ζP == dlogσ_ζP_
-    #     @test logσ_ζP == logσ_ζP_
-    #     # without correlation
-    #     #@test all(dϕqc[Val(:μζP)] .== n_MC)
-    #     # #@test dϕqc[Val(:logσ_ζP)] ≈ vec(sum(rnormP; dims=2)) # 
-    #     dϕqc_comb = copy(dϕqc)
-
-    #     randn!(ζsP)  # test initial not relevant
-    #     pb_sample_ζsP = CP.primal_pullback_sample_ζsP!(ζsP, logσ_ζP, rnormP, ϕqPc)
-    #     @test ζsP == ζsP1 # same forward result
-    #     @test rnormP ≈ rnormP_# computed the forward pass
-    #     @test logσ_ζP == logσ_ζP_
-    #     dϕqc .= 0.1 # test initial value not relevant
-    #     #dϕqc .= 0.01 # should not influence results
-    #     pb_sample_ζsP(dϕqc, dζsP, dlogσ_ζP)    
-    #     #pb_sample_ζsP(rnormP, logσ_ζP)
-    #     @test rnormP ≈ rnormP_  # did not modify
-    #     @test logσ_ζP == logσ_ζP_ # not modified
-    #     @test dlogσ_ζP == dlogσ_ζP_ # not modified
-    #     @test dζsP == dζsP_
-    #     #hcat(dϕqc, dϕqc_comb)
-    #     @test CA.getdata(dϕqc) ≈ CA.getdata(dϕqc_comb)
-    #     #
-    #     # test another pullback
-    #     #dζsP .= dζsP * eltype(dζsP)(2)
-    #     pb_sample_ζsP(dϕqc, dζsP, dlogσ_ζP)    
-    #     @test CA.getdata(dϕqc) ≈ CA.getdata(dϕqc_comb)
-    #     #
-    #     # @usingany BenchmarkTools
-    #     # @benchmark pb_sample_ζsP(dϕqc, dζsP, dlogσ_ζP)    
-end
-
-# to be differentiated, return only first entry of result
-function _ftmp2(h0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix) 
-    CP.neg_elbo_sites!(h0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix)[1]    
-end
-
-function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by enzyme
-    # do not use DiffCache here for helpers_sites
-    h0p = CP.prepare_elbo_helpers(approx, ϕg, ϕqP; 
-        n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP0, n_M, cor_ends, n_obs,
-        use_diff_cache = Val(false))
-    # and store results to compare to hand-crafted mixed AD
-    dh0p = Enzyme.make_zero(h0p)
-    @test dh0p !== h0p # real copy rather than reference
-    #    
-    indiv_args = indiv_args1
-    ϕ = (;ϕg=ϕgv, ϕqP, ϕqI)
-    dϕ = map(zero, ϕ)
-    sample_args = (;
-        approx, g, is_testmode, pbm_covar_indices = nothing, intϕqP, intϕqI, cor_ends, 
-        transP, transM)
-    #
-    rng1 = StableRNG(1234)
-    CP.randnPM!(rng1, rnormPM)
-    randn!(rng1, ϕ.ϕg)
-    randn!(rng1, indiv_args.xM)
-    primal_enz = tmp = _ftmp2(h0p, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix)
-    Enzyme.make_zero!(dϕ)
-    Enzyme.make_zero!(dh0p)
-    Enzyme.autodiff(
-            Enzyme.set_runtime_activity(Enzyme.Reverse) ,
-            _ftmp2,
-            Enzyme.Active,
-            Enzyme.Duplicated(h0p, dh0p),
-            Enzyme.Duplicated(ϕ, dϕ),
-            Enzyme.DuplicatedNoNeed(rnormPM, Enzyme.make_zero(rnormPM)),
-            Enzyme.Const(sample_args),
-            Enzyme.Const(indiv_args),
-            Enzyme.Const(nljoint_args_fix),
-        )   
-    () -> begin
-        dϕg0_enz ≈ dϕ.ϕg
-        dϕqP0_enz ≈ dϕ.ϕqP
-        dϕqI0_enz ≈ dϕ.ϕqI
-        hcat(dϕg0_enz, dϕ.ϕg)
-    end
-    dϕg0_enz = copy(dϕ.ϕg)
-    dϕqP0_enz = copy(dϕ.ϕqP)
-    dϕqI0_enz = copy(dϕ.ϕqI)
-    () -> begin
-        #@usingany JLD2
-        #fname = "intermediate/test_enzyme_dphi0.jld2"
-        fname = "intermediate/test_enzymeT_dphi0.jld2"
-        mkpath("intermediate")
-        JLD2.jldsave(fname, false, IOStream; primal_enz, dϕg0_enz, dϕqP0_enz, dϕqI0_enz)
-        primal_enz, dϕg0_enz, dϕqP0_enz, dϕqI0_enz = JLD2.load(fname, 
-            "primal_enz", "dϕg0_enz", "dϕqP0_enz", "dϕqI0_enz");
-    end
-
-    h2p = CP.prepare_elbo_helpers(approx, ϕg2, ϕqP; 
-        n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs,
-        use_diff_cache = Val(false))
-    dh2p = Enzyme.make_zero(h2p)
-    indiv_args = indiv_args1
-    ϕ2 = (;ϕg=ϕg2v, ϕqP, ϕqI)
-    dϕ2 = map(zero, ϕ2)
-    sample_args2 = (;
-        approx, g=g2, is_testmode, pbm_covar_indices = pbm_covar_indices2, intϕqP, intϕqI, cor_ends, 
-        transP, transM)
-    #
-    rng1 = StableRNG(1234)
-    CP.randnPM!(rng1, rnormPM)
-    randn!(rng1, ϕ2.ϕg)
-    randn!(rng1, indiv_args.xM)
-    primal_enz = _ftmp2(h2p, ϕ2, rnormPM, sample_args2, indiv_args, nljoint_args_fix)
-    Enzyme.make_zero!(dϕ2)
-    Enzyme.make_zero!(dh2p)
-    Enzyme.autodiff(
-            Enzyme.set_runtime_activity(Enzyme.Reverse) ,
-            _ftmp2,
-            Enzyme.Active,
-            Enzyme.Duplicated(h2p, dh2p),
-            Enzyme.Duplicated(ϕ2, dϕ2),
-            Enzyme.DuplicatedNoNeed(rnormPM, Enzyme.make_zero(rnormPM)),
-            Enzyme.Const(sample_args2),
-            Enzyme.Const(indiv_args),
-            Enzyme.Const(nljoint_args_fix),
-        )   
-    () -> begin
-        primal2_enz ≈ primal_enz
-        dϕg2_enz ≈ dϕ2.ϕg
-        @test dϕqP2_enz ≈ dϕ2.ϕqP  atol=0.001
-        dϕqI2_enz ≈ dϕ2.ϕqI
-        hcat(dϕg2_enz, dϕ2.ϕg)
-        hcat(dϕqP2_enz, dϕ2.ϕqP)
-    end
-    dϕg2_enz = copy(dϕ2.ϕg)
-    dϕqP2_enz = copy(dϕ2.ϕqP)
-    dϕqI2_enz = copy(dϕ2.ϕqI)
-    () -> begin
-        #fname = "intermediate/test_enzyme_dphi2.jld2"
-        fname = "intermediate/test_enzymeT_dphi2.jld2"
-        mkpath("intermediate")
-        JLD2.jldsave(fname, false, IOStream; primal2_enz, dϕg2_enz, dϕqP2_enz, dϕqI2_enz)
-        primal2_enz, dϕg2_enz, dϕqP2_enz, dϕqI2_enz = JLD2.load(fname, 
-            "primal2_enz", "dϕg2_enz", "dϕqP2_enz", "dϕqI2_enz");
-    end
-end
-
-function grad_neg_elbo_sites_enzyme_scaled() 
-    # now with approxS and respective arguments
-    is_testmode = false
-    indiv_args = indiv_args1
-    ϕ2S = (;ϕg=ϕg2v, ϕqP, ϕqI=CA.getdata(ϕqIcS))
-    dϕ2S = map(zero, ϕ2S)
-    sample_args2S = (; 
-        approx=approxS, g=g2, is_testmode, pbm_covar_indices = pbm_covar_indices2, 
-        intϕqP, intϕqI=intϕqIS, cor_ends, 
-        transP, transM)
-    h2Sp = CP.prepare_elbo_helpers(sample_args2S.approx, ϕg2, ϕqP; 
-        n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends, use_diff_cache = Val(false))
-    dh2Sp = Enzyme.make_zero(h2Sp)
-    #
-    rng1 = StableRNG(1234)
-    CP.randnPM!(rng1, rnormPM)
-    randn!(rng1, ϕ2S.ϕg)
-    randn!(rng1, indiv_args.xM)
-    primal_enz2S = tmp = _ftmp2(h2Sp, ϕ2S, rnormPM, sample_args2S, indiv_args)
-    Enzyme.make_zero!(dϕ2S)
-    Enzyme.make_zero!(dh2Sp)
-    Enzyme.autodiff(
-            Enzyme.set_runtime_activity(Enzyme.Reverse) ,
-            _ftmp2,
-            Enzyme.Active,
-            Enzyme.Duplicated(h2Sp, dh2Sp),
-            Enzyme.Duplicated(ϕ2S, dϕ2S),
-            Enzyme.DuplicatedNoNeed(rnormPM, Enzyme.make_zero(rnormPM)),
-            Enzyme.Const(sample_args2S),
-            Enzyme.Const(indiv_args),
-        )   
-    dϕg2S_enz = copy(dϕ2S.ϕg)
-    dϕqP2S_enz = copy(dϕ2S.ϕqP)
-    dϕqI2S_enz = copy(dϕ2S.ϕqI)
-    () -> begin
-        #fname = "intermediate/test_enzyme_dphi2.jld2"
-        fname = "intermediate/test_enzymeS_dphi2.jld2"
-        mkpath("intermediate")
-        JLD2.jldsave(fname, false, IOStream; primal_enz2S, dϕg2S_enz, dϕqP2S_enz, dϕqI2S_enz)
-        primal_enz2S, dϕg2S_enz, dϕqP2S_enz, dϕqI2S_enz = JLD2.load(fname, 
-            "primal_enz2S", "dϕg2S_enz", "dϕqP2S_enz", "dϕqI2S_enz");
-    end
-end
-
-function tmp_reference_revision()
-    #@usingany ReferenceRevision
-    ref = open_process(rev="origin/sitepar", path="tmp/ref", use=[:Revise, :ShareAdd])
-    ref.eval(:(Pkg.activate("tmp/ref/test"))) 
-    #ref.eval(:(Pkg.instantiate()))
-    #ref.Pkg.project().path
-    ref.eval(:(using HybridVariationalInference))
-    ref.eval(:(import HybridVariationalInference as HVI))
-    ref.eval(:(using Lux)) # to deserialize objects 
-    ref.eval(:(using SharedArrays)) # to deserialize objects 
-    #ref.eval(:(@usingany Infiltrator)) # not output during infiltrat in revision
-    tmp = ref.HVI.test3(3)
-    ref.Revise.retry() # after every change of source file
-    res0v, gradh0v = ref.HVI.grad_neg_elbo_sites(
-        h0, 
-        (;), 
-        approx,
-        rnormPM,
-        ϕgv, ϕqP, ϕqI, g, nothing; #pbm_covar_indices2;
-        i_sites_train = 1:n_site,     
-        intϕqP, intϕqI,
-        xM,
-        cor_ends,
-        transP, transM, 
-        is_testmode = false,
-        )    
-    close(ref)
-
-    map(k -> k => res0v[k] ≈ res0[k], keys(res0))
-    hcat(res0v.dϕqIc, res0.dϕqIc)
-end
-
 @testset "grad_neg_elbo_sites" begin
     ϕqIc = intϕqI(ϕqI)
     ϕqPc = intϕqP(ϕqP)
     is_testmode = false
-    n_threads_proc = min(Threads.nthreads(), 4)
-    n_workers = Distributed.nworkers() * n_threads_proc
-    basesize = n_site ÷ Distributed.nworkers()
-    distributedEx = Transducers.DistributedEx(;basesize, 
-        threads_basesize = Int(ceil(basesize / n_threads_proc))) 
     #
     rng1 = StableRNG(1234)
     CP.randnPM!(rng1, rnormPM)
@@ -544,9 +201,10 @@ end
     indiv_args = indiv_args1
     ϕ = (;ϕg=ϕgv, ϕqP, ϕqI)
     sample_args = (;
-        approx, g, is_testmode, pbm_covar_indices = nothing, intϕqP, intϕqI, cor_ends, 
+        approx, g, is_testmode, pbm_covar_indices, intϕqP, intϕqI, cor_ends, 
         transP, transM)
     primal = CP.neg_elbo_sites!(h0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix)
+
     res0, gradh0 = CP.grad_neg_elbo_sites(
         #@descend_code_warntype CP.neg_elbo_sites!(
         h0, (;), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)

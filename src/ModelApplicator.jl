@@ -231,8 +231,24 @@ function apply_model(app::NormalScalingModelApplicator, x, ϕ; kwargs...)
     # end
 end
 
+function apply_model!(y, app::NormalScalingModelApplicator, x, ϕ; kwargs...)
+    apply_model!(y, app.app, x, ϕ; kwargs...)
+    # @show typeof(app.μ)
+    # @show typeof(ϕ)
+    @assert eltype(app.μ) == eltype(ϕ)
+    if !isempty(app.range_scaled)
+        view_firstdim(y,app.range_scaled) .= norminvcdf.(app.μ, app.σ, view_firstdim(y,app.range_scaled)) # from StatsFuns
+    else
+        y .= norminvcdf.(app.μ, app.σ, y) 
+    end
+    y
+end
+
+
 index_firstdim(v::AbstractVector, i) = v[i]
 index_firstdim(v::AbstractMatrix, i) = v[i,:]
+view_firstdim(v::AbstractVector, i) = view(v, i)
+view_firstdim(v::AbstractMatrix, i) = view(v,i,:)
 
 """
     RangeScalingModelApplicator(app, y0)

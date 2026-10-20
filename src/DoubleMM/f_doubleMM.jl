@@ -237,7 +237,10 @@ function HVI.get_hybridproblem_MLapplicator(
     (; transM) = get_hybridproblem_transforms(prob; scenario)
     lowers, uppers = HVI.get_quantile_transformed(priors, transM)
     #n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-    range_scaled = if any((:scalingall, :clustered_sites, :clustered_sites2) .∈ Ref(scen))
+    approx = get_hybridproblem_HVIApproximation(prob; scenario)
+    range_scaled = if approx isa AbstractMeanScalingHVIApproximation
+    #range_scaled = if any((:scalingall, :clustered_sites, :clustered_sites2, :uniscaling) .∈ Ref(scen))
+        # TODO make this dependent on approx
         1:length(θM)
     else
         1:0
@@ -304,7 +307,7 @@ function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario::Val{scen}) 
     if (:useSitePBM ∈ scen)
         PBMSiteApplicator(f_doubleMM; pt.θP, pt.θM, θFix, xPvec)
     elseif (:usePopPBM ∈ scen)
-        local n_MC = 4
+        local n_MC = 1  # default n_MC to implement no-MC version of apply_model
         PBMPopulationApplicator(f_doubleMM_pop!, n_MC; pt.θP, pt.θM, θFix, xPvec)     
     else
         n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
@@ -338,8 +341,12 @@ end
 #     return pred_global, pred_sites
 # end
 
-function HVI.get_hybridproblem_neg_logden_obs(::DoubleMMCase; scenario::Val)
-    neg_logden_indep_normal
+function HVI.get_hybridproblem_neg_logden_obs(::DoubleMMCase; scenario::Val{scen}) where scen
+    if (:usePopPBM ∈ scen)    
+        HVI.neg_logden_indep_normal_sum
+    else
+        neg_logden_indep_normal
+    end
 end
 
 # function HVI.get_hybridproblem_float_type(::DoubleMMCase; scenario)
@@ -418,18 +425,13 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     θMs_true = int_θMs_sites(transM_sites(ζMs_true))
     f_batch = get_hybridproblem_PBmodel(prob; scenario)
     f = create_nsite_applicator(f_batch, n_site)
-    f1 = create_nsite_applicator(f_batch, 1)
     #xP = fill((; S1 = xP_S1, S2 = xP_S2), n_siteall)
     int_xP_sites = ComponentArrayInterpreter(int_xP1, (n_site,))
     xP = int_xP_sites(vcat(repeat(xP_S1, 1, n_site), repeat(xP_S2, 1, n_site)))
     #xP[:S1,:]
     #θP = get_θP(prob) # for DoubleMMCase par_templates gives correct θP
     θP = get_hybridproblem_θP(prob; scenario)
-    n_obs = 8 #TODO?
-    y_true = zeros(8, n_site)
-    for i_site in 1:n_site
-        HVI.apply_model!(y_true[:,i_site], f1, reshape(θP,length(θP),1), θMs_true[:,i_site:i_site], xP[:,i_site])
-    end
+    (y_true, _) = f(θP, θMs_true', xP)    
     σ_o = FloatType(0.01)
     #σ_o = FloatType(0.002)
     logσ2_o = FloatType(2) .* log.(σ_o)

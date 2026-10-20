@@ -15,9 +15,9 @@ a low uncertainty estimate and means closer to the observations to help
 an initial fit. The obtained parameters then can be used as starting values
 for a the proper fit with `σfac=1.0`.
 """
-function neg_logden_indep_normal(obs::AbstractArray{TO,D}, μ::AbstractArray{TP,D}, logσ2::AbstractArray{TO}; 
+function neg_logden_indep_normal(obs::AbstractArray{TO,DO}, μ::AbstractArray{TP,DP}, logσ2::AbstractArray{TO}; 
     i_finobs = .! isnan.(obs),
-    σfac=one(TO)) where {TO, TP, D}
+    σfac=one(TO)) where {TO, TP, DO, DP}
     # log of independent Normal distributions 
     # estimate independent uncertainty of each θM, rather than full covariance
     #nlogL = sum(σfac .* log.(σs) .+ 1 / 2 .* abs2.((obs .- μ) ./ σs))
@@ -43,9 +43,9 @@ function neg_logden_indep_normal(obs::AbstractArray{TO,D}, μ::AbstractArray{TP,
     #     (σfac .* logσ2_fin .+ abs2.(obs_data .- μ_data) .* exp.(.-logσ2_fin)) ./ eltype(μ)(2)
     nlogL = 
         i_finobs .* (σfac .* logσ2 .+ abs2.(obs .- μ) .* exp.(.-logσ2)) ./ eltype(μ)(2)
-    nlogL_sites = if D == 1
+    nlogL_sites = if DO == 1
         sum(nlogL) # provided a single-site vector
-    elseif D == 2    
+    elseif DO == 2    
         vec(sum(nlogL;dims=1))
     else 
         error("need to provide a matrix with observations with one column per site, " *
@@ -66,6 +66,15 @@ function neg_logden_indep_normal(obs::AbstractArray{TO,D}, μ::AbstractArray{TP,
 
 
 end
+
+function neg_logden_indep_normal_sum(obs::AbstractArray{TO,DO}, μ::AbstractArray{TP,DP}, logσ2::AbstractArray{TO}; 
+    i_finobs = .! isnan.(obs), # TODO provide with y_unc to save allocations
+    σfac=one(TO)) where {TO, TP, DO, DP}
+    sum(        
+        i_finobs .* (σfac .* logσ2 .+ abs2.(obs .- μ) .* exp.(.-logσ2)) ./ eltype(μ)(2)
+    )
+end
+
 
 function neg_logden_indep_normal(obs::AbstractGPUArray, μ::AbstractGPUArray, logσ2::AbstractGPUArray{ET}; 
     σfac=one(ET)) where ET

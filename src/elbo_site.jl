@@ -72,7 +72,6 @@ function compute_nelboi_z!(hi, approx::AbstractHVIApproximation,
     cor_endsM, transM, nljoint_args_fix, ) 
     # DM is 1 (vector) if no population covariates - constant across MC
     #       2 (Matrix) if g is driven by population covariates - differs across MC
-    (;xP, i_indiv_train) = nljoint_args_indi
     # on update -> sync corresponding function within grad_neg_elbo_sites
     if hi.ζsM isa PAT.DiffCache
         # Gradiend called twice because of different dimensions need to pick the Dual
@@ -313,8 +312,6 @@ function exp_nLi!(
     apply_model!(y_pred, f!, θsP, θsM, xP)
     nL_reg = sum(y_pred) / n_MC
     nL = fLogLik(y_pred, y_o, y_unc) / n_MC
-
-
     # nL = (5 * sum(θsP) + 3 * sum(θsM)) / n_MC
     (; nL,)
     # loss_comps = neg_elbo_ζtf(
@@ -365,6 +362,6 @@ function fθpop_dummy2!(pred, θs, xPc::CA.ComponentVector{T}) where T
 end
 
 function fLogLik_dummy(y_pred, y_o, y_unc)
-    sum(y_pred) 
+    sum(y_pred)
 end
 
