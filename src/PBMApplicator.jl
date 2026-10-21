@@ -57,7 +57,9 @@ function create_nsite_applicator(app::PBMPopulationApplicator, n_MC;
     PBMPopulationApplicator(app.fθpop!, θFixm, θFixm_dc, app.axθcomp, app.ax_xP)        
 end
 
-function apply_model!(pred, app::PBMPopulationApplicator{AXS,AXP}, θsP::AbstractMatrix, θsM::AbstractMatrix, xP) where {AXS,AXP}
+# single site, severl MC
+function apply_model!(pred, app::PBMPopulationApplicator{AXS,AXP}, 
+    θsP::AbstractMatrix, θsM::AbstractMatrix, xP::AbstractVector) where {AXS,AXP}
     # function tmpf(θsP, θsM, app) 
     #     @allocated Vcat(CA.getdata(θsP), CA.getdata(θsM), CA.getdata(app.θFixm))
     # end
@@ -75,8 +77,6 @@ function apply_model!(pred, app::PBMPopulationApplicator{AXS,AXP}, θsP::Abstrac
     # θc = CA.ComponentMatrix(
     #     Vcat(CA.getdata(θsP), CA.getdata(θsM), CA.getdata(app.θFixm)),
     #     AXC, CA.FlatAxis())
-    # TODO provide PreallocationTools for app.θFixm
-    #θc = VcatCAs(AXS, CA.getdata(θsP), CA.getdata(θsM), CA.getdata(app.θFixm))
     θFixm_dual = if eltype(θsP) <: ForwardDiff.Dual
         copyto!(PAT.get_tmp(app.θFixm_dc, CA.getdata(θsP)), app.θFixm)
     else
@@ -91,7 +91,26 @@ function apply_model!(pred, app::PBMPopulationApplicator{AXS,AXP}, θsP::Abstrac
     pred
 end
 
-function (app::PBMPopulationApplicator)(θP::AbstractMatrix{FT}, θMs_tr::AbstractArray, xP::AbstractMatrix) where FT
+# single site, single MC
+#    causes allocations, better preallocate Matrix(n,1) 
+# function apply_model!(pred::AbstractVector, app::PBMPopulationApplicator{AXS,AXP}, θP::AbstractVector, θM::AbstractVector, xP::AbstractVector) where {AXS,AXP}
+#     local θc, xPc, θFixm_dual
+#     θFixm_dual = if eltype(θP) <: ForwardDiff.Dual
+#         copyto!(PAT.get_tmp(app.θFixm_dc, CA.getdata(θP)), app.θFixm)
+#     else
+#         app.θFixm
+#     end
+#     pred_mat = Base.ReshapedArray(pred, (length(pred), 1), ())
+#     θP_mat = Base.ReshapedArray(pred, (length(θP), 1), ())
+#     θM_mat = Base.ReshapedArray(pred, (length(θM), 1), ())
+#     θc = VcatCAs(AXS, θP_mat, θM_mat, θFixm_dual)
+#     xPc = CA.ComponentVector(CA.getdata(xP), AXP)
+#     app.fθpop!(pred_mat, θc, xPc)  
+#     pred
+# end
+
+# several site, several MC
+function apply_model(app::PBMPopulationApplicator,θP::AbstractMatrix{FT}, θMs_tr::AbstractArray, xP::AbstractMatrix) where FT
     local n_obs, n_site, n_par, n_MC, pred
     n_obs = get_n_obs(xP[:,1])
     n_site, n_par, n_MC = size(θMs_tr)
@@ -102,7 +121,8 @@ function (app::PBMPopulationApplicator)(θP::AbstractMatrix{FT}, θMs_tr::Abstra
     end
     (pred, nothing)
 end
-function (app::PBMPopulationApplicator)(θP::AbstractVector{FT}, θMs_tr::AbstractMatrix, xP::AbstractMatrix) where FT
+# several site, single MC
+function apply_model(app::PBMPopulationApplicator, θP::AbstractVector{FT}, θMs_tr::AbstractMatrix, xP::AbstractMatrix) where FT
     # for a single MC-run
     local n_obs, n_site, pred, θsP, θsM
     n_obs = get_n_obs(xP[:,1])

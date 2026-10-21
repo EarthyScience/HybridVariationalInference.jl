@@ -169,6 +169,10 @@ include("elbo_site_grad.jl")
 include("elbo_site_corr.jl")
 #export prepare_elbo_helpers
 
+include("pointloss_site.jl")
+include("pointloss_site_grad.jl")
+
+
 #export get_loss_ran_tr_f
 include("fit_ranef_site.jl")
 
