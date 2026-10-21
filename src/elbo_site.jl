@@ -28,8 +28,8 @@ function neg_elbo_sites!(
     nljoint_args_inds = NamedTuple{keys(indiv_args)[r2end]}(values(indiv_args)[r2end])
     @assert size(rnormPM.P) == size(h.ζsP)
     use_dc = h.helpers_sites[1].ζsM isa PAT.DiffCache
-    n_M, n_MC = use_dc ? size(h.helpers_sites[1].ζsM.du) : size(h.helpers_sites[1].ζsM)
-    @assert size(rnormPM.M[1]) == (n_M, n_MC)
+    n_θM, n_MC = use_dc ? size(h.helpers_sites[1].ζsM.du) : size(h.helpers_sites[1].ζsM)
+    @assert size(rnormPM.M[1]) == (n_θM, n_MC)
     ϕqPc = intϕqP(ϕqP) 
     ϕqIc = intϕqI(ϕqI)
     pbm_covar_indices = !isnothing(pbm_covar_indices) && isempty(pbm_covar_indices) ? nothing : pbm_covar_indices
@@ -48,7 +48,7 @@ function neg_elbo_sites!(
     # closure with approx, transM, and kwargs
     function compute_nelboi_z_cl!(hi, rnormM, nljoint_args_indi_tup, ϕm) 
         #nljoint_args_indi = NamedTuple{keys_nljoint_args_indi}(nljoint_args_indi_tup)
-        nljoint_args_indi = add_names(nljoint_args_indi_tup, keys_nljoint_args_indi_val)
+        nljoint_args_indi = name_tuple(nljoint_args_indi_tup, keys_nljoint_args_indi_val)
         compute_nelboi_z!(hi, approx, rnormM, nljoint_args_indi, ϕm, 
         ϕqIc, θsP, cor_ends.M, transM, nljoint_args_fix) 
     end
@@ -64,7 +64,7 @@ function neg_elbo_sites!(
     elbo = elbo_z - exp_ladJacTP - sum(h.logσ_ζP)
 end
 
-add_names(tup, ::Val{KEYS}) where KEYS = NamedTuple{KEYS}(tup)
+name_tuple(tup, ::Val{KEYS}) where KEYS = NamedTuple{KEYS}(tup)
 
 
 
@@ -232,7 +232,7 @@ function g_apply!(ϕm::AbstractMatrix{TF}, ϕg::AbstractVector{TG}, xM::Abstract
     g::AbstractModelApplicator,
     xMP::AbstractMatrix,
     is_testmode::Bool,
-    ϕms_mcs2D_buffer = nothing, # only required for 3D case
+    ϕms_mcs2D_buffer = nothing, # only required for pbm_covar_indices not nothing
     ) where {TG, TF}
         apply_model!(ϕm, g, xM, ϕg; is_testmode) # allocates view
         return nothing
@@ -243,7 +243,7 @@ function g_apply!(ϕm::AbstractArray{TF,3}, ϕg::AbstractVector{TG}, xM::Abstrac
     ϕms_mcs2D_buffer = reshape(ϕm, size(ϕm,1), :) # allocates 48 bytes for an escaping view, preallocate 
     ) where {TG, TF}
     update_xMP!(xMP, xM, ζsP, pbm_covar_indices)
-    #Main.@infiltrate_main
+    #stack the n_site * n_MC and copy back to array afterwards, if view points to other
     if pointer(parent(ϕms_mcs2D_buffer)) != pointer(parent(ϕm))
         # if supplied a preallocated array (rather than using the default view) theń copy
         copyto!(ϕms_mcs2D_buffer, ϕm) # in order to call apply_model only once, stack n_sites * n_MC
@@ -254,7 +254,6 @@ function g_apply!(ϕm::AbstractArray{TF,3}, ϕg::AbstractVector{TG}, xM::Abstrac
     end
     return nothing
 end
-
 function update_xMP!(xMP::AbstractMatrix{TG}, 
     xM::AbstractMatrix{TG}, ζsP::AbstractMatrix{TF}, pbm_covar_indices::AbstractVector{<:Number}
     ) where {TG, TF}
@@ -265,6 +264,7 @@ function update_xMP!(xMP::AbstractMatrix{TG},
     @inbounds for i in 1:n_site
         for j in 1:n_MC
             # Copy xM block
+            # for each site i there are n_MC columns, j, with the same xM
             ic = (i-1)*n_MC + j
             for k in 1:n_cov
                 xMP[k, ic] = xM[k, i]
@@ -276,6 +276,39 @@ function update_xMP!(xMP::AbstractMatrix{TG},
         end
     end
 end
+
+function g_apply!(ϕm::AbstractMatrix{TF}, ϕg::AbstractVector{TG}, xM::AbstractMatrix{TG}, 
+    ζP::AbstractVector{TF}, pbm_covar_indices::AbstractVector{<:Number}, 
+    g::AbstractModelApplicator,
+    xMP::AbstractMatrix,
+    is_testmode::Bool,
+    ϕms_mcs2D_buffer = reshape(ϕm, size(ϕm,1), :) # allocates 48 bytes for an escaping view, preallocate 
+    ) where {TG, TF}
+    update_xMP!(xMP, xM, ζP, pbm_covar_indices) # ζP vector version
+    @assert size(xMP,2) == size(ϕm,2) # same number of sites
+    apply_model!(ϕm, g, xMP, ϕg; is_testmode)
+    return nothing
+end
+function update_xMP!(xMP::AbstractMatrix{TG}, 
+    xM::AbstractMatrix{TG}, ζP::AbstractVector{TF}, pbm_covar_indices::AbstractVector{<:Number}
+    ) where {TG, TF}
+    (n_θP,) = size(ζP)
+    n_cov, n_site = size(xM)
+    n_covP = length(pbm_covar_indices)
+    @assert size(xMP) == ((n_cov + n_covP) , n_site)
+    @inbounds for i in 1:n_site
+        # Copy xM block
+        for k in 1:n_cov
+            xMP[k, i] = xM[k, i]
+        end
+        # Fill pbm covariates block
+        for (k, idx) in enumerate(pbm_covar_indices)
+            xMP[n_cov + k, i] = (TG === TF) ? ζP[idx] : convert(TG, ζP[idx])
+        end
+    end
+end
+
+
 
 function transformζ!(θs, trans, ζs::AbstractArray{TF}) where TF
     n_MC = size(ζs,2)

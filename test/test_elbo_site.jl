@@ -13,9 +13,9 @@ using LinearAlgebra
 using StatsFuns: logistic
 
 using Test
-Distributed.@everywhere using HybridVariationalInference
 using HybridVariationalInference: HybridVariationalInference as CP
 using HybridVariationalInference: HybridVariationalInference as HVI
+Distributed.@everywhere using HybridVariationalInference
 using StableRNGs
 using Random
 using ComponentArrays: ComponentArrays as CA
