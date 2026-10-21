@@ -48,6 +48,7 @@ const GROUP = get(ENV, "GROUP", "All") # defined in in CI.yml
                 @safetestset "BMApplicatorMC" include("test/test_PBMApplicatorMC.jl")
                 @safetestset "util" include("test/test_util.jl")
                 @safetestset "elbo_sites" include("test/test_elbo_site.jl")
+                @safetestset "elbo_sites_doubleMM" include("test/test_elbo_site_doubleMM.jl")
             end
         end
 

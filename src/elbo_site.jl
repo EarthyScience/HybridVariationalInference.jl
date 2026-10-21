@@ -48,7 +48,7 @@ function neg_elbo_sites!(
     # closure with approx, transM, and kwargs
     function compute_nelboi_z_cl!(hi, rnormM, nljoint_args_indi_tup, ϕm) 
         #nljoint_args_indi = NamedTuple{keys_nljoint_args_indi}(nljoint_args_indi_tup)
-        nljoint_args_indi = add_names(nljoint_args_indi_tup, keys_nljoint_args_indi_val)
+        nljoint_args_indi = name_tuple(nljoint_args_indi_tup, keys_nljoint_args_indi_val)
         compute_nelboi_z!(hi, approx, rnormM, nljoint_args_indi, ϕm, 
         ϕqIc, θsP, cor_ends.M, transM, nljoint_args_fix) 
     end
@@ -64,7 +64,7 @@ function neg_elbo_sites!(
     elbo = elbo_z - exp_ladJacTP - sum(h.logσ_ζP)
 end
 
-add_names(tup, ::Val{KEYS}) where KEYS = NamedTuple{KEYS}(tup)
+name_tuple(tup, ::Val{KEYS}) where KEYS = NamedTuple{KEYS}(tup)
 
 
 
