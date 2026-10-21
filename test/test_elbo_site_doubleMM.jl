@@ -131,6 +131,7 @@ pbm_covar_indices = SA.SVector{length(pbm_covars)}([findfirst(==(k), keys(par_te
     function alloc_grad_neg_elbo_sites(h0, gradh0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
         # avoid global variables -> pass them through function
         loop_grad_neg_elbo_sites(1, h0, gradh0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
+        GC.gc()        
         #@profview_allocs loop_grad_neg_elbo_sites(1_000,h0, gradh0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
         @test (@allocated loop_grad_neg_elbo_sites(100,h0, gradh0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)) <= 6_748_800
     end
@@ -145,20 +146,25 @@ end
     sample_args = (;
         approx, g, is_testmode=true, pbm_covar_indices, intϕqP, intϕqI, cor_ends, 
         transP, transM)
-    nL = CP.neg_pointloss_sites!(hp, ϕ, sample_args, indiv_args, nljoint_args_fix)
+    nL = CP.pointloss_sites!(hp, ϕ, sample_args, indiv_args, nljoint_args_fix)
     @test isfinite(nL)
-    function loop_neg_pointloss_sites!(n, hp, ϕ, sample_args, indiv_args, nljoint_args_fix)
+    function loop_pointloss_sites!(n, hp, ϕ, sample_args, indiv_args, nljoint_args_fix)
         for _ in 1:n
-            @noinline CP.neg_pointloss_sites!(hp, ϕ, sample_args, indiv_args, nljoint_args_fix)
+            @noinline CP.pointloss_sites!(hp, ϕ, sample_args, indiv_args, nljoint_args_fix)
         end
         nothing
     end
     # allocations in StatefulLuxLayer
-    #@profview_allocs loop_neg_pointloss_sites!(100_000, hp, ϕ, sample_args, indiv_args, nljoint_args_fix)
-    function alloc_neg_pointloss_sites!(hp, ϕ, sample_args, indiv_args, nljoint_args_fix)
-        @allocated loop_neg_pointloss_sites!(10, hp, ϕ, sample_args, indiv_args, nljoint_args_fix)
+    #@profview_allocs loop_pointloss_sites!(100_000, hp, ϕ, sample_args, indiv_args, nljoint_args_fix)
+    function alloc_pointloss_sites!(hp, ϕ, sample_args, indiv_args, nljoint_args_fix)
+        @allocated loop_pointloss_sites!(10, hp, ϕ, sample_args, indiv_args, nljoint_args_fix)
     end
-    alloc_neg_pointloss_sites!(hp, ϕ, sample_args, indiv_args, nljoint_args_fix) <= 47_200
+    alloc_pointloss_sites!(hp, ϕ, sample_args, indiv_args, nljoint_args_fix) <= 47_200
+    #
+    # res0, gradh0 = CP.grad_pointloss_sites(
+    #     #@descend_code_warntype CP.neg_elbo_sites!(
+    #     hp, (;), ϕ, sample_args, indiv_args, nljoint_args_fix)
+
 end
 
 

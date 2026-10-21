@@ -3,7 +3,7 @@ elbo_helpers need to be initialized with new random numbers
 in h.ζP and hi.ζM by calling randnPM! before.
 By this way, we can compute the derivative corresponding to the forward pass
 """
-function neg_pointloss_sites!(
+function pointloss_sites!(
     pointloss_helpers::NamedTuple,      # tuple of preallocated arrays
     ϕ::NamedTuple,
     sample_args::NamedTuple,
@@ -25,9 +25,8 @@ function neg_pointloss_sites!(
     #
     h.ζP .= CA.getdata(view(ϕqPc,Val(:μζP)))
     # (n_M x n_site)  
-    # TODO g_apply without n_MC
-    ϕms = isnothing(pbm_covar_indices) ? view(h.ϕms,:,:,1) : h.ϕms
-    g_apply!(ϕms, ϕg, xM, h.ζP, pbm_covar_indices, g, h.xMP, is_testmode) 
+    h_ϕms = isnothing(pbm_covar_indices) ? view(h.ϕms,:,:,1) : h.ϕms
+    g_apply!(h_ϕms, ϕg, xM, h.ζP, pbm_covar_indices, g, h.xMP, is_testmode) 
     exp_ladJacTP = transformζ!(h.θP, transP, h.ζP)  # return value captures ladJacT
     # so that one can provide its gradient to the pullback
     ϕm_it = eachcol(view(h.ϕms,:,:,1))
