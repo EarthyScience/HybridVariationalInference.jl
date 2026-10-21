@@ -155,16 +155,40 @@ end
         nothing
     end
     # allocations in StatefulLuxLayer
-    #@profview_allocs loop_pointloss_sites!(100_000, hp, ϕ, sample_args, indiv_args, nljoint_args_fix)
+    #@profview_allocs loop_pointloss_sites!(10_000, hp, ϕ, sample_args, indiv_args, nljoint_args_fix)
     function alloc_pointloss_sites!(hp, ϕ, sample_args, indiv_args, nljoint_args_fix)
+        loop_pointloss_sites!(1, hp, ϕ, sample_args, indiv_args, nljoint_args_fix)
         @allocated loop_pointloss_sites!(10, hp, ϕ, sample_args, indiv_args, nljoint_args_fix)
     end
+    alloc_pointloss_sites!(hp, ϕ, sample_args, indiv_args, nljoint_args_fix)
     alloc_pointloss_sites!(hp, ϕ, sample_args, indiv_args, nljoint_args_fix) <= 47_200
     #
-    # res0, gradh0 = CP.grad_pointloss_sites(
-    #     #@descend_code_warntype CP.neg_elbo_sites!(
-    #     hp, (;), ϕ, sample_args, indiv_args, nljoint_args_fix)
-
+    res0, gradh0 = CP.grad_pointloss_sites(
+        #@descend_code_warntype CP.pointloss_sites!(
+        hp, (;), ϕ, sample_args, indiv_args, nljoint_args_fix)
+    @test res0.dϕqPc.μζP[1] != 0
+    @test res0.dϕqPc.logσ_ζP[1] == 0
+    @test res0.dϕqIc.logσ_ζM_offsets[1] == 0
+    function loop_grad_pointloss_sites(
+        n, hp, gradh0, ϕ, sample_args, indiv_args, nljoint_args_fix)
+        for _ in 1:n
+            @noinline CP.grad_pointloss_sites(
+                hp, gradh0, ϕ, sample_args, indiv_args, nljoint_args_fix)
+        end
+        nothing
+    end
+    function alloc_grad_pointloss_sites(hp, gradh0, ϕ, sample_args, indiv_args, nljoint_args_fix)
+        # avoid global variables -> pass them through function
+        loop_grad_pointloss_sites(1, hp, gradh0, ϕ, sample_args, indiv_args, nljoint_args_fix)
+        # fewer allocations than calls
+        #@profview_allocs loop_grad_pointloss_sites(1_000,hp, gradh0, ϕ, sample_args, indiv_args, nljoint_args_fix)
+        alloc = @allocated loop_grad_pointloss_sites(100,hp, gradh0, ϕ, sample_args, indiv_args, nljoint_args_fix) 
+        @test alloc <= 3_011_200 
+        alloc
+    end
+    alloc_grad_pointloss_sites(hp, gradh0, ϕ, sample_args, indiv_args, nljoint_args_fix)
+    
+    
 end
 
 

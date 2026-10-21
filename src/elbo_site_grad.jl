@@ -516,7 +516,7 @@ function prepare_gradelbo_helpers(
         grad_ϕm_ϕqI1 = grad_ϕm_ϕqI(ϕm, ϕqIc)
         function grad_conf_vec_ϕmvec() 
             cfg_vec = ForwardDiff.GradientConfig(nelboi_z_vec, grad_ϕm_ϕqI1, diffchunk_vec)
-            update_duals_Vcat(cfg_vec, grad_ϕm_ϕqI1)
+            update_duals_Vcat2(cfg_vec, grad_ϕm_ϕqI1)
         end
         grad_conf_mat_ϕmvec, grad_conf_vec_ϕmvec
     else
@@ -529,7 +529,7 @@ function prepare_gradelbo_helpers(
         rad_θP_ϕm1 = grad_θsP_ϕm(ϕm, θsP)
         function grad_conf_mat_ϕmmat() 
             cfg_mat = ForwardDiff.GradientConfig(nelboi_z_mat, rad_θP_ϕm1, diffchunks_mat)
-            update_duals_Vcat(cfg_mat, rad_θP_ϕm1)
+            update_duals_Vcat2(cfg_mat, rad_θP_ϕm1)
         end
         grad_conf_mat_ϕmmat, grad_conf_vec_ϕmmat
     end
@@ -579,11 +579,24 @@ end
 @inline grad_θsP_ϕm(ϕm::AbstractMatrix, θsP) = Vcat(similar(θsP), similar(ϕm))
 
 
-@inline function update_duals_Vcat(cfg::ForwardDiff.GradientConfig{T,V,N}, vc::Vcat) where {T,V,N}
+@inline function update_duals_Vcat2(cfg::ForwardDiff.GradientConfig{T,V,N}, vc::Vcat) where {T,V,N}
     # similar Vcat returns a vector, need to convert dual of cfg to Vcat
     # no view, but copy with index_at_dim
+    @assert length(vc.args) == 2
     duals_vcat = Vcat(index_at_dim(cfg.duals, axes(vc.args[1], 1); dim=1), 
                       index_at_dim(cfg.duals, axes(vc.args[2], 1); dim=1));
+    cfg = ForwardDiff.GradientConfig{T,V,N,typeof(duals_vcat)}(cfg.seeds, duals_vcat)
+    @assert cfg.duals isa Vcat
+    cfg
+end
+@inline function update_duals_Vcat3(cfg::ForwardDiff.GradientConfig{T,V,N}, vc::Vcat) where {T,V,N}
+    # similar Vcat returns a vector, need to convert dual of cfg to Vcat
+    # no view, but copy with index_at_dim
+    @assert length(vc.args) == 3
+    duals_vcat = Vcat(index_at_dim(cfg.duals, axes(vc.args[1], 1); dim=1), 
+                      index_at_dim(cfg.duals, axes(vc.args[2], 1); dim=1),
+                      index_at_dim(cfg.duals, axes(vc.args[3], 1); dim=1),
+                      );
     cfg = ForwardDiff.GradientConfig{T,V,N,typeof(duals_vcat)}(cfg.seeds, duals_vcat)
     @assert cfg.duals isa Vcat
     cfg

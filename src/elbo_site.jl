@@ -28,8 +28,8 @@ function neg_elbo_sites!(
     nljoint_args_inds = NamedTuple{keys(indiv_args)[r2end]}(values(indiv_args)[r2end])
     @assert size(rnormPM.P) == size(h.ζsP)
     use_dc = h.helpers_sites[1].ζsM isa PAT.DiffCache
-    n_M, n_MC = use_dc ? size(h.helpers_sites[1].ζsM.du) : size(h.helpers_sites[1].ζsM)
-    @assert size(rnormPM.M[1]) == (n_M, n_MC)
+    n_θM, n_MC = use_dc ? size(h.helpers_sites[1].ζsM.du) : size(h.helpers_sites[1].ζsM)
+    @assert size(rnormPM.M[1]) == (n_θM, n_MC)
     ϕqPc = intϕqP(ϕqP) 
     ϕqIc = intϕqI(ϕqI)
     pbm_covar_indices = !isnothing(pbm_covar_indices) && isempty(pbm_covar_indices) ? nothing : pbm_covar_indices
