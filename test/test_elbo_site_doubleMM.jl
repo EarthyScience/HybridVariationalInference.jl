@@ -119,7 +119,7 @@ pbm_covar_indices = SA.SVector{length(pbm_covars)}([findfirst(==(k), keys(par_te
     #
     local sample_args_rev, res0, gradh0
     sample_args_rev = (; sample_args..., is_testmode=false)
-    res0, gradh0 = CP.grad_neg_elbo_sites(
+    res0, gradh0 = @inferred CP.grad_neg_elbo_sites(
         #@descend_code_warntype CP.neg_elbo_sites!(
         h0, (;), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
     function loop_grad_neg_elbo_sites(
@@ -134,10 +134,13 @@ pbm_covar_indices = SA.SVector{length(pbm_covars)}([findfirst(==(k), keys(par_te
         # avoid global variables -> pass them through function
         loop_grad_neg_elbo_sites(1, h0, gradh0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
         GC.gc()        
-        #@profview_allocs loop_grad_neg_elbo_sites(1_000,h0, gradh0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
+        #@profview_allocs loop_grad_neg_elbo_sites(10_000,h0, gradh0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
         #@test (@allocated loop_grad_neg_elbo_sites(100,h0, gradh0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)) <= 6_748_800
         # TODO inspect why more allocations when calling from runtests or command line
-        @test (@allocated loop_grad_neg_elbo_sites(100,h0, gradh0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)) <= 6_752_896#6_748_800
+        local alloc
+        alloc = @allocated loop_grad_neg_elbo_sites(100,h0, gradh0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
+        @test alloc <= 6_752_896  #6_748_800 #
+        alloc
     end
     alloc_grad_neg_elbo_sites(h0, gradh0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
 end
@@ -191,9 +194,7 @@ end
         alloc
     end
     alloc_grad_pointloss_sites(hp, gradh0, ϕ, sample_args, indiv_args, nljoint_args_fix)
-    
-    
-end
+ end
 
 
 

@@ -247,7 +247,7 @@ function prepare_gradpointloss_helpers(
     local grad_θsP_ϕm_ϕqI1, diffchunks_point
     ϕqIm = reshape(CA.getdata(ϕqIc),:,1)
     ϕm_mat = (ND == 2) ? ϕm : reshape(ϕm, :, 1)
-    grad_θsP_ϕm_ϕqI1 = grad_θsP_ϕm_ϕqI(θsP, ϕm_mat, ϕqIm)
+    grad_θsP_ϕm_ϕqI1 = grad_θsP_ϕm_ϕqI_mat(θsP, ϕm_mat, ϕqIm)
     # n_M is currently not static, hence diffchunks_vec and gradientConfig not inferred
     #   however, n_θM is a lower bound, so use this one to set a minimum length
     #   chunk size might be not as large as possible, but safely not larger than paramvector
@@ -261,7 +261,7 @@ function prepare_gradpointloss_helpers(
     get_helpers_worker = () -> begin
         (;
             grad_conf_point = grad_conf_point(), 
-            grad_θsP_ϕm_ϕqI = grad_θsP_ϕm_ϕqI(θsP, ϕm_mat, ϕqIm),
+            grad_θsP_ϕm_ϕqI = grad_θsP_ϕm_ϕqI_mat(θsP, ϕm_mat, ϕqIm),
         )
     end
     h1 = get_helpers_worker()
@@ -291,5 +291,5 @@ function prepare_gradpointloss_helpers(
     )
 end
 # need similar to make a copy for each worker
-grad_θsP_ϕm_ϕqI(θP, ϕm, ϕqIc) = Vcat(similar(θP), similar(ϕm), similar(CA.getdata(ϕqIc))) 
+grad_θsP_ϕm_ϕqI_mat(θP, ϕm, ϕqIc) = Vcat(similar(θP), similar(ϕm), similar(CA.getdata(ϕqIc))) 
 

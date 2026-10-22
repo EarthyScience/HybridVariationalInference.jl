@@ -462,6 +462,17 @@ function with_channel_element(f::Function, ch::Channel)
     end
 end
 
+# the try-finally block may introduce boundaries that hinder escape analysis.
+# The following alternative can be used to test this issue. 
+# However, it holds the danger that on error, an element is not put back and
+#   the one of the next take! will block forever.
+function with_channel_element_unsafe(f::Function, ch::Channel)
+    elem = take!(ch)
+    ans = f(elem)
+    put!(ch, elem)
+    ans
+end
+
 """
     map_leaves_nt(f, x)
 
