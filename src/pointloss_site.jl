@@ -45,6 +45,7 @@ function pointloss_sites!(
     #   https://docs.julialang.org/en/v1/stdlib/Distributed/#Distributed.@distributed
     #   https://github.com/SupaeroDataScience/DE/blob/main/notebooks/Introduction%20to%20MapReduce.ipynb
     #zind = Test.@inferred zip_eachlastdims(nljoint_args_inds)
+    #tmp = Test.@inferred zip(h.helpers_sites, zind, ϕm_it)
     zind = zip_eachlastdims(nljoint_args_inds)
     pointloss_z = mapreduce(compute_pointlossi_z_cl!, +, h.helpers_sites, zind, ϕm_it)
     pointloss = pointloss_z - exp_ladJacTP 

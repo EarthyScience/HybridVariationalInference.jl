@@ -133,10 +133,10 @@ end
 # ϕm vector version
 # TOOD pass closure object rather than many parameters
 function forwarddiff_grad_pointloss_z!(hi, approx::AbstractHVIApproximation, 
-    nljoint_args_indi, ϕm::AbstractMatrix{TF}, i::Integer, 
+    nljoint_args_indi, ϕm::AbstractArray{TF, ND}, i::Integer, 
     ϕqIc::AbstractVector, θP::AbstractMatrix, dϕmvecs, hw_channel::Channel, cor_endsM, transM::Stacked, 
     nljoint_args_fix,
-    omit_gradient=nothing) where {TF}
+    omit_gradient=nothing) where {TF,ND}
     # need to calls to ForwardDiff.gradient! to avoid reshape
     # group arrays of same dimensionality (here grad_ϕm and grad_ϕqI) into a Vcat
     ax_ϕqI = CA.getaxes(ϕqIc)[1]
@@ -144,25 +144,25 @@ function forwarddiff_grad_pointloss_z!(hi, approx::AbstractHVIApproximation,
     with_channel_element(hw_channel) do hwi_tup
         hwi, hwi_dc = hwi_tup
         #grad_conf = hwi.grad_conf
-        pointlossi_z_vec = make_pointlossz_lazy_cls(hi, nljoint_args_indi, 
+        pointlossi_z_vec = make_pointlossz_lazy_cls(hi, hwi_dc, nljoint_args_indi, 
             cor_endsM, transM, nljoint_args_fix,
-            ax_ϕqI, 
+            ax_ϕqI, Val(ND),
             )
         grad_θP, grad_ϕm, grad_ϕqI = if isnothing(omit_gradient)
-            local θP_ϕm_ϕqI
+            local θP_ϕm_ϕqI, ϕqI_mat, ϕm_mat
             # transform ϕqI to a 1-column matrix to vcat it to θP and ϕm
-            ϕqI = if strides(CA.getdata(ϕqIc))[1] == 1
-                # to avoid allocations with reshape
-                Base.ReshapedArray(CA.getdata(ϕqIc), (length(CA.getdata(ϕqIc)), 1), ())                
-            else
-                reshape(CA.getdata(ϕqIc), :, 1)
+            @assert strides(CA.getdata(ϕqIc))[1] == 1
+            # to avoid allocations with reshape: reshape(CA.getdata(ϕqIc), :, 1)
+            ϕqI_mat = Base.ReshapedArray(CA.getdata(ϕqIc), (length(CA.getdata(ϕqIc)), 1), ())                
+            ϕm_mat = (ND == 2) ? ϕm : begin
+                @assert strides(CA.getdata(ϕm))[1] == 1
+                Base.ReshapedArray(ϕm, (length(ϕm), 1), ())                
             end
             () -> begin
                 tmpf(ϕqI) = mapreduce(identity, +, view(ϕqI,:,1))
                 @allocated tmpf(ϕqI) # zero
             end
-            θP_ϕm_ϕqI = Vcat(θP, ϕm, ϕqI)    
-            tmp = similar(θP_ϕm_ϕqI)
+            θP_ϕm_ϕqI = Vcat(θP, ϕm_mat, ϕqI_mat)    
             ForwardDiff.gradient!(hwi.grad_θsP_ϕm_ϕqI, pointlossi_z_vec, θP_ϕm_ϕqI, hwi.grad_conf_point)
             hwi.grad_θsP_ϕm_ϕqI.args[1], hwi.grad_θsP_ϕm_ϕqI.args[2], hwi.grad_θsP_ϕm_ϕqI.args[3]
         else
@@ -178,17 +178,22 @@ function forwarddiff_grad_pointloss_z!(hi, approx::AbstractHVIApproximation,
     end
 end
 
-function make_pointlossz_lazy_cls(hi, nljoint_args_indi, 
+function make_pointlossz_lazy_cls(hi, hwi_dc, nljoint_args_indi, 
     cor_endsM, transM, nljoint_args_fix,
     ax_ϕqI::CA.Axis, 
-    )
-    # mat, is a Vcat(θP, ϕm, ϕqI)
+    ndim_ϕ::Val{ND}
+    ) where ND
+    # mat, is a Vcat(θP, ϕm, ϕqI) with vectors reshaped to 1D matrices
     function pointlossi_cl_vec(mat::Vcat) 
         local θP_dual, ϕm_dual, ϕqIc_dual
         θP_dual = mat.args[1]
-        ϕm_dual = mat.args[2]
-        #ϕqIc_dual = CA.ComponentVector(vec(mat.args[3]), ax_ϕqI)
-        ϕqIc_dual = CA.ComponentVector(view(mat.args[3],:,1), ax_ϕqI)
+        ϕm_dual = (ND == 1) ? view(mat.args[2],:,1) : mat.args[2]
+        #ϕqIc_dual = CA.ComponentVector(vec(mat.args[3]), ax_ϕqI) # allocates
+        #ϕqIc_dual = CA.ComponentVector(view(mat.args[3],:,1), ax_ϕqI)
+        # TODO copy into preallocated vectgor 
+        #Main.@infiltrate_main
+        ϕqIc_dual = CA.ComponentArray(
+            copyto!(PAT.get_tmp(hwi_dc.ϕqI_dc, mat), mat.args[3]), ax_ϕqI)
         compute_pointlossi_z!(
             hi, nljoint_args_indi,
             ϕm_dual, ϕqIc_dual, θP_dual, 
@@ -226,6 +231,7 @@ function prepare_gradpointloss_helpers(
     @assert length(nljoint_args_indi.xP) > 1
     # pointlossi_z = make_pointlossiz_cl(hi1, approx, rnormMi, nljoint_args_indi, CA.getaxes(cv_grad), 
     #     cor_ends.M, transM, nljoint_args_fix) 
+    # TODO remove hw_dcs, usused component (only ϕqI_dc)
     hw_dcs_raw = (;
             ϕm_dc = similar(ϕm),   
             # callocation on using ComponentArray (_restructure), need to use plain vector
@@ -233,11 +239,10 @@ function prepare_gradpointloss_helpers(
             θP_dc = similar(θsP),
     )
     # make sure, each worker gets its own copy, use similar
-    # TODO remove hw_dcs, not needed because Vcat of all vectors
     hw_dcs = (hw_dcs_raw) -> map_leaves_nt(x -> PAT.DiffCache(similar(x), chunk), hw_dcs_raw) 
-    pointlossi_z_vec = make_pointlossz_lazy_cls(hi1, nljoint_args_indi, 
+    pointlossi_z_vec = make_pointlossz_lazy_cls(hi1, hw_dcs(hw_dcs_raw), nljoint_args_indi, 
         cor_ends.M, transM, nljoint_args_fix,
-        CA.getaxes(ϕqIc)[1], 
+        CA.getaxes(ϕqIc)[1], Val(ND),
         ) 
     local grad_θsP_ϕm_ϕqI1, diffchunks_point
     ϕqIm = reshape(CA.getdata(ϕqIc),:,1)
