@@ -65,7 +65,7 @@ function compute_pointlossi_z!(hi,
     n_θM = cor_endsM[end]
     hi.ζMm .= view(ϕms, 1:n_θM, :)    # μζM in first n_θM entries
     transformζ!(hi.θMm, transM, hi.ζMm)  
-    exp_nL = exp_nLi!(hi.ym, θPm, hi.θMm, nljoint_args_indi, nljoint_args_fix)[1]
+    exp_nL = exp_nLi!(hi.ym, θPm, hi.θMm, nljoint_args_indi, nljoint_args_fix, hi)[1]
     pointlossi = exp_nL 
 end
 
@@ -79,6 +79,7 @@ function prepare_pointloss_helpers(approx::AbstractHVIApproximation,
         ζMm = Matrix{TF}(undef, n_θM, 1),
         θMm = Matrix{TF}(undef, n_θM, 1),
         ym = Matrix{TF}(undef, n_obs,1),
+        y_buffer = Matrix{TF}(undef, n_obs, 1),
     ) for i in 1:n_site)
     helpers_sites = use_dc ? map_leaves_nt(x -> PAT.DiffCache(x, chunk), his) : his
     h = (;

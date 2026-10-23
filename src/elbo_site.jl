@@ -84,7 +84,7 @@ function compute_nelboi_z!(hi, approx::AbstractHVIApproximation,
     sample_ζsM!(hi.ζsM, hi.logσ_ζM, approx, rnormM, ϕqIc, ϕm, cor_endsM, hi.sample_buffers)
     exp_ladJacTM = transformζ!(hi.θsM, transM, hi.ζsM)  # return value captures ladJacT
     # first component needs to be the full elbo
-    exp_nL = exp_nLi!(hi.y, θsP, hi.θsM, nljoint_args_indi, nljoint_args_fix)[1]
+    exp_nL = exp_nLi!(hi.y, θsP, hi.θsM, nljoint_args_indi, nljoint_args_fix, hi)[1]
     nelboi_z = exp_nL - exp_ladJacTM - sum(hi.logσ_ζM)
 end
 # get_tmp_rec_(x::PAT.DiffCache{<:AbstractArray}, template) = PAT.get_tmp(x, template)
@@ -115,6 +115,8 @@ function prepare_elbo_helpers(approx::AbstractHVIApproximation,
         θsM = Matrix{TF}(undef, n_θM, n_MC),
         logσ_ζM = Vector{TF}(undef, n_θM),
         y = Matrix{TF}(undef, n_obs, n_MC),
+        # TODO move buffers to Channel object
+        y_buffer = Matrix{TF}(undef, n_obs, n_MC),
         sample_buffers = prepare_ind_sample_buffers(approx, cor_ends.M, template_TF),
     ) for i in 1:n_site)
     helpers_sites = use_dc ? map_leaves_nt(x -> PAT.DiffCache(x, chunk), his) : his
@@ -328,6 +330,7 @@ function exp_nLi!(
     θsM::AbstractMatrix,
     nljoint_args_indi::NamedTuple,
     nljoint_args_fix::NamedTuple,
+    hi::NamedTuple,
     # f, py,
     # priorsP, priorsM,
     # penalty_computer = ZeroPenaltyComputer(),
@@ -346,7 +349,7 @@ function exp_nLi!(
     #θsMc = CA.ComponentMatrix(θsM, axθM, CA.FlatAxis())
     apply_model!(y_pred, f!, θsP, θsM, xP)
     nL_reg = sum(y_pred) / n_MC
-    nL = fLogLik(y_pred, y_o, y_unc) / n_MC
+    nL = fLogLik(y_pred, y_o, y_unc, hi.y_buffer) / n_MC
     # nL = (5 * sum(θsP) + 3 * sum(θsM)) / n_MC
     (; nL,)
     # loss_comps = neg_elbo_ζtf(
@@ -396,7 +399,7 @@ function fθpop_dummy2!(pred, θs, xPc::CA.ComponentVector{T}) where T
     pred
 end
 
-function fLogLik_dummy(y_pred, y_o, y_unc)
+function fLogLik_dummy(y_pred, y_o, y_unc, y_buffer=similar(y_pred))
     sum(y_pred)
 end
 
