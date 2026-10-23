@@ -60,9 +60,9 @@ function update_duals(
     cfg::ForwardDiff.GradientConfig{C1,C2,C3}, 
     vv::VcatVecViews{T,N,I},
     ) where {T,N,I,C1,C2,C3}
+    @assert size(vv) == size(cfg.duals)
     duals_vcat = VcatVecViews(
-        (index_at_dim(cfg.duals, axes(A,1); dim=1) for A in vv.args)...)
+        (similar(parent(A), eltype(cfg.duals)) for A in vv.args)...)
     cfgv = ForwardDiff.GradientConfig{C1,C2,C3,typeof(duals_vcat)}(cfg.seeds, duals_vcat)
-    @assert cfgv.duals isa VcatVecViews
     cfgv
 end
