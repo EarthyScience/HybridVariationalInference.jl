@@ -67,14 +67,33 @@ function neg_logden_indep_normal(obs::AbstractArray{TO,DO}, μ::AbstractArray{TP
 
 end
 
-function neg_logden_indep_normal_sum(obs::AbstractArray{TO,DO}, μ::AbstractArray, logσ2::AbstractArray; 
+# new signature with returning just one sum value rather than each column
+#   and taking an optional 4rth argument of the same size as obs that can be used as
+#   a temporary buffer
+function neg_logden_indep_normal_sum(obs::AbstractArray{TO,DO}, 
+    μ::AbstractArray, logσ2::AbstractArray, 
+    obs_buffer::AbstractArray{TO,DO} = similar(obs); 
     #i_finobs = .! isnan.(obs), # TODO provide with y_unc to save allocations
     σfac=one(TO)) where {TO, DO}
-    return sum(obs)
-    sum(        
-        #i_finobs .* (σfac .* logσ2 .+ abs2.(obs .- μ) .* exp.(.-logσ2)) ./ eltype(μ)(2)
-        (σfac .* logσ2 .+ abs2.(obs .- μ) .* exp.(.-logσ2)) ./ eltype(μ)(2)
-    )
+    obs_buffer .= (σfac .* logσ2 .+ abs2.(obs .- μ) .* exp.(.-logσ2)) ./ eltype(μ)(2)
+    sum(obs_buffer)        
+end
+
+() -> begin
+    pred = (σfac .* logσ2 .+ abs2.(obs .- μ) .* exp.(.-logσ2)) ./ eltype(μ)(2)
+    function alloc_tmp(σfac, logσ2, obs, μ, pred = similar(obs)) 
+        @allocated loop_tmpf(10_000, σfac, logσ2, obs, μ, pred) 
+    end
+    function loop_tmpf(n, σfac, logσ2, obs, μ, pred = similar(obs)) 
+        for _ in 1:n
+            #pred .= obs .* one(eltype(obs))
+            pred .= (σfac .* logσ2 .+ abs2.(obs .- μ) .* exp.(.-logσ2)) ./ eltype(μ)(2)
+            sum(pred)
+        end
+    end
+    alloc_tmp(σfac, logσ2, obs, μ) 
+    alloc_tmp(σfac, logσ2, obs, μ, obs) 
+    #@profview_allocs alloc_tmp(σfac, logσ2, obs, μ) 
 end
 
 

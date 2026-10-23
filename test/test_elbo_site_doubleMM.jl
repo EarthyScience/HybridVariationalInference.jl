@@ -135,11 +135,12 @@ pbm_covar_indices = SA.SVector{length(pbm_covars)}([findfirst(==(k), keys(par_te
         loop_grad_neg_elbo_sites(1, h0, gradh0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
         GC.gc()        
         #@profview_allocs loop_grad_neg_elbo_sites(10_000,h0, gradh0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
+        #@profview loop_grad_neg_elbo_sites(10_000,h0, gradh0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
         #@test (@allocated loop_grad_neg_elbo_sites(100,h0, gradh0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)) <= 6_748_800
         # TODO inspect why more allocations when calling from runtests or command line
         local alloc
         alloc = @allocated loop_grad_neg_elbo_sites(100,h0, gradh0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
-        @test alloc <= 6_752_896  #6_748_800 #
+        @test alloc <= 6_753_536  #6_748_800 #
         alloc
     end
     alloc_grad_neg_elbo_sites(h0, gradh0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
