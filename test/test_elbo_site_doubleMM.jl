@@ -121,7 +121,9 @@ pbm_covar_indices = SA.SVector{length(pbm_covars)}([findfirst(==(k), keys(par_te
     sample_args_rev = (; sample_args..., is_testmode=false)
     res0, gradh0 = @inferred CP.grad_neg_elbo_sites(
         #@descend_code_warntype CP.neg_elbo_sites!(
-        h0, (;), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
+        h0, (;), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val,
+        #n_workers = 3,
+        )
     function loop_grad_neg_elbo_sites(
         n, h0, gradh0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
         for _ in 1:n

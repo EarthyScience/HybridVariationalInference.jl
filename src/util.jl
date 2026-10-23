@@ -462,6 +462,10 @@ function with_channel_element(f::Function, ch::Channel)
     end
 end
 
+function with_each_channel_element(f::Function, ch::Channel)
+    foreach(_ -> with_channel_element(f,ch), 1:Base.n_avail(ch))
+end
+
 # the try-finally block may introduce boundaries that hinder escape analysis.
 # The following alternative can be used to test this issue. 
 # However, it holds the danger that on error, an element is not put back and
