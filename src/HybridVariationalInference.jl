@@ -53,6 +53,9 @@ include("row_valviews.jl")
 #export VcatCAs
 include("VcatCA.jl")
 
+export VcatVecViews, subarray, update_duals
+include("VcatVecViews.jl")
+
 include("OneBasedVectorWithZero.jl")
 export cat_namedtuple_lastdim, index_at_dim, eachlastdim, zip_eachlastdims
 export with_channel_element
