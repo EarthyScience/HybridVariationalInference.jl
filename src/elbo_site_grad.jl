@@ -63,8 +63,8 @@ function grad_neg_elbo_sites(
     for _ in 1:n_workers
         with_channel_element(hw_channel) do hwi_tup
             hwi, _ = hwi_tup
-            copyto!(hwi.θsP_ϕm_ϕqI.args[1], vec(h.θsP))
-            copyto!(hwi.θsP_ϕm_ϕqI.args[3], CA.getdata(ϕqIc))
+            copyto!(subarray(hwi.θsP_ϕm_ϕqI_vv,1), h.θsP)
+            copyto!(subarray(hwi.θsP_ϕm_ϕqI_vv,3), CA.getdata(ϕqIc))
         end
     end
     cl = ForwardDiffGradNelboiZCl(
@@ -159,10 +159,10 @@ function forwarddiff_grad_nelboi_z!(hi, approx::AbstractHVIApproximation, rnormM
     ax_ϕqI = CA.getaxes(ϕqIc)[1]
     ax_ϕP = get_axis_θP(nljoint_args_fix.f!)
     with_channel_element(hw_channel) do hwi_tup
-        local hwi, hwi_dc, nelboi_new, θsP_ϕm_ϕqI, grad_θsP, grad_ϕm, grad_ϕqI
+        local hwi, hwi_dc, nelboi_vv, θsP_ϕm_ϕqI_vv, grad_θsP, grad_ϕm, grad_ϕqI
         hwi, hwi_dc = hwi_tup
         #grad_conf = hwi.grad_conf
-        nelboi_new = make_nelboiz_lazy_cls_new(hi, hwi_dc, approx, rnormM, nljoint_args_indi, 
+        nelboi_vv = make_nelboiz_lazy_cls_vv(hi, hwi_dc, approx, rnormM, nljoint_args_indi, 
             ϕm, ϕqIc, θsP,
             cor_endsM, transM, nljoint_args_fix,
             ax_ϕqI, Val(ND), 
@@ -172,12 +172,12 @@ function forwarddiff_grad_nelboi_z!(hi, approx::AbstractHVIApproximation, rnormM
             # θsP_ϕm_ϕqI is preallocated per worker (hwi.θsP_ϕm_ϕqI).
             # Only ϕm (arg[2]) varies per site; θsP (arg[1]) and ϕqIc (arg[3])
             # are filled once before the mapreduce in grad_neg_elbo_sites.
-            θsP_ϕm_ϕqI = hwi.θsP_ϕm_ϕqI
-            copyto!(θsP_ϕm_ϕqI.args[2], vec(ϕm))
-            ForwardDiff.gradient!(hwi.grad_θsP_ϕm_ϕqI, nelboi_new, θsP_ϕm_ϕqI, 
-                hwi.grad_conf_nelbo)
-            hwi.grad_θsP_ϕm_ϕqI.args[1], hwi.grad_θsP_ϕm_ϕqI.args[2], 
-                hwi.grad_θsP_ϕm_ϕqI.args[3] 
+            θsP_ϕm_ϕqI_vv = hwi.θsP_ϕm_ϕqI_vv
+            copyto!(subarray(θsP_ϕm_ϕqI_vv,2), ϕm)
+            ForwardDiff.gradient!(hwi.grad_θsP_ϕm_ϕqI_vv, nelboi_vv, θsP_ϕm_ϕqI_vv, 
+                hwi.grad_conf_nelbo_vv)
+            subarray(hwi.grad_θsP_ϕm_ϕqI_vv,1), subarray(hwi.grad_θsP_ϕm_ϕqI_vv,2), 
+                subarray(hwi.grad_θsP_ϕm_ϕqI_vv,3)
         else
             θsP, ϕm, CA.getdata(ϕqIc)
         end
@@ -244,73 +244,73 @@ end
 # end
 
 
-function make_nelboiz_lazy_cls(hi, hwi_dc, approx::AbstractHVIApproximation, rnormM, nljoint_args_indi, 
-    ϕm, ϕqIc, θsP,
-    cor_endsM, transM, nljoint_args_fix,
-    ax_ϕqI::CA.Axis, ndim_ϕ::Val{1}, 
-    )
-    # mat, here holds only θsP
-    # vec, is a Vcat(ϕqI, ϕm)
-    # no views involved here
-    function nelboiz_cl_mat(mat::AbstractMatrix) 
-        local θsP_dual, ϕm_dual, ϕqIc_dual
-        θsP_dual = mat
-        ϕm_dual = copyto!(PAT.get_tmp(hwi_dc.ϕm_dc, mat), ϕm)
-        ϕqIc_dual = CA.ComponentArray(
-            copyto!(PAT.get_tmp(hwi_dc.ϕqI_dc, mat), ϕqIc), CA.getaxes(ϕqIc))
-        compute_nelboi_z!(
-            hi, approx, rnormM, nljoint_args_indi,
-            ϕm_dual, ϕqIc_dual, θsP_dual, 
-            cor_endsM, transM, nljoint_args_fix,
-        )[1]
-    end
-    function nelboiz_cl_vec(vec::Vcat) 
-        local θsP_dual, ϕm_dual, ϕqIc_dual
-        ϕm_dual = vec.args[1]
-        ϕqIc_dual = CA.ComponentVector(vec.args[2], ax_ϕqI)
-        θsP_dual = copyto!(PAT.get_tmp(hwi_dc.θsP_dc, vec), θsP) # reshape(reinterpred(
-        compute_nelboi_z!(
-            hi, approx, rnormM, nljoint_args_indi,
-            ϕm_dual, ϕqIc_dual, θsP_dual, 
-            cor_endsM, transM, nljoint_args_fix,
-        )[1]
-    end
-    nelboiz_cl_mat, nelboiz_cl_vec
-end
+# function make_nelboiz_lazy_cls(hi, hwi_dc, approx::AbstractHVIApproximation, rnormM, nljoint_args_indi, 
+#     ϕm, ϕqIc, θsP,
+#     cor_endsM, transM, nljoint_args_fix,
+#     ax_ϕqI::CA.Axis, ndim_ϕ::Val{1}, 
+#     )
+#     # mat, here holds only θsP
+#     # vec, is a Vcat(ϕqI, ϕm)
+#     # no views involved here
+#     function nelboiz_cl_mat(mat::AbstractMatrix) 
+#         local θsP_dual, ϕm_dual, ϕqIc_dual
+#         θsP_dual = mat
+#         ϕm_dual = copyto!(PAT.get_tmp(hwi_dc.ϕm_dc, mat), ϕm)
+#         ϕqIc_dual = CA.ComponentArray(
+#             copyto!(PAT.get_tmp(hwi_dc.ϕqI_dc, mat), ϕqIc), CA.getaxes(ϕqIc))
+#         compute_nelboi_z!(
+#             hi, approx, rnormM, nljoint_args_indi,
+#             ϕm_dual, ϕqIc_dual, θsP_dual, 
+#             cor_endsM, transM, nljoint_args_fix,
+#         )[1]
+#     end
+#     function nelboiz_cl_vec(vec::Vcat) 
+#         local θsP_dual, ϕm_dual, ϕqIc_dual
+#         ϕm_dual = vec.args[1]
+#         ϕqIc_dual = CA.ComponentVector(vec.args[2], ax_ϕqI)
+#         θsP_dual = copyto!(PAT.get_tmp(hwi_dc.θsP_dc, vec), θsP) # reshape(reinterpred(
+#         compute_nelboi_z!(
+#             hi, approx, rnormM, nljoint_args_indi,
+#             ϕm_dual, ϕqIc_dual, θsP_dual, 
+#             cor_endsM, transM, nljoint_args_fix,
+#         )[1]
+#     end
+#     nelboiz_cl_mat, nelboiz_cl_vec
+# end
 
-# ϕm Matrix case
-function make_nelboiz_lazy_cls(hi, hwi_dc, approx::AbstractHVIApproximation, rnormM, nljoint_args_indi, 
-    ϕm, ϕqIc, θsP,
-    cor_endsM, transM, nljoint_args_fix,
-    ax_ϕqI::CA.Axis, ndim_ϕ::Val{2}, 
-    )
-    # mat is Vcat(θsP, ϕm)
-    # vec is ϕqI
-    function nelboiz_cl_mat(mat::Vcat) 
-        local θsP_dual, ϕm_dual, ϕqIc_dual
-        θsP_dual = mat.args[1]
-        ϕm_dual = mat.args[2]
-        ϕqIc_dual = CA.ComponentArray(
-            copyto!(PAT.get_tmp(hwi_dc.ϕqI_dc, mat), ϕqIc), CA.getaxes(ϕqIc))
-        compute_nelboi_z!(
-            hi, approx, rnormM, nljoint_args_indi,
-            ϕm_dual, ϕqIc_dual, θsP_dual, 
-            cor_endsM, transM, nljoint_args_fix,
-        )[1]
-    end
-    function nelboiz_cl_vec(vec::AbstractVector) 
-        local θsP_dual, ϕm_dual, ϕqIc_dual
-        ϕqIc_dual = CA.ComponentVector(vec, ax_ϕqI)
-        ϕm_dual = copyto!(PAT.get_tmp(hwi_dc.ϕm_dc, vec), ϕm)
-        θsP_dual = copyto!(PAT.get_tmp(hwi_dc.θsP_dc, vec), θsP)
-        compute_nelboi_z!(
-            hi, approx, rnormM, nljoint_args_indi,
-            ϕm_dual, ϕqIc_dual, θsP_dual, 
-            cor_endsM, transM, nljoint_args_fix,
-        )[1]
-    end
-    nelboiz_cl_mat, nelboiz_cl_vec
-end
+# # ϕm Matrix case
+# function make_nelboiz_lazy_cls(hi, hwi_dc, approx::AbstractHVIApproximation, rnormM, nljoint_args_indi, 
+#     ϕm, ϕqIc, θsP,
+#     cor_endsM, transM, nljoint_args_fix,
+#     ax_ϕqI::CA.Axis, ndim_ϕ::Val{2}, 
+#     )
+#     # mat is Vcat(θsP, ϕm)
+#     # vec is ϕqI
+#     function nelboiz_cl_mat(mat::Vcat) 
+#         local θsP_dual, ϕm_dual, ϕqIc_dual
+#         θsP_dual = mat.args[1]
+#         ϕm_dual = mat.args[2]
+#         ϕqIc_dual = CA.ComponentArray(
+#             copyto!(PAT.get_tmp(hwi_dc.ϕqI_dc, mat), ϕqIc), CA.getaxes(ϕqIc))
+#         compute_nelboi_z!(
+#             hi, approx, rnormM, nljoint_args_indi,
+#             ϕm_dual, ϕqIc_dual, θsP_dual, 
+#             cor_endsM, transM, nljoint_args_fix,
+#         )[1]
+#     end
+#     function nelboiz_cl_vec(vec::AbstractVector) 
+#         local θsP_dual, ϕm_dual, ϕqIc_dual
+#         ϕqIc_dual = CA.ComponentVector(vec, ax_ϕqI)
+#         ϕm_dual = copyto!(PAT.get_tmp(hwi_dc.ϕm_dc, vec), ϕm)
+#         θsP_dual = copyto!(PAT.get_tmp(hwi_dc.θsP_dc, vec), θsP)
+#         compute_nelboi_z!(
+#             hi, approx, rnormM, nljoint_args_indi,
+#             ϕm_dual, ϕqIc_dual, θsP_dual, 
+#             cor_endsM, transM, nljoint_args_fix,
+#         )[1]
+#     end
+#     nelboiz_cl_mat, nelboiz_cl_vec
+# end
 
 function make_nelboiz_lazy_cls_new(hi, hwi_dc, approx::AbstractHVIApproximation, rnormM, nljoint_args_indi, 
     ϕm, ϕqIc, θsP,
@@ -332,6 +332,25 @@ function make_nelboiz_lazy_cls_new(hi, hwi_dc, approx::AbstractHVIApproximation,
     end
 end
 
+function make_nelboiz_lazy_cls_vv(hi, hwi_dc, approx::AbstractHVIApproximation, rnormM, nljoint_args_indi, 
+    ϕm, ϕqIc, θsP,
+    cor_endsM, transM, nljoint_args_fix,
+    ax_ϕqI::CA.Axis, ndim_ϕ::Val{ND}, 
+    ) where ND
+    # VcatVecViews(θsP, ϕm, ϕqI)
+    function nelboiz_cl(vv::VcatVecViews) 
+        local θsP_dual, ϕm_dual, ϕqIc_dual
+        # reshape by copying into preallocated properly shaped arrays
+        θsP_dual = subarray(vv,1)
+        ϕm_dual = subarray(vv,2)
+        ϕqIc_dual = CA.ComponentVector(subarray(vv,3), ax_ϕqI)
+        compute_nelboi_z!(
+            hi, approx, rnormM, nljoint_args_indi,
+            ϕm_dual, ϕqIc_dual, θsP_dual, 
+            cor_endsM, transM, nljoint_args_fix,
+        )[1]
+    end
+end
 
 function get_pullback_cl_sample_ζsP(::AbstractArray{TF}; n_θP, n_MC, sample_buffers) where TF
     #dϕqc, dζsP, dlogσ_ζP, ζsP, logσ_ζP, rnormP, ϕqc)
@@ -537,68 +556,87 @@ function prepare_gradelbo_helpers(
     )
     # make sure, each worker gets its own copy, use similar
     hw_dcs = (hw_dcs_raw) -> map_leaves_nt(x -> PAT.DiffCache(similar(x), chunk), hw_dcs_raw) 
-    nelboi_z_mat, nelboi_z_vec = make_nelboiz_lazy_cls(hi1, hw_dcs(hw_dcs_raw), approx, rnormMi, nljoint_args_indi, 
-        ϕm, ϕqIc, θsP,
-        cor_ends.M, transM, nljoint_args_fix,
-        CA.getaxes(ϕqIc)[1], Val(ND),
-        ) 
-    grad_conf_mat, grad_conf_vec = if use_ϕm_vector
-        local grad_ϕm_ϕqI1, diffchunks_vec, diffchunks_mat
-        diffchunk_vec = ForwardDiff.Chunk(min(chunk, 
-            axis_length(CA.getaxes(ϕqIc)[1]) + axis_length(ax_θM)))
-        diffchunk_mat = ForwardDiff.Chunk(min(chunk, 
-            axis_length(CA.getaxes(ϕqPc)[1])))
-        grad_conf_mat_ϕmvec() = ForwardDiff.GradientConfig(nelboi_z_mat, CA.getdata(θsP), diffchunk_mat)
-        grad_ϕm_ϕqI1 = grad_ϕm_ϕqI(ϕm, ϕqIc)
-        function grad_conf_vec_ϕmvec() 
-            cfg_vec = ForwardDiff.GradientConfig(nelboi_z_vec, grad_ϕm_ϕqI1, diffchunk_vec)
-            update_duals_Vcat2(cfg_vec, grad_ϕm_ϕqI1)
-        end
-        grad_conf_mat_ϕmvec, grad_conf_vec_ϕmvec
-    else
-        local rad_θP_ϕm1, diffchunks_vec, diffchunks_mat
-        diffchunks_vec = ForwardDiff.Chunk(min(chunk, 
-            axis_length(CA.getaxes(ϕqIc)[1])))
-        diffchunks_mat = ForwardDiff.Chunk(min(chunk, 
-            NMC*(axis_length(CA.getaxes(ϕqPc)[1]) + axis_length(ax_θM))))
-        grad_conf_vec_ϕmmat() = ForwardDiff.GradientConfig(nelboi_z_vec, CA.getdata(ϕqIc), diffchunks_vec)
-        rad_θP_ϕm1 = grad_θsP_ϕm(ϕm, θsP)
-        function grad_conf_mat_ϕmmat() 
-            cfg_mat = ForwardDiff.GradientConfig(nelboi_z_mat, rad_θP_ϕm1, diffchunks_mat)
-            update_duals_Vcat2(cfg_mat, rad_θP_ϕm1)
-        end
-        grad_conf_mat_ϕmmat, grad_conf_vec_ϕmmat
-    end
-    nelboiz_new = make_nelboiz_lazy_cls_new(hi1, hw_dcs(hw_dcs_raw), approx, rnormMi, nljoint_args_indi, 
+    # nelboi_z_mat, nelboi_z_vec = make_nelboiz_lazy_cls(hi1, hw_dcs(hw_dcs_raw), approx, rnormMi, nljoint_args_indi, 
+    #     ϕm, ϕqIc, θsP,
+    #     cor_ends.M, transM, nljoint_args_fix,
+    #     CA.getaxes(ϕqIc)[1], Val(ND),
+    #     ) 
+    # grad_conf_mat, grad_conf_vec = if use_ϕm_vector
+    #     local grad_ϕm_ϕqI1, diffchunks_vec, diffchunks_mat
+    #     diffchunk_vec = ForwardDiff.Chunk(min(chunk, 
+    #         axis_length(CA.getaxes(ϕqIc)[1]) + axis_length(ax_θM)))
+    #     diffchunk_mat = ForwardDiff.Chunk(min(chunk, 
+    #         axis_length(CA.getaxes(ϕqPc)[1])))
+    #     grad_conf_mat_ϕmvec() = ForwardDiff.GradientConfig(nelboi_z_mat, CA.getdata(θsP), diffchunk_mat)
+    #     grad_ϕm_ϕqI1 = grad_ϕm_ϕqI(ϕm, ϕqIc)
+    #     function grad_conf_vec_ϕmvec() 
+    #         cfg_vec = ForwardDiff.GradientConfig(nelboi_z_vec, grad_ϕm_ϕqI1, diffchunk_vec)
+    #         update_duals_Vcat2(cfg_vec, grad_ϕm_ϕqI1)
+    #     end
+    #     grad_conf_mat_ϕmvec, grad_conf_vec_ϕmvec
+    # else
+    #     local rad_θP_ϕm1, diffchunks_vec, diffchunks_mat
+    #     diffchunks_vec = ForwardDiff.Chunk(min(chunk, 
+    #         axis_length(CA.getaxes(ϕqIc)[1])))
+    #     diffchunks_mat = ForwardDiff.Chunk(min(chunk, 
+    #         NMC*(axis_length(CA.getaxes(ϕqPc)[1]) + axis_length(ax_θM))))
+    #     grad_conf_vec_ϕmmat() = ForwardDiff.GradientConfig(nelboi_z_vec, CA.getdata(ϕqIc), diffchunks_vec)
+    #     rad_θP_ϕm1 = grad_θsP_ϕm(ϕm, θsP)
+    #     function grad_conf_mat_ϕmmat() 
+    #         cfg_mat = ForwardDiff.GradientConfig(nelboi_z_mat, rad_θP_ϕm1, diffchunks_mat)
+    #         update_duals_Vcat2(cfg_mat, rad_θP_ϕm1)
+    #     end
+    #     grad_conf_mat_ϕmmat, grad_conf_vec_ϕmmat
+    # end
+    # nelboiz_new = make_nelboiz_lazy_cls_new(hi1, hw_dcs(hw_dcs_raw), approx, rnormMi, nljoint_args_indi, 
+    #     ϕm, ϕqIc, θsP,
+    #     cor_ends.M, transM, nljoint_args_fix,
+    #     CA.getaxes(ϕqIc)[1], Val(ND),
+    #     )
+    # local θsP_vec, ϕm_vec, ϕqI, grad_θsP_ϕm_ϕqI1, diffchunks_elbo
+    # # θsP_vec = vec(θsP)
+    # # ϕm_vec = (ND == 1) ? ϕm : vec(ϕm)
+    # # ϕqI = CA.getdata(ϕqIc)
+    # grad_θsP_ϕm_ϕqI1 = grad_θsP_ϕm_ϕqI(θsP,ϕm,ϕqIc)
+    # # n_M >= n_θM but not static
+    # diffchunks_elbo = ForwardDiff.Chunk(min(chunk, 
+    #     axis_length(ax_θP) + axis_length(ax_θM) + axis_length(CA.getaxes(ϕqIc)[1])))
+    # function grad_conf_nelbo() 
+    #     cfg = ForwardDiff.GradientConfig(nelboiz_new, grad_θsP_ϕm_ϕqI1, diffchunks_elbo)
+    #     update_duals_Vcat3(cfg, grad_θsP_ϕm_ϕqI1)
+    # end    
+    #
+    nelboiz_vv = make_nelboiz_lazy_cls_vv(hi1, hw_dcs(hw_dcs_raw), approx, rnormMi, nljoint_args_indi, 
         ϕm, ϕqIc, θsP,
         cor_ends.M, transM, nljoint_args_fix,
         CA.getaxes(ϕqIc)[1], Val(ND),
         )
-    local θsP_vec, ϕm_vec, ϕqI, grad_θsP_ϕm_ϕqI1, diffchunks_elbo
-    # θsP_vec = vec(θsP)
-    # ϕm_vec = (ND == 1) ? ϕm : vec(ϕm)
-    # ϕqI = CA.getdata(ϕqIc)
-    grad_θsP_ϕm_ϕqI1 = grad_θsP_ϕm_ϕqI(θsP,ϕm,ϕqIc)
+    grad_θsP_ϕm_ϕqI_vv1 = grad_θsP_ϕm_ϕqI_vv(θsP,ϕm,ϕqIc)
     # n_M >= n_θM but not static
-    diffchunks_elbo = ForwardDiff.Chunk(min(chunk, 
+    diffchunks_elbo_vv = ForwardDiff.Chunk(min(chunk, 
         axis_length(ax_θP) + axis_length(ax_θM) + axis_length(CA.getaxes(ϕqIc)[1])))
-    function grad_conf_nelbo() 
-        cfg = ForwardDiff.GradientConfig(nelboiz_new, grad_θsP_ϕm_ϕqI1, diffchunks_elbo)
-        update_duals_Vcat3(cfg, grad_θsP_ϕm_ϕqI1)
+    function grad_conf_nelbo_vv() 
+        cfg = ForwardDiff.GradientConfig(nelboiz_vv, grad_θsP_ϕm_ϕqI_vv1, diffchunks_elbo_vv)
+        update_duals(cfg, grad_θsP_ϕm_ϕqI_vv1)
     end    
+
     get_helpers_worker = () -> begin
         (;
-            grad_conf_vec = grad_conf_vec(), 
-            grad_conf_mat = grad_conf_mat(),
-            grad_θsP = similar(θsP),
-            grad_ϕm_ϕqI = grad_ϕm_ϕqI(ϕm, ϕqIc),
-            grad_θsP_ϕm= grad_θsP_ϕm(ϕm, θsP),
-            grad_ϕqI = similar(CA.getdata(ϕqIc)),
+            # grad_conf_vec = grad_conf_vec(), 
+            # grad_conf_mat = grad_conf_mat(),
+            # grad_θsP = similar(θsP),
+            # grad_ϕm_ϕqI = grad_ϕm_ϕqI(ϕm, ϕqIc),
+            # grad_θsP_ϕm= grad_θsP_ϕm(ϕm, θsP),
+            # grad_ϕqI = similar(CA.getdata(ϕqIc)),
+            # #
+            # grad_conf_nelbo = grad_conf_nelbo(),
+            # grad_θsP_ϕm_ϕqI = grad_θsP_ϕm_ϕqI(θsP, ϕm, ϕqIc),
+            # # preallocated input Vcat for ForwardDiff.gradient! (θsP, ϕm, ϕqIc)
+            # θsP_ϕm_ϕqI = grad_θsP_ϕm_ϕqI(θsP, ϕm, ϕqIc),
             #
-            grad_conf_nelbo = grad_conf_nelbo(),
-            grad_θsP_ϕm_ϕqI = grad_θsP_ϕm_ϕqI(θsP, ϕm, ϕqIc),
-            # preallocated input Vcat for ForwardDiff.gradient! (θsP, ϕm, ϕqIc)
-            θsP_ϕm_ϕqI = grad_θsP_ϕm_ϕqI(θsP, ϕm, ϕqIc),
+            grad_θsP_ϕm_ϕqI_vv = grad_θsP_ϕm_ϕqI_vv(θsP, ϕm, ϕqIc),
+            grad_conf_nelbo_vv = grad_conf_nelbo_vv(),
+            θsP_ϕm_ϕqI_vv = grad_θsP_ϕm_ϕqI_vv(θsP, ϕm, ϕqIc),
         )
     end
     h1 = get_helpers_worker()
@@ -637,7 +675,8 @@ end
 @inline grad_θsP_ϕm(ϕm::AbstractMatrix, θsP) = Vcat(similar(θsP), similar(ϕm))
 #
 @inline grad_θsP_ϕm_ϕqI(θsP, ϕm, ϕqIc) = Vcat(similar(vec(θsP)), similar(vec(ϕm)), similar(CA.getdata(ϕqIc)) ) 
-#@inline grad_θsP_ϕm_ϕqI(θsP, ϕm::AbstractMatrix, ϕqIc) = Vcat(similar(θsP), similar(ϕm))
+#
+@inline grad_θsP_ϕm_ϕqI_vv(θsP, ϕm, ϕqIc) = VcatVecViews(similar(θsP), similar(ϕm), similar(CA.getdata(ϕqIc)) ) 
 
 @inline function update_duals_Vcat2(cfg::ForwardDiff.GradientConfig{T,V,N}, vc::Vcat) where {T,V,N}
     # similar Vcat returns a vector, need to convert dual of cfg to Vcat
