@@ -46,6 +46,7 @@ const GROUP = get(ENV, "GROUP", "All") # defined in in CI.yml
         () -> begin
             LE.with_logger(warn2error_logger) do
                 @safetestset "BMApplicatorMC" include("test/test_PBMApplicatorMC.jl")
+                @safetestset "test_VcatVecViews" include("test/test_VcatVecViews.jl")
                 @safetestset "util" include("test/test_util.jl")
                 @safetestset "elbo_sites" include("test/test_elbo_site.jl")
                 @safetestset "elbo_sites_doubleMM" include("test/test_elbo_site_doubleMM.jl")
@@ -54,9 +55,10 @@ const GROUP = get(ENV, "GROUP", "All") # defined in in CI.yml
 
 
         @time @safetestset "BMApplicatorMC" include("test_PBMApplicatorMC.jl")
+        @time @safetestset "test_VcatVecViews" include("test_VcatVecViews.jl")
         @time @safetestset "util" include("test_util.jl")
         @time @safetestset "elbo_sites" include("test_elbo_site.jl")
-        @safetestset "elbo_sites_doubleMM" include("test_elbo_site_doubleMM.jl")
+        @time @safetestset "elbo_sites_doubleMM" include("test_elbo_site_doubleMM.jl")
     end
 end
 
