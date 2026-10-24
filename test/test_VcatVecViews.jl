@@ -27,8 +27,10 @@ end
     @test Avv[1:9] == vec(A)
     @test Avv[10:end] == v
 
-    @test  subarray(Avv,1) === A
-    @test  subarray(Avv,2) === v
+    @test (@inferred subarray(Avv,Val(1))) === A
+    @test (@inferred subarray(Avv,Val(2))) === v
+
+    #@code_llvm subarray(Avv,Val(2))
 
     A[1] = 40
     @test Avv[1] == 40 
@@ -44,7 +46,7 @@ end
 
     function loop_subarray(n,Avv)
         for _ in 1:n
-            sum(subarray(Avv,1))
+            sum(subarray(Avv,Val(1)))
         end
     end
     @test (@allocated loop_subarray(10_000,Avv)) == 0
@@ -57,7 +59,7 @@ end
     A = rand(1:10, 3,3)
     Avv = VcatVecViews(A,v)
     compAv(A,v) = 2*sum(A) + 3*sum(v) # the hereogeneous computation
-    compAvv(Avv) = compAv(subarray(Avv,1), subarray(Avv,2)) # wrapper
+    compAvv(Avv) = compAv(subarray(Avv,Val(1)), subarray(Avv,Val(2))) # wrapper
     compAvv(Avv)
     cfg = ForwardDiff.GradientConfig(compAvv, Avv, ForwardDiff.Chunk(8))
     # replace the duals-Component of the GradientConfig by a proper VcatVecViews
@@ -66,9 +68,9 @@ end
     #   note that similar or copy of a VcatVecViews only return a Vcat of Vector
     gr = VcatVecViews(A,v) 
     ForwardDiff.gradient!(gr, compAvv, Avv, cfgv)
-    @test subarray(gr,1) isa Matrix
-    @test all(subarray(gr,1) .== 2)
-    @test all(subarray(gr,2) .== 3)
+    @test subarray(gr,Val(1)) isa Matrix
+    @test all(subarray(gr,Val(1)) .== 2)
+    @test all(subarray(gr,Val(2)) .== 3)
 
     function loop_gradient(n,gr,Avv,cfgv)
         for _ in 1:n

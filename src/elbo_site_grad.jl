@@ -62,8 +62,8 @@ function grad_neg_elbo_sites(
     # because the helpers may be passed as argument (to be reused across calls)
     with_each_channel_element(hw_channel) do hwi_tup
         hwi, _ = hwi_tup
-        copyto!(subarray(hwi.θsP_ϕm_ϕqI_vv,1), h.θsP)
-        copyto!(subarray(hwi.θsP_ϕm_ϕqI_vv,3), CA.getdata(ϕqIc))
+        copyto!(subarray(hwi.θsP_ϕm_ϕqI_vv,Val(1)), h.θsP)
+        copyto!(subarray(hwi.θsP_ϕm_ϕqI_vv,Val(3)), CA.getdata(ϕqIc))
     end
     cl = ForwardDiffGradNelboiZCl(
         approx, ϕqIc, gradh.dϕmvecs, gradh.hw_channel, cor_ends.M, transM,
@@ -120,7 +120,7 @@ Callable to make deliver arguments that do not differ by individual to Foldl.map
 """
 struct ForwardDiffGradNelboiZCl{KEYS, NMC, TA, Tϕq, TD, THWC, TC, TM, TAF}
     approx::TA
-    ϕqIc::Tϕq
+    ϕqIc::Tϕq   # TODO remove from closure, provided with preallocated VcatVecViews
     dϕmvecs::TD
     hw_channel::THWC
     cor_endsM::TC
@@ -159,14 +159,16 @@ function forwarddiff_grad_nelboi_z!(hi, rnormM,
             # Only ϕm (arg[2]) varies per site; θsP (arg[1]) and ϕqIc (arg[3])
             # are filled once before the mapreduce in grad_neg_elbo_sites.
             θsP_ϕm_ϕqI_vv = hwi.θsP_ϕm_ϕqI_vv
-            copyto!(subarray(θsP_ϕm_ϕqI_vv,2), ϕm)
+            copyto!(subarray(θsP_ϕm_ϕqI_vv,Val(2)), ϕm)
             ForwardDiff.gradient!(hwi.grad_θsP_ϕm_ϕqI_vv, nelboi_vv, θsP_ϕm_ϕqI_vv, 
                 hwi.grad_conf_nelbo_vv)
-            subarray(hwi.grad_θsP_ϕm_ϕqI_vv,1), subarray(hwi.grad_θsP_ϕm_ϕqI_vv,2), 
-                subarray(hwi.grad_θsP_ϕm_ϕqI_vv,3)
+            subarray(hwi.grad_θsP_ϕm_ϕqI_vv, Val(1)), 
+                subarray(hwi.grad_θsP_ϕm_ϕqI_vv, Val(2)), 
+                subarray(hwi.grad_θsP_ϕm_ϕqI_vv, Val(3))
         else
-            θsP = subarray(hwi.θsP_ϕm_ϕqI_vv,1)
-            θsP, ϕm, CA.getdata(cl.ϕqIc)
+            θsP = subarray(hwi.θsP_ϕm_ϕqI_vv, Val(1))
+            ϕqI = subarray(hwi.θsP_ϕm_ϕqI_vv, Val(3))
+            θsP, ϕm, ϕqI
         end
         copyto!(view(cl.dϕmvecs, :, i), grad_ϕm) 
         # returning SVector helps avoiding allocations during reduce
@@ -188,9 +190,9 @@ function make_nelboiz_lazy_cls_vv(hi, approx::AbstractHVIApproximation,
     function nelboiz_cl(vv::VcatVecViews) 
         local θsP_dual, ϕm_dual, ϕqIc_dual
         # reshape by copying into preallocated properly shaped arrays
-        θsP_dual = subarray(vv,1)
-        ϕm_dual = subarray(vv,2)
-        ϕqIc_dual = CA.ComponentVector(subarray(vv,3), ax_ϕqI)
+        θsP_dual = subarray(vv,Val(1))
+        ϕm_dual = subarray(vv,Val(2))
+        ϕqIc_dual = CA.ComponentVector(subarray(vv,Val(3)), ax_ϕqI)
         compute_nelboi_z!(
             hi, approx, rnormM, nljoint_args_indi,
             ϕm_dual, ϕqIc_dual, θsP_dual, 
@@ -407,7 +409,7 @@ function prepare_gradelbo_helpers(
     # https://juliadiff.org/ForwardDiff.jl/stable/user/advanced/#Custom-tags-and-tag-checking
     function grad_conf_nelbo_vv() 
         cfg = ForwardDiff.GradientConfig(nelboiz_vv, θsP_ϕm_ϕqI_vv1, diffchunks_elbo_vv,
-            Val{false}()  # use only for debugging, where tags clutter the output
+            #Val{false}()  # use only for debugging, where tags clutter the output
         )
         update_duals(cfg, θsP_ϕm_ϕqI_vv1)
     end    
