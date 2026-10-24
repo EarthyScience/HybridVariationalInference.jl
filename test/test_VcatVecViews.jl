@@ -51,6 +51,25 @@ end
     end
     @test (@allocated loop_subarray(10_000,Avv)) == 0
     #@profview_allocs loop_subarray(10_000,Avv)
+
+    @test similar(Avv) isa Matrix
+
+    B = similar_views(Avv)
+    @test B isa VcatVecViews
+    @test subarray(B, Val(1)) isa Matrix
+
+    B32 = similar_views(Avv, Float32)
+    @test subarray(B, Val(1)) isa Matrix
+    @test eltype(B32) == Float32
+
+    Cv = copy(Avv)
+    @test Cv == Avv
+    #@test_broken size(subarray(Cv, Val(1))) == size(A)
+    @test size(subarray(Cv, Val(1))) == (9,1) # !! reshaped to 1 column matrix
+
+    C = copy_views(Avv)
+    @test C == Avv
+    @test size(subarray(C, Val(1))) == size(A)    
 end
 
 @testset "ForwardDiff" begin

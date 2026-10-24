@@ -53,7 +53,7 @@ include("row_valviews.jl")
 #export VcatCAs
 include("VcatCA.jl")
 
-export VcatVecViews, subarray, update_duals
+export VcatVecViews, subarray, update_duals, similar_views, copy_views
 include("VcatVecViews.jl")
 
 include("OneBasedVectorWithZero.jl")
