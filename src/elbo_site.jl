@@ -7,12 +7,20 @@ function randnPM!(rng, rnorm::NamedTuple)
 end
 
 """
+    Dispatch to make some part of neg_elbo_sites! polymorphic
+"""
+abstract type AbstractElboLossMode end
+struct NegElbo <: AbstractElboLossMode end
+struct NegLogDensity <: AbstractElboLossMode end
+
+"""
 elbo_helpers need to be initialized with new random numbers
 in h.ζsP and hi.ζsM by calling randnPM! before.
 By this way, we can compute the derivative corresponding to the forward pass
 """
 function neg_elbo_sites!(
     elbo_helpers::NamedTuple,      # tuple of preallocated arrays
+    loss_mode::AbstractElboLossMode,
     ϕ::NamedTuple,
     rnormPM::NamedTuple,
     sample_args::NamedTuple,

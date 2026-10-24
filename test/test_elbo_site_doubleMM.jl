@@ -102,10 +102,10 @@ pbm_covar_indices = SA.SVector{length(pbm_covars)}([findfirst(==(k), keys(par_te
     sample_args = (;
         approx, g, is_testmode = true, pbm_covar_indices, intϕqP, intϕqI, cor_ends, 
         transP, transM)
-    primal = CP.neg_elbo_sites!(h0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix)
+    primal = CP.neg_elbo_sites!(h0, CP.NegElbo(), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix)
     function loop_neg_elbo_sites!(n, h0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix)
         for _ in 1:n
-            @noinline CP.neg_elbo_sites!(h0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix)
+            @noinline CP.neg_elbo_sites!(h0, CP.NegElbo(), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix)
         end
         nothing
     end
@@ -120,7 +120,6 @@ pbm_covar_indices = SA.SVector{length(pbm_covars)}([findfirst(==(k), keys(par_te
     local sample_args_rev, res0, gradh0
     sample_args_rev = (; sample_args..., is_testmode=false)
     res0, gradh0 = @inferred CP.grad_neg_elbo_sites(
-        #@descend_code_warntype CP.neg_elbo_sites!(
         h0, (;), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val,
         #n_workers = 3,
         )

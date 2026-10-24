@@ -658,7 +658,7 @@ end
 
 # to be differentiated, return only first entry of result
 function _ftmp2(h0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix) 
-    CP.neg_elbo_sites!(h0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix)[1]    
+    CP.neg_elbo_sites!(h0, CP.NegElbo(), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix)[1]    
 end
 
 function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by enzyme
@@ -859,9 +859,8 @@ end
     sample_args = (;
         approx, g, is_testmode, pbm_covar_indices = nothing, intϕqP, intϕqI, cor_ends, 
         transP, transM)
-    primal = CP.neg_elbo_sites!(h0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix)
+    primal = CP.neg_elbo_sites!(h0, CP.NegElbo(), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix)
     res0, gradh0 = CP.grad_neg_elbo_sites(
-        #@descend_code_warntype CP.neg_elbo_sites!(
         h0, (;), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
     res0_, gradh0_ = CP.grad_neg_elbo_sites( # test deterministic result and distributed
         h0, (;), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val,
@@ -890,7 +889,7 @@ end
     CP.randnPM!(rng1, rnormPM)
     randn!(rng1, ϕ2.ϕg)
     randn!(rng1, indiv_args.xM)
-    primal2 = CP.neg_elbo_sites!(h2, ϕ2, rnormPM, sample_args2, indiv_args, nljoint_args_fix)[1]
+    primal2 = CP.neg_elbo_sites!(h2, CP.NegElbo(), ϕ2, rnormPM, sample_args2, indiv_args, nljoint_args_fix)[1]
     res0, gradh2 = CP.grad_neg_elbo_sites(h2, (;), ϕ2, rnormPM, sample_args2, indiv_args, nljoint_args_fix; n_MC_val)
     res0_, gradh2_ = CP.grad_neg_elbo_sites(h2, (;), ϕ2, rnormPM, sample_args2, indiv_args, nljoint_args_fix; n_MC_val,
         executor = distributedEx,)    
@@ -918,7 +917,7 @@ end
     CP.randnPM!(rng1, rnormPM)
     randn!(rng1, ϕ2S.ϕg)
     randn!(rng1, indiv_args.xM)
-    primal2S = CP.neg_elbo_sites!(h2S, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix2S)
+    primal2S = CP.neg_elbo_sites!(h2S, CP.NegElbo(), ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix2S)
     res0, gradh2S = CP.grad_neg_elbo_sites(
         h2S, (;), ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix2S; n_MC_val, 
         #executor = distributedEx,
