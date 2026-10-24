@@ -398,6 +398,7 @@ end
     ϕqIc = intϕqI(ϕqI)
     ϕqPc = intϕqP(ϕqP)
     @assert keys(indiv_args1)[1] == :xM
+    loss_mode = CP.NegElbo()
     xM = indiv_args1.xM; r2end = 2:length(indiv_args1)
     nljoint_args_inds = NamedTuple{keys(indiv_args1)[r2end]}(values(indiv_args1)[r2end])
     CP.sample_ζsP!(h0.ζsP, h0.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P, h0.sample_buffers) # n_P * n_MC
@@ -408,12 +409,12 @@ end
     rnormM1 = rnormPM.M[1]
     ϕms1 = h0.ϕms[:,1]
     θsP1 = h0.θsP
-    CP.compute_nelboi_z!(hi1, approx, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1, 
+    CP.compute_nelboi_z!(hi1, CP.NegElbo(), approx, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1, 
         cor_ends.M, transM, nljoint_args_fix)     
     #@code_warntype CP.compute_nelboi_z!(hi1, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1)
     # need two wrap in tmpf to avoid allocations due to boxing
     function tmpf(hi, approx, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1, cor_endsM, transM, nljoint_args_fix)
-        @test (@allocated CP.compute_nelboi_z!(hi, approx, rnormM1, nljoint_args_ind1, ϕms1, 
+        @test (@allocated CP.compute_nelboi_z!(hi, CP.NegElbo(), approx, rnormM1, nljoint_args_ind1, ϕms1, 
             ϕqIc, θsP1, cor_endsM, transM, nljoint_args_fix)) == 0
     end
     tmpf(hi1, approx, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1, cor_ends.M, transM, nljoint_args_fix)
@@ -426,7 +427,7 @@ end
     CP.g_apply!(h2.ϕms_mcs, ϕg2, xM, h2.ζsP, pbm_covar_indices2, g2, h2.xMP, false)     
     ϕm = randn!(similar(h2.ϕms_mcs[:,:,1]))
     inputs = CA.ComponentVector(ϕqIc=ϕqIc, ϕm = ϕm, θsP= θsP1)
-    CP.compute_nelboi_z!(h21, approx, rnormM1, nljoint_args_ind1, inputs.ϕm, inputs.ϕqIc, 
+    CP.compute_nelboi_z!(h21, CP.NegElbo(), approx, rnormM1, nljoint_args_ind1, inputs.ϕm, inputs.ϕqIc, 
         inputs.θsP, cor_ends.M, transM, nljoint_args_fix)
     # with 
     ϕms1_ = view(inputs, Val(:ϕm))
@@ -434,7 +435,7 @@ end
     θsP1_ = view(inputs, Val(:θsP))
     function loop_compute_nelboi_z(n, h21, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix)
         for _ in 1:n
-            @noinline CP.compute_nelboi_z!(h21, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix)
+            @noinline CP.compute_nelboi_z!(h21, CP.NegElbo(), approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix)
         end
         nothing
     end
@@ -449,7 +450,7 @@ end
     gradh2 = @inferred CP.prepare_gradelbo_helpers(inputs.ϕqIc, inputs.ϕm, inputs.θsP, ϕg, ϕqPc, approx; 
         pbm_covar_indices=pbm_covar_indices2, n_workers=1,
         h=h2, rnormMi = rnormPM.M[1], nljoint_args_indi=nljoint_args_ind1,
-        n_site, n_cov, cor_ends, transP, transM, nljoint_args_fix, n_MC_val)
+        n_site, n_cov, cor_ends, transP, transM, nljoint_args_fix, loss_mode, n_MC_val)
     hw_channel = gradh2.hw_channel
     # alternative: invoke forwarddiff_grad_nelboi_z! with ϕqIc_ and θsP_ as views,
     # passing dϕmvecs as the plain array. The views are created once *outside* the
@@ -467,7 +468,7 @@ end
     dθsP = gradh2.dθsP
     cl = HVI.ForwardDiffGradNelboiZCl(
         approx, ϕqIc, gradh2.dϕmvecs, gradh2.hw_channel, cor_ends.M, transM,
-        Val(keys(nljoint_args_ind1)), nljoint_args_fix, n_MC_val)    
+        Val(keys(nljoint_args_ind1)), nljoint_args_fix, loss_mode, n_MC_val)    
    function alloc_forwarddiff_grad_nelboi_z(hi, rnormM, nljoint_args_indi, ϕm_, i, cl)
         loop_forwarddiff_grad_nelboi_z(1, hi, rnormM, nljoint_args_indi, ϕm_, i, cl, true)
         @test (@allocated loop_forwarddiff_grad_nelboi_z(100, hi, rnormM, nljoint_args_indi, ϕm_, i, cl, true)) == 0
@@ -485,11 +486,11 @@ end
 
     approx2 = MeanHVIApproximation()
     hiM1 = h0M.helpers_sites[1]
-    @test isfinite(CP.compute_nelboi_z!(hiM1, approx2, rnormM1, nljoint_args_ind1, 
+    @test isfinite(CP.compute_nelboi_z!(hiM1, CP.NegElbo(), approx2, rnormM1, nljoint_args_ind1, 
         ϕms1, ϕqIc, θsP1, cor_ends.M, transM, nljoint_args_fix))
     function alloc_compute_nelboi_zM!(hiM1, approx2, rnormM1, nljoint_args_ind1, 
         ϕms1, ϕqIc, θsP1, cor_endsM, transM, nljoint_args_fix)
-        @test (@allocated CP.compute_nelboi_z!(hiM1, approx2, rnormM1, nljoint_args_ind1, 
+        @test (@allocated CP.compute_nelboi_z!(hiM1, CP.NegElbo(), approx2, rnormM1, nljoint_args_ind1, 
         ϕms1, ϕqIc, θsP1, cor_endsM, transM, nljoint_args_fix)) == 0 
     end
     alloc_compute_nelboi_zM!(hiM1, approx2, rnormM1, nljoint_args_ind1, 

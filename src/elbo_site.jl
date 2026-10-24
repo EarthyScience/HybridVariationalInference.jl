@@ -42,7 +42,7 @@ function neg_elbo_sites!(
     ϕqIc = intϕqI(ϕqI)
     pbm_covar_indices = !isnothing(pbm_covar_indices) && isempty(pbm_covar_indices) ? nothing : pbm_covar_indices
     #
-    sample_ζsP!(h.ζsP, h.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers) # n_P * n_MC
+    set_ζsP!(h.ζsP, h.logσ_ζP, loss_mode, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers) # n_P * n_MC
     # (n_M x n_sit)  or (n_M x n_MC x n_sit)    
     ϕms_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
     #g_apply!(h[ϕms_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode, h.ϕms_mcs2D_buffer) 
@@ -57,10 +57,10 @@ function neg_elbo_sites!(
     function compute_nelboi_z_cl!(hi, rnormM, nljoint_args_indi_tup, ϕm) 
         #nljoint_args_indi = NamedTuple{keys_nljoint_args_indi}(nljoint_args_indi_tup)
         nljoint_args_indi = name_tuple(nljoint_args_indi_tup, keys_nljoint_args_indi_val)
-        compute_nelboi_z!(hi, approx, rnormM, nljoint_args_indi, ϕm, 
+        compute_nelboi_z!(hi, loss_mode, approx, rnormM, nljoint_args_indi, ϕm, 
         ϕqIc, θsP, cor_ends.M, transM, nljoint_args_fix) 
     end
-    #res_site = map(compute_nelboi_z!, h.helpers_sites, rnormPM.M, i_sites_train, ϕm_it)
+    #res_site = map(compute_nelboi_z!, loss_mode, h.helpers_sites, rnormPM.M, i_sites_train, ϕm_it)
     #MAYBE: distributed mapreduce: 
     #   https://docs.julialang.org/en/v1/stdlib/Distributed/#Distributed.@distributed
     #   https://github.com/SupaeroDataScience/DE/blob/main/notebooks/Introduction%20to%20MapReduce.ipynb
@@ -72,12 +72,20 @@ function neg_elbo_sites!(
     elbo = elbo_z - exp_ladJacTP - sum(h.logσ_ζP)
 end
 
+@inline function set_ζsP!(
+    ζsP, logσ_ζP, ::NegElbo, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) 
+    sample_ζsP!(ζsP, logσ_ζP, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) # n_P * n_MC    
+end
+@inline function set_ζsP!(
+    ζsP, logσ_ζP::AbstractMatrix{T}, ::NegLogDensity, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) where T
+    ζsP .= CA.getdata(view(ϕqPc,Val(:μζP)))
+    logσ_ζP .= zero(T) # omit loss component of entropy of distribution
+end
+
 name_tuple(tup, ::Val{KEYS}) where KEYS = NamedTuple{KEYS}(tup)
 
 
-
-
-function compute_nelboi_z!(hi, approx::AbstractHVIApproximation,
+function compute_nelboi_z!(hi, loss_mode::AbstractElboLossMode, approx::AbstractHVIApproximation,
     rnormM, nljoint_args_indi, ϕm::AbstractArray, ϕqIc::AbstractArray, θsP, 
     cor_endsM, transM, nljoint_args_fix, ) 
     # DM is 1 (vector) if no population covariates - constant across MC
@@ -89,16 +97,29 @@ function compute_nelboi_z!(hi, approx::AbstractHVIApproximation,
         hi = map_leaves_nt(x -> PAT.get_tmp(x, template), hi)
     end
     #ζsM, logσ_ζM, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector
-    sample_ζsM!(hi.ζsM, hi.logσ_ζM, approx, rnormM, ϕqIc, ϕm, cor_endsM, hi.sample_buffers)
+    set_ζsM!(hi.ζsM, hi.logσ_ζM, loss_mode, approx, rnormM, ϕqIc, ϕm, cor_endsM, hi.sample_buffers)
     exp_ladJacTM = transformζ!(hi.θsM, transM, hi.ζsM)  # return value captures ladJacT
     # first component needs to be the full elbo
     exp_nL = exp_nLi!(hi.y, θsP, hi.θsM, nljoint_args_indi, nljoint_args_fix, hi)[1]
     nelboi_z = exp_nL - exp_ladJacTM - sum(hi.logσ_ζM)
 end
+
+@inline function set_ζsM!(ζsM, logσ_ζM, ::NegElbo, approx, rnormM, ϕqIc, ϕm, cor_endsM, sample_buffers)
+    sample_ζsM!(ζsM, logσ_ζM, approx, rnormM, ϕqIc, ϕm, cor_endsM, sample_buffers)
+end
+@inline function set_ζsM!(ζsM, logσ_ζM::AbstractArray{T}, ::NegLogDensity, approx, rnormM, ϕqIc, ϕm, cor_endsM, sample_buffers) where T
+    error("implement set_ζsM! for NegLogDensity: care for n_θM")
+    # TODO infer n_θM
+    ζMm .= view(ϕm, 1:n_θM, :)    # μζM in first n_θM entries
+    logσ_ζM .= zero(T)
+    nothing
+end
+
 # get_tmp_rec_(x::PAT.DiffCache{<:AbstractArray}, template) = PAT.get_tmp(x, template)
 # function get_tmp_rec_(x::Union{Tuple,NamedTuple}, template) 
 #     map(xi -> get_tmp_rec_(xi, template), x)
 # end
+
 
 
 function prepare_rnorm(::AbstractVector{TF}; n_θP, n_θM, n_site, n_MC) where TF
