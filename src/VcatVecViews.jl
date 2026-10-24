@@ -23,7 +23,7 @@ a `ForwardDiff.GradientConfig` by `update_duals`.
     A = rand(1:10, 3,3)
     Avv = VcatVecViews(A,v)
     compAv(A,v) = 2*sum(A) + 3*sum(v) # the hereogeneous computation
-    compAvv(Avv) = compAv(subarray(Avv,1), subarray(Avv,2)) # wrapper
+    compAvv(Avv) = compAv(subarray(Avv,Val(1)), subarray(Avv,Val(2))) # wrapper
     cfg = ForwardDiff.GradientConfig(compAvv, Avv, ForwardDiff.Chunk(8))
     # replace the duals-Component of the GradientConfig by a proper VcatVecViews
     cfgv = HVI.update_duals(cfg, Avv)
@@ -31,8 +31,8 @@ a `ForwardDiff.GradientConfig` by `update_duals`.
     #   note that similar or copy of a VcatVecViews only return a Vcat of Vector
     gr = VcatVecViews(A,v) 
     ForwardDiff.gradient!(gr, compAvv, Avv, cfgv)
-    all(subarray(gr,1) .== 2)
-    all(subarray(gr,2) .== 3)
+    @test all(subarray(gr,Val(1)) .== 2)
+    @test all(subarray(gr,Val(2)) .== 3)
 ```
 """
 const VcatVecViews{T,N,I} = Vcat{T,N,I} # its a Vcat across views
@@ -49,12 +49,16 @@ end
 end
 
 """
-    subarray(vv::VcatVecViews, i::Integer)
+    subarray(vv::VcatVecViews, Val{i])
+    subarray_uninferred(vv::VcatVecViews, i)
 
 Access the i'th subarray from which the `vv::VcatVecViews` was built. 
-"""
-subarray(vv::VcatVecViews, i::Integer) = parent(vv.args[i])
 
+Only provide literals or compile-time inferred integers as Valuetypes to the index, 
+to make of the result type inferred by the compiler.
+"""
+@inline subarray_uninferred(vv::VcatVecViews, i::Integer) = parent(vv.args[i])
+@inline subarray(vv::VcatVecViews, ::Val{i}) where i = parent(vv.args[i])
 
 function update_duals(
     cfg::ForwardDiff.GradientConfig{C1,C2,C3}, 
