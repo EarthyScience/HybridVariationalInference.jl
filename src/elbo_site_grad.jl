@@ -370,7 +370,7 @@ function prepare_gradelbo_helpers(
     transP::Stacked, transM::Stacked,
     nljoint_args_fix,
     n_MC_val::Val{NMC},
-    diffchunk::ForwardDiff.Chunk{chunk} = ForwardDiff.Chunk(8),
+    max_diffchunk::ForwardDiff.Chunk{chunk} = ForwardDiff.Chunk(8),
     ) where {TG, TF, ND, NMC, chunk}
     local hi1, ax_θP, ax_θM, n_covP, n_ϕmvec, n_θP, n_MC, n_M
     hi1 = h.helpers_sites[1]
@@ -405,7 +405,7 @@ function prepare_gradelbo_helpers(
     θsP_ϕm_ϕqI_vv1 = θsP_ϕm_ϕqI_vv(θsP,ϕm,ϕqIc)
     # n_M >= n_θM but not static
     diffchunks_elbo_vv = ForwardDiff.Chunk(min(chunk, 
-        axis_length(ax_θP) + axis_length(ax_θM) + axis_length(CA.getaxes(ϕqIc)[1])))
+        axis_length(ax_θP)*NMC + axis_length(ax_θM)*(use_ϕm_vector ? 1 : NMC) + axis_length(CA.getaxes(ϕqIc)[1])))
     # https://juliadiff.org/ForwardDiff.jl/stable/user/advanced/#Custom-tags-and-tag-checking
     function grad_conf_nelbo_vv() 
         cfg = ForwardDiff.GradientConfig(nelboiz_vv, θsP_ϕm_ϕqI_vv1, diffchunks_elbo_vv,
