@@ -10,8 +10,8 @@ There is a small allocation when constructing the `Vcat`, an index computation
 when accessing elements, but no computation when indexing into `subarray(vcc, i)`.
 
 Note that `similar(vcc)` or `copy(vcc)` of a `vcc::VcatVecViews` 
-only return a Vcat in which the vector-views of the subarrays are replaced by 
-vectors.
+materialize the views. Use [`similar_views`](@ref) and [`copy_views`](@ref)
+to create VcatVecViews.
 
 It allows efficient ForwardDiff.gradient computation of a function to several 
 array arguments of heterogeneous shapes by updating the duals component of
@@ -60,13 +60,34 @@ to make of the result type inferred by the compiler.
 @inline subarray_uninferred(vv::VcatVecViews, i::Integer) = parent(vv.args[i])
 @inline subarray(vv::VcatVecViews, ::Val{i}) where i = parent(vv.args[i])
 
+
+"""
+    copy_views(vv::VcatVecViews)
+
+Create a copy, with subarrays views into copies of underlying matrices. 
+`copy(vv)` returns a Vcat of materialized views, i.e. single-column matrices and vectors.
+"""
+copy_views(vv::VcatVecViews) = VcatVecViews((copy(parent(A)) for A in vv.args)...)    
+
+"""
+    similar_views(vv::VcatVecViews)
+    similar_views(vv::VcatVecViews, ::Type{T})
+
+Return VcatViews into similar subarrays.
+`similar(vv)` returns a plain one-column matrix or vector.
+"""
+similar_views(vv::VcatVecViews) = VcatVecViews((similar(parent(A)) for A in vv.args)...)    
+function similar_views(vv::VcatVecViews, ::Type{T}) where T
+    VcatVecViews((similar(parent(A), T) for A in vv.args)...)    
+end
+
+
 function update_duals(
     cfg::ForwardDiff.GradientConfig{C1,C2,C3}, 
     vv::VcatVecViews{T,N,I},
     ) where {T,N,I,C1,C2,C3}
     @assert size(vv) == size(cfg.duals)
-    duals_vcat = VcatVecViews(
-        (similar(parent(A), eltype(cfg.duals)) for A in vv.args)...)
+    duals_vcat = similar_views(vv,  eltype(cfg.duals))
     cfgv = ForwardDiff.GradientConfig{C1,C2,C3,typeof(duals_vcat)}(cfg.seeds, duals_vcat)
     cfgv
 end
