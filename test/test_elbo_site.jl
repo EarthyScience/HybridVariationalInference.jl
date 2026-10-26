@@ -171,6 +171,7 @@ isUsingSimpleChains = false
 
     # preallocate helpers and shadows
     rnormPM = CP.prepare_rnorm(ϕqP; n_θP, n_θM, n_MC, n_site)
+    rnormPM_point = CP.prepare_rnorm(ϕqP; n_θP, n_θM, n_MC=1, n_site)
     # size(rnormPM.P)
     approx = CP.DiagonalHVIApproximation()
     CP.randnPM!(rng, rnormPM)
@@ -670,6 +671,9 @@ end
 function _ftmp2(h0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix) 
     CP.neg_elbo_sites!(h0, CP.NegElbo(), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix)[1]    
 end
+function _ftmp_point(h0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix) 
+    CP.neg_elbo_sites!(h0, CP.NegLogDensity(), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix)[1]    
+end
 
 function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by enzyme
     # do not use DiffCache here for helpers_sites
@@ -684,7 +688,7 @@ function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by e
     ϕ = (;ϕg=ϕgv, ϕqP, ϕqI)
     dϕ = map(zero, ϕ)
     sample_args = (;
-        approx, g, is_testmode, pbm_covar_indices = nothing, intϕqP, intϕqI, cor_ends, 
+        approx, g, is_testmode = false, pbm_covar_indices = nothing, intϕqP, intϕqI, cor_ends, 
         transP, transM)
     #
     rng1 = StableRNG(1234)
@@ -706,9 +710,9 @@ function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by e
             Enzyme.Const(nljoint_args_fix),
         )   
     () -> begin
-        dϕg0_enz ≈ dϕ.ϕg
-        dϕqP0_enz ≈ dϕ.ϕqP
-        dϕqI0_enz ≈ dϕ.ϕqI
+        @test dϕg0_enz ≈ dϕ.ϕg
+        @test dϕqP0_enz ≈ dϕ.ϕqP
+        @test dϕqI0_enz ≈ dϕ.ϕqI
         hcat(dϕg0_enz, dϕ.ϕg)
     end
     dϕg0_enz = copy(dϕ.ϕg)
@@ -732,7 +736,7 @@ function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by e
     ϕ2 = (;ϕg=ϕg2v, ϕqP, ϕqI)
     dϕ2 = map(zero, ϕ2)
     sample_args2 = (;
-        approx, g=g2, is_testmode, pbm_covar_indices = pbm_covar_indices2, intϕqP, intϕqI, cor_ends, 
+        approx, g=g2, is_testmode = false, pbm_covar_indices = pbm_covar_indices2, intϕqP, intϕqI, cor_ends, 
         transP, transM)
     #
     rng1 = StableRNG(1234)
@@ -754,10 +758,10 @@ function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by e
             Enzyme.Const(nljoint_args_fix),
         )   
     () -> begin
-        primal2_enz ≈ primal_enz
-        dϕg2_enz ≈ dϕ2.ϕg
+        @test primal2_enz ≈ primal_enz
+        @test dϕg2_enz ≈ dϕ2.ϕg
         @test dϕqP2_enz ≈ dϕ2.ϕqP  atol=0.001
-        dϕqI2_enz ≈ dϕ2.ϕqI
+        @test dϕqI2_enz ≈ dϕ2.ϕqI
         hcat(dϕg2_enz, dϕ2.ϕg)
         hcat(dϕqP2_enz, dϕ2.ϕqP)
     end
@@ -785,14 +789,19 @@ function grad_neg_elbo_sites_enzyme_scaled()
         intϕqP, intϕqI=intϕqIS, cor_ends, 
         transP, transM)
     h2Sp = CP.prepare_elbo_helpers(sample_args2S.approx, ϕg2, ϕqP; 
-        n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends, use_diff_cache = Val(false))
+        n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs, 
+        use_diff_cache = Val(false))
     dh2Sp = Enzyme.make_zero(h2Sp)
+    h2Sp_point = CP.prepare_elbo_helpers(sample_args2S.approx, ϕg2, ϕqP; 
+        n_θP, n_θM, n_site, n_MC=1, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs, 
+        use_diff_cache = Val(false))
+    dh2Sp_point = Enzyme.make_zero(h2Sp_point)
     #
     rng1 = StableRNG(1234)
     CP.randnPM!(rng1, rnormPM)
     randn!(rng1, ϕ2S.ϕg)
     randn!(rng1, indiv_args.xM)
-    primal_enz2S = tmp = _ftmp2(h2Sp, ϕ2S, rnormPM, sample_args2S, indiv_args)
+    primal_enz2S = tmp = _ftmp2(h2Sp, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)
     Enzyme.make_zero!(dϕ2S)
     Enzyme.make_zero!(dh2Sp)
     Enzyme.autodiff(
@@ -804,7 +813,14 @@ function grad_neg_elbo_sites_enzyme_scaled()
             Enzyme.DuplicatedNoNeed(rnormPM, Enzyme.make_zero(rnormPM)),
             Enzyme.Const(sample_args2S),
             Enzyme.Const(indiv_args),
+            Enzyme.Const(nljoint_args_fix),
         )   
+    () -> begin
+        @test dϕg2S_enz ≈ dϕ2S.ϕg atol = 0.03
+        @test dϕqP2S_enz ≈ dϕ2S.ϕqP atol = 0.03
+        @test dϕqI2S_enz ≈ dϕ2S.ϕqI atol = 0.03
+        hcat(dϕg2S_enz, dϕ2S.ϕg)
+    end
     dϕg2S_enz = copy(dϕ2S.ϕg)
     dϕqP2S_enz = copy(dϕ2S.ϕqP)
     dϕqI2S_enz = copy(dϕ2S.ϕqI)
@@ -815,6 +831,36 @@ function grad_neg_elbo_sites_enzyme_scaled()
         JLD2.jldsave(fname, false, IOStream; primal_enz2S, dϕg2S_enz, dϕqP2S_enz, dϕqI2S_enz)
         primal_enz2S, dϕg2S_enz, dϕqP2S_enz, dϕqI2S_enz = JLD2.load(fname, 
             "primal_enz2S", "dϕg2S_enz", "dϕqP2S_enz", "dϕqI2S_enz");
+    end
+    #
+    rng1 = StableRNG(1234)
+    CP.randnPM!(rng1, rnormPM_point)
+    randn!(rng1, ϕ2S.ϕg)
+    randn!(rng1, indiv_args.xM)
+    primal_enz2S_point = tmp = _ftmp_point(h2Sp_point, ϕ2S, rnormPM_point, sample_args2S, indiv_args, nljoint_args_fix)
+    dϕ2S_point = CP.map_leaves_nt(copy, dϕ2S)
+    Enzyme.make_zero!(dϕ2S_point)
+    Enzyme.make_zero!(dh2Sp_point)
+    Enzyme.autodiff(
+            Enzyme.set_runtime_activity(Enzyme.Reverse) ,
+            _ftmp_point,
+            Enzyme.Active,
+            Enzyme.Duplicated(h2Sp_point, dh2Sp_point),
+            Enzyme.Duplicated(ϕ2S, dϕ2S_point),
+            Enzyme.DuplicatedNoNeed(rnormPM_point, Enzyme.make_zero(rnormPM_point)),
+            Enzyme.Const(sample_args2S),
+            Enzyme.Const(indiv_args),
+            Enzyme.Const(nljoint_args_fix),
+        )   
+    dϕg2S_point_enz = copy(dϕ2S_point.ϕg)
+    dϕqP2S_point_enz = copy(dϕ2S_point.ϕqP)
+    dϕqI2S_point_enz = copy(dϕ2S_point.ϕqI)
+    () -> begin
+        fname = "intermediate/test_enzymeS_dphi2_point.jld2"
+        mkpath("intermediate")
+        JLD2.jldsave(fname, false, IOStream; primal_enz2S_point, dϕg2S_point_enz, dϕqP2S_point_enz, dϕqI2S_point_enz)
+        primal_enz2S_point, dϕg2S_point_enz, dϕqP2S_point_enz, dϕqI2S_point_enz = JLD2.load(fname, 
+            "primal_enz2S_point", "dϕg2S_point_enz", "dϕqP2S_point_enz", "dϕqI2S_point_enz");
     end
 end
 
@@ -950,10 +996,6 @@ end
         h2S, (;), CP.NegElbo(), ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix2S; n_MC_val, 
         #executor = distributedEx,
     )   
-    res0_point, gradh2S_point = CP.grad_neg_elbo_sites(
-        h2S_point, (;), CP.NegLogDensity(), ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix2S; n_MC_val, 
-        #executor = distributedEx,
-    )   
     if isfile("intermediate/test_enzymeS_dphi2.jld2")
         primal_enz2S, dϕg2S_enz, dϕqP2S_enz, dϕqI2S_enz = JLD2.load(
             "intermediate/test_enzymeS_dphi2.jld2", 
@@ -962,6 +1004,27 @@ end
         @test dϕg2S_enz ≈ res0.dϕg
         @test dϕqI2S_enz ≈ res0.dϕqIc atol=0.01
         @test dϕqP2S_enz ≈ res0.dϕqPc atol=0.01
+        #hcat(dϕqP2_enz, res0.dϕqP)
+        #hcat(dϕqI2S_enz, res0.dϕqI)
+    end
+    #
+    rng1 = StableRNG(1234)
+    CP.randnPM!(rng1, rnormPM_point)
+    randn!(rng1, ϕ2S.ϕg)
+    randn!(rng1, indiv_args.xM)
+    primal2S_point = CP.neg_elbo_sites!(h2S_point, CP.NegLogDensity(), ϕ2S, rnormPM_point, sample_args2S, indiv_args, nljoint_args_fix2S)
+    res0_point, gradh2S_point = CP.grad_neg_elbo_sites(
+        h2S_point, (;), CP.NegLogDensity(), ϕ2S, rnormPM_point, sample_args2S, indiv_args, nljoint_args_fix2S; n_MC_val, 
+        #executor = distributedEx,
+    )   
+    if isfile("intermediate/test_enzymeS_dphi2_point.jld2")
+        primal_enz2S_point, dϕg2S_point_enz, dϕqP2S_point_enz, dϕqI2S_point_enz = JLD2.load(
+            "intermediate/test_enzymeS_dphi2_point.jld2", 
+            "primal_enz2S_point", "dϕg2S_point_enz", "dϕqP2S_point_enz", "dϕqI2S_point_enz");
+        @test primal_enz2S_point ≈ primal2S_point[1]
+        @test dϕg2S_point_enz ≈ res0_point.dϕg atol=0.03
+        @test dϕqI2S_point_enz ≈ res0_point.dϕqIc atol=0.01
+        @test dϕqP2S_point_enz ≈ res0_point.dϕqPc atol=0.01
         #hcat(dϕqP2_enz, res0.dϕqP)
         #hcat(dϕqI2S_enz, res0.dϕqI)
     end
@@ -985,7 +1048,6 @@ end
     #@usingany BenchmarkTools
     #@benchmark CP.grad_neg_elbo_sites($h2, $gradh2, $rnormPM, $ϕg2v, $ϕqP, $ϕqI, $g2, $pbm_covar_indices2; i_sites_train = _i_sites_train, intϕqP=$intϕqP, intϕqI=$intϕqI, xM=$xM, is_testmode = false)
     alloc_grad_neg_elbo_sites(h2S_point, gradh2S_point, CP.NegLogDensity(), ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix2S)
-
 end
 
 
