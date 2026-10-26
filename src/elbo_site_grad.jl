@@ -2,13 +2,13 @@
 function grad_neg_elbo_sites(
     elbo_helpers::NamedTuple,      # tuple of preallocated arrays
     grad_elbo_helpers::NamedTuple,  # tuple of preallocated arrays pullback closures
+    loss_mode,   
     ϕ::NamedTuple,
     rnormPM::NamedTuple,
     sample_args::NamedTuple,
     indiv_args::NamedTuple,
     nljoint_args_fix::NamedTuple;
-    n_MC_val::Val{NMC},     # need to pass by value for type inference on chunks
-    loss_mode = NegElbo(),   # TODO
+    n_MC_val::Val{NMC_ELBO},     # need to pass by value for type inference on chunks
     # approx::AbstractHVIApproximation,
     # rnormPM::NamedTuple,          # tuple of random numbers
     # ϕg::AbstractVector{TG}, ϕqP::AbstractVector{TF}, ϕqI::AbstractVector{TF}, g, 
@@ -22,7 +22,13 @@ function grad_neg_elbo_sites(
     # is_testmode, 
     n_workers = 1, # TODO compute from executor and Distributed.nworkers and nthreads,...
     executor::Transducers.Executor = Transducers.SequentialEx(),
-) where NMC
+) where NMC_ELBO
+    if loss_mode isa NegLogDensity 
+        NMC = 1 
+        n_MC_val = Val(1)
+    else
+        NMC = NMC_ELBO
+    end
     h = elbo_helpers # preallocated μζP, dμζP, ζsP, ϕms, xMP, dxMP
     (;ϕg, ϕqP, ϕqI) = ϕ
     TF = eltype(ϕqP)
@@ -53,7 +59,7 @@ function grad_neg_elbo_sites(
         n_MC_val)
     hw_channel = gradh.hw_channel
     #
-    sample_ζsP!(h.ζsP, h.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers) # n_P * n_MC
+    set_ζsP!(h.ζsP, h.logσ_ζP, loss_mode, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers) # n_P * n_MC
     g_apply!(h_ϕm, ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
     ladJacTP = transformζ!(h.θsP, transP, h.ζsP)  # return value captures ladJacT
     #
@@ -89,7 +95,7 @@ function grad_neg_elbo_sites(
     copyto!(∂elbo_∂θP, res.dθsP)
     copyto!(gradh.dϕqIc, res.dϕqI)
     # other gradients are one, calculated from formula
-    gradh.∂elbo_∂logσ_ζP .= -one(TF)  
+    set_∂elbo_∂logσ_ζP!(gradh.∂elbo_∂logσ_ζP, loss_mode)
     ∂elbo_∂ladJacTP = -one(TF)
     #
     # pullback gradients of ϕqm -> gradh.dϕg and gradh.dζsP
@@ -109,13 +115,34 @@ function grad_neg_elbo_sites(
         )
     #
     # pullback gradients of ∂elbo_∂ζP, ∂elbo_∂ϕm_∂ζP, and ∂elbo_∂logσ_ζP to dϕqP
-    gradh.pullback_cl_sample_ζsP!(
-        gradh.dϕqPc, 
+    pullack_sample_ζsP!(gradh.dϕqPc, loss_mode,
         ∂elbo_∂θP_∂ζP + gradh.∂elbo_∂ϕm_∂ζP, gradh.∂elbo_∂logσ_ζP,
+        gradh,
         h.ζsP, h.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers,
         )
     (;dϕqPc = gradh.dϕqPc, dϕqIc = gradh.dϕqIc, dϕg = gradh.dϕg), gradh
 end
+
+function set_∂elbo_∂logσ_ζP!(∂elbo_∂logσ_ζP::AbstractVector{T}, ::NegElbo) where T
+    ∂elbo_∂logσ_ζP .= -one(T)  
+end
+function set_∂elbo_∂logσ_ζP!(∂elbo_∂logσ_ζP::AbstractVector{T}, ::NegLogDensity) where T
+    ∂elbo_∂logσ_ζP .= zero(T)  
+end
+
+
+function pullack_sample_ζsP!(dϕqPc, ::NegElbo, dζsP, dlogσ_ζP, gradh, args...) 
+    gradh.pullback_cl_sample_ζsP!(dϕqPc, dζsP, dlogσ_ζP, args...)
+end
+function pullack_sample_ζsP!(dϕqPc, ::NegLogDensity, dζsP, dlogσ_ζP::AbstractVector{TF}, args...) where TF
+    #error("debug pullack_sample_ζsP!(dϕqPc, ::NegLogDensity")
+    n_θM = size(dζsP, 1)
+    @assert all(dlogσ_ζP .== zero(TF))
+    dϕqPc[1:n_θM] .= dζsP
+    dϕqPc[(n_θM+1):end] .= zero(TF)
+    dϕqPc
+end
+
 
 """
 Callable to make deliver arguments that do not differ by individual to Foldl.mapreduce.
@@ -374,9 +401,15 @@ function prepare_gradelbo_helpers(
     transP::Stacked, transM::Stacked,
     nljoint_args_fix,
     loss_mode::AbstractElboLossMode,
-    n_MC_val::Val{NMC},
+    n_MC_val::Val{NMC_ELBO},
     max_diffchunk::ForwardDiff.Chunk{chunk} = ForwardDiff.Chunk(8),
-    ) where {TG, TF, ND, NMC, chunk}
+    ) where {TG, TF, ND, NMC_ELBO, chunk}
+    if loss_mode isa NegLogDensity 
+        NMC = 1 
+        n_MC_val = Val(1)
+    else
+        NMC = NMC_ELBO
+    end
     local hi1, ax_θP, ax_θM, n_covP, n_ϕmvec, n_θP, n_MC, n_M
     hi1 = h.helpers_sites[1]
     ax_θP = get_axis_θP(nljoint_args_fix.f!)

@@ -84,7 +84,9 @@ pbm_covar_indices = SA.SVector{length(pbm_covars)}([findfirst(==(k), keys(par_te
     # approxS = get_hybridproblem_HVIApproximation(prob; scenario)
     n_M = get_numberof_MLinputs(approx, par_templates.θM)
     h0 = CP.prepare_elbo_helpers(approx, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP, n_M, cor_ends, n_obs);
+    h0_point = CP.prepare_elbo_helpers(approx, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC=1, n_cov, n_covP, n_M, cor_ends, n_obs);
     randn!(h0.θsP) # for testing should initialized to finite values
+    randn!(h0_point.θsP) # for testing should initialized to finite values
     rnormPM = CP.prepare_rnorm(ϕqP; n_θP, n_θM, n_MC, n_site)
 
 #-------------------------------------------------------------
@@ -120,31 +122,36 @@ pbm_covar_indices = SA.SVector{length(pbm_covars)}([findfirst(==(k), keys(par_te
     local sample_args_rev, res0, gradh0
     sample_args_rev = (; sample_args..., is_testmode=false)
     res0, gradh0 = @inferred CP.grad_neg_elbo_sites(
-        h0, (;), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val,
+        h0, (;), CP.NegElbo(), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val,
+        #n_workers = 3,
+        )
+    res0_point, gradh0_point = @inferred CP.grad_neg_elbo_sites(
+        h0_point, (;), CP.NegLogDensity(), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val,
         #n_workers = 3,
         )
     function loop_grad_neg_elbo_sites(
-        n, h0, gradh0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
+        n, h0, gradh0, loss_mode, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
         for _ in 1:n
             @noinline CP.grad_neg_elbo_sites(
-                h0, gradh0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
+                h0, gradh0, loss_mode, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
         end
         nothing
     end
-    function alloc_grad_neg_elbo_sites(h0, gradh0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
+    function alloc_grad_neg_elbo_sites(h0, gradh0, loss_mode, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
         # avoid global variables -> pass them through function
-        loop_grad_neg_elbo_sites(1, h0, gradh0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
+        loop_grad_neg_elbo_sites(1, h0, gradh0, loss_mode, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
         GC.gc()        
-        #@profview_allocs loop_grad_neg_elbo_sites(10_000,h0, gradh0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
-        #@profview loop_grad_neg_elbo_sites(10_000,h0, gradh0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
-        #@test (@allocated loop_grad_neg_elbo_sites(100,h0, gradh0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)) <= 6_748_800
+        #@profview_allocs loop_grad_neg_elbo_sites(10_000,h0, gradh0, loss_mode, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
+        #@profview loop_grad_neg_elbo_sites(10_000,h0, gradh0, loss_mode, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
+        #@test (@allocated loop_grad_neg_elbo_sites(100,h0, gradh0, loss_mode, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)) <= 6_748_800
         # TODO inspect why more allocations when calling from runtests or command line
         local alloc
-        alloc = @allocated loop_grad_neg_elbo_sites(100,h0, gradh0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
+        alloc = @allocated loop_grad_neg_elbo_sites(100,h0, gradh0, loss_mode, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
         @test alloc <= 6_753_536  #6_748_800 #
         alloc
     end
-    alloc_grad_neg_elbo_sites(h0, gradh0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
+    alloc_grad_neg_elbo_sites(h0, gradh0, CP.NegElbo(), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
+    alloc_grad_neg_elbo_sites(h0_point, gradh0_point, CP.NegLogDensity(), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
 end
 
 # @testset "HybridPointSolverSite" begin

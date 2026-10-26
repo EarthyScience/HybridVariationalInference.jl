@@ -34,6 +34,8 @@ struct MeanHVIApproximationDev <: AbstractMeanHVIApproximation end
 
 # neglecting correlations
 struct DiagonalHVIApproximation <: AbstractHVIApproximation end
+get_numberof_θM(::DiagonalHVIApproximation, ml_pred::AbstractArray) =  length(ml_pred)
+
 
 
 abstract type AbstractMeanVarSepHVIApproximation <: AbstractHVIApproximation end

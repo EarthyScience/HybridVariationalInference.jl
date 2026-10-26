@@ -35,7 +35,7 @@ n_covP2 = 2
 n_cov = 3
 n_θP = 3 
 n_θM = 3 
-n_M = n_θM + 1 # additional uncertainty scaling factor
+n_M = n_θM + 1 # additional uncertainty scaling factor for ScalineApprox
 
 import Lux
 import Zygote
@@ -180,6 +180,12 @@ isUsingSimpleChains = false
     CP.check_elbo_helpers(h2, xM, pbm_covar_indices2; n_ϕg = length(ϕg2))
     randn!(h0.θsP) # for testing should initialized to finite values
     randn!(h2.θsP) # for testing should initialized to finite values
+    h0_point = CP.prepare_elbo_helpers(approx, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC=1, n_cov, n_covP = n_covP0, n_M, cor_ends, n_obs)
+    h2_point = CP.prepare_elbo_helpers(approx, ϕg2, ϕqP; n_θP, n_θM, n_site, n_MC=1, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs)
+    CP.check_elbo_helpers(h0_point, xM, pbm_covar_indices0; n_ϕg = length(ϕg))
+    CP.check_elbo_helpers(h2_point, xM, pbm_covar_indices2; n_ϕg = length(ϕg2))
+    randn!(h0_point.θsP) # for testing should initialized to finite values
+    randn!(h2_point.θsP) # for testing should initialized to finite values
     #
     approxM = CP.MeanHVIApproximation()
     h0M = CP.prepare_elbo_helpers(approxM, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP0, n_M, cor_ends, n_obs)
@@ -192,8 +198,10 @@ isUsingSimpleChains = false
     approxS = CP.MeanUniScalingHVIApproximation(ϕqIc1.logσ_ζM[1])
     h0S = CP.prepare_elbo_helpers(approxS, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP0, n_M, cor_ends, n_obs)
     h2S = CP.prepare_elbo_helpers(approxS, ϕg2, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs)
+    h2S_point = CP.prepare_elbo_helpers(approxS, ϕg2, ϕqP; n_θP, n_θM, n_site, n_MC=1, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs)
     randn!(h0S.θsP) # for testing should initialized to finite values
     randn!(h2S.θsP) # for testing should initialized to finite values
+    randn!(h2S_point.θsP) # for testing should initialized to finite values
 
 #-------------------------------------------------------------
 @testset "_setU_scaled!" begin
@@ -413,14 +421,14 @@ end
         cor_ends.M, transM, nljoint_args_fix)     
     #@code_warntype CP.compute_nelboi_z!(hi1, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1)
     # need two wrap in tmpf to avoid allocations due to boxing
-    function tmpf(hi, approx, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1, cor_endsM, transM, nljoint_args_fix)
-        @test (@allocated CP.compute_nelboi_z!(hi, CP.NegElbo(), approx, rnormM1, nljoint_args_ind1, ϕms1, 
+    function tmpf(hi, loss_mode, approx, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1, cor_endsM, transM, nljoint_args_fix)
+        @test (@allocated CP.compute_nelboi_z!(hi, loss_mode, approx, rnormM1, nljoint_args_ind1, ϕms1, 
             ϕqIc, θsP1, cor_endsM, transM, nljoint_args_fix)) == 0
     end
-    tmpf(hi1, approx, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1, cor_ends.M, transM, nljoint_args_fix)
-        #@profview CP.compute_nelboi_z!(hi1, approx, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1, cor_ends.M, transM, nljoint_args_fix)
-        #using BenchmarkTools
-        #@btime CP.compute_nelboi_z!($hi1, $approx, $rnormM1, $nljoint_args_ind1, $ϕms1, $ϕqIc, $θsP1)    
+    tmpf(hi1, CP.NegElbo(), approx, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1, cor_ends.M, transM, nljoint_args_fix)
+    CP.compute_nelboi_z!(hi1, CP.NegLogDensity(), approx, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1, 
+        cor_ends.M, transM, nljoint_args_fix)     
+    tmpf(hi1, CP.NegLogDensity(), approx, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1, cor_ends.M, transM, nljoint_args_fix)
     #
     # test with views as input to compute_nelboi_z! and differnt ϕm per MC
     h21 = h2.helpers_sites[1]
@@ -433,19 +441,20 @@ end
     ϕms1_ = view(inputs, Val(:ϕm))
     ϕqIc_ = view(inputs, Val(:ϕqIc))
     θsP1_ = view(inputs, Val(:θsP))
-    function loop_compute_nelboi_z(n, h21, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix)
+    function loop_compute_nelboi_z(n, h21, loss_mode, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix)
         for _ in 1:n
-            @noinline CP.compute_nelboi_z!(h21, CP.NegElbo(), approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix)
+            @noinline CP.compute_nelboi_z!(h21, loss_mode, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix)
         end
         nothing
     end
-    function alloc_compute_nelboi_z(h21, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix)
+    function alloc_compute_nelboi_z(h21, loss_mode, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix)
         # avoid global variables -> pass them through function
-        loop_compute_nelboi_z(1, h21, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix) # thorough warmup
-        #@profview_allocs loop_compute_nelboi_z(10_000,h21, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix)
-        @test (@allocated loop_compute_nelboi_z(100,h21, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix)) == 0
+        loop_compute_nelboi_z(1, h21, loss_mode, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix) # thorough warmup
+        #@profview_allocs loop_compute_nelboi_z(10_000,h21, loss_mode, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix)
+        @test (@allocated loop_compute_nelboi_z(100,h21, loss_mode, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix)) == 0
     end
-    alloc_compute_nelboi_z(h21, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_ends.M, transM, nljoint_args_fix)
+    alloc_compute_nelboi_z(h21, CP.NegElbo(), approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_ends.M, transM, nljoint_args_fix)
+    alloc_compute_nelboi_z(h21, CP.NegLogDensity(), approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_ends.M, transM, nljoint_args_fix)
     # 
     gradh2 = @inferred CP.prepare_gradelbo_helpers(inputs.ϕqIc, inputs.ϕm, inputs.θsP, ϕg, ϕqPc, approx; 
         pbm_covar_indices=pbm_covar_indices2, n_workers=1,
@@ -862,9 +871,9 @@ end
         transP, transM)
     primal = CP.neg_elbo_sites!(h0, CP.NegElbo(), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix)
     res0, gradh0 = CP.grad_neg_elbo_sites(
-        h0, (;), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
+        h0, (;), CP.NegElbo(), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
     res0_, gradh0_ = CP.grad_neg_elbo_sites( # test deterministic result and distributed
-        h0, (;), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val,
+        h0, (;), CP.NegElbo(), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val,
         executor = distributedEx
     )    
     @test all(map(≈, res0_,  res0))
@@ -883,6 +892,16 @@ end
         #dϕqP0_enz - CA.getdata(res0.dϕqP)
     end
     #
+    # pointloss
+    res0_point, gradh0_point = CP.grad_neg_elbo_sites(
+        h0_point, (;), CP.NegLogDensity(), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
+    @test all(res0_point.dϕqPc.μζP .!= zero(eltype(res0_point.dϕqPc)))
+    @test all(res0_point.dϕqPc.logσ_ζP .== zero(eltype(res0_point.dϕqPc)))
+    @test all(res0_point.dϕqPc.ρsP .== zero(eltype(res0_point.dϕqPc)))
+    @test all(res0_point.dϕqIc.logσ_ζM .== zero(eltype(res0_point.dϕqIc)))
+    @test all(res0_point.dϕqIc.ρsM .== zero(eltype(res0_point.dϕqIc)))
+    #
+    #
     #---------------- matrix mode with population covariates
     ϕ2 = (;ϕ..., ϕg=ϕg2v)
     sample_args2 = (;sample_args..., g=g2, pbm_covar_indices = pbm_covar_indices2)
@@ -891,8 +910,8 @@ end
     randn!(rng1, ϕ2.ϕg)
     randn!(rng1, indiv_args.xM)
     primal2 = CP.neg_elbo_sites!(h2, CP.NegElbo(), ϕ2, rnormPM, sample_args2, indiv_args, nljoint_args_fix)[1]
-    res0, gradh2 = CP.grad_neg_elbo_sites(h2, (;), ϕ2, rnormPM, sample_args2, indiv_args, nljoint_args_fix; n_MC_val)
-    res0_, gradh2_ = CP.grad_neg_elbo_sites(h2, (;), ϕ2, rnormPM, sample_args2, indiv_args, nljoint_args_fix; n_MC_val,
+    res0, gradh2 = CP.grad_neg_elbo_sites(h2, (;), CP.NegElbo(), ϕ2, rnormPM, sample_args2, indiv_args, nljoint_args_fix; n_MC_val)
+    res0_, gradh2_ = CP.grad_neg_elbo_sites(h2, (;), CP.NegElbo(), ϕ2, rnormPM, sample_args2, indiv_args, nljoint_args_fix; n_MC_val,
         executor = distributedEx,)    
     @test all(map(≈, res0_,  res0))
     # if we saved Enzyme results earlier, compare to them
@@ -906,6 +925,14 @@ end
         @test dϕqP2_enz ≈ res0.dϕqPc atol = 0.001
         #hcat(dϕqP2_enz, res0.dϕqP)
     end
+    res0_point, gradh2_point = CP.grad_neg_elbo_sites(
+        h2_point, (;), CP.NegLogDensity(), ϕ2, rnormPM, sample_args2, indiv_args, nljoint_args_fix; n_MC_val)
+    @test all(res0_point.dϕqPc.μζP .!= zero(eltype(res0_point.dϕqPc)))
+    @test all(res0_point.dϕqPc.logσ_ζP .== zero(eltype(res0_point.dϕqPc)))
+    @test all(res0_point.dϕqPc.ρsP .== zero(eltype(res0_point.dϕqPc)))
+    @test all(res0_point.dϕqIc.logσ_ζM .== zero(eltype(res0_point.dϕqIc)))
+    @test all(res0_point.dϕqIc.ρsM .== zero(eltype(res0_point.dϕqIc)))
+
     #---------------- approxM with non-empty h.sample_buffers and scaling
     # and using eachcol in PBM function
     ϕ2S = (;ϕ2..., ϕqI=CA.getdata(ϕqIcS))
@@ -920,7 +947,11 @@ end
     randn!(rng1, indiv_args.xM)
     primal2S = CP.neg_elbo_sites!(h2S, CP.NegElbo(), ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix2S)
     res0, gradh2S = CP.grad_neg_elbo_sites(
-        h2S, (;), ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix2S; n_MC_val, 
+        h2S, (;), CP.NegElbo(), ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix2S; n_MC_val, 
+        #executor = distributedEx,
+    )   
+    res0_point, gradh2S_point = CP.grad_neg_elbo_sites(
+        h2S_point, (;), CP.NegLogDensity(), ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix2S; n_MC_val, 
         #executor = distributedEx,
     )   
     if isfile("intermediate/test_enzymeS_dphi2.jld2")
@@ -936,23 +967,24 @@ end
     end
 
     function loop_grad_neg_elbo_sites(
-        n, h2S, gradh2S, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)
+        n, h2S, gradh2S, loss_mode, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)
         for _ in 1:n
             @noinline CP.grad_neg_elbo_sites(
-                h2S, gradh2S, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix; n_MC_val)
+                h2S, gradh2S, loss_mode, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix; n_MC_val)
         end
         nothing
     end
-    function alloc_grad_neg_elbo_sites(h2S, gradh2S, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)
+    function alloc_grad_neg_elbo_sites(h2S, gradh2S, loss_mode, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)
         # avoid global variables -> pass them through function
-        loop_grad_neg_elbo_sites(1, h2S, gradh2S, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)
-        #@profview_allocs loop_grad_neg_elbo_sites(1_000,h2S, gradh2S, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)
-        @test (@allocated loop_grad_neg_elbo_sites(100,h2S, gradh2S, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)) <= 3_264_000 #3_260_800
+        loop_grad_neg_elbo_sites(1, h2S, gradh2S, loss_mode, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)
+        #@profview_allocs loop_grad_neg_elbo_sites(1_000,h2S, gradh2S, loss_mode, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)
+        @test (@allocated loop_grad_neg_elbo_sites(100,h2S, gradh2S, loss_mode, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix)) <= 3_264_000 #3_260_800
     end
-    alloc_grad_neg_elbo_sites(h2S, gradh2S, ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix2S)
+    alloc_grad_neg_elbo_sites(h2S, gradh2S, CP.NegElbo(), ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix2S)
     #_i_sites_train = 1:n_site    
     #@usingany BenchmarkTools
     #@benchmark CP.grad_neg_elbo_sites($h2, $gradh2, $rnormPM, $ϕg2v, $ϕqP, $ϕqI, $g2, $pbm_covar_indices2; i_sites_train = _i_sites_train, intϕqP=$intϕqP, intϕqI=$intϕqI, xM=$xM, is_testmode = false)
+    alloc_grad_neg_elbo_sites(h2S_point, gradh2S_point, CP.NegLogDensity(), ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix2S)
 
 end
 

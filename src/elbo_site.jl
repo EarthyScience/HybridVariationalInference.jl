@@ -81,6 +81,12 @@ end
     ζsP .= CA.getdata(view(ϕqPc,Val(:μζP)))
     logσ_ζP .= zero(T) # omit loss component of entropy of distribution
 end
+@inline function set_ζsP!(
+    ζsP, logσ_ζP::AbstractVector{T}, ::NegLogDensity, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) where T
+    ζsP .= CA.getdata(view(ϕqPc,Val(:μζP)))
+    logσ_ζP .= zero(T) # omit loss component of entropy of distribution
+end
+
 
 name_tuple(tup, ::Val{KEYS}) where KEYS = NamedTuple{KEYS}(tup)
 
@@ -107,10 +113,13 @@ end
 @inline function set_ζsM!(ζsM, logσ_ζM, ::NegElbo, approx, rnormM, ϕqIc, ϕm, cor_endsM, sample_buffers)
     sample_ζsM!(ζsM, logσ_ζM, approx, rnormM, ϕqIc, ϕm, cor_endsM, sample_buffers)
 end
-@inline function set_ζsM!(ζsM, logσ_ζM::AbstractArray{T}, ::NegLogDensity, approx, rnormM, ϕqIc, ϕm, cor_endsM, sample_buffers) where T
-    error("implement set_ζsM! for NegLogDensity: care for n_θM")
-    # TODO infer n_θM
-    ζMm .= view(ϕm, 1:n_θM, :)    # μζM in first n_θM entries
+@inline function set_ζsM!(ζsM, logσ_ζM::AbstractArray{T}, ::NegLogDensity, approx, rnormM, ϕqIc, ϕm::AbstractVector, cor_endsM, sample_buffers) where T
+    ζsM .= view(ϕm, 1:size(ζsM,1))    # recycling fills all rows
+    logσ_ζM .= zero(T)
+    nothing
+end
+@inline function set_ζsM!(ζsM, logσ_ζM::AbstractArray{T}, ::NegLogDensity, approx, rnormM, ϕqIc, ϕm::AbstractMatrix, cor_endsM, sample_buffers) where T
+    ζsM .= view(ϕm, 1:size(ζsM,1), :)    # μζM in first n_θM entries
     logσ_ζM .= zero(T)
     nothing
 end
