@@ -877,7 +877,7 @@ function tmp_reference_revision()
     #ref.eval(:(@usingany Infiltrator)) # not output during infiltrat in revision
     tmp = ref.HVI.test3(3)
     ref.Revise.retry() # after every change of source file
-    res0v, gradh0v = ref.HVI.grad_neg_elbo_sites(
+    gradv, gradh0v = ref.HVI.grad_neg_elbo_sites(
         h0, 
         (;), 
         approx,
@@ -892,8 +892,8 @@ function tmp_reference_revision()
         )    
     close(ref)
 
-    map(k -> k => res0v[k] ≈ res0[k], keys(res0))
-    hcat(res0v.dϕqIc, res0.dϕqIc)
+    map(k -> k => gradv[k] ≈ grad0[k], keys(grad0))
+    hcat(gradv.ϕqI, grad0.ϕqI)
 end
 
 @testset "grad_neg_elbo_sites" begin
@@ -916,36 +916,36 @@ end
         approx, g, is_testmode, pbm_covar_indices = nothing, intϕqP, intϕqI, cor_ends, 
         transP, transM)
     primal = CP.neg_elbo_sites!(h0, CP.NegElbo(), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix)
-    res0, gradh0 = CP.grad_neg_elbo_sites(
+    grad0, gradh0 = CP.grad_neg_elbo_sites(
         h0, (;), CP.NegElbo(), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
-    res0_, gradh0_ = CP.grad_neg_elbo_sites( # test deterministic result and distributed
+    grad0_, gradh0_ = CP.grad_neg_elbo_sites( # test deterministic result and distributed
         h0, (;), CP.NegElbo(), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val,
         executor = distributedEx
     )    
-    @test all(map(≈, res0_,  res0))
+    @test all(map(≈, grad0_,  grad0))
     # # if we saved Enzyme results earlier, compare to them
     if isfile("intermediate/test_enzymeT_dphi0.jld2")
         primal_enz, dϕg0_enz, dϕqP0_enz, dϕqI0_enz = JLD2.load(
             "intermediate/test_enzymeT_dphi0.jld2", 
             "primal_enz", "dϕg0_enz", "dϕqP0_enz", "dϕqI0_enz");
         @test primal_enz ≈ primal[1]
-        @test dϕg0_enz ≈ res0.dϕg
-        @test dϕqI0_enz ≈ res0.dϕqIc
-        @test dϕqP0_enz ≈ res0.dϕqPc
-        #hcat(dϕqI0_enz, CA.getdata(res0.dϕqIc))
-        #hcat(dϕqP0_enz, CA.getdata(res0.dϕqPc))
-        #hcat(dϕg0_enz, CA.getdata(res0.dϕg))
-        #dϕqP0_enz - CA.getdata(res0.dϕqP)
+        @test dϕg0_enz ≈ grad0.ϕg
+        @test dϕqI0_enz ≈ grad0.ϕqI
+        @test dϕqP0_enz ≈ grad0.ϕqP
+        #hcat(dϕqI0_enz, CA.getdata(grad0.ϕqI))
+        #hcat(dϕqP0_enz, CA.getdata(grad0.ϕqP))
+        #hcat(dϕg0_enz, CA.getdata(grad0.ϕg))
+        #dϕqP0_enz - CA.getdata(grad0.dϕqP)
     end
     #
     # pointloss
-    res0_point, gradh0_point = CP.grad_neg_elbo_sites(
+    grad_point, gradh0_point = CP.grad_neg_elbo_sites(
         h0_point, (;), CP.NegLogDensity(), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
-    @test all(res0_point.dϕqPc.μζP .!= zero(eltype(res0_point.dϕqPc)))
-    @test all(res0_point.dϕqPc.logσ_ζP .== zero(eltype(res0_point.dϕqPc)))
-    @test all(res0_point.dϕqPc.ρsP .== zero(eltype(res0_point.dϕqPc)))
-    @test all(res0_point.dϕqIc.logσ_ζM .== zero(eltype(res0_point.dϕqIc)))
-    @test all(res0_point.dϕqIc.ρsM .== zero(eltype(res0_point.dϕqIc)))
+    @test all(grad_point.ϕqP.μζP .!= zero(eltype(grad_point.ϕqP)))
+    @test all(grad_point.ϕqP.logσ_ζP .== zero(eltype(grad_point.ϕqP)))
+    @test all(grad_point.ϕqP.ρsP .== zero(eltype(grad_point.ϕqP)))
+    @test all(grad_point.ϕqI.logσ_ζM .== zero(eltype(grad_point.ϕqI)))
+    @test all(grad_point.ϕqI.ρsM .== zero(eltype(grad_point.ϕqI)))
     #
     #
     #---------------- matrix mode with population covariates
@@ -956,28 +956,28 @@ end
     randn!(rng1, ϕ2.ϕg)
     randn!(rng1, indiv_args.xM)
     primal2 = CP.neg_elbo_sites!(h2, CP.NegElbo(), ϕ2, rnormPM, sample_args2, indiv_args, nljoint_args_fix)[1]
-    res0, gradh2 = CP.grad_neg_elbo_sites(h2, (;), CP.NegElbo(), ϕ2, rnormPM, sample_args2, indiv_args, nljoint_args_fix; n_MC_val)
-    res0_, gradh2_ = CP.grad_neg_elbo_sites(h2, (;), CP.NegElbo(), ϕ2, rnormPM, sample_args2, indiv_args, nljoint_args_fix; n_MC_val,
+    grad0, gradh2 = CP.grad_neg_elbo_sites(h2, (;), CP.NegElbo(), ϕ2, rnormPM, sample_args2, indiv_args, nljoint_args_fix; n_MC_val)
+    grad0_, gradh2_ = CP.grad_neg_elbo_sites(h2, (;), CP.NegElbo(), ϕ2, rnormPM, sample_args2, indiv_args, nljoint_args_fix; n_MC_val,
         executor = distributedEx,)    
-    @test all(map(≈, res0_,  res0))
+    @test all(map(≈, grad0_,  grad0))
     # if we saved Enzyme results earlier, compare to them
     if isfile("intermediate/test_enzymeT_dphi2.jld2")
         primal2_enz, dϕg2_enz, dϕqP2_enz, dϕqI2_enz = JLD2.load(
             "intermediate/test_enzymeT_dphi2.jld2", 
             "primal2_enz", "dϕg2_enz", "dϕqP2_enz", "dϕqI2_enz");
         @test primal2_enz ≈ primal2[1]
-        @test dϕg2_enz ≈ res0.dϕg
-        @test dϕqI2_enz ≈ res0.dϕqIc
-        @test dϕqP2_enz ≈ res0.dϕqPc atol = 0.001
-        #hcat(dϕqP2_enz, res0.dϕqP)
+        @test dϕg2_enz ≈ grad0.ϕg
+        @test dϕqI2_enz ≈ grad0.ϕqI
+        @test dϕqP2_enz ≈ grad0.ϕqP atol = 0.001
+        #hcat(dϕqP2_enz, grad0.dϕqP)
     end
-    res0_point, gradh2_point = CP.grad_neg_elbo_sites(
+    grad_point, gradh2_point = CP.grad_neg_elbo_sites(
         h2_point, (;), CP.NegLogDensity(), ϕ2, rnormPM, sample_args2, indiv_args, nljoint_args_fix; n_MC_val)
-    @test all(res0_point.dϕqPc.μζP .!= zero(eltype(res0_point.dϕqPc)))
-    @test all(res0_point.dϕqPc.logσ_ζP .== zero(eltype(res0_point.dϕqPc)))
-    @test all(res0_point.dϕqPc.ρsP .== zero(eltype(res0_point.dϕqPc)))
-    @test all(res0_point.dϕqIc.logσ_ζM .== zero(eltype(res0_point.dϕqIc)))
-    @test all(res0_point.dϕqIc.ρsM .== zero(eltype(res0_point.dϕqIc)))
+    @test all(grad_point.ϕqP.μζP .!= zero(eltype(grad_point.ϕqP)))
+    @test all(grad_point.ϕqP.logσ_ζP .== zero(eltype(grad_point.ϕqP)))
+    @test all(grad_point.ϕqP.ρsP .== zero(eltype(grad_point.ϕqP)))
+    @test all(grad_point.ϕqI.logσ_ζM .== zero(eltype(grad_point.ϕqI)))
+    @test all(grad_point.ϕqI.ρsM .== zero(eltype(grad_point.ϕqI)))
 
     #---------------- approxM with non-empty h.sample_buffers and scaling
     # and using eachcol in PBM function
@@ -992,7 +992,7 @@ end
     randn!(rng1, ϕ2S.ϕg)
     randn!(rng1, indiv_args.xM)
     primal2S = CP.neg_elbo_sites!(h2S, CP.NegElbo(), ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix2S)
-    res0, gradh2S = CP.grad_neg_elbo_sites(
+    grad0, gradh2S = CP.grad_neg_elbo_sites(
         h2S, (;), CP.NegElbo(), ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix2S; n_MC_val, 
         #executor = distributedEx,
     )   
@@ -1001,11 +1001,11 @@ end
             "intermediate/test_enzymeS_dphi2.jld2", 
             "primal_enz2S", "dϕg2S_enz", "dϕqP2S_enz", "dϕqI2S_enz");
         @test primal_enz2S ≈ primal2S[1]
-        @test dϕg2S_enz ≈ res0.dϕg
-        @test dϕqI2S_enz ≈ res0.dϕqIc atol=0.01
-        @test dϕqP2S_enz ≈ res0.dϕqPc atol=0.01
-        #hcat(dϕqP2_enz, res0.dϕqP)
-        #hcat(dϕqI2S_enz, res0.dϕqI)
+        @test dϕg2S_enz ≈ grad0.ϕg
+        @test dϕqI2S_enz ≈ grad0.ϕqI atol=0.01
+        @test dϕqP2S_enz ≈ grad0.ϕqP atol=0.01
+        #hcat(dϕqP2_enz, grad0.dϕqP)
+        #hcat(dϕqI2S_enz, grad0.dϕqI)
     end
     #
     rng1 = StableRNG(1234)
@@ -1013,7 +1013,7 @@ end
     randn!(rng1, ϕ2S.ϕg)
     randn!(rng1, indiv_args.xM)
     primal2S_point = CP.neg_elbo_sites!(h2S_point, CP.NegLogDensity(), ϕ2S, rnormPM_point, sample_args2S, indiv_args, nljoint_args_fix2S)
-    res0_point, gradh2S_point = CP.grad_neg_elbo_sites(
+    grad_point, gradh2S_point = CP.grad_neg_elbo_sites(
         h2S_point, (;), CP.NegLogDensity(), ϕ2S, rnormPM_point, sample_args2S, indiv_args, nljoint_args_fix2S; n_MC_val, 
         #executor = distributedEx,
     )   
@@ -1022,11 +1022,11 @@ end
             "intermediate/test_enzymeS_dphi2_point.jld2", 
             "primal_enz2S_point", "dϕg2S_point_enz", "dϕqP2S_point_enz", "dϕqI2S_point_enz");
         @test primal_enz2S_point ≈ primal2S_point[1]
-        @test dϕg2S_point_enz ≈ res0_point.dϕg atol=0.03
-        @test dϕqI2S_point_enz ≈ res0_point.dϕqIc atol=0.01
-        @test dϕqP2S_point_enz ≈ res0_point.dϕqPc atol=0.01
-        #hcat(dϕqP2_enz, res0.dϕqP)
-        #hcat(dϕqI2S_enz, res0.dϕqI)
+        @test dϕg2S_point_enz ≈ grad_point.ϕg atol=0.03
+        @test dϕqI2S_point_enz ≈ grad_point.ϕqI atol=0.01
+        @test dϕqP2S_point_enz ≈ grad_point.ϕqP atol=0.01
+        #hcat(dϕqP2_enz, grad0.dϕqP)
+        #hcat(dϕqI2S_enz, grad0.dϕqI)
     end
 
     function loop_grad_neg_elbo_sites(

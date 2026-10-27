@@ -182,6 +182,10 @@ include("init_hybrid_params.jl")
 export AbstractHybridSolver, HybridPointSolver, HybridPosteriorSolver
 include("HybridSolver.jl")
 
+export HybridPointSolverSite
+include("HybridSolver_site.jl")
+
+
 export DoubleMM
 include("DoubleMM/DoubleMM.jl")
 

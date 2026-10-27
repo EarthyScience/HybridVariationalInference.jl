@@ -120,7 +120,8 @@ function grad_neg_elbo_sites(
         gradh,
         h.ζsP, h.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers,
         )
-    (;dϕqPc = gradh.dϕqPc, dϕqIc = gradh.dϕqIc, dϕg = gradh.dϕg), gradh
+    # need same names as in ϕ for Optimizer
+    NamedTuple{keys(ϕ)}((gradh.dϕg, gradh.dϕqPc, gradh.dϕqIc, )), gradh
 end
 
 function set_∂elbo_∂logσ_ζP!(∂elbo_∂logσ_ζP::AbstractVector{T}, ::NegElbo) where T
