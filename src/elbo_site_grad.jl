@@ -1,3 +1,38 @@
+function _ftmp_point(h0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix) 
+    neg_elbo_sites!(h0, NegLogDensity(), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix)[1]    
+end
+function grad_neg_elbo_sites_enzyme(
+    elbo_helpers::NamedTuple,      # tuple of preallocated arrays
+    grad_elbo_helpers::NamedTuple,  # tuple of preallocated arrays pullback closures
+    loss_mode::NegLogDensity,   
+    ϕ::NamedTuple,
+    rnormPM::NamedTuple,
+    sample_args::NamedTuple,
+    indiv_args::NamedTuple,
+    nljoint_args_fix::NamedTuple;
+    n_MC_val::Val = Val(3),
+    n_workers = 1, # TODO compute from executor and Distributed.nworkers and nthreads,...
+    executor::Transducers.Executor = Transducers.SequentialEx(),
+) 
+    h = elbo_helpers
+    rnormPM_point = (;rnormPM.P, M = map(x -> x[:,1:1], rnormPM.M))
+    sample_args_rev = (; sample_args..., is_testmode=false)
+    (;approx, g, is_testmode, pbm_covar_indices, intϕqP, intϕqI, cor_ends, transP, transM) = sample_args_rev
+    primal = _ftmp_point(h, ϕ, rnormPM_point, sample_args, indiv_args, nljoint_args_fix)
+    dϕ = map(zero,ϕ)
+    Enzyme.autodiff(
+            Enzyme.set_runtime_activity(Enzyme.Reverse) ,
+            _ftmp_point,
+            Enzyme.Active,
+            Enzyme.Duplicated(h, Enzyme.make_zero(h)),
+            Enzyme.Duplicated(ϕ, dϕ),
+            Enzyme.DuplicatedNoNeed(rnormPM_point, Enzyme.make_zero(rnormPM_point)),
+            Enzyme.Const(sample_args_rev),
+            Enzyme.Const(indiv_args),
+            Enzyme.Const(nljoint_args_fix),
+        )   
+    dϕ, h
+end
 
 function grad_neg_elbo_sites(
     elbo_helpers::NamedTuple,      # tuple of preallocated arrays
@@ -30,7 +65,7 @@ function grad_neg_elbo_sites(
         NMC = NMC_ELBO
     end
     h = elbo_helpers # preallocated μζP, dμζP, ζsP, ϕms, xMP, dxMP
-    (;ϕg, ϕqP, ϕqI) = ϕ
+    (;ϕg, ϕqP, ϕqI) = map(CA.getdata, ϕ)
     TF = eltype(ϕqP)
     (;approx, g, is_testmode, pbm_covar_indices, intϕqP, intϕqI, cor_ends, transP, transM) = sample_args
     @assert keys(indiv_args)[1] == :xM
@@ -61,6 +96,7 @@ function grad_neg_elbo_sites(
     #
     set_ζsP!(h.ζsP, h.logσ_ζP, loss_mode, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers) # n_P * n_MC
     g_apply!(h_ϕm, ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
+    @assert all(isfinite.(h_ϕm))
     ladJacTP = transformζ!(h.θsP, transP, h.ζsP)  # return value captures ladJacT
     #
     # parallel ForwardDiffGradient through forwarddiff_grad_nelboi_z!
@@ -121,6 +157,9 @@ function grad_neg_elbo_sites(
         h.ζsP, h.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers,
         )
     # need same names as in ϕ for Optimizer
+    if !all(isfinite.(gradh.dϕg)) || !all(isfinite.(gradh.dϕqPc)) || !all(isfinite.(gradh.dϕqIc)) 
+        error("encountered noninfite gradient")
+    end
     NamedTuple{keys(ϕ)}((gradh.dϕg, gradh.dϕqPc, gradh.dϕqIc, )), gradh
 end
 

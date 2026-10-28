@@ -69,6 +69,7 @@ function neg_elbo_sites!(
     # loglik = sum(x -> x.loglik, res_site)
     # costTrans = sum(x -> x.costTrans, res_site)
     #elbo = sum(first, res_site) - sum(h.logσ_ζP)
+    error("inpsect elbo components")
     elbo = elbo_z - exp_ladJacTP - sum(h.logσ_ζP)
 end
 
@@ -107,6 +108,7 @@ function compute_nelboi_z!(hi, loss_mode::AbstractElboLossMode, approx::Abstract
     exp_ladJacTM = transformζ!(hi.θsM, transM, hi.ζsM)  # return value captures ladJacT
     # first component needs to be the full elbo
     exp_nL = exp_nLi!(hi.y, θsP, hi.θsM, nljoint_args_indi, nljoint_args_fix, hi)[1]
+    @show exp_nL, exp_ladJacTM, sum(hi.logσ_ζM)
     nelboi_z = exp_nL - exp_ladJacTM - sum(hi.logσ_ζM)
 end
 
