@@ -29,9 +29,9 @@ import PreallocationTools as PAT
 
 
 prob = DoubleMM.DoubleMMCase()
-scenario = Val((:use_Lux,:usePopPBM,:covarK2,:uniscaling,))
+#scenario = Val((:use_Lux,:usePopPBM,:covarK2,:uniscaling,))
 #scenario = Val((:use_Lux,:usePopPBM,:uniscaling,)) # omit covars -> vector site ϕm
-#scenario = Val((:use_Lux,:usePopPBM,:uniscaling,:use_rangescaling)) # omit covars, rangescaling
+scenario = Val((:use_Lux,:usePopPBM,:uniscaling,:use_rangescaling)) # omit covars, rangescaling
 
 
 diffchunk = ForwardDiff.Chunk(8)
@@ -164,26 +164,26 @@ pbm_covar_indices = SA.SVector{length(pbm_covars)}([findfirst(==(k), keys(par_te
     alloc_grad_neg_elbo_sites(h0_point, gradh0_point, CP.NegLogDensity(), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
 end
 
-@testset "grad_neg_elbo_sites_enzyme" begin
-    local ϕqIc, ϕqPc, rng1, indiv_args, ϕ, sample_args, primal
-    ϕqIc = intϕqI(ϕqI)
-    ϕqPc = intϕqP(ϕqP)
-    #
-    rng1 = StableRNG(1234)
-    CP.randnPM!(rng1, rnormPM)
-    randn!(rng1, ϕgv)
-    randn!(rng1, xM)
-    indiv_args = indiv_args1
-    ϕ = (;ϕg=ϕgv, ϕqP, ϕqI)
-    sample_args = (;
-        approx, g, is_testmode = true, pbm_covar_indices, intϕqP, intϕqI, cor_ends, 
-        transP, transM)
-    primal = CP.neg_elbo_sites!(h0_point, CP.NegLogDensity(), ϕ, rnormPM_point, sample_args, indiv_args, nljoint_args_fix)
-    dϕ, _ = CP.grad_neg_elbo_sites_enzyme(
-        h0_point, (;), CP.NegLogDensity(), ϕ, rnormPM_point, sample_args, indiv_args, nljoint_args_fix,
-        )
-    dϕ.ϕqP
-end
+# @testset "grad_neg_elbo_sites_enzyme" begin
+#     local ϕqIc, ϕqPc, rng1, indiv_args, ϕ, sample_args, primal
+#     ϕqIc = intϕqI(ϕqI)
+#     ϕqPc = intϕqP(ϕqP)
+#     #
+#     rng1 = StableRNG(1234)
+#     CP.randnPM!(rng1, rnormPM)
+#     randn!(rng1, ϕgv)
+#     randn!(rng1, xM)
+#     indiv_args = indiv_args1
+#     ϕ = (;ϕg=ϕgv, ϕqP, ϕqI)
+#     sample_args = (;
+#         approx, g, is_testmode = true, pbm_covar_indices, intϕqP, intϕqI, cor_ends, 
+#         transP, transM)
+#     primal = CP.neg_elbo_sites!(h0_point, CP.NegLogDensity(), ϕ, rnormPM_point, sample_args, indiv_args, nljoint_args_fix)
+#     dϕ, _ = CP.grad_neg_elbo_sites_enzyme(
+#         h0_point, (;), CP.NegLogDensity(), ϕ, rnormPM_point, sample_args, indiv_args, nljoint_args_fix,
+#         )
+#     dϕ.ϕqP
+# end
 
 @testset "HybridPointSolverSite" begin
     # in order to test inversion, set the dataloader to the synthetic data
@@ -191,50 +191,43 @@ end
     local xM, xP, y_o, y_unc, θP_true, θMs_true, y_true
     (; xM, xP, y_o, y_unc, θP_true, θMs_true, y_true) = HVI.gen_hybridproblem_synthetic(rng1, prob; scenario)
     # constrain to training dataset
-    i_indiv_test = get_i_sites_test(prob; scenario)
+    n_indiv = size(y_o,2)
+    i_indiv_test = HVI.get_i_sites_test(prob; scenario)
     i_indiv = setdiff(1:n_indiv, i_indiv_test)
     (; xM, xP, y_o, y_unc, θMs_true, y_true) = map(
         (; xM, xP, y_o, y_unc, θMs_true, y_true)) do x
-        selectdim(x,ndims(x),i_indiv)
+        x[:,i_indiv]
     end
-    # local n_indiv, i_indiv_test, i_indiv, i_indiv_train, n_batch, train_dataloader, test_data
-    # n_indiv = size(xM, 2)
-    # i_indiv_test = HVI.get_i_sites_test(prob; scenario)
-    # i_indiv = setdiff(1:n_indiv, i_indiv_test)
-    # i_indiv_train = 1:length(i_indiv) # index into training data
-    # n_batch = length(h0_point.helpers_sites)
-    # train_dataloader = MLUtils.DataLoader((
-    #     CA.getdata(xM)[:,i_indiv], CA.getdata(xP)[:,i_indiv], 
-    #     y_o[:,i_indiv], y_unc[:,i_indiv], i_indiv_train);
-    #     batchsize = n_batch, partial = false)    
-    # test_data = (; xM=xM[:,i_indiv_test], xP=xP[:,i_indiv_test], y_o=y_o[:,i_indiv_test], y_unc=y_unc[:,i_indiv_test], itrain_sites=zeros(length(i_indiv_test)))
-    # prob_syn = HybridProblem(prob; scenario, train_dataloader, test_data)
     prob_syn = prob
     y_o2 = get_hybridproblem_train_dataloader(prob; scenario).data[3]
-    y_o .- y_o2
+    @test y_o == y_o2 # make sure to use the same synthetic data for good y_true
     solver_point = HybridPointSolverSite(alg=Optimisers.Adam(0.0001))
-    ϕ0 = (;ϕg = copy(CA.getdata(ϕg)), ϕqP=copy(ϕqP), ϕqI=copy(ϕqI))
+    #ϕ0 = (;ϕg = copy(CA.getdata(ϕg)), ϕqP=copy(ϕqP), ϕqI=copy(ϕqI))
+    res = CommonSolve.solve(prob_syn, solver_point, CP.NegLogDensity(), (;); scenario, 
+        epochs=0,  );
+    ϕ0 = res.ϕ
+    ϕ0.ϕqP[1:length(θP_true)] .+= log(0.9)  # start from 90%
     exp.(ϕ0.ϕqP[1:2]) # updated during solve
-    #ϕ0 = res.ϕ    
     res = CommonSolve.solve(prob_syn, solver_point, CP.NegLogDensity(), ϕ0; scenario, 
-        epochs=20000,
+        epochs=2_000,
         show_train_loss = Val(true)
-        )
-    exp.(res.ϕ.ϕqP[1:2])
-    #@test exp.(intϕqP(res.ϕ.ϕqP).μζP) ≈ θP_true atol = 0.1
-    # run forward
-    ϕ_tmp = (;res.ϕ.ϕg, ϕ0.ϕqP, ϕ0.ϕqI)
-    hp, hi_agg = HVI.predict_point!(h0_point, prob_syn, res.ϕ; scenario)
-    hp0, hi_agg0 = HVI.predict_point!(h0_point, prob_syn, ϕ0; scenario)
-    hpt, hi_aggt = HVI.predict_point!(h0_point, prob_syn, ϕ_tmp; scenario)
+        );
+    hp, hi_agg = HVI.predict_point!(res.h0, prob_syn, res.ϕ; scenario)
     @test hp.θsP[:,1] ≈ θP_true atol=0.01
+    @test mean(abs.(hi_agg.θsM .- θMs_true)) < 0.01
     () -> begin
+        exp.(res.ϕ.ϕqP[1:2])
+        #@test exp.(intϕqP(res.ϕ.ϕqP).μζP) ≈ θP_true atol = 0.1
+        # run forward
+        ϕ_tmp = (;res.ϕ.ϕg, ϕ0.ϕqP, ϕ0.ϕqI)
+        hp0, hi_agg0 = HVI.predict_point!(res.h0, prob_syn, ϕ0; scenario)
+        hpt, hi_aggt = HVI.predict_point!(res.h0, prob_syn, ϕ_tmp; scenario)
         # @usingany UnicodePlots
         i_obs = 3
         #scatterplot(hi_agg.θsM[i_obs,:], θMs_true[i_obs,:])
         scatterplot(y_true[i_obs,:], hi_agg.y[i_obs,:])
-        scatterplot(hi_agg0.y[i_obs,:], y_true[i_obs,:])
-        scatterplot(hi_aggt.y[i_obs,:], y_true[i_obs,:])
+        scatterplot(y_true[i_obs,:], hi_agg0.y[i_obs,:])
+        scatterplot(y_true[i_obs,:], hi_aggt.y[i_obs,:])
         scatterplot(hi_aggt.y[i_obs,:], hi_agg.y[i_obs,:])
         sum(abs2, hi_agg0.y .- y_true)
         sum(abs2, hi_agg.y .- y_true)
@@ -242,10 +235,6 @@ end
         scatterplot(θMs_true[1,:], hi_agg.θsM[1,:], )
         scatterplot(θMs_true[2,:], hi_agg.θsM[2,:])
     end
-    @test hi_agg.θsM ≈ θMs_true atol=0.01
-    h0p.helpers_sites[1].θsM
-    #@test res.ϕ != ϕ
-    x = h0p.helpers_sites[1]
  end
 
 

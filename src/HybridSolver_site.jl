@@ -37,8 +37,8 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     par_templates = get_hybridproblem_par_templates(prob; scenario)
     n_θP = length(par_templates.θP)
     n_θM = length(par_templates.θM)
-    g, ϕg = get_hybridproblem_MLapplicator(prob; scenario)
     # TODO: separate parameters from problem description - right now optimized
+     g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     cor_ends = get_hybridproblem_cor_ends(prob; scenario)
     approx1 = get_hybridproblem_HVIApproximation(prob; scenario)
@@ -55,10 +55,16 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
         logσ_ζM_offsets = ϕq.logσ_ζM_offsets,
         ρsM = ϕq.ρsM,
         )
-    ϕqP = ϕqP2 = CA.getdata(ϕqPc1)
-    ϕqI = CA.getdata(ϕqIc1)
     intϕqP = get_concrete(ComponentArrayInterpreter(ϕqPc1))
     intϕqI = get_concrete(ComponentArrayInterpreter(ϕqIc1))
+    if ϕ0 == NamedTuple()
+        ϕqP = CA.getdata(ϕqPc1)
+        ϕqI = CA.getdata(ϕqIc1)
+        ϕ0 = (;ϕg = CA.getdata(ϕg0), ϕqP, ϕqI) # copied - not modified
+    else
+        @assert length(ϕ0.ϕqP) == length(ϕqPc1)
+        @assert length(ϕ0.ϕqI) == length(ϕqIc1)
+    end
     #
     diffchunk = ForwardDiff.Chunk(8)
     pbm = create_nsite_applicator(get_hybridproblem_PBmodel(prob; scenario), NMC; diffchunk)      
@@ -71,14 +77,14 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
     n_covP = length(pbm_covars)
 
-    h0 = prepare_elbo_helpers(approx, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC=NMC, n_cov, n_covP, n_M, cor_ends, n_obs);
-    h0_test = prepare_elbo_helpers(approx, ϕg, ϕqP; n_θP, n_θM, n_site = n_indiv_test, n_MC=NMC, n_cov, n_covP, n_M, cor_ends, n_obs);
+    h0 = prepare_elbo_helpers(approx, ϕ0.ϕg, ϕ0.ϕqP; n_θP, n_θM, n_site, n_MC=NMC, n_cov, n_covP, n_M, cor_ends, n_obs);
+    h0_test = prepare_elbo_helpers(approx, ϕ0.ϕg, ϕ0.ϕqP; n_θP, n_θM, n_site = n_indiv_test, n_MC=NMC, n_cov, n_covP, n_M, cor_ends, n_obs);
     if TRAIN
         indiv_args_train =  NamedTuple{keys(indiv_args_test)}(train_loader.data)
         n_indiv_train = size(indiv_args_train.xM,2)
-        h0_train = prepare_elbo_helpers(approx, ϕg, ϕqP; n_θP, n_θM, n_site = n_indiv_train, n_MC=NMC, n_cov, n_covP, n_M, cor_ends, n_obs);
+        h0_train = prepare_elbo_helpers(approx, ϕ0.ϕg, ϕ0.ϕqP; n_θP, n_θM, n_site = n_indiv_train, n_MC=NMC, n_cov, n_covP, n_M, cor_ends, n_obs);
     end
-    rnormPM = prepare_rnorm(ϕqP; n_θP, n_θM, n_MC=NMC, n_site)
+    rnormPM = prepare_rnorm(ϕ0.ϕqP; n_θP, n_θM, n_MC=NMC, n_site)
     #
     py = get_hybridproblem_neg_logden_obs(prob; scenario)
     # priors = get_hybridproblem_priors(prob; scenario)
@@ -90,7 +96,6 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
         transP, transM)
     sample_args_test = (;sample_args..., is_testmode = true)
     #nljoint_args_fix_test = (;nljoint_args_fix..., f! = ) 
-    ϕ_ref = (;ϕg = CA.getdata(ϕg), ϕqP, ϕqI)
     ϕ = map(copy, ϕ0) # do not modify the initial guess
     # randnPM!(rng, rnormPM)
     #primal = neg_elbo_sites!(h0, loss_mode, ϕ, rnormPM, sample_args, indiv_args1, nljoint_args_fix)
@@ -139,7 +144,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
             end
         end
     end
-    (;ϕ)
+    (;ϕ, h0, h0_test)
 end
 
 function predict_point!(elbo_helpers, prob::AbstractHybridProblem, ϕ; scenario
@@ -207,6 +212,7 @@ function predict_point!(elbo_helpers, prob::AbstractHybridProblem, ϕ; scenario
         h0
     end
     @assert n_batch == size(indiv_args1.xM,2)
+    #
     keys_predict_pop = (:ζsP, :θsP)
     h1 = h0p.helpers_sites[1]
     # do not know the number of training sites sum of sites in batch, need to

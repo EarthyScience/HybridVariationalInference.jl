@@ -53,12 +53,13 @@ function neg_elbo_sites!(
     template = ϕqI # only important for gradient
     θsP = h.θsP
     keys_nljoint_args_indi_val = Val(keys(nljoint_args_inds))
+    n_indiv = size(h.ϕms,2)
     # closure with approx, transM, and kwargs
     function compute_nelboi_z_cl!(hi, rnormM, nljoint_args_indi_tup, ϕm) 
         #nljoint_args_indi = NamedTuple{keys_nljoint_args_indi}(nljoint_args_indi_tup)
         nljoint_args_indi = name_tuple(nljoint_args_indi_tup, keys_nljoint_args_indi_val)
         compute_nelboi_z!(hi, loss_mode, approx, rnormM, nljoint_args_indi, ϕm, 
-        ϕqIc, θsP, cor_ends.M, transM, nljoint_args_fix) 
+        ϕqIc, θsP, cor_ends.M, transM, nljoint_args_fix, n_indiv) 
     end
     #res_site = map(compute_nelboi_z!, loss_mode, h.helpers_sites, rnormPM.M, i_sites_train, ϕm_it)
     #MAYBE: distributed mapreduce: 
@@ -69,7 +70,6 @@ function neg_elbo_sites!(
     # loglik = sum(x -> x.loglik, res_site)
     # costTrans = sum(x -> x.costTrans, res_site)
     #elbo = sum(first, res_site) - sum(h.logσ_ζP)
-    error("inpsect elbo components")
     elbo = elbo_z - exp_ladJacTP - sum(h.logσ_ζP)
 end
 
@@ -94,7 +94,7 @@ name_tuple(tup, ::Val{KEYS}) where KEYS = NamedTuple{KEYS}(tup)
 
 function compute_nelboi_z!(hi, loss_mode::AbstractElboLossMode, approx::AbstractHVIApproximation,
     rnormM, nljoint_args_indi, ϕm::AbstractArray, ϕqIc::AbstractArray, θsP, 
-    cor_endsM, transM, nljoint_args_fix, ) 
+    cor_endsM, transM, nljoint_args_fix, n_indiv::Int) 
     # DM is 1 (vector) if no population covariates - constant across MC
     #       2 (Matrix) if g is driven by population covariates - differs across MC
     # on update -> sync corresponding function within grad_neg_elbo_sites
@@ -108,8 +108,7 @@ function compute_nelboi_z!(hi, loss_mode::AbstractElboLossMode, approx::Abstract
     exp_ladJacTM = transformζ!(hi.θsM, transM, hi.ζsM)  # return value captures ladJacT
     # first component needs to be the full elbo
     exp_nL = exp_nLi!(hi.y, θsP, hi.θsM, nljoint_args_indi, nljoint_args_fix, hi)[1]
-    @show exp_nL, exp_ladJacTM, sum(hi.logσ_ζM)
-    nelboi_z = exp_nL - exp_ladJacTM - sum(hi.logσ_ζM)
+    nelboi_z = exp_nL - (exp_ladJacTM ./ n_indiv) - sum(hi.logσ_ζM)
 end
 
 @inline function set_ζsM!(ζsM, logσ_ζM, ::NegElbo, approx, rnormM, ϕqIc, ϕm, cor_endsM, sample_buffers)

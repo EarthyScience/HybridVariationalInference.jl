@@ -1,38 +1,38 @@
-function _ftmp_point(h0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix) 
-    neg_elbo_sites!(h0, NegLogDensity(), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix)[1]    
-end
-function grad_neg_elbo_sites_enzyme(
-    elbo_helpers::NamedTuple,      # tuple of preallocated arrays
-    grad_elbo_helpers::NamedTuple,  # tuple of preallocated arrays pullback closures
-    loss_mode::NegLogDensity,   
-    ϕ::NamedTuple,
-    rnormPM::NamedTuple,
-    sample_args::NamedTuple,
-    indiv_args::NamedTuple,
-    nljoint_args_fix::NamedTuple;
-    n_MC_val::Val = Val(3),
-    n_workers = 1, # TODO compute from executor and Distributed.nworkers and nthreads,...
-    executor::Transducers.Executor = Transducers.SequentialEx(),
-) 
-    h = elbo_helpers
-    rnormPM_point = (;rnormPM.P, M = map(x -> x[:,1:1], rnormPM.M))
-    sample_args_rev = (; sample_args..., is_testmode=false)
-    (;approx, g, is_testmode, pbm_covar_indices, intϕqP, intϕqI, cor_ends, transP, transM) = sample_args_rev
-    primal = _ftmp_point(h, ϕ, rnormPM_point, sample_args, indiv_args, nljoint_args_fix)
-    dϕ = map(zero,ϕ)
-    Enzyme.autodiff(
-            Enzyme.set_runtime_activity(Enzyme.Reverse) ,
-            _ftmp_point,
-            Enzyme.Active,
-            Enzyme.Duplicated(h, Enzyme.make_zero(h)),
-            Enzyme.Duplicated(ϕ, dϕ),
-            Enzyme.DuplicatedNoNeed(rnormPM_point, Enzyme.make_zero(rnormPM_point)),
-            Enzyme.Const(sample_args_rev),
-            Enzyme.Const(indiv_args),
-            Enzyme.Const(nljoint_args_fix),
-        )   
-    dϕ, h
-end
+# function _ftmp_point(h0, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix) 
+#     neg_elbo_sites!(h0, NegLogDensity(), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix)[1]    
+# end
+# function grad_neg_elbo_sites_enzyme(
+#     elbo_helpers::NamedTuple,      # tuple of preallocated arrays
+#     grad_elbo_helpers::NamedTuple,  # tuple of preallocated arrays pullback closures
+#     loss_mode::NegLogDensity,   
+#     ϕ::NamedTuple,
+#     rnormPM::NamedTuple,
+#     sample_args::NamedTuple,
+#     indiv_args::NamedTuple,
+#     nljoint_args_fix::NamedTuple;
+#     n_MC_val::Val = Val(3),
+#     n_workers = 1, # TODO compute from executor and Distributed.nworkers and nthreads,...
+#     executor::Transducers.Executor = Transducers.SequentialEx(),
+# ) 
+#     h = elbo_helpers
+#     rnormPM_point = (;rnormPM.P, M = map(x -> x[:,1:1], rnormPM.M))
+#     sample_args_rev = (; sample_args..., is_testmode=false)
+#     (;approx, g, is_testmode, pbm_covar_indices, intϕqP, intϕqI, cor_ends, transP, transM) = sample_args_rev
+#     primal = _ftmp_point(h, ϕ, rnormPM_point, sample_args, indiv_args, nljoint_args_fix)
+#     dϕ = map(zero,ϕ)
+#     Enzyme.autodiff(
+#             Enzyme.set_runtime_activity(Enzyme.Reverse) ,
+#             _ftmp_point,
+#             Enzyme.Active,
+#             Enzyme.Duplicated(h, Enzyme.make_zero(h)),
+#             Enzyme.Duplicated(ϕ, dϕ),
+#             Enzyme.DuplicatedNoNeed(rnormPM_point, Enzyme.make_zero(rnormPM_point)),
+#             Enzyme.Const(sample_args_rev),
+#             Enzyme.Const(indiv_args),
+#             Enzyme.Const(nljoint_args_fix),
+#         )   
+#     dϕ, h
+# end
 
 function grad_neg_elbo_sites(
     elbo_helpers::NamedTuple,      # tuple of preallocated arrays
@@ -217,12 +217,13 @@ function forwarddiff_grad_nelboi_z!(hi, rnormM,
     # group arrays of same dimensionality (here grad_ϕm and grad_ϕqI) into a Vcat
     ax_ϕqI = CA.getaxes(cl.ϕqIc)[1]
     ax_ϕP = get_axis_θP(cl.nljoint_args_fix.f!)
+    n_indiv = size(cl.dϕmvecs,2)
     with_channel_element(cl.hw_channel) do hwi_tup
         local hwi, hwi_dc, nelboi_vv, θsP_ϕm_ϕqI_vv, grad_θsP, grad_ϕm, grad_ϕqI
         hwi, hwi_dc = hwi_tup
         #grad_conf = hwi.grad_conf
         nelboi_vv = make_nelboiz_lazy_cls_vv(hi, cl.approx, rnormM, nljoint_args_indi, 
-            cl.cor_endsM, cl.transM, cl.nljoint_args_fix, cl.loss_mode, ax_ϕqI)
+            cl.cor_endsM, cl.transM, cl.nljoint_args_fix, n_indiv, cl.loss_mode, ax_ϕqI)
         # grads are vector-shaped, but copyto! dϕmvecs and SAVector use those anyhow           
         grad_θsP, grad_ϕm, grad_ϕqI = if isnothing(omit_gradient)
             # θsP_ϕm_ϕqI is preallocated per worker (hwi.θsP_ϕm_ϕqI).
@@ -253,7 +254,7 @@ end
 # TODO remove unused arguments
 function make_nelboiz_lazy_cls_vv(hi, approx::AbstractHVIApproximation, 
     rnormM, nljoint_args_indi, 
-    cor_endsM, transM, nljoint_args_fix,
+    cor_endsM, transM, nljoint_args_fix, n_indiv,
     loss_mode::AbstractElboLossMode,
     ax_ϕqI::CA.Axis
     ) 
@@ -267,7 +268,7 @@ function make_nelboiz_lazy_cls_vv(hi, approx::AbstractHVIApproximation,
         compute_nelboi_z!(
             hi, loss_mode, approx, rnormM, nljoint_args_indi,
             ϕm_dual, ϕqIc_dual, θsP_dual, 
-            cor_endsM, transM, nljoint_args_fix,
+            cor_endsM, transM, nljoint_args_fix, n_indiv,
         )[1]
     end
 end
@@ -479,7 +480,7 @@ function prepare_gradelbo_helpers(
     #
     local nelboiz_vv, θsP_ϕm_ϕqI_vv1, diffchunks_elbo_vv
     nelboiz_vv = make_nelboiz_lazy_cls_vv(hi1, approx, rnormMi, nljoint_args_indi, 
-        cor_ends.M, transM, nljoint_args_fix, loss_mode, CA.getaxes(ϕqIc)[1], )
+        cor_ends.M, transM, nljoint_args_fix, n_site, loss_mode, CA.getaxes(ϕqIc)[1], )
     θsP_ϕm_ϕqI_vv1 = θsP_ϕm_ϕqI_vv(θsP,ϕm,ϕqIc)
     # n_M >= n_θM but not static
     diffchunks_elbo_vv = ForwardDiff.Chunk(min(chunk, 
