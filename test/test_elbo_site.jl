@@ -743,7 +743,7 @@ function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by e
     CP.randnPM!(rng1, rnormPM)
     randn!(rng1, ϕ2.ϕg)
     randn!(rng1, indiv_args.xM)
-    primal_enz = _ftmp2(h2p, ϕ2, rnormPM, sample_args2, indiv_args, nljoint_args_fix)
+    primal2_enz = _ftmp2(h2p, ϕ2, rnormPM, sample_args2, indiv_args, nljoint_args_fix)
     Enzyme.make_zero!(dϕ2)
     Enzyme.make_zero!(dh2p)
     Enzyme.autodiff(
@@ -758,7 +758,7 @@ function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by e
             Enzyme.Const(nljoint_args_fix),
         )   
     () -> begin
-        @test primal2_enz ≈ primal_enz
+        @test primal2_enz ≈ primal2_enz
         @test dϕg2_enz ≈ dϕ2.ϕg
         @test dϕqP2_enz ≈ dϕ2.ϕqP  atol=0.001
         @test dϕqI2_enz ≈ dϕ2.ϕqI

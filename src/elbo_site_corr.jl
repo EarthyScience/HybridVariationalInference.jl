@@ -29,11 +29,17 @@ function sample_ζsP!(ζsP, logσ_ζP,
         ζsP_r = view(ζsP, r, :)
         mul!(ζsP_r, U', rnorm_r)
         #ζsP_r .= μζP_r .+ exp.(logσ_ζP_r) .* ζsP_r # allocates more than loop with Enzyme 
-        @inbounds for i in axes(ζsP_r,1), j in axes(ζsP_r,2)
-            ζsP_r[i,j] = μζP_r[i] + exp(logσ_ζP_r[i]) * ζsP_r[i,j] 
+        @inbounds for i in axes(ζsP_r,1)
+            @inbounds for j in axes(ζsP_r,2)
+                ζsP_r[i,j] = μζP_r[i] + exp(logσ_ζP_r[i]) * ζsP_r[i,j] 
+            end
+            # add diagonals of U to logσ
+            #   diagonal elements of scaled transformation σ_i = σζ_i U_ii 
+            logσ_ζP_r[i] += log(U[i,i])  # U <=1: decreases logσ_ζP
         end
         ρ_start = ρ_end + 1
         zcor_before_start = cor_endsP[ib]
+        
     end
     @assert ρ_start-1 == length(ρsP)
     nothing         
@@ -84,6 +90,9 @@ function sample_ζsM!(ζsM, logσ_ζM,
         ζsM_r = view(ζsM, r, :)
         mul!(ζsM_r, U', rnorm_r)
         ζsM_r .= μζM_r .+ exp.(logσ_ζM_r) .* ζsM_r
+        # add diagonals of U to logσ
+        #   diagonal elements of scaled transformation σ_i = σζ_i U_ii 
+        logσ_ζM_r .+= log.(diagview(U))  # U <=1: decreases logσ_ζ
         ρ_start = ρ_end + 1
     end
     @assert ρ_start-1 == length(ρsM)
