@@ -210,8 +210,7 @@ function get_hybridproblem_transforms end
 Provide the number of covariates. Default implementation falls back to train_dataloader
 """
 function get_hybridproblem_n_covar(prob::AbstractHybridProblem; scenario)
-    train_dataloader = get_hybridproblem_train_dataloader(
-        Random.default_rng(), prob; scenario)
+    train_dataloader = get_hybridproblem_train_dataloader(prob; scenario)
     (xM, xP, y_o, y_unc) = first(train_dataloader)
     n_covar = size(xM, 1)
     return (n_covar)
@@ -277,16 +276,16 @@ function construct_dataloader_from_synthetic(rng::AbstractRNG, prob::AbstractHyb
         #gdev = :use_gpu ∈ scenario ? gpu_device() : identity,
         )
     (; xM, xP, y_o, y_unc) = gen_hybridproblem_synthetic(rng, prob; scenario)
-    i_sites_test = get_i_sites_test(prob; scenario)
-    n_site = size(xM, 2)
-    @assert size(xP,2) == n_site
-    @assert size(y_o,2) == n_site
-    @assert size(y_unc,2) == n_site
-    i_sites = setdiff(1:n_site, i_sites_test)
-    itrain_sites = 1:length(i_sites) # index into training data
+    i_indiv_test = get_i_sites_test(prob; scenario)
+    n_indiv = size(xM, 2)
+    @assert size(xP,2) == n_indiv
+    @assert size(y_o,2) == n_indiv
+    @assert size(y_unc,2) == n_indiv
+    i_indiv = setdiff(1:n_indiv, i_indiv_test)
+    i_indiv_train = 1:length(i_indiv) # index into training data
     train_loader = MLUtils.DataLoader((
-        CA.getdata(xM)[:,i_sites], CA.getdata(xP)[:,i_sites], 
-        y_o[:,i_sites], y_unc[:,i_sites], itrain_sites);
+        CA.getdata(xM)[:,i_indiv], CA.getdata(xP)[:,i_indiv], 
+        y_o[:,i_indiv], y_unc[:,i_indiv], i_indiv_train);
         batchsize = n_batch, partial = false)
     return (train_loader)
 end

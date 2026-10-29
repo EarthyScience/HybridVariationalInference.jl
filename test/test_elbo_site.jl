@@ -419,17 +419,17 @@ end
     ϕms1 = h0.ϕms[:,1]
     θsP1 = h0.θsP
     CP.compute_nelboi_z!(hi1, CP.NegElbo(), approx, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1, 
-        cor_ends.M, transM, nljoint_args_fix)     
+        cor_ends.M, transM, nljoint_args_fix, n_site)     
     #@code_warntype CP.compute_nelboi_z!(hi1, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1)
     # need two wrap in tmpf to avoid allocations due to boxing
-    function tmpf(hi, loss_mode, approx, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1, cor_endsM, transM, nljoint_args_fix)
+    function tmpf(hi, loss_mode, approx, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1, cor_endsM, transM, nljoint_args_fix, n_site)
         @test (@allocated CP.compute_nelboi_z!(hi, loss_mode, approx, rnormM1, nljoint_args_ind1, ϕms1, 
-            ϕqIc, θsP1, cor_endsM, transM, nljoint_args_fix)) == 0
+            ϕqIc, θsP1, cor_endsM, transM, nljoint_args_fix, n_site)) == 0
     end
-    tmpf(hi1, CP.NegElbo(), approx, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1, cor_ends.M, transM, nljoint_args_fix)
+    tmpf(hi1, CP.NegElbo(), approx, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1, cor_ends.M, transM, nljoint_args_fix, n_site)
     CP.compute_nelboi_z!(hi1, CP.NegLogDensity(), approx, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1, 
-        cor_ends.M, transM, nljoint_args_fix)     
-    tmpf(hi1, CP.NegLogDensity(), approx, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1, cor_ends.M, transM, nljoint_args_fix)
+        cor_ends.M, transM, nljoint_args_fix, n_site)     
+    tmpf(hi1, CP.NegLogDensity(), approx, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1, cor_ends.M, transM, nljoint_args_fix, n_site)
     #
     # test with views as input to compute_nelboi_z! and differnt ϕm per MC
     h21 = h2.helpers_sites[1]
@@ -437,25 +437,25 @@ end
     ϕm = randn!(similar(h2.ϕms_mcs[:,:,1]))
     inputs = CA.ComponentVector(ϕqIc=ϕqIc, ϕm = ϕm, θsP= θsP1)
     CP.compute_nelboi_z!(h21, CP.NegElbo(), approx, rnormM1, nljoint_args_ind1, inputs.ϕm, inputs.ϕqIc, 
-        inputs.θsP, cor_ends.M, transM, nljoint_args_fix)
+        inputs.θsP, cor_ends.M, transM, nljoint_args_fix, n_site)
     # with 
     ϕms1_ = view(inputs, Val(:ϕm))
     ϕqIc_ = view(inputs, Val(:ϕqIc))
     θsP1_ = view(inputs, Val(:θsP))
-    function loop_compute_nelboi_z(n, h21, loss_mode, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix)
+    function loop_compute_nelboi_z(n, h21, loss_mode, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix, n_site)
         for _ in 1:n
-            @noinline CP.compute_nelboi_z!(h21, loss_mode, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix)
+            @noinline CP.compute_nelboi_z!(h21, loss_mode, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix, n_site)
         end
         nothing
     end
-    function alloc_compute_nelboi_z(h21, loss_mode, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix)
+    function alloc_compute_nelboi_z(h21, loss_mode, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix, n_site)
         # avoid global variables -> pass them through function
-        loop_compute_nelboi_z(1, h21, loss_mode, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix) # thorough warmup
-        #@profview_allocs loop_compute_nelboi_z(10_000,h21, loss_mode, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix)
-        @test (@allocated loop_compute_nelboi_z(100,h21, loss_mode, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix)) == 0
+        loop_compute_nelboi_z(1, h21, loss_mode, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix, n_site) # thorough warmup
+        #@profview_allocs loop_compute_nelboi_z(10_000,h21, loss_mode, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix, n_site)
+        @test (@allocated loop_compute_nelboi_z(100,h21, loss_mode, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix, n_site)) == 0
     end
-    alloc_compute_nelboi_z(h21, CP.NegElbo(), approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_ends.M, transM, nljoint_args_fix)
-    alloc_compute_nelboi_z(h21, CP.NegLogDensity(), approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_ends.M, transM, nljoint_args_fix)
+    alloc_compute_nelboi_z(h21, CP.NegElbo(), approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_ends.M, transM, nljoint_args_fix, n_site)
+    alloc_compute_nelboi_z(h21, CP.NegLogDensity(), approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_ends.M, transM, nljoint_args_fix, n_site)
     # 
     gradh2 = @inferred CP.prepare_gradelbo_helpers(inputs.ϕqIc, inputs.ϕm, inputs.θsP, ϕg, ϕqPc, approx; 
         pbm_covar_indices=pbm_covar_indices2, n_workers=1,
@@ -497,14 +497,14 @@ end
     approx2 = MeanHVIApproximation()
     hiM1 = h0M.helpers_sites[1]
     @test isfinite(CP.compute_nelboi_z!(hiM1, CP.NegElbo(), approx2, rnormM1, nljoint_args_ind1, 
-        ϕms1, ϕqIc, θsP1, cor_ends.M, transM, nljoint_args_fix))
+        ϕms1, ϕqIc, θsP1, cor_ends.M, transM, nljoint_args_fix, n_site))
     function alloc_compute_nelboi_zM!(hiM1, approx2, rnormM1, nljoint_args_ind1, 
-        ϕms1, ϕqIc, θsP1, cor_endsM, transM, nljoint_args_fix)
+        ϕms1, ϕqIc, θsP1, cor_endsM, transM, nljoint_args_fix, n_site)
         @test (@allocated CP.compute_nelboi_z!(hiM1, CP.NegElbo(), approx2, rnormM1, nljoint_args_ind1, 
-        ϕms1, ϕqIc, θsP1, cor_endsM, transM, nljoint_args_fix)) == 0 
+        ϕms1, ϕqIc, θsP1, cor_endsM, transM, nljoint_args_fix, n_site)) == 0 
     end
     alloc_compute_nelboi_zM!(hiM1, approx2, rnormM1, nljoint_args_ind1, 
-        ϕms1, ϕqIc, θsP1, cor_ends.M, transM, nljoint_args_fix)
+        ϕms1, ϕqIc, θsP1, cor_ends.M, transM, nljoint_args_fix, n_site)
 end
 
 @testset "pullback_g_apply!" begin
@@ -994,7 +994,7 @@ end
     primal2S = CP.neg_elbo_sites!(h2S, CP.NegElbo(), ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix2S)
     grad0, gradh2S = CP.grad_neg_elbo_sites(
         h2S, (;), CP.NegElbo(), ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix2S; n_MC_val, 
-        #executor = distributedEx,
+        executor = distributedEx,
     )   
     if isfile("intermediate/test_enzymeS_dphi2.jld2")
         primal_enz2S, dϕg2S_enz, dϕqP2S_enz, dϕqI2S_enz = JLD2.load(
@@ -1008,14 +1008,15 @@ end
         #hcat(dϕqI2S_enz, grad0.dϕqI)
     end
     #
+    ϕ2S_point = map(copy, ϕ2S)
     rng1 = StableRNG(1234)
     CP.randnPM!(rng1, rnormPM_point)
-    randn!(rng1, ϕ2S.ϕg)
+    randn!(rng1, ϕ2S_point.ϕg)
     randn!(rng1, indiv_args.xM)
-    primal2S_point = CP.neg_elbo_sites!(h2S_point, CP.NegLogDensity(), ϕ2S, rnormPM_point, sample_args2S, indiv_args, nljoint_args_fix2S)
+    primal2S_point = CP.neg_elbo_sites!(h2S_point, CP.NegLogDensity(), ϕ2S_point, rnormPM_point, sample_args2S, indiv_args, nljoint_args_fix2S)
     grad_point, gradh2S_point = CP.grad_neg_elbo_sites(
-        h2S_point, (;), CP.NegLogDensity(), ϕ2S, rnormPM_point, sample_args2S, indiv_args, nljoint_args_fix2S; n_MC_val, 
-        #executor = distributedEx,
+        h2S_point, (;), CP.NegLogDensity(), ϕ2S_point, rnormPM_point, sample_args2S, indiv_args, nljoint_args_fix2S; n_MC_val, 
+        executor = distributedEx,
     )   
     if isfile("intermediate/test_enzymeS_dphi2_point.jld2")
         primal_enz2S_point, dϕg2S_point_enz, dϕqP2S_point_enz, dϕqI2S_point_enz = JLD2.load(

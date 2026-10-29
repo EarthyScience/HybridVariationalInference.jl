@@ -236,6 +236,9 @@ function apply_model!(y, app::NormalScalingModelApplicator, x, ϕ; kwargs...)
     # @show typeof(app.μ)
     # @show typeof(ϕ)
     @assert eltype(app.μ) == eltype(ϕ)
+    #y[app.range_scaled,:]
+    #norminvcdf.(app.μ, app.σ, y[app.range_scaled,:])
+    #norminvcdf.(app.μ, app.σ, tmp[app.range_scaled,:])
     if !isnothing(app.range_scaled)
         for x in app.range_scaled; @assert(x ∈ axes(y,1)); end
         # .= fails with Enzyme
@@ -284,13 +287,28 @@ end
 
 function apply_model(app::RangeScalingModelApplicator, x, ϕ; kwargs...)
     res0 = apply_model(app.app, x, ϕ; kwargs...)
-    if !isempty(app.range_scaled)
+    if !isnothing(app.range_scaled) && !isempty(app.range_scaled)
         res_scaled = index_firstdim(res0,app.range_scaled) .* app.width .+ app.offset
         combine_range(res0, res_scaled, app.range_scaled)
     else
         res0 .* app.width .+ app.offset
     end
 end
+
+function apply_model!(y, app::RangeScalingModelApplicator, x, ϕ; kwargs...)
+    apply_model!(y, app.app, x, ϕ; kwargs...)
+    @assert eltype(app.width) == eltype(ϕ)
+    if !isnothing(app.range_scaled)
+        for x in app.range_scaled; @assert(x ∈ axes(y,1)); end
+        @inbounds for j in axes(y,2), (i,ri) in enumerate(app.range_scaled)
+            y[ri,j] = y[ri,j] * app.width[i] + app.offset[i]
+        end
+    else
+        y .= y .* app.width .+ app.offset
+    end
+    y
+end
+
 
 function combine_range(res0, res_scaled, range_scaled)
     range_before = 1:(range_scaled[1]-1)
