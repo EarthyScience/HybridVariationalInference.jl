@@ -1,3 +1,35 @@
+struct PBMPopulationAppSpec{AXS,AXP, TF,F} <: AbstractPBMApplicatorSpec
+    fθpop!::F
+    θFix::TF
+    ax_θs::Val{AXS} # 3-tuple of axes of θP, θM and θFix
+    ax_xP::Val{AXP}
+end
+
+# TODO remove: placeholder until HybridProblem is initialized with AbstractPBMApplicator
+struct NullPopulationAppSpec <: AbstractPBMApplicatorSpec end
+
+function PBMPopulationAppSpec(fθpop!; 
+    θP::CA.ComponentVector, θM::CA.ComponentVector, θFix::CA.ComponentVector, 
+    xPvec::CA.ComponentVector,
+    ) 
+    local ax_θs, ax_xP
+    ax_θs = (CA.getaxes(θP)[1], CA.getaxes(θM)[1], CA.getaxes(θFix)[1])
+    ax_xP = CA.getaxes(xPvec)[1]
+    PBMPopulationAppSpec(fθpop!, θFix, Val(ax_θs), Val(ax_xP))
+end
+
+function get_PopulationApplicator(spec::PBMPopulationAppSpec,
+    θ_template::AbstractVector{FT},
+    n_MC_Val::Val{NMC},
+    diffchunk::ForwardDiff.Chunk{chunk} = ForwardDiff.Chunk(8),
+) where {FT, NMC, chunk}
+    is_MC = ones(FT, NMC)'
+    θFixm = convert.(FT,CA.getdata(spec.θFix)) .* is_MC
+    θFixm_dc = PAT.DiffCache(θFixm, chunk)
+    # θ = vcat(vcat(θPm, θMm), θFixm)
+    PBMPopulationApplicator(spec.fθpop!, θFixm, θFixm_dc, spec.ax_θs, spec.ax_xP)        
+end 
+
 struct PBMPopulationApplicator{AXS, AXP, MFT, MFTD, F} <: AbstractPBMApplicator 
     fθpop!::F
     θFixm::MFT 

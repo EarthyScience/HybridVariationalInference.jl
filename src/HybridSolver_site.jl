@@ -67,7 +67,8 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     end
     #
     diffchunk = ForwardDiff.Chunk(8)
-    pbm = create_nsite_applicator(get_hybridproblem_PBmodel(prob; scenario), NMC; diffchunk)      
+    pbm_spec = get_hybridproblem_PBmodelSpec(prob; scenario)
+    pbm = get_PopulationApplicator(pbm_spec, ϕ0.ϕqP, Val(NMC), diffchunk)      
     nljoint_args_fix =(;
          f! = pbm, 
          fLogLik = get_hybridproblem_neg_logden_obs(prob; scenario)
@@ -114,7 +115,9 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
         #i,data_batch_ = first(enumerate(train_loader))
         for (i, data_batch_) in enumerate(train_loader)
             indiv_args = NamedTuple{keys(indiv_args_test)}(data_batch_)
-            #randnPM!(rng, rnormPM)   # only required for NegElbo()
+            if !(loss_mode isa NegLogDensity)
+                randnPM!(rng, rnormPM)   
+            end
             grad_cv, gradh = grad_neg_elbo_sites(
             #grad_cv, gradh = grad_neg_elbo_sites_enzyme(
                 h0, gradh, loss_mode, ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; 
@@ -184,7 +187,8 @@ function predict_point!(elbo_helpers, prob::AbstractHybridProblem, ϕ; scenario
     intϕqI = get_concrete(ComponentArrayInterpreter(ϕqIc1))
     #
     diffchunk = ForwardDiff.Chunk(8)
-    pbm = create_nsite_applicator(get_hybridproblem_PBmodel(prob; scenario), 1; diffchunk)      
+    pbm_spec = get_hybridproblem_PBmodelSpec(prob; scenario)
+    pbm = get_PopulationApplicator(pbm_spec, par_templates.θP, Val(1), diffchunk)      
     nljoint_args_fix =(;
          f! = pbm, 
          fLogLik = get_hybridproblem_neg_logden_obs(prob; scenario)

@@ -6,6 +6,7 @@ For a specific prob, provide functions that specify details
 - `get_hybridproblem_MLapplicator`
 - `get_hybridproblem_transforms`
 - `get_hybridproblem_PBmodel`
+- `get_hybridproblem_PBmodelSpec`
 - `get_hybridproblem_neg_logden_obs`
 - `get_hybridproblem_par_templates`
 - `get_hybridproblem_ϕq`
@@ -141,6 +142,7 @@ returns a tuple of predictions with components
 - second, those that vary across sites, with a column for each site
 """
 function get_hybridproblem_PBmodel end
+function get_hybridproblem_PBmodelSpec end
 
 """
     get_hybridproblem_neg_logden_obs(::AbstractHybridProblem; scenario)

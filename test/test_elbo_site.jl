@@ -15,6 +15,7 @@ using StatsFuns: logistic
 using Test
 using HybridVariationalInference: HybridVariationalInference as CP
 using HybridVariationalInference: HybridVariationalInference as HVI
+using HybridVariationalInference
 Distributed.@everywhere using HybridVariationalInference
 using StableRNGs
 using Random
@@ -124,10 +125,14 @@ isUsingSimpleChains = false
 
     θP_tmplt = CA.ComponentVector(a1=1.0, a2=2.0, a3=3.0)
     θM_tmplt = CA.ComponentVector(b1=1.0, b2=2.0, b3=3.0)
-    pbm = PBMPopulationApplicator(
-        HVI.fθpop_dummy1!, n_MC; θP=θP_tmplt, θM=θM_tmplt, θFix=CA.ComponentVector{Float64}(), xPvec)
-    pbm_col = PBMPopulationApplicator(
-        HVI.fθpop_dummy2!, n_MC; θP=θP_tmplt, θM=θM_tmplt, θFix=CA.ComponentVector{Float64}(), xPvec)
+    pbm_spec = @inferred PBMPopulationAppSpec(HVI.fθpop_dummy1!; 
+        θP=θP_tmplt, θM=θM_tmplt, θFix=CA.ComponentVector{Float64}(), xPvec)
+    pbm = @inferred get_PopulationApplicator(pbm_spec, ϕqP, n_MC_val)
+    # test also using eachcol based variant of PBM function
+    pbm_spec_col = @inferred PBMPopulationAppSpec(HVI.fθpop_dummy2!;
+        θP=θP_tmplt, θM=θM_tmplt, θFix=CA.ComponentVector{Float64}(), xPvec)
+    pbm_col = @inferred get_PopulationApplicator(pbm_spec_col, ϕqP, n_MC_val)
+        
     nljoint_args_fix =(;
          f! = pbm, 
          fLogLik = HVI.fLogLik_dummy,

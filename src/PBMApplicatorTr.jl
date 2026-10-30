@@ -27,6 +27,7 @@ Provided are implementations
 - `DirectPBMApplicator`: based on a function that takes the same arguments as `apply_model`
 """
 abstract type AbstractPBMApplicator end
+abstract type AbstractPBMApplicatorSpec end
 
 # function apply_model end  # already defined in ModelApplicator.jl for ML model
 

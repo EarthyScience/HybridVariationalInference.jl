@@ -30,6 +30,7 @@ struct HybridProblem <: AbstractHybridProblem
     #θP::CA.ComponentVector
     θM::CA.ComponentVector
     f_batch::Any
+    pbm_spec::AbstractPBMApplicatorSpec  
     g::AbstractModelApplicator
     ϕg::Any # depends on framework
     ϕq::CA.ComponentVector
@@ -51,9 +52,8 @@ struct HybridProblem <: AbstractHybridProblem
     function HybridProblem(
             θM::CA.ComponentVector,
             ϕq::CA.ComponentVector, # = init_hybrid_ϕunc(approx, cor_ends, zero(eltype(θM))),
-            g::AbstractModelApplicator, 
             ϕg::AbstractVector,
-            f_batch, 
+            f_batch, # TODO replace by pbm_spec
             priors::AbstractDict,
             py,
             transM::Stacked,
@@ -68,8 +68,9 @@ struct HybridProblem <: AbstractHybridProblem
             penalty_computer::PenaltyComputerOrFunction = ZeroPenaltyComputer(),
             ranef::AbstractRandomEffects = NullRandomEffects(),
     ) where N
+        pbm_spec = f_batch isa AbstractPBMApplicatorSpec ? f_batch : NullPopulationAppSpec()
         new(
-            θM, f_batch, g, ϕg, ϕq, priors, py, transM, transP, cor_ends, 
+            θM, f_batch, pbm_spec, g, gspec, ϕg, ϕq, priors, py, transM, transP, cor_ends, 
             train_dataloader, test_data, n_site, n_batch, pbm_covars, 
             approx, penalty_computer, ranef)
     end
@@ -123,6 +124,7 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
     g = get_hybridproblem_MLapplicator(prob; scenario)[1],
     ϕg = get_hybridproblem_MLapplicator(prob; scenario)[2],
     f_batch = get_hybridproblem_PBmodel(prob; scenario),
+    pbm_spec = get_hybridproblem_PBmodelSpec(prob; scenario),
     priors = get_hybridproblem_priors(prob; scenario),
     py = get_hybridproblem_neg_logden_obs(prob; scenario),
     transP = get_hybridproblem_transforms(prob; scenario).transP,
@@ -167,7 +169,7 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
            train_dataloader.data, batchsize=n_batch)  
         f_batch = create_nsite_applicator(f_batch, n_batch)
     end
-    HybridProblem(θM, ϕq, g, ϕg, f_batch, priors, py, transM, transP, train_dataloader,
+    HybridProblem(θM, ϕq, g, ϕg, f_batch, pbm_spec, priors, py, transM, transP, train_dataloader,
         test_data, n_site, n_batch; cor_ends = cor_ends_new, pbm_covars, 
         approx, penalty_computer, ranef)
 end
@@ -267,6 +269,10 @@ end
 
 function get_hybridproblem_PBmodel(prob::HybridProblem; scenario = ())
     prob.f_batch
+end
+
+function get_hybridproblem_PBmodelSpec(prob::HybridProblem; scenario = ())
+    prob.pbm_spec
 end
 
 function get_hybridproblem_MLapplicator(prob::HybridProblem; scenario = ())

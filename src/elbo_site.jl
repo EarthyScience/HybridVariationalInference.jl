@@ -108,6 +108,11 @@ function compute_nelboi_z!(hi, loss_mode::AbstractElboLossMode, approx::Abstract
     exp_ladJacTM = transformζ!(hi.θsM, transM, hi.ζsM)  # return value captures ladJacT
     # first component needs to be the full elbo
     exp_nL = exp_nLi!(hi.y, θsP, hi.θsM, nljoint_args_indi, nljoint_args_fix, hi)[1]
+    # in order to yield similar weights of population and individual parameters
+    #   devide the exp_ladJacTM by n_indiv. otherwise
+    #      with exp-backtransformation, decreases ζI to decrease exp_ladJacTM 
+    #      at the expense of increased ζP, whose ladJacTM only counts once
+    # TODO: think of treating logσ_ζM similarly?
     nelboi_z = exp_nL - (exp_ladJacTM ./ n_indiv) - sum(hi.logσ_ζM)
 end
 

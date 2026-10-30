@@ -100,6 +100,7 @@ include("ModelApplicator.jl")
 export AbstractPBMApplicator, NullPBMApplicator, PBMSiteApplicator, PBMPopulationApplicatorTr
 export DirectPBMApplicator, PBMPopulationGlobalApplicator, PBMPopulationApplicator
 export create_nsite_applicator
+export AbstractPBMApplicatorSpec, PBMPopulationAppSpec, get_PopulationApplicator
 include("PBMApplicatorTr.jl")
 include("PBMApplicator.jl")
 
@@ -109,6 +110,7 @@ include("PBMApplicator.jl")
 export AbstractHybridProblem, AbstractPenaltyComputer, CustomPenaltyComputer,
         compute_penalty,
         get_hybridproblem_MLapplicator, get_hybridproblem_PBmodel,
+        get_hybridproblem_PBmodelSpec,
         get_hybridproblem_penalty_computer,
         get_hybridproblem_ϕq, get_hybridproblem_θP,
         get_hybridproblem_float_type, gen_hybridproblem_synthetic,

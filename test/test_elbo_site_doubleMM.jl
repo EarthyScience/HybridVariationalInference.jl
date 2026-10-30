@@ -164,26 +164,26 @@ pbm_covar_indices = SA.SVector{length(pbm_covars)}([findfirst(==(k), keys(par_te
     alloc_grad_neg_elbo_sites(h0_point, gradh0_point, CP.NegLogDensity(), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix; n_MC_val)
 end
 
-# @testset "grad_neg_elbo_sites_enzyme" begin
-#     local ϕqIc, ϕqPc, rng1, indiv_args, ϕ, sample_args, primal
-#     ϕqIc = intϕqI(ϕqI)
-#     ϕqPc = intϕqP(ϕqP)
-#     #
-#     rng1 = StableRNG(1234)
-#     CP.randnPM!(rng1, rnormPM)
-#     randn!(rng1, ϕgv)
-#     randn!(rng1, xM)
-#     indiv_args = indiv_args1
-#     ϕ = (;ϕg=ϕgv, ϕqP, ϕqI)
-#     sample_args = (;
-#         approx, g, is_testmode = true, pbm_covar_indices, intϕqP, intϕqI, cor_ends, 
-#         transP, transM)
-#     primal = CP.neg_elbo_sites!(h0_point, CP.NegLogDensity(), ϕ, rnormPM_point, sample_args, indiv_args, nljoint_args_fix)
-#     dϕ, _ = CP.grad_neg_elbo_sites_enzyme(
-#         h0_point, (;), CP.NegLogDensity(), ϕ, rnormPM_point, sample_args, indiv_args, nljoint_args_fix,
-#         )
-#     dϕ.ϕqP
-# end
+@testset "grad_neg_elbo_sites_enzyme" begin
+    # local ϕqIc, ϕqPc, rng1, indiv_args, ϕ, sample_args, primal
+    # ϕqIc = intϕqI(ϕqI)
+    # ϕqPc = intϕqP(ϕqP)
+    # #
+    # rng1 = StableRNG(1234)
+    # CP.randnPM!(rng1, rnormPM)
+    # randn!(rng1, ϕgv)
+    # randn!(rng1, xM)
+    # indiv_args = indiv_args1
+    # ϕ = (;ϕg=ϕgv, ϕqP, ϕqI)
+    # sample_args = (;
+    #     approx, g, is_testmode = true, pbm_covar_indices, intϕqP, intϕqI, cor_ends, 
+    #     transP, transM)
+    # primal = CP.neg_elbo_sites!(h0_point, CP.NegLogDensity(), ϕ, rnormPM_point, sample_args, indiv_args, nljoint_args_fix)
+    # dϕ, _ = CP.grad_neg_elbo_sites_enzyme(
+    #     h0_point, (;), CP.NegLogDensity(), ϕ, rnormPM_point, sample_args, indiv_args, nljoint_args_fix,
+    #     )
+    # dϕ.ϕqP
+end
 
 @testset "HybridPointSolverSite" begin
     # in order to test inversion, set the dataloader to the synthetic data

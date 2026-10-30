@@ -315,6 +315,18 @@ function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario::Val{scen}) 
     end
 end
 
+function HVI.get_hybridproblem_PBmodelSpec(prob::DoubleMMCase; scenario::Val{scen}) where {scen}
+    pt = get_hybridproblem_par_templates(prob; scenario)
+    keys_fixed = Tuple(k for k in setdiff(keys(θall), (keys(pt.θP)..., keys(pt.θM)...))) 
+    θFix = isempty(keys_fixed) ? CA.ComponentVector{eltype(θall)}() : θall[keys_fixed]
+    xPvec = int_xP1(vcat(xP_S1, xP_S2))
+    if (:usePopPBM ∈ scen)
+        PBMPopulationAppSpec(f_doubleMM_pop!; pt.θP, pt.θM, θFix, xPvec)     
+    else
+        error("implement get_hybridproblem_PBmodelSpec for scenarios without usePopPBM")
+    end
+end
+
 # function(caller::DoubleMMCaller)(θP::AbstractVector, θMs::AbstractMatrix, xP)
 #     cl = caller.cl
 #     @assert size(xP, 2) == cl.n_site_batch
