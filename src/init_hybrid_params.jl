@@ -259,3 +259,80 @@ function init_hybrid_ϕunc(
         ρsM)
     (; ϕqc = CA.ComponentVector(;nt...)::CA.ComponentVector, approx)
 end
+
+# TODO remove init_hybrid_ϕunc after changing all to split ϕqP and ϕqI
+function init_hybrid_ϕuncs!(
+        ϕqPc, ϕqIc,
+        approx1::MeanUniScalingHVIApproximation;
+        cor_ends::NamedTuple
+        ρ0::FT = 0.0f0,  #zero(FT),
+        logσ2_ζMs::AbstractMatrix{FT} = Array{FT}(undef, 0, 0),
+        logσ2_ζP::AbstractVector{FT} = fill(FT(-10.0), cor_ends.P[end]),
+        ρsP = fill(ρ0, get_cor_count(cor_ends.P)),
+        ρsM = fill(ρ0, get_cor_count(cor_ends.M));
+        transM,
+        θM::CA.ComponentVector,
+        n_site::Integer,
+        relerr = FT(0.01),
+) where {FT}
+    local logσ, approx, logσ_ζM_offsets
+    logσ = if isempty(logσ2_ζMs) 
+        # relative error of the template of θM
+        σ = compute_σ_unconstrained(transM, CA.getdata(θM), relerr)        
+        #logσ2 = FT(2) * log.(convert.(FT,σ)) 
+        logσ = log.(convert.(FT,σ)) 
+    else
+        error("check and implement inferring median logσ2 from logσ2_ζMs")
+        median(logσ2_ζMs; dims=1)
+    end
+    # update logσ2_ζM_base of last parameter in approx - its not calibrated
+    approx = MeanUniScalingHVIApproximation(approx1; logσ_ζM_base = logσ[1]) 
+    logσ_ζM_offsets = logσ[2:end] .- logσ[1]
+    #tmp = CA.ComponentVector(;zip(Symbol.(axes(is_offset,1)), logσ2_ζM_offsets_gen)...)
+    nt = (;
+        logσ_ζP = logσ2_ζP ./ FT(2),
+        logσ_ζM_offsets,
+        ρsP,
+        ρsM)
+    (; ϕqPc, ϕqIc)
+end
+
+function init_hybrid_ϕuncs(
+        approx_spec::MeanUniScalingHVIApproxSpec;
+        θM::CA.ComponentVector{FT},
+        cor_ends::NamedTuple,
+        args...; kwargs...
+) where FT
+    ϕqPc1 = CA.ComponentVector(
+        μζP = Vector{FT}(undef, cor_ends.P[end]),
+        logσ_ζP = Vector{FT}(undef, cor_ends.P[end]),
+        ρsP = Vector{FT}(undef, get_cor_count(cor_ends.P))
+        )
+    ϕqIc1 = CA.ComponentVector(
+        logσ_ζM_offsets = Vector{FT}(undef, cor_ends.M[end]-1),
+        ρsM = Vector{FT}(undef, get_cor_count(cor_ends.M))
+        )
+    init_hybrid_ϕuncs! # TODO 
+
+    ϕqPc
+    local logσ, approx, logσ_ζM_offsets
+    logσ = if isempty(logσ2_ζMs) 
+        # relative error of the template of θM
+        σ = compute_σ_unconstrained(transM, CA.getdata(θM), relerr)        
+        #logσ2 = FT(2) * log.(convert.(FT,σ)) 
+        logσ = log.(convert.(FT,σ)) 
+    else
+        error("check and implement inferring median logσ2 from logσ2_ζMs")
+        median(logσ2_ζMs; dims=1)
+    end
+    # update logσ2_ζM_base of last parameter in approx - its not calibrated
+    approx = MeanUniScalingHVIApproximation(approx1; logσ_ζM_base = logσ[1]) 
+    logσ_ζM_offsets = logσ[2:end] .- logσ[1]
+    #tmp = CA.ComponentVector(;zip(Symbol.(axes(is_offset,1)), logσ2_ζM_offsets_gen)...)
+    nt = (;
+        logσ_ζP = logσ2_ζP ./ FT(2),
+        logσ_ζM_offsets,
+        ρsP,
+        ρsM)
+    (; ϕqPc, ϕqIc)
+end

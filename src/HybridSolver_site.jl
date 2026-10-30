@@ -41,10 +41,14 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
      g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     cor_ends = get_hybridproblem_cor_ends(prob; scenario)
-    approx1 = get_hybridproblem_HVIApproximation(prob; scenario)
+    approx_spec = get_hybridproblem_HVIApproxSpec(prob; scenario)
+    logσ_ζM = compute_σ_unconstrained(transM, par_templates.θM, 0.01)
+    logσ_ζP = compute_σ_unconstrained(transP, par_templates.θP, 0.01)
+    approx = get_HVIApproximation(approx_spec; logσ_ζM)
     #
     # TODO make init_hybrid_ϕunc already return proper ϕqPc1 and ϕqIc1
-    ϕq, approx = init_hybrid_ϕunc(approx1, cor_ends; transM, par_templates.θM, n_site)
+    ϕq, _ = init_hybrid_ϕunc(approx, cor_ends; transM, par_templates.θM, n_site)
+    ϕq, _ = init_hybrid_ϕunc(approx, cor_ends; transM, par_templates.θM, n_site)
     ϕqPc1 = CA.ComponentVector(
         μζP = log.(CA.getdata(par_templates.θP)),
         #logσ_ζP = ones(n_θP) .* log(0.01),
