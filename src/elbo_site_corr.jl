@@ -47,7 +47,7 @@ end
 
 # TODO unify prepare_sample_buffers and prepare_ind_sample_buffers
 function prepare_sample_buffers(
-    approx::Union{MeanHVIApproximation,MeanUniScalingHVIApproximation}, 
+    approx::Union{MeanHVIApproximation,MeanUniScalingHVIApproximation,MeanUniScalingHVIApproxSpec}, 
     cor_ends, template_TF::AbstractArray{TF}) where TF
     # zcor_ends = OneBasedVectorWithZero(cor_ends)
     # # make a Tuple, so to be handled by getdiffcache
@@ -116,7 +116,7 @@ function set_marginal_logσ!(logσ_ζMs, approx::MeanUniScalingHVIApproximation,
 end
 
 function prepare_ind_sample_buffers(
-    approx::Union{MeanHVIApproximation,MeanUniScalingHVIApproximation}, 
+    approx::Union{MeanHVIApproximation,MeanUniScalingHVIApproximation,MeanUniScalingHVIApproxSpec}, 
     cor_endsM, template_TF::AbstractArray{TF}) where TF
     n_θM = cor_endsM[end]
     U = Matrix{TF}(undef, n_θM, n_θM)

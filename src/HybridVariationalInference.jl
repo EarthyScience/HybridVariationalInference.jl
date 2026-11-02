@@ -79,7 +79,7 @@ include("RandomEffects.jl")
 
 export AbstractHVIApproximation, AbstractMeanHVIApproximation
 export get_numberof_MLinputs
-export AbstractApproxSpec, get_HVIApproximation
+export AbstractHVIApproxSpec, get_HVIApproximation
 export MeanHVIApproximation, MeanHVIApproximationMat, DiagonalHVIApproximation
 export AbstractMeanVarSepHVIApproximation, MeanVarSepHVIApproximation
 export AbstractMeanScalingHVIApproximation, MeanScalingHVIApproximation
@@ -186,7 +186,7 @@ include("init_hybrid_params.jl")
 export AbstractHybridSolver, HybridPointSolver, HybridPosteriorSolver
 include("HybridSolver.jl")
 
-export HybridPointSolverSite
+export HybridSolverSite
 include("HybridSolver_site.jl")
 
 

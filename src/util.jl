@@ -421,6 +421,12 @@ function colsum_finite_obs(X::AbstractVector, obs::AbstractVector)
         )
 end
 
+@inline function make_tuple_reducer(op) 
+    function tup_red(acc, t) 
+         map(op, acc, t)
+    end
+end
+
 
 """
     with_channel_element(f::Function, ch::Channel)
@@ -449,10 +455,6 @@ result = with_channel_element(ch) do elem
     elem * 2
 end
 """
-make_tuple_reducer(op) = (acc, t) -> map(op, acc, t)
-
-
-
 function with_channel_element(f::Function, ch::Channel)
     elem = take!(ch)
     try

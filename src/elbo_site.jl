@@ -178,6 +178,53 @@ function prepare_elbo_helpers(approx::AbstractHVIApproximation,
     )
 end
 
+function prepare_elbo_helpers(h::NamedTuple, prob::AbstractHybridProblem; scenario, kwargs...)
+    cor_ends = get_hybridproblem_cor_ends(prob; scenario)
+    approx_spec = get_hybridproblem_HVIApproxSpec(prob; scenario)
+    prepare_elbo_helpers(h; approx_spec, cor_ends, kwargs...)
+end
+
+function prepare_elbo_helpers(h::NamedTuple; approx_spec::AbstractHVIApproxSpec, cor_ends, 
+    n_MC = size(h.ζsP,2), 
+    n_site = length(h.helpers_sites),
+    use_diff_cache::Val{use_dc} = Val(true),
+    diffchunk::ForwardDiff.Chunk{chunk} = ForwardDiff.Chunk(8),
+    ) where {use_dc, chunk}
+    n_covXP, n_site0 = size(h.xMP)
+    #n_covP = isnothing(pbm_covar_indices) ? 0 : length(pbm_covar_indices)
+    n_θP, n_MC0 = size(h.ζsP)
+    n_M = size(h.ϕms, 1)
+    template_TF = h.ζsP
+    TF = eltype(template_TF)
+    TG = eltype(h.xMP)
+    hi = h.helpers_sites[1]
+    n_θM = size(hi.ζsM.du, 1)
+    n_obs = size(hi.y.du, 1)
+
+    his = Tuple((;
+        ζsM = Matrix{TF}(undef, n_θM, n_MC),
+        θsM = Matrix{TF}(undef, n_θM, n_MC),
+        logσ_ζM = Vector{TF}(undef, n_θM),
+        y = Matrix{TF}(undef, n_obs, n_MC),
+        # TODO move buffers to Channel object
+        y_buffer = Matrix{TF}(undef, n_obs, n_MC),
+        sample_buffers = prepare_ind_sample_buffers(approx_spec, cor_ends.M, template_TF),
+    ) for i in 1:n_site)
+    helpers_sites = use_dc ? map_leaves_nt(x -> PAT.DiffCache(x, chunk), his) : his
+    h = (;
+        ζsP = Matrix{TF}(undef, n_θP, n_MC),
+        θsP = Matrix{TF}(undef, n_θP, n_MC),
+        logσ_ζP = Vector{TF}(undef, n_θP),
+        ϕms = Matrix{TF}(undef, n_M, n_site),        
+        ϕms_mcs = Array{TF,3}(undef, n_M, n_MC, n_site),
+        ϕms_mcs2D_buffer = Matrix{TF}(undef, n_M, n_MC * n_site),        
+        xMP = Matrix{TG}(undef, (n_covXP), n_MC * n_site),
+        sample_buffers = prepare_sample_buffers(approx_spec, cor_ends.P, template_TF),
+        #diffchunk,
+        helpers_sites,
+    )
+end
+
 function check_elbo_helpers(h::NamedTuple, xM::AbstractMatrix, pbm_covar_indices;
     n_ϕg
     )
@@ -233,7 +280,7 @@ end
 @inline assert_ϕm(ϕm::AbstractMatrix, n_MC) = size(ϕm,2) == n_MC
 @inline view_ϕm(ϕm::AbstractMatrix, r::Union{Colon,UnitRange{Int}}) = view(ϕm, r, :)
 @inline view_ϕm(ϕm::AbstractVector, r::Union{Colon,UnitRange{Int}}) = view(ϕm, r)
-prepare_ind_sample_buffers(approx::DiagonalHVIApproximation, cor_endsM, template_TF) = (;)
+prepare_ind_sample_buffers(approx::Union{DiagonalHVIApproximation,DiagonalHVIApproxSpec}, cor_endsM, template_TF) = (;)
 
 # if pbm_covar_indices is nothing, return only a Matrix (n_m x n_site)
 # otherwise return an Array (n_m x n_MC x n_site)

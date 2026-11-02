@@ -185,7 +185,7 @@ end
     # dϕ.ϕqP
 end
 
-@testset "HybridPointSolverSite" begin
+@testset "HybridSolverSite" begin
     # in order to test inversion, set the dataloader to the synthetic data
     rng1 = rng = StableRNG(111)
     local xM, xP, y_o, y_unc, θP_true, θMs_true, y_true
@@ -201,14 +201,14 @@ end
     prob_syn = prob
     y_o2 = get_hybridproblem_train_dataloader(prob; scenario).data[3]
     @test y_o == y_o2 # make sure to use the same synthetic data for good y_true
-    solver_point = HybridPointSolverSite(alg=Optimisers.Adam(0.0001))
+    solver = HybridSolverSite(alg=Optimisers.Adam(0.0001))
     #ϕ0 = (;ϕg = copy(CA.getdata(ϕg)), ϕqP=copy(ϕqP), ϕqI=copy(ϕqI))
-    res = CommonSolve.solve(prob_syn, solver_point, CP.NegLogDensity(), (;); scenario, 
+    res = CommonSolve.solve(prob_syn, solver, CP.NegLogDensity(), (;); scenario, 
         epochs=0,  );
     ϕ0 = res.ϕ
     ϕ0.ϕqP[1:length(θP_true)] .+= log(0.8)  # start from 90%
     exp.(ϕ0.ϕqP[1:2]) # updated during solve
-    res = CommonSolve.solve(prob_syn, solver_point, CP.NegLogDensity(), ϕ0; scenario, 
+    res = CommonSolve.solve(prob_syn, solver, CP.NegLogDensity(), ϕ0; scenario, 
         epochs=2_000,
         show_train_loss = Val(true)
         );
@@ -235,6 +235,18 @@ end
         scatterplot(θMs_true[1,:], hi_agg.θsM[1,:], )
         scatterplot(θMs_true[2,:], hi_agg.θsM[2,:])
     end
+    #
+    ϕ0 = res.ϕ
+    res_elbo = CommonSolve.solve(prob_syn, solver, CP.NegElbo(), ϕ0; scenario, 
+        epochs=800,
+        show_train_loss = Val(true)
+        );
+    h30 = CP.prepare_elbo_helpers(res_elbo.h0, prob_syn; scenario, 
+        n_MC=30, use_diff_cache=Val(false));
+    hp, hi_agg = HVI.predict_stat!(h30, rng, prob_syn, res.ϕ; scenario)
+    @test hp.θsP[:,Val(:mean)] ≈ θP_true atol=0.1
+    @test mean(abs.(hi_agg.θsM[:,Val(:mean),:] .- θMs_true)) < 0.05
+    # TODO test changed uncertainty and correlation
  end
 
 
