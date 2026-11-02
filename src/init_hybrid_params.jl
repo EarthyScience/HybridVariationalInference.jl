@@ -259,3 +259,57 @@ function init_hybrid_ϕunc(
         ρsM)
     (; ϕqc = CA.ComponentVector(;nt...)::CA.ComponentVector, approx)
 end
+
+# TODO remove init_hybrid_ϕunc after changing all to split ϕqP and ϕqI
+function init_hybrid_ϕuncs!(
+        ϕqPc::AbstractVector{FT}, ϕqIc::AbstractVector{FT},
+        ::MeanUniScalingHVIApproxSpec;
+        cor_ends::NamedTuple,
+        ρ0::FT = zero(FT),
+        logσ_ζM::Union{Nothing, AbstractVector{FT}} = nothing,
+        logσ_ζP::Union{Nothing, AbstractVector{FT}} = nothing,
+        ρsP = Fill(ρ0, get_cor_count(cor_ends.P)),
+        ρsM = Fill(ρ0, get_cor_count(cor_ends.M)),
+        transM, transP,
+        θP::AbstractVector, θM::AbstractVector,
+        relerr = FT(0.01),
+) where {FT}
+    local σ_ζP
+    view(ϕqPc, Val(:μζP)) .= inverse(transP)(CA.getdata(θP))
+    view(ϕqPc, Val(:logσ_ζP)) .= if isnothing(logσ_ζP) 
+        # TODO provide mutating not-allocating version
+        σ_ζP = compute_σ_unconstrained(transP, CA.getdata(θP), relerr)        
+        log.(convert.(FT,σ_ζP))        
+    else 
+        logσ_ζP
+    end
+    view(ϕqPc, Val(:ρsP)) .= ρsP
+    #
+    logσ_ζM = if isnothing(logσ_ζM) 
+        log.(compute_σ_unconstrained(transM, CA.getdata(θM), relerr))        
+    else
+        logσ_ζM
+    end
+    view(ϕqIc, Val(:logσ_ζM_base)) .= logσ_ζM[1]
+    view(ϕqIc, Val(:logσ_ζM_offsets)) .= logσ_ζM[2:end] .- logσ_ζM[1]
+    view(ϕqIc, Val(:ρsM)) .= ρsM
+    (; ϕqPc, ϕqIc)
+end
+
+function create_hybrid_ϕuncs(
+        ::MeanUniScalingHVIApproxSpec,
+        ::AbstractVector{FT};
+        cor_ends::NamedTuple,
+) where FT
+    ϕqPc = CA.ComponentVector(
+        μζP = Vector{FT}(undef, cor_ends.P[end]),
+        logσ_ζP = Vector{FT}(undef, cor_ends.P[end]),
+        ρsP = Vector{FT}(undef, get_cor_count(cor_ends.P))
+        )
+    ϕqIc = CA.ComponentVector(
+        logσ_ζM_base = zero(FT),
+        logσ_ζM_offsets = Vector{FT}(undef, cor_ends.M[end]-1),
+        ρsM = Vector{FT}(undef, get_cor_count(cor_ends.M))
+        )
+    (;ϕqPc, ϕqIc)
+end

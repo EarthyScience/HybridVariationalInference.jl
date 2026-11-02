@@ -29,7 +29,8 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     # TODO replace key itrain_sites by i_indiv_train 
     tmp = get_hybridproblem_test_data(prob; scenario) 
     indiv_args_test = (;tmp[keys(tmp)[1:4]]..., i_indiv_train = tmp.itrain_sites)
-    indiv_args1 = NamedTuple{keys(indiv_args_test)}(first(train_loader))
+    keys_indiv = (:xM, :xP, :y_o, :y_unc, :i_indiv_train)
+    indiv_args1 = NamedTuple{keys_indiv}(first(train_loader))
     # TODO replace n_site by n_indiv
     n_obs, n_site = size(indiv_args1.y_o)
     n_indiv_test = size(indiv_args_test.y_o,2)
@@ -41,30 +42,19 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
      g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     cor_ends = get_hybridproblem_cor_ends(prob; scenario)
-    approx1 = get_hybridproblem_HVIApproximation(prob; scenario)
-    #
-    # TODO make init_hybrid_ϕunc already return proper ϕqPc1 and ϕqIc1
-    ϕq, approx = init_hybrid_ϕunc(approx1, cor_ends; transM, par_templates.θM, n_site)
-    ϕqPc1 = CA.ComponentVector(
-        μζP = log.(CA.getdata(par_templates.θP)),
-        #logσ_ζP = ones(n_θP) .* log(0.01),
-        logσ_ζP = ϕq.logσ_ζP,
-        ρsP = ϕq.ρsP,
-        )
-    ϕqIc1 = CA.ComponentVector(
-        logσ_ζM_offsets = ϕq.logσ_ζM_offsets,
-        ρsM = ϕq.ρsM,
-        )
-    intϕqP = get_concrete(ComponentArrayInterpreter(ϕqPc1))
-    intϕqI = get_concrete(ComponentArrayInterpreter(ϕqIc1))
+    local approx_spec, ϕqPc, ϕqIc, intϕqP, intϕqI
+    approx_spec = get_hybridproblem_HVIApproxSpec(prob; scenario)
+    (;ϕqPc, ϕqIc) = create_hybrid_ϕuncs(approx_spec, par_templates.θP; cor_ends)
+    intϕqP = get_concrete(ComponentArrayInterpreter(ϕqPc))
+    intϕqI = get_concrete(ComponentArrayInterpreter(ϕqIc))
     if ϕ0 == NamedTuple()
-        ϕqP = CA.getdata(ϕqPc1)
-        ϕqI = CA.getdata(ϕqIc1)
-        ϕ0 = (;ϕg = CA.getdata(ϕg0), ϕqP, ϕqI) # copied - not modified
+        ϕ0 = (;ϕg = CA.getdata(ϕg0), ϕqP = CA.getdata(ϕqPc), ϕqI = CA.getdata(ϕqIc)) 
     else
-        @assert length(ϕ0.ϕqP) == length(ϕqPc1)
-        @assert length(ϕ0.ϕqI) == length(ϕqIc1)
+        ϕqPc = intϕqP(ϕ0.ϕqP)
+        ϕqIc = intϕqI(ϕ0.ϕqI)
     end
+    init_hybrid_ϕuncs!(ϕqPc, ϕqIc, approx_spec; cor_ends, transM, transP, par_templates.θM, par_templates.θP)
+    approx = get_HVIApproximation(approx_spec; ϕqPc, ϕqIc)
     #
     diffchunk = ForwardDiff.Chunk(8)
     pbm_spec = get_hybridproblem_PBmodelSpec(prob; scenario)
@@ -151,7 +141,9 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
 end
 
 function predict_point!(elbo_helpers, prob::AbstractHybridProblem, ϕ; scenario
-    ,keys_predict_indiv = (:ζsM, :θsM, :y))
+    ,keys_predict_indiv = (:ζsM, :θsM, :y)
+)
+    # TODO remove redundancy with solve
     h0 = elbo_helpers
     train_loader = get_hybridproblem_train_dataloader(prob; scenario)
     keys_indiv = (:xM, :xP, :y_o, :y_unc, :i_indiv_train)
@@ -167,24 +159,14 @@ function predict_point!(elbo_helpers, prob::AbstractHybridProblem, ϕ; scenario
     # TODO: separate parameters from problem description - right now optimized
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     cor_ends = get_hybridproblem_cor_ends(prob; scenario)
-    approx1 = get_hybridproblem_HVIApproximation(prob; scenario)
-    #
-    # TODO make init_hybrid_ϕunc already return proper ϕqPc1 and ϕqIc1
-    ϕq, approx = init_hybrid_ϕunc(approx1, cor_ends; transM, par_templates.θM, n_site)
-    ϕqPc1 = CA.ComponentVector(
-        μζP = log.(CA.getdata(par_templates.θP)),
-        #logσ_ζP = ones(n_θP) .* log(0.01),
-        logσ_ζP = ϕq.logσ_ζP,
-        ρsP = ϕq.ρsP,
-        )
-    ϕqIc1 = CA.ComponentVector(
-        logσ_ζM_offsets = ϕq.logσ_ζM_offsets,
-        ρsM = ϕq.ρsM,
-        )
-    ϕqP = ϕqP2 = CA.getdata(ϕqPc1)
-    ϕqI = CA.getdata(ϕqIc1)
-    intϕqP = get_concrete(ComponentArrayInterpreter(ϕqPc1))
-    intϕqI = get_concrete(ComponentArrayInterpreter(ϕqIc1))
+    approx_spec = get_hybridproblem_HVIApproxSpec(prob; scenario)
+    # need to get axes of ϕqP and ϕqI 
+    (;ϕqPc, ϕqIc) = create_hybrid_ϕuncs(approx_spec, par_templates.θP; cor_ends)
+    intϕqP = get_concrete(ComponentArrayInterpreter(ϕqPc))
+    intϕqI = get_concrete(ComponentArrayInterpreter(ϕqIc))
+    ϕqPc = intϕqP(ϕ.ϕqP)
+    ϕqIc = intϕqI(ϕ.ϕqI)
+    approx = get_HVIApproximation(approx_spec; ϕqPc, ϕqIc)
     #
     diffchunk = ForwardDiff.Chunk(8)
     pbm_spec = get_hybridproblem_PBmodelSpec(prob; scenario)
@@ -197,7 +179,7 @@ function predict_point!(elbo_helpers, prob::AbstractHybridProblem, ϕ; scenario
     n_cov = get_hybridproblem_n_covar(prob; scenario)
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
     n_covP = length(pbm_covars)
-    rnormPM = prepare_rnorm(ϕqP; n_θP, n_θM, n_MC=1, n_site)
+    rnormPM = prepare_rnorm(ϕqPc; n_θP, n_θM, n_MC=1, n_site)
     #
     py = get_hybridproblem_neg_logden_obs(prob; scenario)
     # priors = get_hybridproblem_priors(prob; scenario)

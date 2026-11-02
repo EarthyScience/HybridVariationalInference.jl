@@ -511,6 +511,14 @@ function HVI.get_hybridproblem_HVIApproximation(prob::DoubleMMCase; scenario::Va
     end
 end
 
+function HVI.get_hybridproblem_HVIApproxSpec(prob::DoubleMMCase; scenario::Val{scen}) where {scen}
+    approx = if (:uniscaling ∈ scen) 
+        MeanUniScalingHVIApproxSpec() 
+    else
+        error("implement get_hybridproblem_HVIApproxSpec for scenarios without :uniscaling")
+    end
+end
+
 function HVI.get_hybridproblem_ranef(prob::DoubleMMCase; scenario::Val{scen}) where {scen}
     ranef_spec = if any((:ranef) .∈ Ref(scen))
         par_ranef = (:r1, :K1)

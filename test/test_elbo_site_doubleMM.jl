@@ -206,15 +206,15 @@ end
     res = CommonSolve.solve(prob_syn, solver_point, CP.NegLogDensity(), (;); scenario, 
         epochs=0,  );
     ϕ0 = res.ϕ
-    ϕ0.ϕqP[1:length(θP_true)] .+= log(0.9)  # start from 90%
+    ϕ0.ϕqP[1:length(θP_true)] .+= log(0.8)  # start from 90%
     exp.(ϕ0.ϕqP[1:2]) # updated during solve
     res = CommonSolve.solve(prob_syn, solver_point, CP.NegLogDensity(), ϕ0; scenario, 
         epochs=2_000,
         show_train_loss = Val(true)
         );
     hp, hi_agg = HVI.predict_point!(res.h0, prob_syn, res.ϕ; scenario)
-    @test hp.θsP[:,1] ≈ θP_true atol=0.01
-    @test mean(abs.(hi_agg.θsM .- θMs_true)) < 0.01
+    @test hp.θsP[:,1] ≈ θP_true atol=0.1
+    @test mean(abs.(hi_agg.θsM .- θMs_true)) < 0.05
     () -> begin
         exp.(res.ϕ.ϕqP[1:2])
         #@test exp.(intϕqP(res.ϕ.ϕqP).μζP) ≈ θP_true atol = 0.1

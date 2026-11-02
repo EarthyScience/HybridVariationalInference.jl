@@ -23,6 +23,9 @@ get_numberof_θM(::AbstractHVIApproximation, ml_pred::AbstractArray) = size(ml_p
 abstract type AbstractMeanHVIApproximation <: AbstractHVIApproximation end
 get_numberof_MLinputs(::AbstractMeanHVIApproximation, θM) = length(θM)
 
+abstract type AbstractApproxSpec end
+function get_hybridproblem_HVIApproxSpec end
+
 # First implementation with one big sparse covariance matrix
 struct MeanHVIApproximationMat <: AbstractMeanHVIApproximation end
 
@@ -45,6 +48,12 @@ struct MeanVarSepHVIApproximation <: AbstractMeanVarSepHVIApproximation end
 
 
 abstract type AbstractMeanScalingHVIApproximation <: AbstractHVIApproximation end
+
+
+struct MeanUniScalingHVIApproxSpec <: AbstractApproxSpec end
+function get_HVIApproximation(spec::MeanUniScalingHVIApproxSpec; ϕqPc, ϕqIc) 
+    MeanUniScalingHVIApproximation(ϕqIc.logσ_ζM_base)
+end
 
 """
     MeanUniScalingHVIApproximation

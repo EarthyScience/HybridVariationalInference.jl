@@ -79,10 +79,11 @@ include("RandomEffects.jl")
 
 export AbstractHVIApproximation, AbstractMeanHVIApproximation
 export get_numberof_MLinputs
+export AbstractApproxSpec, get_HVIApproximation
 export MeanHVIApproximation, MeanHVIApproximationMat, DiagonalHVIApproximation
 export AbstractMeanVarSepHVIApproximation, MeanVarSepHVIApproximation
 export AbstractMeanScalingHVIApproximation, MeanScalingHVIApproximation
-export MeanUniScalingHVIApproximation
+export MeanUniScalingHVIApproxSpec, MeanUniScalingHVIApproximation
 include("HVIApproximation.jl")
 
 export AbstractComponentArrayInterpreter, ComponentArrayInterpreter,
@@ -128,6 +129,7 @@ export AbstractHybridProblem, AbstractPenaltyComputer, CustomPenaltyComputer,
        construct_dataloader_from_synthetic,
        gdev_hybridproblem_dataloader, gdev_hybridproblem_data,
        get_hybridproblem_HVIApproximation,
+        get_hybridproblem_HVIApproxSpec,       
        setup_PBMpar_interpreter,
        get_gdev_MP,
        init_hybrid_ϕq       
