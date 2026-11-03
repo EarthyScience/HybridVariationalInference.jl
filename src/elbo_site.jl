@@ -113,7 +113,9 @@ function compute_nelboi_z!(hi, loss_mode::AbstractElboLossMode, approx::Abstract
     #      with exp-backtransformation, decreases ζI to decrease exp_ladJacTM 
     #      at the expense of increased ζP, whose ladJacTM only counts once
     # TODO: think of treating logσ_ζM similarly?
-    nelboi_z = exp_nL - (exp_ladJacTM ./ n_indiv) - sum(hi.logσ_ζM)
+    nelboi_z = exp_nL - (exp_ladJacTM / n_indiv) - (sum(hi.logσ_ζM) / n_indiv)
+    #nelboi_z = exp_nL - (exp_ladJacTM / n_indiv) - sum(hi.logσ_ζM) 
+    #nelboi_z = exp_nL - exp_ladJacTM - sum(hi.logσ_ζM)
 end
 
 @inline function set_ζsM!(ζsM, logσ_ζM, ::NegElbo, approx, rnormM, ϕqIc, ϕm, cor_endsM, sample_buffers)

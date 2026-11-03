@@ -199,7 +199,7 @@ isUsingSimpleChains = false
     randn!(h0M.θsP) # for testing should initialized to finite values
     randn!(h2M.θsP) # for testing should initialized to finite values
     #
-    ϕqIcS = CA.ComponentVector(;logσ_ζM_offsets = ϕqIc1.logσ_ζM[2:end] .- ϕqIc1.logσ_ζM[1], ϕqIc1.ρsM)
+    ϕqIcS = CA.ComponentVector(;logσ_ζI_offsets = ϕqIc1.logσ_ζM[2:end] .- ϕqIc1.logσ_ζM[1], ϕqIc1.ρsM)
     intϕqIS = get_concrete(ComponentArrayInterpreter(ϕqIcS))
     approxS = CP.MeanUniScalingHVIApproximation(ϕqIc1.logσ_ζM[1])
     h0S = CP.prepare_elbo_helpers(approxS, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP0, n_M, cor_ends, n_obs)
@@ -354,7 +354,7 @@ end
     ρsMt = zeros(CP.sumn(n_θM-1))
     CP._setρ_unscaled!(ρsMt, Ut)
     σt_scaled = σt .* scale_fac
-    ϕqIct = CA.ComponentVector(logσ_ζM_offsets=(log.(σt[2:end]) .- log(σt[1])), ρsM=ρsMt)
+    ϕqIct = CA.ComponentVector(logσ_ζI_offsets=(log.(σt[2:end]) .- log(σt[1])), ρsM=ρsMt)
     h2S = CP.prepare_elbo_helpers(approxS, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC = n_MCt, 
         n_cov, n_covP = n_covP0, n_M, cor_ends, n_obs, use_diff_cache=Val(false))
     CP.sample_ζsM!(ζsMt, logσ_ζMt, approxS, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2S.helpers_sites[1].sample_buffers)

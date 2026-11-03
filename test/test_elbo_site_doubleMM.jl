@@ -69,7 +69,7 @@ pbm_covar_indices = SA.SVector{length(pbm_covars)}([findfirst(==(k), keys(par_te
         ρsP = ϕq.ρsP,
         )
     ϕqIc1 = CA.ComponentVector(
-        logσ_ζM_offsets = ϕq.logσ_ζM_offsets,
+        logσ_ζI_offsets = ϕq.logσ_ζI_offsets,
         ρsM = ϕq.ρsM,
         )
     ϕqP = ϕqP2 = CA.getdata(ϕqPc1)
@@ -87,7 +87,7 @@ pbm_covar_indices = SA.SVector{length(pbm_covars)}([findfirst(==(k), keys(par_te
          fLogLik = get_hybridproblem_neg_logden_obs(prob; scenario)
          )
 
-    # ϕqIcS = CA.ComponentVector(;logσ_ζM_offsets = ϕqIc1.logσ_ζM[2:end] .- ϕqIc1.logσ_ζM[1], ϕqIc1.ρsM)
+    # ϕqIcS = CA.ComponentVector(;logσ_ζI_offsets = ϕqIc1.logσ_ζM[2:end] .- ϕqIc1.logσ_ζM[1], ϕqIc1.ρsM)
     # intϕqIS = get_concrete(ComponentArrayInterpreter(ϕqIcS))
     # approxS_ = CP.MeanUniScalingHVIApproximation(ϕqIc1.logσ_ζM[1])
     # approxS = get_hybridproblem_HVIApproximation(prob; scenario)
@@ -202,25 +202,25 @@ end
     y_o2 = get_hybridproblem_train_dataloader(prob; scenario).data[3]
     @test y_o == y_o2 # make sure to use the same synthetic data for good y_true
     solver = HybridSolverSite(alg=Optimisers.Adam(0.0001))
-    #ϕ0 = (;ϕg = copy(CA.getdata(ϕg)), ϕqP=copy(ϕqP), ϕqI=copy(ϕqI))
+    #ϕ0c = (;ϕg = copy(CA.getdata(ϕg)), ϕqP=copy(ϕqP), ϕqI=copy(ϕqI))
     res = CommonSolve.solve(prob_syn, solver, CP.NegLogDensity(), (;); scenario, 
         epochs=0,  );
-    ϕ0 = res.ϕ
-    ϕ0.ϕqP[1:length(θP_true)] .+= log(0.8)  # start from 90%
-    exp.(ϕ0.ϕqP[1:2]) # updated during solve
-    res = CommonSolve.solve(prob_syn, solver, CP.NegLogDensity(), ϕ0; scenario, 
+    ϕ0c = res.ϕc
+    ϕ0c.ϕqP.μζP .+= log(0.8)  # start from 90%
+    exp.(ϕ0c.ϕqP.μζP) # updated during solve
+    res = CommonSolve.solve(prob_syn, solver, CP.NegLogDensity(), ϕ0c; scenario, 
         epochs=2_000,
         show_train_loss = Val(true)
         );
-    hp, hi_agg = HVI.predict_point!(res.h0, prob_syn, res.ϕ; scenario)
+    hp, hi_agg = HVI.predict_point!(res.h0, prob_syn, res.ϕc; scenario)
     @test hp.θsP[:,1] ≈ θP_true atol=0.1
     @test mean(abs.(hi_agg.θsM .- θMs_true)) < 0.05
     () -> begin
-        exp.(res.ϕ.ϕqP[1:2])
+        exp.(res.ϕc.ϕqP.μζP)
         #@test exp.(intϕqP(res.ϕ.ϕqP).μζP) ≈ θP_true atol = 0.1
         # run forward
-        ϕ_tmp = (;res.ϕ.ϕg, ϕ0.ϕqP, ϕ0.ϕqI)
-        hp0, hi_agg0 = HVI.predict_point!(res.h0, prob_syn, ϕ0; scenario)
+        ϕ_tmp = (;res.ϕc.ϕg, ϕ0c.ϕqP, ϕ0c.ϕqI)
+        hp0, hi_agg0 = HVI.predict_point!(res.h0, prob_syn, ϕ0c; scenario)
         hpt, hi_aggt = HVI.predict_point!(res.h0, prob_syn, ϕ_tmp; scenario)
         # @usingany UnicodePlots
         i_obs = 3
@@ -236,17 +236,26 @@ end
         scatterplot(θMs_true[2,:], hi_agg.θsM[2,:])
     end
     #
-    ϕ0 = res.ϕ
-    res_elbo = CommonSolve.solve(prob_syn, solver, CP.NegElbo(), ϕ0; scenario, 
+    ϕ0c = res.ϕc
+    res_elbo = CommonSolve.solve(prob_syn, solver, CP.NegElbo(), ϕ0c; scenario, 
         epochs=800,
         show_train_loss = Val(true)
         );
     h30 = CP.prepare_elbo_helpers(res_elbo.h0, prob_syn; scenario, 
         n_MC=30, use_diff_cache=Val(false));
-    hp, hi_agg = HVI.predict_stat!(h30, rng, prob_syn, res.ϕ; scenario)
-    @test hp.θsP[:,Val(:mean)] ≈ θP_true atol=0.1
-    @test mean(abs.(hi_agg.θsM[:,Val(:mean),:] .- θMs_true)) < 0.05
+    hp_stat, hi_agg_stat = HVI.predict_stat!(h30, rng, prob_syn, res_elbo.ϕc; scenario);
+    @test eltype(hp_stat[1]) == eltype(hp_stat[2]) == eltype(ϕ0c.ϕqP)
+    hp_stat.θsP[1,:]
+    hi_agg_stat.θsM[1,:,1]
+    hp = map(x -> x[:,Val(:mean)], hp_stat)
+    hi_agg = map(x -> x[:,Val(:mean),:], hi_agg_stat)
+    @test hp.θsP ≈ θP_true atol=0.1
+    @test mean(abs.(hi_agg.θsM .- θMs_true)) < 0.05
     # TODO test changed uncertainty and correlation
+    @test res_elbo.ϕc.ϕqP.logσ_ζP != ϕ0c.ϕqP.logσ_ζP
+    hcat(exp.(res_elbo.ϕc.ϕqP.logσ_ζP),exp.(ϕ0c.ϕqP.logσ_ζP))
+    hcat(exp.(res_elbo.ϕc.ϕqI.logσ_ζI_base .+ vcat(one(eltype(ϕ0c[1])),res_elbo.ϕc.ϕqI.logσ_ζI_offsets)), 
+        exp.(ϕ0c.ϕqI.logσ_ζI_base .+ vcat(one(eltype(ϕ0c[1])),ϕ0c.ϕqI.logσ_ζI_offsets)))
  end
 
 

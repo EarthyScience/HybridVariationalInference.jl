@@ -19,7 +19,7 @@ function HybridSolverSite(;alg = Optimisers.Adam(), n_MC_val=Val(3))
 end
 
 function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridSolverSite{NMC_ELBO}, 
-    loss_mode::AbstractElboLossMode, ϕ0;
+    loss_mode::AbstractElboLossMode, ϕ0c;
     scenario=Val(()), rng=Random.default_rng(),
     epochs,
     epochs_callback = max(1, floor(Int, epochs/10)),
@@ -48,19 +48,21 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridSolverSite
     (;ϕqPc, ϕqIc) = create_hybrid_ϕuncs(approx_spec, par_templates.θP; cor_ends)
     intϕqP = get_concrete(ComponentArrayInterpreter(ϕqPc))
     intϕqI = get_concrete(ComponentArrayInterpreter(ϕqIc))
-    if ϕ0 == NamedTuple()
-        ϕ = (;ϕg = copy(CA.getdata(ϕg0)), ϕqP = CA.getdata(ϕqPc), ϕqI = CA.getdata(ϕqIc)) 
+    if ϕ0c == NamedTuple()
+        ϕc = (;ϕg = copy(CA.getdata(ϕg0)), ϕqP = ϕqPc, ϕqI = ϕqIc) 
     else
-        ϕ = map(copy, ϕ0)
-        ϕqPc = intϕqP(ϕ.ϕqP)
-        ϕqIc = intϕqI(ϕ.ϕqI)
+        @assert length(ϕ0c.ϕqP) == length(ϕqPc)
+        @assert length(ϕ0c.ϕqI) == length(ϕqIc)
+        ϕc = map(copy, ϕ0c)
+        ϕqPc = ϕc.ϕqP
+        ϕqIc = ϕc.ϕqI
     end
     init_hybrid_ϕuncs!(ϕqPc, ϕqIc, approx_spec; cor_ends, transM, transP, par_templates.θM, par_templates.θP)
     approx = get_HVIApproximation(approx_spec; ϕqPc, ϕqIc)
     #
     diffchunk = ForwardDiff.Chunk(8)
     pbm_spec = get_hybridproblem_PBmodelSpec(prob; scenario)
-    pbm = get_PopulationApplicator(pbm_spec, ϕ.ϕqP, Val(NMC), diffchunk)      
+    pbm = get_PopulationApplicator(pbm_spec, ϕc.ϕqP, Val(NMC), diffchunk)      
     nljoint_args_fix =(;
          f! = pbm, 
          fLogLik = get_hybridproblem_neg_logden_obs(prob; scenario)
@@ -70,14 +72,14 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridSolverSite
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
     n_covP = length(pbm_covars)
 
-    h0 = prepare_elbo_helpers(approx, ϕ.ϕg, ϕ.ϕqP; n_θP, n_θM, n_site, n_MC=NMC, n_cov, n_covP, n_M, cor_ends, n_obs);
-    h0_test = prepare_elbo_helpers(approx, ϕ.ϕg, ϕ.ϕqP; n_θP, n_θM, n_site = n_indiv_test, n_MC=NMC, n_cov, n_covP, n_M, cor_ends, n_obs);
+    h0 = prepare_elbo_helpers(approx, ϕc.ϕg, ϕc.ϕqP; n_θP, n_θM, n_site, n_MC=NMC, n_cov, n_covP, n_M, cor_ends, n_obs);
+    h0_test = prepare_elbo_helpers(approx, ϕc.ϕg, ϕc.ϕqP; n_θP, n_θM, n_site = n_indiv_test, n_MC=NMC, n_cov, n_covP, n_M, cor_ends, n_obs);
     if TRAIN
         indiv_args_train =  NamedTuple{keys(indiv_args_test)}(train_loader.data)
         n_indiv_train = size(indiv_args_train.xM,2)
-        h0_train = prepare_elbo_helpers(approx, ϕ.ϕg, ϕ.ϕqP; n_θP, n_θM, n_site = n_indiv_train, n_MC=NMC, n_cov, n_covP, n_M, cor_ends, n_obs);
+        h0_train = prepare_elbo_helpers(approx, ϕc.ϕg, ϕc.ϕqP; n_θP, n_θM, n_site = n_indiv_train, n_MC=NMC, n_cov, n_covP, n_M, cor_ends, n_obs);
     end
-    rnormPM = prepare_rnorm(ϕ.ϕqP; n_θP, n_θM, n_MC=NMC, n_site)
+    rnormPM = prepare_rnorm(ϕc.ϕqP; n_θP, n_θM, n_MC=NMC, n_site)
     #
     py = get_hybridproblem_neg_logden_obs(prob; scenario)
     # priors = get_hybridproblem_priors(prob; scenario)
@@ -89,7 +91,6 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridSolverSite
         transP, transM)
     sample_args_test = (;sample_args..., is_testmode = true)
     #nljoint_args_fix_test = (;nljoint_args_fix..., f! = ) 
-    ϕ = map(copy, ϕ) # do not modify the initial guess
     # randnPM!(rng, rnormPM)
     #primal = neg_elbo_sites!(h0, loss_mode, ϕ, rnormPM, sample_args, indiv_args1, nljoint_args_fix)
     # res0, gradh0 = grad_neg_elbo_sites(
@@ -97,6 +98,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridSolverSite
     #     #n_workers = 3,
     #     )
     #
+    ϕ = map(CA.getdata, ϕc)
     opt_state = Optimisers.setup(solver.alg, ϕ);  # initialise this optimiser's momentum etc.
     n_skips = 0
     # epoch = 1
@@ -139,11 +141,24 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridSolverSite
             end
         end
     end
-    (;ϕ, h0, h0_test)
+    (;ϕc = attach_axes(ϕ, ϕc), h0, h0_test)
 end
 
-function predict_point!(elbo_helpers, prob::AbstractHybridProblem, ϕ; scenario
-    ,keys_predict_indiv = (:ζsM, :θsM, :y)
+function attach_axes(nt::NamedTuple, ntc::NamedTuple)
+    @assert keys(nt) == keys(ntc)
+    NamedTuple{keys(nt)}(map(keys(nt)) do k
+        if ntc[k] isa CA.ComponentArray
+            @assert length(nt[k]) == length(CA.getdata(ntc[k]))
+            CA.ComponentArray(nt[k], CA.getaxes(ntc[k]))
+        else
+            nt[k]
+        end
+    end)
+end
+
+function predict_point!(elbo_helpers, prob::AbstractHybridProblem, ϕc; scenario,
+    keys_predict_indiv = (:ζsM, :θsM, :y),
+    keys_predict_pop = (:ζsP, :θsP),
 )
     # TODO remove redundancy with solve
     h0 = elbo_helpers
@@ -163,11 +178,11 @@ function predict_point!(elbo_helpers, prob::AbstractHybridProblem, ϕ; scenario
     cor_ends = get_hybridproblem_cor_ends(prob; scenario)
     approx_spec = get_hybridproblem_HVIApproxSpec(prob; scenario)
     # need to get axes of ϕqP and ϕqI 
-    (;ϕqPc, ϕqIc) = create_hybrid_ϕuncs(approx_spec, par_templates.θP; cor_ends)
+    #(;ϕqPc, ϕqIc) = create_hybrid_ϕuncs(approx_spec, par_templates.θP; cor_ends)
+    ϕqPc = ϕc.ϕqP
+    ϕqIc = ϕc.ϕqI
     intϕqP = get_concrete(ComponentArrayInterpreter(ϕqPc))
     intϕqI = get_concrete(ComponentArrayInterpreter(ϕqIc))
-    ϕqPc = intϕqP(ϕ.ϕqP)
-    ϕqIc = intϕqI(ϕ.ϕqI)
     approx = get_HVIApproximation(approx_spec; ϕqPc, ϕqIc)
     #
     diffchunk = ForwardDiff.Chunk(8)
@@ -201,7 +216,7 @@ function predict_point!(elbo_helpers, prob::AbstractHybridProblem, ϕ; scenario
     end
     @assert n_batch == size(indiv_args1.xM,2)
     #
-    keys_predict_pop = (:ζsP, :θsP)
+    ϕ = map(CA.getdata, ϕc)
     h1 = h0p.helpers_sites[1]
     # do not know the number of training sites sum of sites in batch, need to
     #   reduce by vcat
@@ -222,10 +237,10 @@ function predict_point!(elbo_helpers, prob::AbstractHybridProblem, ϕ; scenario
     h0p[keys_predict_pop], hi_agg
 end
 
-function predict_stat!(elbo_helpers, rng, prob::AbstractHybridProblem, ϕ; scenario,
+function predict_stat!(elbo_helpers, rng, prob::AbstractHybridProblem, ϕc; scenario,
     keys_predict_indiv = (:ζsM, :θsM, :y),
     keys_predict_pop = (:ζsP, :θsP),
-    keys_stat = (:mean, :std, :q025, :q975),
+    keys_stat = (:mean, :std, :q025, :q975, :mode, :median),
     n_MC_val::Val{NMC} = Val(30),
 ) where NMC
     # TODO remove redundancy with solve
@@ -246,11 +261,11 @@ function predict_stat!(elbo_helpers, rng, prob::AbstractHybridProblem, ϕ; scena
     cor_ends = get_hybridproblem_cor_ends(prob; scenario)
     approx_spec = get_hybridproblem_HVIApproxSpec(prob; scenario)
     # need to get axes of ϕqP and ϕqI 
-    (;ϕqPc, ϕqIc) = create_hybrid_ϕuncs(approx_spec, par_templates.θP; cor_ends)
+    #(;ϕqPc, ϕqIc) = create_hybrid_ϕuncs(approx_spec, par_templates.θP; cor_ends)
+    ϕqPc = ϕc.ϕqP
+    ϕqIc = ϕc.ϕqI
     intϕqP = get_concrete(ComponentArrayInterpreter(ϕqPc))
     intϕqI = get_concrete(ComponentArrayInterpreter(ϕqIc))
-    ϕqPc = intϕqP(ϕ.ϕqP)
-    ϕqIc = intϕqI(ϕ.ϕqI)
     approx = get_HVIApproximation(approx_spec; ϕqPc, ϕqIc)
     #
     diffchunk = ForwardDiff.Chunk(8)
@@ -284,6 +299,7 @@ function predict_stat!(elbo_helpers, rng, prob::AbstractHybridProblem, ϕ; scena
     end
     @assert n_batch == size(indiv_args1.xM,2)
     #
+    ϕ = map(CA.getdata, ϕc)
     h1 = h0p.helpers_sites[1]
     # do not know the number of training sites sum of sites in batch, need to
     #   reduce by vcat
@@ -311,14 +327,14 @@ function predict_stat!(elbo_helpers, rng, prob::AbstractHybridProblem, ϕ; scena
         CA.ComponentArray(hi_agg_comp, (CA.getaxes(par_templates.θM)[1], CA.Axis(keys_stat), CA.FlatAxis()))
     end
     hp_agg_cv = map(h0p[keys_predict_pop]) do hp_el
-        a = Matrix(undef, size(hp_el,1), n_stat)
+        a = Matrix{eltype(hp_el)}(undef, size(hp_el,1), n_stat)
         compute_stat!(a, hp_el; keys_stat)
         CA.ComponentArray(a, (CA.getaxes(par_templates.θP)[1], CA.Axis(keys_stat)))
     end
     hp_agg_cv, hi_agg_cv
 end
 
-function compute_stat!(a, x; keys_stat = (:mean, :std, :q025, :q975))
+function compute_stat!(a, x; keys_stat = (:mean, :std, :q025, :q975, :mode, :median))
     foreach(enumerate(keys_stat)) do (j, key)
         if key == :mean
             a[:,j] .= mean(x, dims=ndims(x))
@@ -332,6 +348,12 @@ function compute_stat!(a, x; keys_stat = (:mean, :std, :q025, :q975))
             foreach(enumerate(eachrow(x))) do (i,x1)
                 a[i,j] = quantile(x1, 0.975)
             end
+        elseif key == :mode
+            foreach(enumerate(eachrow(x))) do (i,x1)
+                a[i,j] = mode(x1)
+            end
+        elseif key == :median
+            a[:,j] .= median(x, dims=ndims(x))
         else
             error("unknown stat $key")
         end

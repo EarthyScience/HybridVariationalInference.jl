@@ -53,7 +53,7 @@ abstract type AbstractMeanScalingHVIApproximation <: AbstractHVIApproximation en
 
 struct MeanUniScalingHVIApproxSpec <: AbstractHVIApproxSpec end
 function get_HVIApproximation(spec::MeanUniScalingHVIApproxSpec; ϕqPc, ϕqIc) 
-    MeanUniScalingHVIApproximation(ϕqIc.logσ_ζM_base)
+    MeanUniScalingHVIApproximation(ϕqIc.logσ_ζI_base)
 end
 
 """
@@ -62,11 +62,11 @@ end
 ML model predicts a single scaling factor uniform for all variance parameters 
 """
 struct MeanUniScalingHVIApproximation{TF} <: AbstractMeanScalingHVIApproximation 
-    logσ_ζM_base::TF
+    logσ_ζI_base::TF
 end
 function MeanUniScalingHVIApproximation(app::MeanUniScalingHVIApproximation; 
-    logσ_ζM_base = app.logσ_ζM_base)
-    MeanUniScalingHVIApproximation(logσ_ζM_base)
+    logσ_ζI_base = app.logσ_ζI_base)
+    MeanUniScalingHVIApproximation(logσ_ζI_base)
 end
 function get_numberof_MLinputs(::MeanUniScalingHVIApproximation, θM) 
     length(θM) + 1

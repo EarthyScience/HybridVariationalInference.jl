@@ -238,7 +238,7 @@ function init_hybrid_ϕunc(
         n_site::Integer,
         relerr = FT(0.01),
 ) where {FT}
-    local logσ, approx, logσ_ζM_offsets
+    local logσ, approx, logσ_ζI_offsets
     logσ = if isempty(logσ2_ζMs) 
         # relative error of the template of θM
         σ = compute_σ_unconstrained(transM, CA.getdata(θM), relerr)        
@@ -249,12 +249,12 @@ function init_hybrid_ϕunc(
         median(logσ2_ζMs; dims=1)
     end
     # update logσ2_ζM_base of last parameter in approx - its not calibrated
-    approx = MeanUniScalingHVIApproximation(approx1; logσ_ζM_base = logσ[1]) 
-    logσ_ζM_offsets = logσ[2:end] .- logσ[1]
+    approx = MeanUniScalingHVIApproximation(approx1; logσ_ζI_base = logσ[1]) 
+    logσ_ζI_offsets = logσ[2:end] .- logσ[1]
     #tmp = CA.ComponentVector(;zip(Symbol.(axes(is_offset,1)), logσ2_ζM_offsets_gen)...)
     nt = (;
         logσ_ζP = logσ2_ζP ./ FT(2),
-        logσ_ζM_offsets,
+        logσ_ζI_offsets,
         ρsP,
         ρsM)
     (; ϕqc = CA.ComponentVector(;nt...)::CA.ComponentVector, approx)
@@ -290,8 +290,8 @@ function init_hybrid_ϕuncs!(
     else
         logσ_ζM
     end
-    view(ϕqIc, Val(:logσ_ζM_base)) .= logσ_ζM[1]
-    view(ϕqIc, Val(:logσ_ζM_offsets)) .= logσ_ζM[2:end] .- logσ_ζM[1]
+    view(ϕqIc, Val(:logσ_ζI_base)) .= logσ_ζM[1]
+    view(ϕqIc, Val(:logσ_ζI_offsets)) .= logσ_ζM[2:end] .- logσ_ζM[1]
     view(ϕqIc, Val(:ρsM)) .= ρsM
     (; ϕqPc, ϕqIc)
 end
@@ -307,8 +307,8 @@ function create_hybrid_ϕuncs(
         ρsP = Vector{FT}(undef, get_cor_count(cor_ends.P))
         )
     ϕqIc = CA.ComponentVector(
-        logσ_ζM_base = zero(FT),
-        logσ_ζM_offsets = Vector{FT}(undef, cor_ends.M[end]-1),
+        logσ_ζI_base = zero(FT),
+        logσ_ζI_offsets = Vector{FT}(undef, cor_ends.M[end]-1),
         ρsM = Vector{FT}(undef, get_cor_count(cor_ends.M))
         )
     (;ϕqPc, ϕqIc)
