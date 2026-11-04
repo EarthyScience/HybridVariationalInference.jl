@@ -1021,35 +1021,35 @@ function sample_ζresid_norm(
 end
 
 """
-    get_hybridproblem_correlation_Ms(prob; scenario = Val(()))
+    get_hybridproblem_correlation_Ms(prob, ϕc; scenario = Val(()))
 
 Extract correlation matrix of a problem based on `MeanHVIApproximation`.
 At unconstrained parameter scale.
 """
-function get_hybridproblem_correlation_Ms(prob::AbstractHybridProblem;
+function get_hybridproblem_correlation_Ms(prob::AbstractHybridProblem, ϕc::NamedTuple;
     xM = nothing, scenario = Val(()))
-    UM = get_hybridproblem_cholesky_correlation_Ms(prob; xM, scenario)
+    UM = get_hybridproblem_cholesky_correlation_Ms(prob, ϕc; xM, scenario)
     UM' * UM
 end
 
-function get_hybridproblem_cholesky_correlation_Ms(prob::AbstractHybridProblem;
+function get_hybridproblem_cholesky_correlation_Ms(
+    prob::AbstractHybridProblem, ϕc::NamedTuple;
     xM = nothing, scenario = Val(()))
-    ϕq = get_hybridproblem_ϕq(prob; scenario)
     cor_ends = get_hybridproblem_cor_ends(prob; scenario)
     ϕm = if isnothing(xM)
-        Matrix{eltype(ϕq)}(undef,0,0)
+        Matrix{eltype(ϕc.ϕqI)}(undef,0,0)
     else
         g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
         g(xM, prob.ϕg) # TODO separate state, avoid prob.ϕg
     end
-    get_cholesky_correlation_Ms(prob.approx, ϕq, cor_ends.M, ϕm)
+    get_cholesky_correlation_Ms(prob.approx, ϕc.ϕqI, cor_ends.M, ϕm)
 end
 
 function get_cholesky_correlation_Ms(
-    ::Union{MeanHVIApproximation,MeanHVIApproximationMat,MeanScalingHVIApproximation},
-    ϕq::CA.ComponentVector, cor_ends_M, ϕm::AbstractMatrix=Matrix{eltype(ϕq)}[],)
+    ::Union{MeanHVIApproximation,MeanHVIApproximationMat,MeanScalingHVIApproximation,MeanUniScalingHVIApproximation,MeanUniScalingHVIApproxSpec},
+    ϕqI::CA.ComponentVector, cor_ends_M, ϕm::AbstractMatrix=Matrix{eltype(ϕqI)}[],)
     # correlations only depend on globally optimized parameters ϕq.ρsM
-    ρsM = ϕq[Val(:ρsM)]
+    ρsM = ϕqI[Val(:ρsM)]
     UM = transformU_block_cholesky1(ρsM, cor_ends_M)
 end
 

@@ -77,8 +77,8 @@ function PBMPopulationApplicator(fθpop!, n_MC:: Integer;
     PBMPopulationApplicator(fθpop!, θFixm, θFixm_dc, Val(axθ), Val(ax_xP))        
 end
 
-get_axis_θP(::PBMPopulationApplicator{AX}) where AX = AX[1]
-get_axis_θM(::PBMPopulationApplicator{AX}) where AX = AX[2]
+get_axis_θP(::Union{PBMPopulationApplicator{AX},PBMPopulationAppSpec{AX}}) where AX = AX[1]
+get_axis_θM(::Union{PBMPopulationApplicator{AX},PBMPopulationAppSpec{AX}}) where AX = AX[2]
 
 function create_nsite_applicator(app::PBMPopulationApplicator, n_MC;
     diffchunk::ForwardDiff.Chunk{chunk} = ForwardDiff.Chunk(8),

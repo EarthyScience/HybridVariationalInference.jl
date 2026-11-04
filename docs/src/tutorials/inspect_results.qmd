@@ -25,7 +25,7 @@ First load necessary packages.
 using HybridVariationalInference
 using StableRNGs
 using ComponentArrays: ComponentArrays as CA
-using SimpleChains # for reloading the optimized problem
+using Lux # for reloading the optimized problem
 using DistributionFits
 using JLD2
 using CairoMakie
@@ -38,7 +38,7 @@ This tutorial uses the fitted object saved at the end of the
 ```{julia}
 fname = "intermediate/basic_cpu_results.jld2"
 print(abspath(fname))
-probo = load(fname, "probo");
+probo, res_solve = load(fname, "probo", "res_solve"; iotype = IOStream);
 ```
 
 ```{julia}
@@ -67,23 +67,28 @@ using function [`sample_posterior`](@ref).
 
 ```{julia}
 using StableRNGs
+import HybridVariationalInference as CP
 rng = StableRNG(112)
-n_sample_pred = 400
-(; θsP, θsMs_tr) = sample_posterior(rng, probo; n_sample_pred, is_testmode = true)
+n_MC = 400
+# TODO generate inside sample_posterior based on n_sample_pred
+h30 = CP.prepare_elbo_helpers(res_solve.h0, probo; scenario=(), n_MC, use_diff_cache=Val(false));
+sampP, sampI = sample_posterior(rng, probo, res_solve.ϕc; elbo_helpers = h30)
+θsP = sampP.θsP
+θsMs = sampI.θsM
+y = sampI.y
 ```
 
 Lets look at the results.
 ```{julia}
 #|  output: true
-size(θsP), size(θsMs_tr) 
+size(θsP), size(θsMs) 
 ```
-The last dimension is the number of samples, the second-last dimension is
-the respective parameter. `θsMs_tr` has an additional dimension denoting
-the site for which parameters are sampled.
+The second dimension is the number of samples, the last dimension of sampI is the
+individual, for which predictions is done.
 
 They are ComponentArrays with the parameter dimension names that can be used:
 ```{julia}
-θsMs_tr[1,:r1,:] # samples of the first site of parameter r1
+θsMs[:r1,1:3,1] # 3 samples of the first site of parameter r1
 ```
 
 ## Corner plots
@@ -96,15 +101,17 @@ Here, we plot the global parameters and the site-parameters for the first site.
 ```{julia}
 #|  output: true
 i_site = 1
-θ1 = vcat(θsP, θsMs_tr[i_site,:,:])
+θ1 = vcat(θsP, θsMs[:,:,i_site])
 θ1_nt = NamedTuple(k => CA.getdata(θ1[k,:]) for k in keys(θ1[:,1])) # 
 plt = pairplot(θ1_nt)
 ```
+
+TODO
 The plot shows that parameters for the first site, $K_1$ and $r_1$, are correlated,
 but that we did not model correlation with the global parameter, $K_2$.
 
-Note that this plots shows only the first out of 800 sites.
-HVI estimated a 1602-dimensional posterior distribution including
+Note that this plots shows only the first out of 740 sites.
+HVI estimated a (1 + 2*740)-dimensional posterior distribution including
 covariances among parameters.
 
 ```{julia}
@@ -125,13 +132,15 @@ standard deviation.
 ```{julia}
 #|  output: true
 par = :K1
-θmean = [mean(θsMs_tr[s,par,:]) for s in axes(θsMs_tr, 1)]
-θsd = [std(θsMs_tr[s,par,:]) for s in axes(θsMs_tr, 1)]
+θmean = [mean(θsMs[par,:,s]) for s in axes(θsMs, 3)]
+θsd = [std(θsMs[par,:,s]) for s in axes(θsMs, 3)]
 fig = Figure(); ax = Axis(fig[1,1], xlabel="mean($par)",ylabel="sd($par)")
 scatter!(ax, θmean, θsd) 
 fig
 ```
 
+TODO use HVI.predict_stat!
+TODO
 We see that $K_1$ across sites ranges from about 0.18 to 0.25, and that
 its estimated uncertainty is about 0.04, slightly decreasing with the 
 values of the parameter.
@@ -146,7 +155,7 @@ The actual inversion estimates parameters in component `ρsM` that construct the
 Cholesky factor of the correlation matrix.
 
 ```{julia}
-CM = get_hybridproblem_correlation_Ms(probo)
+CM = get_hybridproblem_correlation_Ms(probo, res_solve.ϕc)
 ```
 
 ## Predictive Posterior
@@ -155,22 +164,16 @@ In addition to the uncertainty in parameters, we are also interested in
 the uncertainty of predictions, i.e. the predictive posterior.
 
 We cam either run the PBM for all the parameter samples that we obtained already,
-using the [`AbstractPBMApplicator`](@ref), or use [`predict_hvi`](@ref) which combines
-sampling the posterior and predictive posterior and returns the additional
-`NamedTuple` entry `y`.
-
-```{julia}
-(; y, θsP, θsMs_tr) = predict_hvi(rng, probo; n_sample_pred);
-```
+using the [`AbstractPBMApplicator`](@ref), or use the one already returned by  [`sample_posterior`](@ref).
 
 ```{julia}
 #|  output: true
 size(y)
 ```
 
-Again, the last dimension is the sample. 
-The other dimensions correspond to the observations we provided for the fitting:
-The first dimension is the observation within one site, the second dimension is the site.
+Again, the second dimension is the sample, and the last dimension is the 
+individual.
+The first dimension is the observation within one individual site.
 
 Lets look on how the uncertainty of the 4th observations scales with its 
 predicted magnitude across sites.
@@ -178,8 +181,8 @@ predicted magnitude across sites.
 ```{julia}
 #|  output: true
 i_obs = 4
-ymean = [mean(y[i_obs,s,:]) for s in axes(θsMs_tr, 1)]
-ysd = [std(y[i_obs,s,:]) for s in axes(θsMs_tr, 1)]
+ymean = [mean(y[i_obs,:,s]) for s in axes(θsMs, 3)]
+ysd = [std(y[i_obs,:,s]) for s in axes(θsMs, 3)]
 fig = Figure(); ax = Axis(fig[1,1], xlabel="mean(y$i_obs)",ylabel="sd(y$i_obs)")
 scatter!(ax, ymean, ysd) 
 fig
@@ -188,7 +191,7 @@ We see that observed values for associated substrate concentrations range about 
 0.5 to 0.6 with an estimated standard deviation around 0.005 that decreases
 with the observed value.
 
-If only a point prediction is required, function [`predict_point_hvi`](@ref) 
+If only a point prediction is required, function [`predict_point!`](@ref) 
 can be used, that returns
 a single set of expected parameters and corresponding predictions.
 

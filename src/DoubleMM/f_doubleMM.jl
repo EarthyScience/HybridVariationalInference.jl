@@ -442,7 +442,7 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     xP = int_xP_sites(vcat(repeat(xP_S1, 1, n_site), repeat(xP_S2, 1, n_site)))
     #xP[:S1,:]
     #θP = get_θP(prob) # for DoubleMMCase par_templates gives correct θP
-    θP = get_hybridproblem_θP(prob; scenario)
+    θP = pt.θP #get_hybridproblem_θP(prob; scenario)
     (y_true, _) = f(θP, θMs_true', xP)    
     σ_o = FloatType(0.01)
     #σ_o = FloatType(0.002)

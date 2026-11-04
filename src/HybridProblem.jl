@@ -29,8 +29,7 @@ Fields:
 struct HybridProblem <: AbstractHybridProblem
     #θP::CA.ComponentVector
     θM::CA.ComponentVector
-    f_batch::Any
-    pbm_spec::AbstractPBMApplicatorSpec  
+    f_batch::Union{Any,AbstractPBMApplicatorSpec}
     g::AbstractModelApplicator
     ϕg::Any # depends on framework
     ϕq::CA.ComponentVector
@@ -44,7 +43,7 @@ struct HybridProblem <: AbstractHybridProblem
     n_site::Int
     n_batch::Int
     pbm_covars::NTuple{_N, Symbol} where _N
-    approx::AbstractHVIApproximation
+    approx::Union{AbstractHVIApproximation, AbstractHVIApproxSpec}
     penalty_computer::PenaltyComputerOrFunction
     ranef::AbstractRandomEffects
     #penalty_computer::
@@ -52,8 +51,9 @@ struct HybridProblem <: AbstractHybridProblem
     function HybridProblem(
             θM::CA.ComponentVector,
             ϕq::CA.ComponentVector, # = init_hybrid_ϕunc(approx, cor_ends, zero(eltype(θM))),
+            g::AbstractModelApplicator,
             ϕg::AbstractVector,
-            f_batch, # TODO replace by pbm_spec
+            f_batch::Union{Any,AbstractPBMApplicatorSpec}, # TODO remove Any rename to pbm_spec
             priors::AbstractDict,
             py,
             transM::Stacked,
@@ -64,13 +64,12 @@ struct HybridProblem <: AbstractHybridProblem
             n_batch::Int;
             cor_ends::NamedTuple = (P = [length(ϕq[Val(:μP)])], M = [length(θM)]),
             pbm_covars::NTuple{N,Symbol} = (),
-            approx::AbstractHVIApproximation = MeanHVIApproximationMat(),
+            approx::Union{AbstractHVIApproximation, AbstractHVIApproxSpec} = MeanHVIApproximationMat(),
             penalty_computer::PenaltyComputerOrFunction = ZeroPenaltyComputer(),
             ranef::AbstractRandomEffects = NullRandomEffects(),
     ) where N
-        pbm_spec = f_batch isa AbstractPBMApplicatorSpec ? f_batch : NullPopulationAppSpec()
         new(
-            θM, f_batch, pbm_spec, g, gspec, ϕg, ϕq, priors, py, transM, transP, cor_ends, 
+            θM, f_batch, g, ϕg, ϕq, priors, py, transM, transP, cor_ends, 
             train_dataloader, test_data, n_site, n_batch, pbm_covars, 
             approx, penalty_computer, ranef)
     end
@@ -123,8 +122,7 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
     θM = get_hybridproblem_par_templates(prob; scenario).θM,
     g = get_hybridproblem_MLapplicator(prob; scenario)[1],
     ϕg = get_hybridproblem_MLapplicator(prob; scenario)[2],
-    f_batch = get_hybridproblem_PBmodel(prob; scenario),
-    pbm_spec = get_hybridproblem_PBmodelSpec(prob; scenario),
+    f_batch = get_hybridproblem_PBmodelSpec(prob; scenario),
     priors = get_hybridproblem_priors(prob; scenario),
     py = get_hybridproblem_neg_logden_obs(prob; scenario),
     transP = get_hybridproblem_transforms(prob; scenario).transP,
@@ -138,7 +136,7 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
     ϕq = get_hybridproblem_ϕq(prob; scenario),
     θP = nothing,
     ϕunc = nothing,
-    approx::AbstractHVIApproximation = get_hybridproblem_HVIApproximation(prob; scenario),
+    approx::Union{AbstractHVIApproximation, AbstractHVIApproxSpec} = get_hybridproblem_HVIApproxSpec(prob; scenario),
     penalty_computer::PenaltyComputerOrFunction = get_hybridproblem_penalty_computer(prob; scenario),  
     ranef = get_hybridproblem_ranef(prob; scenario),
     )
@@ -169,7 +167,7 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
            train_dataloader.data, batchsize=n_batch)  
         f_batch = create_nsite_applicator(f_batch, n_batch)
     end
-    HybridProblem(θM, ϕq, g, ϕg, f_batch, pbm_spec, priors, py, transM, transP, train_dataloader,
+    HybridProblem(θM, ϕq, g, ϕg, f_batch, priors, py, transM, transP, train_dataloader,
         test_data, n_site, n_batch; cor_ends = cor_ends_new, pbm_covars, 
         approx, penalty_computer, ranef)
 end
@@ -210,8 +208,14 @@ end
 # end
 
 function get_hybridproblem_par_templates(prob::HybridProblem; scenario = ())
-    θP = get_hybridproblem_θP(prob; scenario)
-    (; θP, θM = prob.θM) 
+    pbm_spec = get_hybridproblem_PBmodelSpec(prob; scenario)
+    ax_θP = get_axis_θP(pbm_spec)
+    ax_θM = get_axis_θM(pbm_spec)
+    #FT = get_hybridproblem_float_type(prob; scenario)
+    FT = eltype(prob.θM)
+    θP = CA.ComponentVector(ones(FT, axis_length(ax_θP)), ax_θP)
+    θM = CA.ComponentVector(ones(FT, axis_length(ax_θM)), ax_θM)
+    (; θP, θM) 
 end
 
 # deprecated, better use predict_point_hvi
@@ -272,7 +276,8 @@ function get_hybridproblem_PBmodel(prob::HybridProblem; scenario = ())
 end
 
 function get_hybridproblem_PBmodelSpec(prob::HybridProblem; scenario = ())
-    prob.pbm_spec
+    @assert prob.f_batch isa AbstractPBMApplicatorSpec "f_batch is not a PBMApplicatorSpec"
+    prob.f_batch
 end
 
 function get_hybridproblem_MLapplicator(prob::HybridProblem; scenario = ())
@@ -326,6 +331,11 @@ end
 function get_hybridproblem_HVIApproximation(prob::HybridProblem; scenario = ())
     prob.approx
 end
+
+function get_hybridproblem_HVIApproxSpec(prob::HybridProblem; scenario = ())
+    prob.approx
+end
+
 
 function get_hybridproblem_ranef(prob::HybridProblem; scenario = ())
     prob.ranef

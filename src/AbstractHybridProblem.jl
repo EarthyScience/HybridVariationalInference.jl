@@ -176,9 +176,15 @@ constrained original scale.
 Defaults to inverse-transform of `ϕq.μP`.
 """
 function get_hybridproblem_θP(prob::AbstractHybridProblem; scenario = Val(())) 
-    ϕq = get_hybridproblem_ϕq(prob; scenario)
+    # TODO remove - keep parameters separate of prob
+    approx_spec = get_hybridproblem_HVIApproxSpec(prob; scenario)
+    pbm_spec = get_hybridproblem_PBmodelSpec(prob; scenario)
+    cor_ends = get_hybridproblem_cor_ends(prob; scenario)
+    template = ones(get_hybridproblem_float_type(prob; scenario),0)
+    (;ϕqPc, ϕqIc) = create_hybrid_ϕuncs(approx_spec, template; cor_ends)
+    #ϕq = get_hybridproblem_ϕq(prob; scenario)
     transP = get_hybridproblem_transforms(prob; scenario).transP
-    μP = ϕq[Val(:μP)];
+    μP = view(ϕqPc, Val(:μζP))
     θP = if isempty(μP) 
         CA.ComponentVector{eltype(ϕq)}()
     else

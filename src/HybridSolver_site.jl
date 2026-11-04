@@ -156,7 +156,7 @@ function attach_axes(nt::NamedTuple, ntc::NamedTuple)
     end)
 end
 
-function predict_point!(elbo_helpers, prob::AbstractHybridProblem, ϕc; scenario,
+function predict_point!(elbo_helpers, prob::AbstractHybridProblem, ϕc; scenario=(),
     keys_predict_indiv = (:ζsM, :θsM, :y),
     keys_predict_pop = (:ζsP, :θsP),
 )
@@ -237,13 +237,15 @@ function predict_point!(elbo_helpers, prob::AbstractHybridProblem, ϕc; scenario
     h0p[keys_predict_pop], hi_agg
 end
 
-function predict_stat!(elbo_helpers, rng, prob::AbstractHybridProblem, ϕc; scenario,
+function predict_stat!(rng, prob::AbstractHybridProblem, ϕc; scenario=(),
     keys_predict_indiv = (:ζsM, :θsM, :y),
     keys_predict_pop = (:ζsP, :θsP),
-    keys_stat = (:mean, :std, :q025, :q975, :mode, :median),
-    n_MC_val::Val{NMC} = Val(30),
-) where NMC
-    # TODO remove redundancy with solve
+    keys_stat::Tuple{Vararg{Symbol}} = (:mean, :std, :q025, :q975, :mode, :median),
+    elbo_helpers,    
+    n_sample_pred = size(elbo_helpers.θsP,2),
+)  
+    # TODO make elbo_helpers optional
+    is_ret_sample = (keys_stat == ())
     h0 = elbo_helpers
     train_loader = get_hybridproblem_train_dataloader(prob; scenario)
     keys_indiv = (:xM, :xP, :y_o, :y_unc, :i_indiv_train)
@@ -279,7 +281,7 @@ function predict_stat!(elbo_helpers, rng, prob::AbstractHybridProblem, ϕc; scen
     n_cov = get_hybridproblem_n_covar(prob; scenario)
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
     n_covP = length(pbm_covars)
-    rnormPM = prepare_rnorm(ϕqPc; n_θP, n_θM, n_MC=NMC, n_site)
+    rnormPM = prepare_rnorm(ϕqPc; n_θP, n_θM, n_MC=n_sample_pred, n_site)
     #
     py = get_hybridproblem_neg_logden_obs(prob; scenario)
     # priors = get_hybridproblem_priors(prob; scenario)
@@ -303,10 +305,10 @@ function predict_stat!(elbo_helpers, rng, prob::AbstractHybridProblem, ϕc; scen
     h1 = h0p.helpers_sites[1]
     # do not know the number of training sites sum of sites in batch, need to
     #   reduce by vcat
-    local n_stat, hi_agg_batch, red, hi_agg
-    n_stat = length(keys_stat)
+    local n_col_agg, hi_agg_batch, red, hi_agg, hp_agg
+    n_col_agg = is_ret_sample ? n_sample_pred : length(keys_stat)
     hi_agg_batch = NamedTuple{keys_predict_indiv}(map(keys_predict_indiv) do key
-        Array{eltype(h1[key]),3}(undef, size(h1[key],1), n_stat, n_batch) 
+        Array{eltype(h1[key]),3}(undef, size(h1[key],1), n_col_agg, n_batch) 
     end)
     red = make_tuple_reducer((x,y) -> cat(x,y, dims=3))
     hi_agg = mapfoldl(red, enumerate(train_loader), init=map(x -> x[:,:,1:0], hi_agg_batch)
@@ -314,23 +316,43 @@ function predict_stat!(elbo_helpers, rng, prob::AbstractHybridProblem, ϕc; scen
         indiv_args = NamedTuple{keys_indiv}(data_batch)
         randnPM!(rng, rnormPM)   
         neg_elbo_sites!(h0p, NegElbo(), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix)
-        for key in keys_predict_indiv
-            for i_batch in 1:n_batch
-                compute_stat!(view(hi_agg_batch[key],:,:,i_batch), 
-                    h0p.helpers_sites[i_batch][key]; keys_stat)
+        if is_ret_sample
+            for key in keys_predict_indiv
+                for ii in 1:n_batch
+                    hi_agg_batch[key][:,:,ii] .= h0p.helpers_sites[ii][key]
+                end
+            end
+        else
+            for key in keys_predict_indiv
+                for i_batch in 1:n_batch
+                    compute_stat!(view(hi_agg_batch[key],:,:,i_batch), 
+                        h0p.helpers_sites[i_batch][key]; keys_stat)
+                end
             end
         end
         hi_agg_batch
     end
-    local hi_agg_cv, hp_agg_cv
-    hi_agg_cv = map(hi_agg) do hi_agg_comp
-        CA.ComponentArray(hi_agg_comp, (CA.getaxes(par_templates.θM)[1], CA.Axis(keys_stat), CA.FlatAxis()))
-    end
-    hp_agg_cv = map(h0p[keys_predict_pop]) do hp_el
-        a = Matrix{eltype(hp_el)}(undef, size(hp_el,1), n_stat)
+    hp_agg = is_ret_sample ? h0p[keys_predict_pop] : map(h0p[keys_predict_pop]) do hp_el
+        a = Matrix{eltype(hp_el)}(undef, size(hp_el,1), n_col_agg)
         compute_stat!(a, hp_el; keys_stat)
-        CA.ComponentArray(a, (CA.getaxes(par_templates.θP)[1], CA.Axis(keys_stat)))
     end
+    local hi_agg_cv, hp_agg_cv
+    ax_stat = is_ret_sample ? CA.FlatAxis() : CA.Axis(keys_stat)
+    ax_vars = (
+        ζsP = CA.getaxes(par_templates.θP)[1], 
+        θsP = CA.getaxes(par_templates.θP)[1], 
+        ζsM = CA.getaxes(par_templates.θM)[1], 
+        θsM = CA.getaxes(par_templates.θM)[1], 
+        y=CA.FlatAxis(),
+        )
+    hi_agg_cv = NamedTuple{keys_predict_indiv}(map(enumerate(hi_agg)) do (i, hi_agg_comp)
+        ax_var = ax_vars[keys_predict_indiv[i]]
+        CA.ComponentArray(hi_agg_comp, (ax_var, ax_stat, CA.FlatAxis()))
+    end)
+    hp_agg_cv = NamedTuple{keys_predict_pop}(map(enumerate(hp_agg)) do (i, a)
+        ax_var = ax_vars[keys_predict_pop[i]]
+        CA.ComponentArray(a, (ax_var, ax_stat))
+    end)
     hp_agg_cv, hi_agg_cv
 end
 
@@ -361,3 +383,8 @@ function compute_stat!(a, x; keys_stat = (:mean, :std, :q025, :q975, :mode, :med
     a
 end
 
+function sample_posterior(rng, prob::AbstractHybridProblem, ϕc; kwargs...) 
+    predict_stat!(rng, prob::AbstractHybridProblem, ϕc; kwargs...,
+         keys_stat = (),
+    )    
+end

@@ -191,9 +191,10 @@ end
     local xM, xP, y_o, y_unc, θP_true, θMs_true, y_true
     (; xM, xP, y_o, y_unc, θP_true, θMs_true, y_true) = HVI.gen_hybridproblem_synthetic(rng1, prob; scenario)
     # constrain to training dataset
-    n_indiv = size(y_o,2)
+    n_indiv_all = size(y_o,2)
     i_indiv_test = HVI.get_i_sites_test(prob; scenario)
-    i_indiv = setdiff(1:n_indiv, i_indiv_test)
+    i_indiv = setdiff(1:n_indiv_all, i_indiv_test)
+    n_indiv = length(i_indiv)
     (; xM, xP, y_o, y_unc, θMs_true, y_true) = map(
         (; xM, xP, y_o, y_unc, θMs_true, y_true)) do x
         x[:,i_indiv]
@@ -241,8 +242,9 @@ end
         epochs=800,
         show_train_loss = Val(true)
         );
+    n_MC = 30
     h30 = CP.prepare_elbo_helpers(res_elbo.h0, prob_syn; scenario, 
-        n_MC=30, use_diff_cache=Val(false));
+        n_MC, use_diff_cache=Val(false));
     hp_stat, hi_agg_stat = HVI.predict_stat!(h30, rng, prob_syn, res_elbo.ϕc; scenario);
     @test eltype(hp_stat[1]) == eltype(hp_stat[2]) == eltype(ϕ0c.ϕqP)
     hp_stat.θsP[1,:]
@@ -256,6 +258,13 @@ end
     hcat(exp.(res_elbo.ϕc.ϕqP.logσ_ζP),exp.(ϕ0c.ϕqP.logσ_ζP))
     hcat(exp.(res_elbo.ϕc.ϕqI.logσ_ζI_base .+ vcat(one(eltype(ϕ0c[1])),res_elbo.ϕc.ϕqI.logσ_ζI_offsets)), 
         exp.(ϕ0c.ϕqI.logσ_ζI_base .+ vcat(one(eltype(ϕ0c[1])),ϕ0c.ϕqI.logσ_ζI_offsets)))
+    #        
+    hp_samp, hi_agg_samp = HVI.sample_posterior(rng, prob_syn, res_elbo.ϕc; 
+        scenario, elbo_helpers=h30);
+    @test keys(hp_samp.θsP[:,1]) == keys(θP_true)
+    @test size(hp_samp.θsP,2) == n_MC
+    @test keys(hi_agg_samp.θsM[:,1,1]) == keys(θMs_true[:,1])
+    @test size(hi_agg_samp.θsM)[2:3] == (n_MC, n_indiv)
  end
 
 

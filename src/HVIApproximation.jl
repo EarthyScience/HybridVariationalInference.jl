@@ -68,7 +68,7 @@ function MeanUniScalingHVIApproximation(app::MeanUniScalingHVIApproximation;
     logσ_ζI_base = app.logσ_ζI_base)
     MeanUniScalingHVIApproximation(logσ_ζI_base)
 end
-function get_numberof_MLinputs(::MeanUniScalingHVIApproximation, θM) 
+function get_numberof_MLinputs(::Union{MeanUniScalingHVIApproximation, MeanUniScalingHVIApproxSpec}, θM) 
     length(θM) + 1
 end
 function get_numberof_θM(::MeanUniScalingHVIApproximation, ml_pred::AbstractArray) 

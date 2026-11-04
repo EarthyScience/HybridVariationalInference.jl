@@ -155,7 +155,7 @@ include("util_ca.jl")
 export ones_similar_x
 include("util_gpu.jl")
 
-export neg_logden_indep_normal, entropy_MvNormal
+export neg_logden_indep_normal, neg_logden_indep_normal_sum, entropy_MvNormal
 include("logden_normal.jl")
 
 export get_ca_starts, get_ca_ends, get_cor_count
@@ -165,6 +165,7 @@ export neg_elbo_gtf, sample_posterior, predict_hvi, ZeroPenaltyComputer
 export predict_hvi_and_compute_elbo_components
 export get_hybridproblem_correlation_Ms, get_hybridproblem_cholesky_correlation_Ms
 export get_marginal_std
+export NegLogDensity, NegElbo
 include("elbo_dev.jl")
 include("elbo_sepvec.jl")
 include("elbo_scaling.jl")
