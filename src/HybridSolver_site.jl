@@ -33,6 +33,8 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridSolverSite
     indiv_args_test = (;tmp[keys(tmp)[1:4]]..., i_indiv_train = tmp.itrain_sites)
     keys_indiv = (:xM, :xP, :y_o, :y_unc, :i_indiv_train)
     indiv_args1 = NamedTuple{keys_indiv}(first(train_loader))
+    n_indiv_batch = size(indiv_args1.y_o,2)
+    n_indiv_test = size(indiv_args_test.y_o,2)
     #
     # TODO: separate parameters from problem description - right now optimized
      g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
@@ -66,8 +68,10 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridSolverSite
         indiv_args_train =  NamedTuple{keys(indiv_args_test)}(train_loader.data)
         n_indiv_train = size(indiv_args_train.xM,2)
         h0_train = prepare_elbo_helpers(prob; scenario, ϕc, y_o = indiv_args_train.y_o, n_MC=NMC);
+        rnormPM_train = prepare_rnorm(ϕc.ϕqP; n_θP, n_θM, n_MC=NMC, n_indiv=n_indiv_train)
     end
-    rnormPM = prepare_rnorm(ϕc.ϕqP; n_θP, n_θM, n_MC=NMC, n_indiv=n_indiv_train)
+    rnormPM = prepare_rnorm(ϕc.ϕqP; n_θP, n_θM, n_MC=NMC, n_indiv=n_indiv_batch)
+    rnormPM_test = prepare_rnorm(ϕc.ϕqP; n_θP, n_θM, n_MC=NMC, n_indiv=n_indiv_test)
     #
     # priors = get_hybridproblem_priors(prob; scenario)
     # priorsP = Tuple(priors[k] for k in keys(par_templates.θP))
@@ -91,6 +95,9 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridSolverSite
     n_skips = 0
     # epoch = 1
     gradh = (;)
+    randnPM!(rng, rnormPM_test)   
+    loss_test0 = neg_elbo_sites!(h0_test, loss_mode, ϕ, rnormPM_test, sample_args_test, indiv_args_test, nljoint_args_fix)
+    @show loss_test0
     stime = time()
     for epoch in 1:epochs
         is_testmode = false
@@ -120,11 +127,13 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridSolverSite
         if (epoch % epochs_callback) == 0
             ttime = time() - stime
             # compute loss for test data
-            loss_test = neg_elbo_sites!(h0_test, loss_mode, ϕ, rnormPM, sample_args_test, indiv_args_test, nljoint_args_fix)
+            randnPM!(rng, rnormPM_test)   
+            loss_test = neg_elbo_sites!(h0_test, loss_mode, ϕ, rnormPM_test, sample_args_test, indiv_args_test, nljoint_args_fix)
             @show round(ttime, digits=1), epoch, loss_test
             #@show exp.(ϕ.ϕqP[1:2]), grad_cv.ϕqP
             if TRAIN
-                loss_train = neg_elbo_sites!(h0_train, loss_mode, ϕ, rnormPM, sample_args_test, indiv_args_train, nljoint_args_fix)
+                randnPM!(rng, rnormPM_train)   
+                loss_train = neg_elbo_sites!(h0_train, loss_mode, ϕ, rnormPM_train, sample_args_test, indiv_args_train, nljoint_args_fix)
                 @show loss_train
             end
         end
@@ -278,7 +287,8 @@ function predict_stat(rng, prob::AbstractHybridProblem, ϕc, dataloader; scenari
     n_sample_pred = size(elbo_helpers.θsP,2),
     elbo_helpers = prepare_elbo_helpers(prob; scenario, ϕc, 
         y_o = first(dataloader)[3], 
-        n_MC=n_sample_pred),
+        n_MC = n_sample_pred,
+        use_diff_cache = Val(false)),
 )  
     # TODO make elbo_helpers optional
     is_ret_sample = (keys_stat == ())
@@ -331,7 +341,8 @@ function predict_stat(rng, prob::AbstractHybridProblem, ϕc, dataloader; scenari
     #nljoint_args_fix_test = (;nljoint_args_fix..., f! = ) 
     # convert from DiffCache to normal vector
     h0p = if h0.helpers_sites[1][1] isa PAT.DiffCache 
-        h0p = (; h0..., helpers_sites = map_leaves_nt(x -> PAT.get_tmp(x, par_templates.θM), h0.helpers_sites))
+        h0p = (; h0..., helpers_sites = map(
+            hi -> map_leaves_nt(x -> PAT.get_tmp(x, par_templates.θM), hi), h0.helpers_sites))
     else
         h0
     end

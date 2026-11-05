@@ -156,7 +156,7 @@ function prepare_elbo_helpers(approx_spec::AbstractHVIApproxSpec,
     use_diff_cache::Val{use_dc} = Val(true),
     diffchunk::ForwardDiff.Chunk{chunk} = ForwardDiff.Chunk(8),
     ) where {TG, TF, use_dc, chunk}
-    his = Tuple((;
+    his = [(;
         ζsM = Matrix{TF}(undef, n_θM, n_MC),
         θsM = Matrix{TF}(undef, n_θM, n_MC),
         logσ_ζM = Vector{TF}(undef, n_θM),
@@ -164,7 +164,7 @@ function prepare_elbo_helpers(approx_spec::AbstractHVIApproxSpec,
         # TODO move buffers to Channel object
         y_buffer = Matrix{TF}(undef, n_obs, n_MC),
         sample_buffers = prepare_ind_sample_buffers(approx_spec, cor_ends.M, template_TF),
-    ) for i in 1:n_site)
+    ) for i in 1:n_site]
     helpers_sites = use_dc ? map(hi -> map_leaves_nt(x -> PAT.DiffCache(x, chunk), hi),his) : his
     h = (;
         ζsP = Matrix{TF}(undef, n_θP, n_MC),
@@ -204,7 +204,7 @@ function prepare_elbo_helpers(h::NamedTuple; approx_spec::AbstractHVIApproxSpec,
     n_θM = size(hi.ζsM.du, 1)
     n_obs = size(hi.y.du, 1)
 
-    his = Tuple((;
+    his = [(;
         ζsM = Matrix{TF}(undef, n_θM, n_MC),
         θsM = Matrix{TF}(undef, n_θM, n_MC),
         logσ_ζM = Vector{TF}(undef, n_θM),
@@ -212,8 +212,8 @@ function prepare_elbo_helpers(h::NamedTuple; approx_spec::AbstractHVIApproxSpec,
         # TODO move buffers to Channel object
         y_buffer = Matrix{TF}(undef, n_obs, n_MC),
         sample_buffers = prepare_ind_sample_buffers(approx_spec, cor_ends.M, template_TF),
-    ) for i in 1:n_site)
-    helpers_sites = use_dc ? map_leaves_nt(x -> PAT.DiffCache(x, chunk), his) : his
+    ) for i in 1:n_site]
+    helpers_sites = use_dc ? map(hi -> map_leaves_nt(x -> PAT.DiffCache(x, chunk), hi),his) : his
     h = (;
         ζsP = Matrix{TF}(undef, n_θP, n_MC),
         θsP = Matrix{TF}(undef, n_θP, n_MC),

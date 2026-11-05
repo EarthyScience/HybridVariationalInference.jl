@@ -184,9 +184,13 @@ end
     ϕ0c = get_get_hybridproblem_initial_ϕc(prob; scenario)
     ϕ0c.ϕqP.μζP .+= log(0.8)  # start from 90%
     exp.(ϕ0c.ϕqP.μζP) # updated during solve
+    # @usingany Cthulhu
+    @inferred first(CommonSolve.solve(prob_syn, solver, CP.NegLogDensity(); ϕ0c, scenario, 
+        epochs=1,
+        ))
     res = CommonSolve.solve(prob_syn, solver, CP.NegLogDensity(); ϕ0c, scenario, 
         epochs=3_000,
-        show_train_loss = Val(true)
+        #show_train_loss = Val(true)
         );
     hp, hi_agg = HVI.predict_point(prob_syn, res.ϕc; scenario)
     @test hp.θsP[:,1] ≈ θP_true atol=0.1
@@ -211,14 +215,18 @@ end
         scatterplot(θMs_true[1,:], hi_agg.θsM[1,:], )
         scatterplot(θMs_true[2,:], hi_agg.θsM[2,:])
     end
-    # TODO takes unbearable long - try converting site_helpers Tuple to Vector
-    # data_full = get_hybridproblem_train_dataloader(prob; scenario).data
-    # hp_, hi_agg_ = HVI.predict_point(prob_syn, res.ϕc, data_full; scenario)
+    # test on providing data as tuple rather than dataloader
+    data_full = get_hybridproblem_train_dataloader(prob; scenario).data
+    hp_, hi_agg_ = HVI.predict_point(prob_syn, res.ϕc, data_full; scenario)
+    @test hp_ == hp
+    @test all(map((x,y) -> isapprox(x,y), hi_agg_, hi_agg))
+    vcat(hi_agg_[1], hi_agg[1])
+    vcat(hi_agg_[2], hi_agg[2])
     #
     ϕ0c = res.ϕc
     res_elbo = CommonSolve.solve(prob_syn, solver, CP.NegElbo(); ϕ0c, scenario, 
-        epochs=1_000,
-        show_train_loss = Val(true)
+        epochs=400,
+        #show_train_loss = Val(true)
         );
     n_sample_pred = 30
     hp_stat, hi_agg_stat = HVI.predict_stat(rng, prob_syn, res_elbo.ϕc; scenario, n_sample_pred);
@@ -236,12 +244,9 @@ end
     hcat(exp.(res_elbo.ϕc.ϕqI.logσ_ζI_base .+ vcat(one(eltype(ϕ0c[1])),res_elbo.ϕc.ϕqI.logσ_ζI_offsets)), 
         exp.(ϕ0c.ϕqI.logσ_ζI_base .+ vcat(one(eltype(ϕ0c[1])),ϕ0c.ϕqI.logσ_ζI_offsets)))
     #        
-    # h30 = CP.prepare_elbo_helpers(res_elbo.h0, prob_syn; scenario, 
-    #     n_MC=n_sample_pred, use_diff_cache=Val(false));    
     hp_samp, hi_agg_samp = HVI.sample_posterior(rng, prob_syn, res_elbo.ϕc; 
         scenario, 
         n_sample_pred,
-        #elbo_helpers=h30
         );
     @test keys(hp_samp.θsP[:,1]) == keys(θP_true)
     @test size(hp_samp.θsP,2) == n_sample_pred
