@@ -75,7 +75,7 @@ h30 = CP.prepare_elbo_helpers(res_solve.h0, probo; scenario=(), n_MC, use_diff_c
 sampP, sampI = sample_posterior(rng, probo, res_solve.ϕc; elbo_helpers = h30)
 θsP = sampP.θsP
 θsMs = sampI.θsM
-y = sampI.y
+y = sampI.y;
 ```
 
 Lets look at the results.
@@ -139,7 +139,7 @@ scatter!(ax, θmean, θsd)
 fig
 ```
 
-TODO use HVI.predict_stat!
+TODO use HVI.predict_stat
 TODO
 We see that $K_1$ across sites ranges from about 0.18 to 0.25, and that
 its estimated uncertainty is about 0.04, slightly decreasing with the 
@@ -191,7 +191,7 @@ We see that observed values for associated substrate concentrations range about 
 0.5 to 0.6 with an estimated standard deviation around 0.005 that decreases
 with the observed value.
 
-If only a point prediction is required, function [`predict_point!`](@ref) 
+If only a point prediction is required, function [`predict_point`](@ref) 
 can be used, that returns
 a single set of expected parameters and corresponding predictions.
 

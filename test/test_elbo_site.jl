@@ -175,36 +175,39 @@ isUsingSimpleChains = false
     ϕms2 == ϕms2z
 
     # preallocate helpers and shadows
-    rnormPM = CP.prepare_rnorm(ϕqP; n_θP, n_θM, n_MC, n_site)
-    rnormPM_point = CP.prepare_rnorm(ϕqP; n_θP, n_θM, n_MC=1, n_site)
+    rnormPM = CP.prepare_rnorm(ϕqP; n_θP, n_θM, n_MC, n_indiv=n_site)
+    rnormPM_point = CP.prepare_rnorm(ϕqP; n_θP, n_θM, n_MC=1, n_indiv=n_site)
     # size(rnormPM.P)
-    approx = CP.DiagonalHVIApproximation()
+    approx_spec = CP.DiagonalHVIApproxSpec()
+    approx = get_HVIApproximation(approx_spec; ϕqPc=ϕqPc1, ϕqIc=ϕqIc1)
     CP.randnPM!(rng, rnormPM)
-    h0 = CP.prepare_elbo_helpers(approx, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP0, n_M, cor_ends, n_obs)
-    h2 = CP.prepare_elbo_helpers(approx, ϕg2, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs)
+    h0 = CP.prepare_elbo_helpers(approx_spec, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP0, n_M, cor_ends, n_obs)
+    h2 = CP.prepare_elbo_helpers(approx_spec, ϕg2, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs)
     CP.check_elbo_helpers(h0, xM, pbm_covar_indices0; n_ϕg = length(ϕg))
     CP.check_elbo_helpers(h2, xM, pbm_covar_indices2; n_ϕg = length(ϕg2))
     randn!(h0.θsP) # for testing should initialized to finite values
     randn!(h2.θsP) # for testing should initialized to finite values
-    h0_point = CP.prepare_elbo_helpers(approx, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC=1, n_cov, n_covP = n_covP0, n_M, cor_ends, n_obs)
-    h2_point = CP.prepare_elbo_helpers(approx, ϕg2, ϕqP; n_θP, n_θM, n_site, n_MC=1, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs)
+    h0_point = CP.prepare_elbo_helpers(approx_spec, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC=1, n_cov, n_covP = n_covP0, n_M, cor_ends, n_obs)
+    h2_point = CP.prepare_elbo_helpers(approx_spec, ϕg2, ϕqP; n_θP, n_θM, n_site, n_MC=1, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs)
     CP.check_elbo_helpers(h0_point, xM, pbm_covar_indices0; n_ϕg = length(ϕg))
     CP.check_elbo_helpers(h2_point, xM, pbm_covar_indices2; n_ϕg = length(ϕg2))
     randn!(h0_point.θsP) # for testing should initialized to finite values
     randn!(h2_point.θsP) # for testing should initialized to finite values
     #
-    approxM = CP.MeanHVIApproximation()
-    h0M = CP.prepare_elbo_helpers(approxM, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP0, n_M, cor_ends, n_obs)
-    h2M = CP.prepare_elbo_helpers(approxM, ϕg2, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs)
+    approxM_spec = CP.MeanHVIApproxMatSpec()
+    approxM = get_HVIApproximation(approxM_spec; ϕqPc=ϕqPc1, ϕqIc=ϕqIc1)
+    h0M = CP.prepare_elbo_helpers(approxM_spec, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP0, n_M, cor_ends, n_obs)
+    h2M = CP.prepare_elbo_helpers(approxM_spec, ϕg2, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs)
     randn!(h0M.θsP) # for testing should initialized to finite values
     randn!(h2M.θsP) # for testing should initialized to finite values
     #
-    ϕqIcS = CA.ComponentVector(;logσ_ζI_offsets = ϕqIc1.logσ_ζM[2:end] .- ϕqIc1.logσ_ζM[1], ϕqIc1.ρsM)
+    ϕqIcS = CA.ComponentVector(;logσ_ζI_base = ϕqIc1.logσ_ζM[1], logσ_ζI_offsets = ϕqIc1.logσ_ζM[2:end] .- ϕqIc1.logσ_ζM[1], ϕqIc1.ρsM)
     intϕqIS = get_concrete(ComponentArrayInterpreter(ϕqIcS))
-    approxS = CP.MeanUniScalingHVIApproximation(ϕqIc1.logσ_ζM[1])
-    h0S = CP.prepare_elbo_helpers(approxS, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP0, n_M, cor_ends, n_obs)
-    h2S = CP.prepare_elbo_helpers(approxS, ϕg2, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs)
-    h2S_point = CP.prepare_elbo_helpers(approxS, ϕg2, ϕqP; n_θP, n_θM, n_site, n_MC=1, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs)
+    approxS_spec = MeanUniScalingHVIApproxSpec()
+    approxS = get_HVIApproximation(approxS_spec, ϕqPc=ϕqPc1, ϕqIc=ϕqIcS)
+    h0S = prepare_elbo_helpers(approxS_spec, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP0, n_M, cor_ends, n_obs)
+    h2S = prepare_elbo_helpers(approxS_spec, ϕg2, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs)
+    h2S_point = CP.prepare_elbo_helpers(approxS_spec, ϕg2, ϕqP; n_θP, n_θM, n_site, n_MC=1, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs)
     randn!(h0S.θsP) # for testing should initialized to finite values
     randn!(h2S.θsP) # for testing should initialized to finite values
     randn!(h2S_point.θsP) # for testing should initialized to finite values
@@ -232,7 +235,7 @@ end
     ρst = zeros(1)  #zeros(CP.sumn(n_θP-1))
     CP._setρ_unscaled!(ρst, Ut[1:2,1:2])
     ϕqPct = CA.ComponentVector(μζP = [-1.0, 0.0, 1.0], logσ_ζP=log.(σt), ρsP=ρst)
-    h2M = CP.prepare_elbo_helpers(approxS, ϕg, ϕqP; n_θM, n_θP, n_site, n_MC = n_MCt, 
+    h2M = CP.prepare_elbo_helpers(approxS_spec, ϕg, ϕqP; n_θM, n_θP, n_site, n_MC = n_MCt, 
         n_cov, n_covP = n_covP0, n_M, cor_ends, use_diff_cache=Val(false), n_obs)
     CP.sample_ζsP!(ζsPt, logσ_ζPt, approxS, rnormPt, ϕqPct, cor_ends.P, h2M.sample_buffers)
     @test vec(mean(ζsPt, dims=2)) ≈ ϕqPct.μζP atol=0.01
@@ -305,7 +308,7 @@ end
     @test (@allocated f_fd1(ϕqP, ϕm, rnormM1, ϕqP)) == 0
     @test (@allocated f_fd1(ϕqd, ϕm, rnormM1, ϕqd)) == 0
 
-    approx2 = MeanHVIApproximation()
+    approx2_spec = MeanHVIApproxMatSpec()
     n_MCt = 10_000
     rnormM1t = randn(n_θM, n_MCt)
     ζsMt = similar(rnormM1t)
@@ -318,7 +321,8 @@ end
     CP._setρ_unscaled!(ρsMt, Ut)
     σt = [0.06, 0.08, 0.01]
     ϕqIct = CA.ComponentVector(logσ_ζM=log.(σt), ρsM=ρsMt)
-    h2M = CP.prepare_elbo_helpers(approx2, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC = n_MCt, 
+    approx2 = get_HVIApproximation(approx2_spec; ϕqPc=ϕqPc1, ϕqIc=ϕqIct)
+    h2M = CP.prepare_elbo_helpers(approx2_spec, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC = n_MCt, 
         n_cov, n_covP = n_covP0, n_M, cor_ends, use_diff_cache=Val(false), n_obs)
     CP.sample_ζsM!(ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2M.helpers_sites[1].sample_buffers)
     @test vec(mean(ζsMt, dims=2)) ≈ μt atol=0.01
@@ -340,7 +344,7 @@ end
     @allocated loop_samplesample_ζsM(1000, ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2M.helpers_sites[1].sample_buffers)
 
     σt = [0.06, 0.08, 0.01]
-    approxS = MeanUniScalingHVIApproximation(log(σt[1]))
+    approxS2_spec = MeanUniScalingHVIApproxSpec()
     n_MCt = 10_000
     rnormM1t = randn(n_θM, n_MCt)
     ζsMt = similar(rnormM1t)
@@ -354,10 +358,12 @@ end
     ρsMt = zeros(CP.sumn(n_θM-1))
     CP._setρ_unscaled!(ρsMt, Ut)
     σt_scaled = σt .* scale_fac
-    ϕqIct = CA.ComponentVector(logσ_ζI_offsets=(log.(σt[2:end]) .- log(σt[1])), ρsM=ρsMt)
-    h2S = CP.prepare_elbo_helpers(approxS, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC = n_MCt, 
+    ϕqIct = CA.ComponentVector(logσ_ζI_base = log.(σt[1]), logσ_ζI_offsets=(log.(σt[2:end]) .- log(σt[1])), ρsM=ρsMt)
+    approxS2 = get_HVIApproximation(approxS2_spec; ϕqPc=ϕqPc1, ϕqIc=ϕqIct)
+    #MeanUniScalingHVIApproximation(log(σt[1]))
+    h2S = CP.prepare_elbo_helpers(approxS2_spec, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC = n_MCt, 
         n_cov, n_covP = n_covP0, n_M, cor_ends, n_obs, use_diff_cache=Val(false))
-    CP.sample_ζsM!(ζsMt, logσ_ζMt, approxS, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2S.helpers_sites[1].sample_buffers)
+    CP.sample_ζsM!(ζsMt, logσ_ζMt, approxS2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2S.helpers_sites[1].sample_buffers)
     @test vec(mean(ζsMt, dims=2)) ≈ μt atol=0.01
     @test cor(ζsMt[1,:], ζsMt[2,:]) ≈ Σct[1,2] atol=0.02
     @test cor(ζsMt[1,:], ζsMt[3,:]) ≈ Σct[1,3] atol=0.02
@@ -365,9 +371,9 @@ end
     @test std(ζsMt; dims=2) ≈ σt_scaled atol=0.01
     @test ((ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers) -> 
         @allocated CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers))(
-        ζsMt, logσ_ζMt, approxS, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2S.helpers_sites[1].sample_buffers) == 0
+        ζsMt, logσ_ζMt, approxS2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2S.helpers_sites[1].sample_buffers) == 0
     #@profview_allocs loop_samplesample_ζsM(1000, ζsMt, logσ_ζMt, approxS, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2S.helpers_sites[1].sample_buffers)
-    @allocated loop_samplesample_ζsM(1000, ζsMt, logσ_ζMt, approxS, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2S.helpers_sites[1].sample_buffers)
+    @allocated loop_samplesample_ζsM(1000, ζsMt, logσ_ζMt, approxS2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2S.helpers_sites[1].sample_buffers)
 
     # # Regression: sample_ζsM! must not allocate when reached through the
     # # ForwardDiff-reconstructed ComponentArray-view path used by

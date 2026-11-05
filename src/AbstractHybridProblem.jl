@@ -427,6 +427,25 @@ function get_hybridproblem_ranef(prob::AbstractHybridProblem; scenario = ())
     NullRandomEffects()
 end
 
+"""
+    get_hybridproblem_HVIApproxSpec(::AbstractHybridProblem; scenario)
+
+Return a NamedTuple of ComponentVectors of initial parameters for given problem
+"""
+function get_get_hybridproblem_initial_ϕc(prob::AbstractHybridProblem; scenario=(), n_MC=3)
+    par_templates = get_hybridproblem_par_templates(prob; scenario)
+    (; transM, transP) = get_hybridproblem_transforms(prob; scenario)
+    cor_ends = get_hybridproblem_cor_ends(prob; scenario)
+    approx_spec = get_hybridproblem_HVIApproxSpec(prob; scenario)
+    (;ϕqPc, ϕqIc) = create_hybrid_ϕuncs(approx_spec, par_templates.θP; 
+        cor_ends=get_hybridproblem_cor_ends(prob; scenario))
+    init_hybrid_ϕuncs!(ϕqPc, ϕqIc, approx_spec; cor_ends, transM, transP, par_templates.θM, par_templates.θP)
+    _, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
+    ϕc = (;ϕg = copy(CA.getdata(ϕg0)), ϕqP = ϕqPc, ϕqI = ϕqIc) 
+end
+
+
+
     
 
 

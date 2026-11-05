@@ -34,49 +34,20 @@ prob = DoubleMM.DoubleMMCase()
 scenario = Val((:use_Lux,:usePopPBM,:uniscaling,:use_rangescaling)) # omit covars, rangescaling
 
 
-diffchunk = ForwardDiff.Chunk(8)
-rng = StableRNG(1234)
-(; xM, θP_true, θMs_true, xP,  y_true,  y_o, y_unc,) = gen_hybridproblem_synthetic(rng, prob; scenario);
-i_indiv_batch = 10 .+ (1:20)
-n_site = length(i_indiv_batch)
-par_templates = get_hybridproblem_par_templates(prob; scenario)
-n_θP = length(par_templates.θP)
-n_θM = length(par_templates.θM)
-n_cov = get_hybridproblem_n_covar(prob; scenario)
-pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
-n_covP = length(pbm_covars)
-pbm_covar_indices = SA.SVector{length(pbm_covars)}([findfirst(==(k), keys(par_templates.θP)) for k in pbm_covars])
 
 
-    g, ϕg = get_hybridproblem_MLapplicator(prob; scenario)
-    ϕgv = collect(ϕg)
-    #
+#-------------------------------------------------------------
+@testset "grad_neg_elbo_sites" begin
+    diffchunk = ForwardDiff.Chunk(8)
     n_MC = 3; n_MC_val = Val(3)
-    n_obs, n_site_all = size(y_o)
-    transP, transM  = get_hybridproblem_transforms(prob; scenario)
-    #
-    cor_ends = get_hybridproblem_cor_ends(prob; scenario)
-    approx1 = get_hybridproblem_HVIApproximation(prob; scenario)
+    rng = StableRNG(1234)
+    (; xM, θP_true, θMs_true, xP,  y_true,  y_o, y_unc,) = gen_hybridproblem_synthetic(rng, prob; scenario);
+    i_indiv_batch = 10 .+ (1:20)
 
-    # TODO update init_hybrid_ϕunc
-    ϕq, approx = init_hybrid_ϕunc(approx1, cor_ends; transM, par_templates.θM, n_site)
-    μ0_bias = 0.9
-    μ0_bias = 1.0 # true μP
-    ϕqPc1 = CA.ComponentVector(
-        μζP = log.(CA.getdata(par_templates.θP .* eltype(par_templates.θP)(μ0_bias))),
-        #logσ_ζP = ones(n_θP) .* log(0.01),
-        logσ_ζP = ϕq.logσ_ζP,
-        ρsP = ϕq.ρsP,
-        )
-    ϕqIc1 = CA.ComponentVector(
-        logσ_ζI_offsets = ϕq.logσ_ζI_offsets,
-        ρsM = ϕq.ρsM,
-        )
-    ϕqP = ϕqP2 = CA.getdata(ϕqPc1)
-    ϕqI = CA.getdata(ϕqIc1)
-    intϕqP = get_concrete(ComponentArrayInterpreter(ϕqPc1))
-    intϕqI = get_concrete(ComponentArrayInterpreter(ϕqIc1))
-    #
+    (;ϕqP, ϕqI) = CP.get_get_hybridproblem_initial_ϕc(prob; scenario)
+    g, ϕg = get_hybridproblem_MLapplicator(prob; scenario)
+    ϕc = (; ϕg=CA.getdata(ϕg), ϕqP=ϕqP, ϕqI=ϕqI)
+
     indiv_args1 = (;xM = CA.getdata(xM)[:,i_indiv_batch], xP = CA.getdata(xP)[:,i_indiv_batch], 
         y_o = CA.getdata(y_o)[:,i_indiv_batch], y_unc = CA.getdata(y_unc)[:,i_indiv_batch], 
         i_indiv_train = i_indiv_batch) 
@@ -87,30 +58,33 @@ pbm_covar_indices = SA.SVector{length(pbm_covars)}([findfirst(==(k), keys(par_te
          fLogLik = get_hybridproblem_neg_logden_obs(prob; scenario)
          )
 
-    # ϕqIcS = CA.ComponentVector(;logσ_ζI_offsets = ϕqIc1.logσ_ζM[2:end] .- ϕqIc1.logσ_ζM[1], ϕqIc1.ρsM)
-    # intϕqIS = get_concrete(ComponentArrayInterpreter(ϕqIcS))
-    # approxS_ = CP.MeanUniScalingHVIApproximation(ϕqIc1.logσ_ζM[1])
-    # approxS = get_hybridproblem_HVIApproximation(prob; scenario)
-    n_M = get_numberof_MLinputs(approx, par_templates.θM)
-    h0 = CP.prepare_elbo_helpers(approx, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP, n_M, cor_ends, n_obs);
-    h0_point = CP.prepare_elbo_helpers(approx, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC=1, n_cov, n_covP, n_M, cor_ends, n_obs);
+    h0 = prepare_elbo_helpers(prob; scenario, ϕc, y_o = indiv_args1.y_o, n_MC);
+    h0_point = prepare_elbo_helpers(prob; scenario, ϕc, y_o = indiv_args1.y_o, n_MC=1);
+    approx_spec = get_hybridproblem_HVIApproxSpec(prob; scenario)
+    approx = get_HVIApproximation(approx_spec, ϕc)
+
     randn!(h0.θsP) # for testing should initialized to finite values
     randn!(h0_point.θsP) # for testing should initialized to finite values
-    rnormPM = CP.prepare_rnorm(ϕqP; n_θP, n_θM, n_MC, n_site)
-    rnormPM_point = CP.prepare_rnorm(ϕqP; n_θP, n_θM, n_MC=1, n_site)
+    par_templates = get_hybridproblem_par_templates(prob; scenario)
+    n_indiv = length(i_indiv_batch)
+    n_θP = length(par_templates.θP)
+    n_θM = length(par_templates.θM)
+    rnormPM = CP.prepare_rnorm(ϕc.ϕqP; n_θP, n_θM, n_MC, n_indiv)
+    rnormPM_point = CP.prepare_rnorm(ϕc.ϕqP; n_θP, n_θM, n_MC=1, n_indiv)
 
-#-------------------------------------------------------------
-@testset "grad_neg_elbo_sites" begin
-    local ϕqIc, ϕqPc, rng1, indiv_args, ϕ, sample_args, primal
-    ϕqIc = intϕqI(ϕqI)
-    ϕqPc = intϕqP(ϕqP)
-    #
+    local  rng1, ϕ, sample_args, primal
+    ϕ = map(CA.getdata, ϕc)
     rng1 = StableRNG(1234)
     CP.randnPM!(rng1, rnormPM)
-    randn!(rng1, ϕgv)
+    randn!(rng1, ϕ.ϕg)
     randn!(rng1, xM)
     indiv_args = indiv_args1
-    ϕ = (;ϕg=ϕgv, ϕqP, ϕqI)
+    pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
+    pbm_covar_indices = SA.SVector{length(pbm_covars)}([findfirst(==(k), keys(par_templates.θP)) for k in pbm_covars])        
+    intϕqP = get_concrete(ComponentArrayInterpreter(ϕqP))
+    intϕqI = get_concrete(ComponentArrayInterpreter(ϕqI))
+    cor_ends = get_hybridproblem_cor_ends(prob; scenario)
+    (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     sample_args = (;
         approx, g, is_testmode = true, pbm_covar_indices, intϕqP, intϕqI, cor_ends, 
         transP, transM)
@@ -204,16 +178,17 @@ end
     @test y_o == y_o2 # make sure to use the same synthetic data for good y_true
     solver = HybridSolverSite(alg=Optimisers.Adam(0.0001))
     #ϕ0c = (;ϕg = copy(CA.getdata(ϕg)), ϕqP=copy(ϕqP), ϕqI=copy(ϕqI))
-    res = CommonSolve.solve(prob_syn, solver, CP.NegLogDensity(), (;); scenario, 
-        epochs=0,  );
-    ϕ0c = res.ϕc
+    # res = CommonSolve.solve(prob_syn, solver, CP.NegLogDensity(), (;); scenario, 
+    #     epochs=0,  );
+    # ϕ0c = res.ϕc
+    ϕ0c = get_get_hybridproblem_initial_ϕc(prob; scenario)
     ϕ0c.ϕqP.μζP .+= log(0.8)  # start from 90%
     exp.(ϕ0c.ϕqP.μζP) # updated during solve
-    res = CommonSolve.solve(prob_syn, solver, CP.NegLogDensity(), ϕ0c; scenario, 
-        epochs=2_000,
+    res = CommonSolve.solve(prob_syn, solver, CP.NegLogDensity(); ϕ0c, scenario, 
+        epochs=3_000,
         show_train_loss = Val(true)
         );
-    hp, hi_agg = HVI.predict_point!(res.h0, prob_syn, res.ϕc; scenario)
+    hp, hi_agg = HVI.predict_point(prob_syn, res.ϕc; scenario)
     @test hp.θsP[:,1] ≈ θP_true atol=0.1
     @test mean(abs.(hi_agg.θsM .- θMs_true)) < 0.05
     () -> begin
@@ -221,8 +196,8 @@ end
         #@test exp.(intϕqP(res.ϕ.ϕqP).μζP) ≈ θP_true atol = 0.1
         # run forward
         ϕ_tmp = (;res.ϕc.ϕg, ϕ0c.ϕqP, ϕ0c.ϕqI)
-        hp0, hi_agg0 = HVI.predict_point!(res.h0, prob_syn, ϕ0c; scenario)
-        hpt, hi_aggt = HVI.predict_point!(res.h0, prob_syn, ϕ_tmp; scenario)
+        hp0, hi_agg0 = HVI.predict_point(res.h0, prob_syn, ϕ0c; scenario)
+        hpt, hi_aggt = HVI.predict_point(res.h0, prob_syn, ϕ_tmp; scenario)
         # @usingany UnicodePlots
         i_obs = 3
         #scatterplot(hi_agg.θsM[i_obs,:], θMs_true[i_obs,:])
@@ -236,18 +211,20 @@ end
         scatterplot(θMs_true[1,:], hi_agg.θsM[1,:], )
         scatterplot(θMs_true[2,:], hi_agg.θsM[2,:])
     end
+    # TODO takes unbearable long - try converting site_helpers Tuple to Vector
+    # data_full = get_hybridproblem_train_dataloader(prob; scenario).data
+    # hp_, hi_agg_ = HVI.predict_point(prob_syn, res.ϕc, data_full; scenario)
     #
     ϕ0c = res.ϕc
-    res_elbo = CommonSolve.solve(prob_syn, solver, CP.NegElbo(), ϕ0c; scenario, 
-        epochs=800,
+    res_elbo = CommonSolve.solve(prob_syn, solver, CP.NegElbo(); ϕ0c, scenario, 
+        epochs=1_000,
         show_train_loss = Val(true)
         );
-    n_MC = 30
-    h30 = CP.prepare_elbo_helpers(res_elbo.h0, prob_syn; scenario, 
-        n_MC, use_diff_cache=Val(false));
-    hp_stat, hi_agg_stat = HVI.predict_stat!(h30, rng, prob_syn, res_elbo.ϕc; scenario);
+    n_sample_pred = 30
+    hp_stat, hi_agg_stat = HVI.predict_stat(rng, prob_syn, res_elbo.ϕc; scenario, n_sample_pred);
     @test eltype(hp_stat[1]) == eltype(hp_stat[2]) == eltype(ϕ0c.ϕqP)
     hp_stat.θsP[1,:]
+    hp_stat.θsP[2,:]
     hi_agg_stat.θsM[1,:,1]
     hp = map(x -> x[:,Val(:mean)], hp_stat)
     hi_agg = map(x -> x[:,Val(:mean),:], hi_agg_stat)
@@ -259,12 +236,17 @@ end
     hcat(exp.(res_elbo.ϕc.ϕqI.logσ_ζI_base .+ vcat(one(eltype(ϕ0c[1])),res_elbo.ϕc.ϕqI.logσ_ζI_offsets)), 
         exp.(ϕ0c.ϕqI.logσ_ζI_base .+ vcat(one(eltype(ϕ0c[1])),ϕ0c.ϕqI.logσ_ζI_offsets)))
     #        
+    # h30 = CP.prepare_elbo_helpers(res_elbo.h0, prob_syn; scenario, 
+    #     n_MC=n_sample_pred, use_diff_cache=Val(false));    
     hp_samp, hi_agg_samp = HVI.sample_posterior(rng, prob_syn, res_elbo.ϕc; 
-        scenario, elbo_helpers=h30);
+        scenario, 
+        n_sample_pred,
+        #elbo_helpers=h30
+        );
     @test keys(hp_samp.θsP[:,1]) == keys(θP_true)
-    @test size(hp_samp.θsP,2) == n_MC
+    @test size(hp_samp.θsP,2) == n_sample_pred
     @test keys(hi_agg_samp.θsM[:,1,1]) == keys(θMs_true[:,1])
-    @test size(hi_agg_samp.θsM)[2:3] == (n_MC, n_indiv)
+    @test size(hi_agg_samp.θsM)[2:3] == (n_sample_pred, n_indiv)
  end
 
 

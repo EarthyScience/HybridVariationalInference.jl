@@ -139,10 +139,10 @@ end
 
 
 
-function prepare_rnorm(::AbstractVector{TF}; n_θP, n_θM, n_site, n_MC) where TF
+function prepare_rnorm(::AbstractVector{TF}; n_θP, n_θM, n_indiv, n_MC) where TF
     (;
         P = Matrix{TF}(undef, n_θP, n_MC),
-        M = Tuple(Matrix{TF}(undef, n_θM, n_MC) for i in 1:n_site),
+        M = Tuple(Matrix{TF}(undef, n_θM, n_MC) for i in 1:n_indiv),
     )
     # discussed transforming Tuple{Matrix} to a 3D Array.
     # This would run, but make it more difficult and brittle for Enzyme,
@@ -150,7 +150,7 @@ function prepare_rnorm(::AbstractVector{TF}; n_θP, n_θM, n_site, n_MC) where T
     # the view yields a small performance cost. So keep the Tuple-pattern 
 end
 
-function prepare_elbo_helpers(approx::AbstractHVIApproximation, 
+function prepare_elbo_helpers(approx_spec::AbstractHVIApproxSpec, 
     ϕg::AbstractArray{TG}, template_TF::AbstractArray{TF};
     n_θP, n_θM, n_site, n_MC, n_cov, n_covP, n_M, cor_ends, n_obs,
     use_diff_cache::Val{use_dc} = Val(true),
@@ -163,9 +163,9 @@ function prepare_elbo_helpers(approx::AbstractHVIApproximation,
         y = Matrix{TF}(undef, n_obs, n_MC),
         # TODO move buffers to Channel object
         y_buffer = Matrix{TF}(undef, n_obs, n_MC),
-        sample_buffers = prepare_ind_sample_buffers(approx, cor_ends.M, template_TF),
+        sample_buffers = prepare_ind_sample_buffers(approx_spec, cor_ends.M, template_TF),
     ) for i in 1:n_site)
-    helpers_sites = use_dc ? map_leaves_nt(x -> PAT.DiffCache(x, chunk), his) : his
+    helpers_sites = use_dc ? map(hi -> map_leaves_nt(x -> PAT.DiffCache(x, chunk), hi),his) : his
     h = (;
         ζsP = Matrix{TF}(undef, n_θP, n_MC),
         θsP = Matrix{TF}(undef, n_θP, n_MC),
@@ -174,7 +174,7 @@ function prepare_elbo_helpers(approx::AbstractHVIApproximation,
         ϕms_mcs = Array{TF,3}(undef, n_M, n_MC, n_site),
         ϕms_mcs2D_buffer = Matrix{TF}(undef, n_M, n_MC * n_site),        
         xMP = Matrix{TG}(undef, (n_cov + n_covP), n_MC * n_site),
-        sample_buffers = prepare_sample_buffers(approx, cor_ends.P, template_TF),
+        sample_buffers = prepare_sample_buffers(approx_spec, cor_ends.P, template_TF),
         #diffchunk,
         helpers_sites,
     )
@@ -186,6 +186,7 @@ function prepare_elbo_helpers(h::NamedTuple, prob::AbstractHybridProblem; scenar
     prepare_elbo_helpers(h; approx_spec, cor_ends, kwargs...)
 end
 
+# update exisitng helpers for new n_MC or new n_site, but keep existing buffers and diffcache
 function prepare_elbo_helpers(h::NamedTuple; approx_spec::AbstractHVIApproxSpec, cor_ends, 
     n_MC = size(h.ζsP,2), 
     n_site = length(h.helpers_sites),
@@ -259,7 +260,7 @@ function sample_ζsP!(ζsP, logσ_ζP, ::DiagonalHVIApproximation, rnormP,
     ζsP .= μζP .+ (exp.(logσ_ζP) .* rnormP)
     nothing
 end
-prepare_sample_buffers(approx::DiagonalHVIApproximation, cor_endsP, template_TF) = (;)
+prepare_sample_buffers(::DiagonalHVIApproxSpec, cor_endsP, template_TF) = (;)
 
 function sample_ζsM!(ζsM, logσ_ζM, ::DiagonalHVIApproximation, rnorm, 
     ϕqc::AbstractVector{T}, ϕm::Union{AbstractVector, AbstractMatrix}, 
@@ -282,7 +283,7 @@ end
 @inline assert_ϕm(ϕm::AbstractMatrix, n_MC) = size(ϕm,2) == n_MC
 @inline view_ϕm(ϕm::AbstractMatrix, r::Union{Colon,UnitRange{Int}}) = view(ϕm, r, :)
 @inline view_ϕm(ϕm::AbstractVector, r::Union{Colon,UnitRange{Int}}) = view(ϕm, r)
-prepare_ind_sample_buffers(approx::Union{DiagonalHVIApproximation,DiagonalHVIApproxSpec}, cor_endsM, template_TF) = (;)
+prepare_ind_sample_buffers(approx::Union{DiagonalHVIApproxSpec}, cor_endsM, template_TF) = (;)
 
 # if pbm_covar_indices is nothing, return only a Matrix (n_m x n_site)
 # otherwise return an Array (n_m x n_MC x n_site)

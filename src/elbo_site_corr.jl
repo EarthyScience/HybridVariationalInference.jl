@@ -47,7 +47,7 @@ end
 
 # TODO unify prepare_sample_buffers and prepare_ind_sample_buffers
 function prepare_sample_buffers(
-    approx::Union{MeanHVIApproximation,MeanUniScalingHVIApproximation,MeanUniScalingHVIApproxSpec}, 
+    approx::Union{MeanHVIApproxMatSpec,MeanUniScalingHVIApproximation,MeanUniScalingHVIApproxSpec}, 
     cor_ends, template_TF::AbstractArray{TF}) where TF
     # zcor_ends = OneBasedVectorWithZero(cor_ends)
     # # make a Tuple, so to be handled by getdiffcache
@@ -61,7 +61,7 @@ function prepare_sample_buffers(
 end
 
 function sample_ζsM!(ζsM, logσ_ζM, 
-    approx::Union{MeanHVIApproximation,MeanUniScalingHVIApproximation}, 
+    approx::Union{MeanHVIApproximation, MeanHVIApproximationMat, MeanUniScalingHVIApproximation}, 
     rnorm, ϕqc::AbstractVector{T}, ϕm::Union{AbstractVector, AbstractMatrix}, 
     cor_endsM, sample_buffers::NamedTuple) where T
     n_θM, n_MC = size(ζsM)
@@ -99,10 +99,10 @@ function sample_ζsM!(ζsM, logσ_ζM,
     nothing         
 end
 
-function set_marginal_logσ!(logσ_ζMs, ::MeanHVIApproximation, ϕqc, ϕm) 
+function set_marginal_logσ!(logσ_ζMs, ::AbstractMeanHVIApproximation, ϕqc, ϕm) 
     logσ_ζMs .= view(ϕqc, Val(:logσ_ζM))  
 end
-function set_marginal_logσ!(logσ_ζMs, approx::MeanUniScalingHVIApproximation, ϕqc, ϕm) 
+function set_marginal_logσ!(logσ_ζMs, approx::Union{MeanUniScalingHVIApproximation}, ϕqc, ϕm) 
     n_θM = length(view(ϕqc, Val(:logσ_ζI_offsets))) + 1
     ϕm_scaling = ϕm[n_θM+1]
     logσ_par_offsets = OneBasedVectorWithZero(view(ϕqc, Val(:logσ_ζI_offsets))) # zero based 
@@ -116,7 +116,7 @@ function set_marginal_logσ!(logσ_ζMs, approx::MeanUniScalingHVIApproximation,
 end
 
 function prepare_ind_sample_buffers(
-    approx::Union{MeanHVIApproximation,MeanUniScalingHVIApproximation,MeanUniScalingHVIApproxSpec}, 
+    approx::Union{AbstractMeanHVIApproxSpec,MeanUniScalingHVIApproxSpec}, 
     cor_endsM, template_TF::AbstractArray{TF}) where TF
     n_θM = cor_endsM[end]
     U = Matrix{TF}(undef, n_θM, n_θM)

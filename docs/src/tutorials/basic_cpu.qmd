@@ -346,9 +346,19 @@ import CommonSolve: solve
 solver = HybridSolverSite(; alg=Adam(0.02))
 
 ϕ0c = (;)  # empty initial values -> will be created inside
-res_solve = solve(prob, solver, NegLogDensity(), ϕ0c; rng,
-    epochs = 20,
+res_solve = solve(prob, solver, NegElbo(), ϕ0c; rng,
+    epochs = 30,
 );
+```
+```{julia}
+#| eval: false
+#| echo: false
+() -> begin
+    ϕ0c.ϕqI
+    res_solve.ϕc.ϕqI
+    res_solve.ϕc.ϕqP
+    exp.(res_solve.ϕc.ϕqP.μζP)
+end
 ```
 
 The solver object is constructed given the specific stochastic optimization algorithm

@@ -1,5 +1,6 @@
-# start from within dev directory mljulia --project
-using Test # Pkg.activate("dev"); cd("dev")
+# start from within projects directory mljulia --project
+# Pkg.activate("projects"); cd("projects")
+using Test 
 using HybridVariationalInference
 using HybridVariationalInference: HybridVariationalInference as HVI
 using StableRNGs
@@ -9,10 +10,9 @@ using ComponentArrays: ComponentArrays as CA
 using Optimization
 using OptimizationOptimisers # Adam
 using UnicodePlots
-using SimpleChains
-using Flux
+using Lux
 using MLUtils
-import MLDataDevices, CUDA, cuDNN, GPUArraysCore
+#import MLDataDevices, CUDA, cuDNN, GPUArraysCore
 
 rng = StableRNG(115)
 scenario = NTuple{0, Symbol}()

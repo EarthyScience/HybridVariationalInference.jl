@@ -80,13 +80,14 @@ end
 get_axis_θP(::Union{PBMPopulationApplicator{AX},PBMPopulationAppSpec{AX}}) where AX = AX[1]
 get_axis_θM(::Union{PBMPopulationApplicator{AX},PBMPopulationAppSpec{AX}}) where AX = AX[2]
 
-function create_nsite_applicator(app::PBMPopulationApplicator, n_MC;
+function create_nsite_applicator(app::PBMPopulationApplicator, n_site;
     diffchunk::ForwardDiff.Chunk{chunk} = ForwardDiff.Chunk(8),
     ) where chunk
-    is_MC = ones(eltype(app.θFixm), n_MC)'
-    θFixm = CA.getdata(app.θFixm[:,1]) .* is_MC
-    θFixm_dc = PAT.DiffCache(θFixm, chunk)
-    PBMPopulationApplicator(app.fθpop!, θFixm, θFixm_dc, app.axθcomp, app.ax_xP)        
+    app
+    # is_MC = ones(eltype(app.θFixm), n_MC)'
+    # θFixm = CA.getdata(app.θFixm[:,1]) .* is_MC
+    # θFixm_dc = PAT.DiffCache(θFixm, chunk)
+    # PBMPopulationApplicator(app.fθpop!, θFixm, θFixm_dc, app.axθcomp, app.ax_xP)        
 end
 
 # single site, severl MC

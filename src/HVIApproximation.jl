@@ -1,3 +1,10 @@
+abstract type AbstractHVIApproxSpec end
+function get_hybridproblem_HVIApproxSpec end
+function get_HVIApproximation(spec::AbstractHVIApproxSpec, ϕc::NamedTuple) 
+    get_HVIApproximation(spec; ϕqPc=ϕc.ϕqP, ϕqIc=ϕc.ϕqI)
+end
+
+
 """
     AbstractHVIApproximation
 
@@ -20,13 +27,17 @@ abstract type AbstractHVIApproximation end,
 function get_numberof_MLinputs end
 get_numberof_θM(::AbstractHVIApproximation, ml_pred::AbstractArray) = size(ml_pred,1)
 
-abstract type AbstractMeanHVIApproximation <: AbstractHVIApproximation end
-get_numberof_MLinputs(::AbstractMeanHVIApproximation, θM) = length(θM)
 
-abstract type AbstractHVIApproxSpec end
-function get_hybridproblem_HVIApproxSpec end
+abstract type AbstractMeanHVIApproxSpec <: AbstractHVIApproxSpec end
+abstract type AbstractMeanHVIApproximation <: AbstractHVIApproximation end
+get_numberof_MLinputs(::Union{AbstractMeanHVIApproximation,AbstractMeanHVIApproxSpec}, θM) = length(θM)
+
 
 # First implementation with one big sparse covariance matrix
+struct MeanHVIApproxMatSpec <: AbstractMeanHVIApproxSpec end
+function get_HVIApproximation(spec::MeanHVIApproxMatSpec; ϕqPc, ϕqIc) 
+    MeanHVIApproximationMat()
+end
 struct MeanHVIApproximationMat <: AbstractMeanHVIApproximation end
 
 # Reimplementation with generating random numbers for each block separately
@@ -37,6 +48,10 @@ struct MeanHVIApproximationDev <: AbstractMeanHVIApproximation end
 
 # neglecting correlations
 struct DiagonalHVIApproxSpec <: AbstractHVIApproxSpec end
+function get_HVIApproximation(spec::DiagonalHVIApproxSpec; ϕqPc, ϕqIc) 
+    DiagonalHVIApproximation()
+end
+
 struct DiagonalHVIApproximation <: AbstractHVIApproximation end
 get_numberof_θM(::DiagonalHVIApproximation, ml_pred::AbstractArray) =  length(ml_pred)
 

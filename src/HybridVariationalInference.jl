@@ -80,7 +80,8 @@ include("RandomEffects.jl")
 export AbstractHVIApproximation, AbstractMeanHVIApproximation
 export get_numberof_MLinputs
 export AbstractHVIApproxSpec, get_HVIApproximation
-export MeanHVIApproximation, MeanHVIApproximationMat, DiagonalHVIApproximation
+export MeanHVIApproximation, MeanHVIApproximationMat, AbstractMeanHVIApproxSpec, MeanHVIApproxMatSpec
+export DiagonalHVIApproximation, DiagonalHVIApproxSpec
 export AbstractMeanVarSepHVIApproximation, MeanVarSepHVIApproximation
 export AbstractMeanScalingHVIApproximation, MeanScalingHVIApproximation
 export MeanUniScalingHVIApproxSpec, MeanUniScalingHVIApproximation
@@ -125,6 +126,7 @@ export AbstractHybridProblem, AbstractPenaltyComputer, CustomPenaltyComputer,
         get_hybridproblem_priors,
         get_hybridproblem_pbmpar_covars,
         get_hybridproblem_ranef,
+        get_get_hybridproblem_initial_ϕc,
        gen_cov_pred,
        construct_dataloader_from_synthetic,
        gdev_hybridproblem_dataloader, gdev_hybridproblem_data,
@@ -166,6 +168,7 @@ export predict_hvi_and_compute_elbo_components
 export get_hybridproblem_correlation_Ms, get_hybridproblem_cholesky_correlation_Ms
 export get_marginal_std
 export NegLogDensity, NegElbo
+export prepare_elbo_helpers
 include("elbo_dev.jl")
 include("elbo_sepvec.jl")
 include("elbo_scaling.jl")
