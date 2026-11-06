@@ -17,7 +17,7 @@ using MLUtils
 #import MLDataDevices, CUDA, cuDNN, GPUArraysCore
 
 rng = StableRNG(115)
-scenario = Val((:use_Lux,:usePopPBM,:uniscaling,:use_rangescaling,:omit_r0,))  # without omit_r0 ambiguous K2 estimated to high
+scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:omit_r0,))  # without omit_r0 ambiguous K2 estimated to high
 # prob = DoubleMM.DoubleMMCase()
 
 #------ setup synthetic data and training data loader
@@ -38,24 +38,25 @@ prob0 = HybridProblem(prob0_; train_dataloader)
 #prob0.covar
 
 #------- pointwise hybrid model fit
-solver_point = HybridSolverSite(; alg = OptimizationOptimisers.Adam(0.01))
+solver_point = HybridSolverSite(; alg = OptimizationOptimisers.Adam(0.005))
 #solver_point = HybridPointSolver(; alg = Adam(0.01), n_batch = 30)
 #solver_point = HybridPointSolver(; alg = Adam(0.01), n_batch = 10)
 #solver_point = HybridPointSolver(; alg = Adam(), n_batch = 200)
 n_batches_in_epoch = n_site ÷ n_batch
-n_epoch = 80
-ϕ0c = (;)  # empty initial values -> will be created inside
-res_point = solve(prob0, solver_point, NegElbo(), ϕ0c; scenario,
+n_epoch = 120
+res_point = solve(prob0, solver_point, NegElbo(); scenario,
     rng, epochs = n_epoch);
 
-p_point = predict_point_hvi(res.h0, prob0, res_point.ϕc; scenario, n_sample_pred = 400);
- y_pred, θMs_tr = gf(prob0o; scenario, is_inferred=Val(true));
+# TODO adjust to new sampling
+hp, hi_agg = HVI.predict_point(prob0, res_point.ϕc; scenario)
+y_pred = hi_agg.y
+θMs = hi_agg.θsM
 # @descend_code_warntype gf(prob0o; scenario)
 #@usingany UnicodePlots
-plt = scatterplot(θMs_true'[:, 1], θMs_tr[:, 1]);
+plt = scatterplot(θMs_true[1,:], θMs[1,:]);
 lineplot!(plt, 0, 1)
-scatterplot(θMs_true'[:,2], θMs_tr[:,2])
-prob0o.θP
+scatterplot(θMs_true[2,:], θMs[2,:])
+hp.θsP
 #scatterplot(vec(y_true), vec(y_o))
 #scatterplot(vec(y_true), vec(y_pred))
 histogram(vec(y_pred) - vec(y_true)) # predictions centered around y_o (or y_true)
@@ -64,9 +65,9 @@ histogram(vec(y_pred) - vec(y_true)) # predictions centered around y_o (or y_tru
 #   by providing the data rather than the DataLoader
 () -> begin
     solver1 = HybridPointSolver(; alg = Adam(0.01), n_batch = n_site)
-    (; ϕ, resopt) = solve(prob0o, solver1; scenario, rng,
+    (; ϕ, resopt) = solve(prob0, solver1; scenario, rng,
         callback = callback_loss(20), maxiters = 400)
-    prob1o = HybridProblem(prob0o; ϕg = cpu_ca(ϕ).ϕg, θP = cpu_ca(ϕ).θP)
+    prob1o = HybridProblem(prob0; ϕg = cpu_ca(ϕ).ϕg, θP = cpu_ca(ϕ).θP)
      y_pred, θMs_tr = gf(prob1o, xM, xP; scenario)
     scatterplot(θMs_true[1, :], θMs_tr[1, :])
     scatterplot(θMs_true[2, :], θMs_tr[2, :])
@@ -137,14 +138,13 @@ end
 
 #----------- Hybrid Variational inference: HVI
 using MLUtils
-import Zygote
 using Bijectors
 
-solver_post = HybridPosteriorSolver(; alg = OptimizationOptimisers.Adam(0.01), n_MC = 3)
+solver_post = solver_point
 
 () -> begin # priors on mean θ
-    get_hybridproblem_cor_ends(prob0o)
-    probh = prob0o  # start from point optimized to infer uncertainty
+    get_hybridproblem_cor_ends(prob0)
+    probh = prob0  # start from point optimized to infer uncertainty
     #probh = prob1o  # start from point optimized to infer uncertainty
     #probh = prob0  # start from no information
     #solver_point = HybridPointSolver(; alg = Adam(), n_batch = 200)
@@ -172,8 +172,6 @@ solver_post = HybridPosteriorSolver(; alg = OptimizationOptimisers.Adam(0.01), n
 end
 
 #----------- HVI without strong prior on θmean
-#prob2 = HybridProblem(prob1o);  # copy
-prob2 = HybridProblem(prob0o);  # copy
 function fstate_ϕq(state)
     u = state.u |> cpu
     #Main.@infiltrate_main
@@ -183,14 +181,10 @@ end
 n_epoch = 100
 #n_epoch = 400
 #n_epoch = 2
-(; ϕ, θP, resopt, interpreters, probo) = solve(prob2, 
-    HybridProblem(solver_post, n_MC = 12);
-    #HybridProblem(solver_post, n_MC = 30);
-    scenario, rng, maxiters = n_batches_in_epoch * n_epoch,
-    #callback = HVI.callback_loss_fstate(n_batches_in_epoch*5, fstate_ϕq),
-    callback = callback_loss(n_batches_in_epoch * 5),    
+res_elbo = solve(prob0, solver_post, NegElbo(); ϕ0c = res_point.ϕc, scenario, 
+    epochs=n_epoch,
+    #show_train_loss = Val(true)
     );
-prob2o = probo;
 
 () -> begin # store and reload optimized problem
     using JLD2
@@ -260,38 +254,39 @@ end
     g_flux = g_luxs
 end
 
-ζ_VIc = interpreters.ϕg_ϕq(resopt.u |> Flux.cpu)
-#ζMs_VI = g_flux(xM_gpu, ζ_VIc.ϕg |> Flux.gpu) |> Flux.cpu
-ϕunc_VI = interpreters.ϕq(ζ_VIc.ϕq)
-ϕunc_VI.ρsM
-exp.(ϕunc_VI.logσ2_ζP)
-exp.(ϕunc_VI.coef_logσ2_ζMs[1, :])
+exp.(res_elbo.ϕc.ϕqP.logσ_ζP)
+exp.(res_elbo.ϕc.ϕqI.coef_logσ_ζMs[:,1])
 
 # test predicting correct obs-uncertainty of predictive posterior
 n_sample_pred = 400
-(; y, θsP, θsMs_tr) = predict_hvi(rng, prob2o; scenario, n_sample_pred);
-(y2, θsP2, θsMs2_tr) = (y, θsP, θsMs_tr);
+hp_samp, hi_agg_samp = HVI.sample_posterior(rng, prob0, res_elbo.ϕc; 
+    scenario, 
+    n_sample_pred,
+    );
+y = y2 = hi_agg_samp.y
+θsP = θsP2 = hp_samp.θsP
+θsMs = θsMs2 = hi_agg_samp.θsM
 
-size(y) # n_obs x n_site, n_sample_pred
-size(θsMs_tr)  # n_site x n_θM x n_sample
-σ_o_post = dropdims(std(y; dims = 3), dims = 3);
+size(y) # n_obs x  n_sample_pred x n_site,
+size(θsMs)  # n_θM x n_sample x n_site 
+σ_o_post = dropdims(std(CA.getdata(y); dims = 2), dims = 2);
 σ_o = exp.(y_unc[:, 1] / 2)
 
 #describe(σ_o_post)
 hcat(σ_o, # fill(mean_σ_o_MC, length(σ_o)),
     mean(σ_o_post, dims = 2), sqrt.(mean(abs2, σ_o_post, dims = 2)))
 # VI predicted uncertainty is smaller than HMC predicted one
-mean_y_pred = map(mean, eachslice(y; dims = (1, 2)));
+mean_y_pred = map(mean, eachslice(y; dims = (1, 3)));
 #describe(mean_y_pred - y_o)
 histogram(vec(mean_y_pred) - vec(y_true)) # predictions centered around y_o (or y_true)
 plt = scatterplot(vec(y_true), vec(mean_y_pred));
 lineplot!(plt, 0, 2)
 mean(mean_y_pred - y_true) # still ok
 
-mean_θMs = CA.ComponentArray(mean(θsMs_tr; dims = 3)[:,:,1], CA.getaxes(θMs_true'))
-plt = scatterplot(θMs_true'[:,1], mean_θMs[:,1]);
+mean_θMs = CA.ComponentArray(mean(CA.getdata(θsMs); dims = 2)[:,1,:], CA.getaxes(θMs_true))
+plt = scatterplot(θMs_true[1,:], mean_θMs[1,:]);
 lineplot!(plt, 0, 1)
-plt = scatterplot(θMs_true'[:,2], mean_θMs[:,2])
+plt = scatterplot(θMs_true[2,:], mean_θMs[2,:])
 histogram(θsP)
 #scatter(fig[1,1], CA.getdata(θMs_true[1, :]), CA.getdata(mean_θ.Ms[1, :])); ablines!(fig[1,1], 0, 1)
 #@usingany AlgebraOfGraphices
@@ -447,7 +442,7 @@ using MCMCChains
 prior_ζ = fit(Normal, @qp_ll(log(1e-2)), @qp_uu(log(10)))
 prior_ζn = (n) -> MvNormal(fill(prior_ζ.μ, n), PDiagMat(fill(abs2(prior_ζ.σ), n)))
 prior_ζn(3)
-prob = HybridProblem(prob0o);
+prob = HybridProblem(prob0);
 
 (; θM, θP) = get_hybridproblem_par_templates(prob; scenario)
 n_θM, n_θP = length.((θM, θP))
@@ -940,7 +935,7 @@ end
     prior_θ = Normal(0, 10)
     prior_θn = (n) -> MvNormal(fill(prior_θ.μ, n), PDiagMat(fill(abs2(prior_θ.σ), n)))
     prior_θn(3)
-    prob = HybridProblem(prob0o);
+    prob = HybridProblem(prob0);
 
     (; θM, θP) = get_hybridproblem_par_templates(prob; scenario)
     n_θM, n_θP = length.((θM, θP))
