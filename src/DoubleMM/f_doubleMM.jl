@@ -497,7 +497,8 @@ function HVI.get_hybridproblem_HVIApproxSpec(prob::DoubleMMCase; scenario::Val{s
     approx = if (:uniscaling ∈ scen) 
         MeanUniScalingHVIApproxSpec() 
     else
-        error("implement get_hybridproblem_HVIApproxSpec for scenarios without :uniscaling")
+        MeanHVIApproxMatSpec()
+        #error("implement get_hybridproblem_HVIApproxSpec for scenarios without :uniscaling")
     end
 end
 

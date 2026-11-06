@@ -1,12 +1,12 @@
 function sample_ζsP!(ζsP, logσ_ζP, 
-    ::Union{MeanHVIApproximation,MeanUniScalingHVIApproximation},
-    rnorm, ϕqc::AbstractVector{T}, cor_endsP, sample_buffers::NamedTuple) where T
-    μζP = CA.getdata(view(ϕqc,Val(:μζP)))
-    logσ_ζP .= view(ϕqc, Val(:logσ_ζP))
+    ::Union{AbstractMeanHVIApproximation,MeanUniScalingHVIApproximation},
+    rnorm, ϕqPc::AbstractVector{T}, cor_endsP, sample_buffers::NamedTuple) where T
+    μζP = CA.getdata(view(ϕqPc,Val(:μζP)))
+    logσ_ζP .= view(ϕqPc, Val(:logσ_ζP))
     n_θP, n_MC = size(ζsP)
     @assert size(rnorm) == (n_θP, n_MC)
     @assert size(μζP) == (n_θP,)
-    ρsP = view(ϕqc, Val(:ρsP))
+    ρsP = view(ϕqPc, Val(:ρsP))
     #zcor_ends = OneBasedVectorWithZero(cor_endsP)
     # ib = 2
     ρ_start = 1
@@ -61,16 +61,16 @@ function prepare_sample_buffers(
 end
 
 function sample_ζsM!(ζsM, logσ_ζM, 
-    approx::Union{MeanHVIApproximation, MeanHVIApproximationMat, MeanUniScalingHVIApproximation}, 
-    rnorm, ϕqc::AbstractVector{T}, ϕm::Union{AbstractVector, AbstractMatrix}, 
+    approx::Union{AbstractMeanHVIApproximation, MeanUniScalingHVIApproximation}, 
+    rnorm, ϕqIc::AbstractVector{T}, ϕm::Union{AbstractVector, AbstractMatrix}, 
     cor_endsM, sample_buffers::NamedTuple) where T
     n_θM, n_MC = size(ζsM)
     @assert size(rnorm) == (n_θM, n_MC)
     #logσ_ζM .= view(ϕqc, Val(:logσ_ζM))
-    set_marginal_logσ!(logσ_ζM, approx, ϕqc, ϕm)
+    set_marginal_logσ!(logσ_ζM, approx, ϕqIc, ϕm)
     @assert size(ϕm,1) >= n_θM
     assert_ϕm(ϕm, n_MC) # dispatch on vector or matrix
-    ρsM = view(ϕqc, Val(:ρsM))
+    ρsM = view(ϕqIc, Val(:ρsM))
     zcor_ends = OneBasedVectorWithZero(cor_endsM)
     Ul = sample_buffers.U
     # ib = 1
@@ -99,8 +99,20 @@ function sample_ζsM!(ζsM, logσ_ζM,
     nothing         
 end
 
-function set_marginal_logσ!(logσ_ζMs, ::AbstractMeanHVIApproximation, ϕqc, ϕm) 
-    logσ_ζMs .= view(ϕqc, Val(:logσ_ζM))  
+function set_marginal_logσ!(logσ_ζMs, ::AbstractMeanHVIApproximation, ϕqc, ϕm::AbstractArray{T}) where T
+    ζMs = ϕm
+    # TODO change to coef_logσ_ζMs (std rather than variance)
+    intercept = view(view(ϕqc, Val(:coef_logσ_ζMs)), :, 1)
+    slope = view(view(ϕqc, Val(:coef_logσ_ζMs)), :, 2)
+    n_θM = length(logσ_ζMs)
+    n_MC = size(ζMs,2)
+    @assert length(intercept) == n_θM <= size(ζMs,1)
+    logσ_ζMs .= zero(eltype(logσ_ζMs))
+    for j in 1:n_MC
+        logσ_ζMs .+= intercept .+ slope .* view(ζMs, :, j)
+    end
+    logσ_ζMs ./= T(n_MC)
+    logσ_ζMs
 end
 function set_marginal_logσ!(logσ_ζMs, approx::Union{MeanUniScalingHVIApproximation}, ϕqc, ϕm) 
     n_θM = length(view(ϕqc, Val(:logσ_ζI_offsets))) + 1

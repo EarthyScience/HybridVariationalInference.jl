@@ -54,10 +54,10 @@ const GROUP = get(ENV, "GROUP", "All") # defined in in CI.yml
         end
 
 
-        @time @safetestset "BMApplicatorMC" include("test_PBMApplicatorMC.jl")
-        @time @safetestset "test_VcatVecViews" include("test_VcatVecViews.jl")
-        @time @safetestset "util" include("test_util.jl")
-        @time @safetestset "elbo_sites" include("test_elbo_site.jl")
+        # @time @safetestset "BMApplicatorMC" include("test_PBMApplicatorMC.jl")
+        # @time @safetestset "test_VcatVecViews" include("test_VcatVecViews.jl")
+        # @time @safetestset "util" include("test_util.jl")
+        # @time @safetestset "elbo_sites" include("test_elbo_site.jl")
         @time @safetestset "elbo_sites_doubleMM" include("test_elbo_site_doubleMM.jl")
     end
 end

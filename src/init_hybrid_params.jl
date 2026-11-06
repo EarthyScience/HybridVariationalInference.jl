@@ -128,6 +128,59 @@ function init_hybrid_ϕunc(
    (; ϕqc = CA.ComponentVector(;nt...)::CA.ComponentVector, approx)
 end
 
+# TODO remove init_hybrid_ϕunc after changing all to split ϕqP and ϕqI
+function create_hybrid_ϕuncs(
+        ::AbstractMeanHVIApproxSpec,
+        ::AbstractVector{FT};
+        cor_ends::NamedTuple,
+) where FT
+    ϕqPc = CA.ComponentVector(
+        μζP = Vector{FT}(undef, cor_ends.P[end]),
+        logσ_ζP = Vector{FT}(undef, cor_ends.P[end]),
+        ρsP = Vector{FT}(undef, get_cor_count(cor_ends.P))
+        )
+    ϕqIc = CA.ComponentVector(
+        coef_logσ_ζMs = Matrix{FT}(undef, cor_ends.M[end], 2),
+        ρsM = Vector{FT}(undef, get_cor_count(cor_ends.M))
+        )
+    (;ϕqPc, ϕqIc)
+end
+
+function init_hybrid_ϕuncs!(
+        ϕqPc::AbstractVector{FT}, ϕqIc::AbstractVector{FT},
+        ::AbstractMeanHVIApproxSpec;
+        cor_ends::NamedTuple,
+        ρ0::FT = zero(FT),
+        logσ_ζM::Union{Nothing, AbstractVector{FT}} = nothing,
+        logσ_ζP::Union{Nothing, AbstractVector{FT}} = nothing,
+        ρsP = Fill(ρ0, get_cor_count(cor_ends.P)),
+        ρsM = Fill(ρ0, get_cor_count(cor_ends.M)),
+        transM, transP,
+        θP::AbstractVector, θM::AbstractVector,
+        relerr = FT(0.01),
+) where {FT}
+    local σ_ζP
+    view(ϕqPc, Val(:μζP)) .= inverse(transP)(CA.getdata(θP))
+    view(ϕqPc, Val(:logσ_ζP)) .= if isnothing(logσ_ζP) 
+        # TODO provide mutating not-allocating version
+        σ_ζP = compute_σ_unconstrained(transP, CA.getdata(θP), relerr)        
+        log.(convert.(FT,σ_ζP))        
+    else 
+        logσ_ζP
+    end
+    view(ϕqPc, Val(:ρsP)) .= ρsP
+    #
+    view(view(ϕqIc, Val(:coef_logσ_ζMs)),:,1) .= if isnothing(logσ_ζM) 
+        # TODO provide mutating not-allocating version
+        log.(compute_σ_unconstrained(transM, CA.getdata(θM), relerr))        
+    else
+        logσ_ζM # conversion happens on assignment
+    end
+    view(view(ϕqIc, Val(:coef_logσ_ζMs)),:,2) .= zero(FT)
+    view(ϕqIc, Val(:ρsM)) .= ρsM
+    (; ϕqPc, ϕqIc)
+end
+
 function init_hybrid_ϕunc(
         approx::AbstractMeanVarSepHVIApproximation,
         cor_ends::NamedTuple,
@@ -225,6 +278,7 @@ function init_hybrid_ϕunc(
 end
 
 # TODO change all σ2 to σ
+# TODO remove init_hybrid_ϕunc after changing all to split ϕqP and ϕqI
 function init_hybrid_ϕunc(
         approx1::MeanUniScalingHVIApproximation,
         cor_ends::NamedTuple,
@@ -260,7 +314,6 @@ function init_hybrid_ϕunc(
     (; ϕqc = CA.ComponentVector(;nt...)::CA.ComponentVector, approx)
 end
 
-# TODO remove init_hybrid_ϕunc after changing all to split ϕqP and ϕqI
 function init_hybrid_ϕuncs!(
         ϕqPc::AbstractVector{FT}, ϕqIc::AbstractVector{FT},
         ::MeanUniScalingHVIApproxSpec;

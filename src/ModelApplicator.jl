@@ -261,7 +261,11 @@ function apply_model!(y, app::NormalScalingModelApplicator, x, ϕ; kwargs...)
         # v = view(y,app.range_scaled,:)
         # v .= norminvcdf.(app.μ, app.σ, v)
     else
-        y .= norminvcdf.(app.μ, app.σ, y) 
+        # explicit loop rather than broadcast to avoid Enzyme mismatched activity (see above)
+        @assert length(app.μ) == size(y,1)
+        @inbounds for j in axes(y,2), i in axes(y,1)
+            y[i,j] = norminvcdf(app.μ[i], app.σ[i], y[i,j])
+        end
     end
     y
 end
@@ -278,11 +282,11 @@ end
 Wrapper around AbstractModelApplicator assumed to predict on (0,1) with 
 a linear mappting to prededfined range.
 """
-struct RangeScalingModelApplicator{VF,A} <: AbstractModelApplicator
+struct RangeScalingModelApplicator{VF,A,RS<:Union{Nothing,UnitRange{Int}}} <: AbstractModelApplicator
     offset::VF
     width::VF
     app::A
-    range_scaled::UnitRange{Int}
+    range_scaled::RS # concrete type parameter rather than Union field: required by Enzyme
 end
 
 function apply_model(app::RangeScalingModelApplicator, x, ϕ; kwargs...)
@@ -304,7 +308,12 @@ function apply_model!(y, app::RangeScalingModelApplicator, x, ϕ; kwargs...)
             y[ri,j] = y[ri,j] * app.width[i] + app.offset[i]
         end
     else
-        y .= y .* app.width .+ app.offset
+        # explicit loop rather than broadcast: broadcast's unalias may copy the
+        # constant width/offset, which causes Enzyme runtime activity error
+        @assert length(app.width) == size(y,1)
+        @inbounds for j in axes(y,2), i in axes(y,1)
+            y[i,j] = y[i,j] * app.width[i] + app.offset[i]
+        end
     end
     y
 end
@@ -321,7 +330,7 @@ end
 """
     RangeScalingModelApplicator(app, lowers, uppers, FT::Type; repeat_inner::Integer = 1) 
 
-Provide the target ragen by vectors `lower` and `upper`. The size of both
+Provide the target ranges by vectors `lower` and `upper`. The size of both
 outputs must correspond to the size of the output of `app`.
 
 """
@@ -329,7 +338,7 @@ function RangeScalingModelApplicator(
     app::AbstractModelApplicator, 
     lowers::VT, uppers::VT,
     FT::Type;
-    range_scaled = 1:0
+    range_scaled = nothing
     ) where VT<:AbstractVector
     width = collect(FT, uppers .- lowers)
     lowersFT = collect(FT, lowers) # convert eltype

@@ -32,7 +32,8 @@ prob0 = DoubleMM.DoubleMMCase()
 #scenario = Val((:use_Lux,:usePopPBM,:covarK2,:uniscaling,))
 #scenario = Val((:use_Lux,:usePopPBM,:uniscaling,)) # omit covars -> vector site ϕm
 #scenario = Val((:use_Lux,:usePopPBM,:uniscaling,:use_rangescaling)) # omit covars, rangescaling
-scenario = Val((:use_Lux,:useSitePBM,:uniscaling,:use_rangescaling)) # omit covars, rangescaling
+#scenario = Val((:use_Lux,:useSitePBM,:uniscaling,:use_rangescaling)) # omit covars, rangescaling
+scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling)) # omit covars, rangescaling
 
 
 
@@ -244,8 +245,9 @@ end
     # TODO test changed uncertainty and correlation
     @test res_elbo.ϕc.ϕqP.logσ_ζP != ϕ0c.ϕqP.logσ_ζP
     hcat(exp.(res_elbo.ϕc.ϕqP.logσ_ζP),exp.(ϕ0c.ϕqP.logσ_ζP))
-    hcat(exp.(res_elbo.ϕc.ϕqI.logσ_ζI_base .+ vcat(one(eltype(ϕ0c[1])),res_elbo.ϕc.ϕqI.logσ_ζI_offsets)), 
-        exp.(ϕ0c.ϕqI.logσ_ζI_base .+ vcat(one(eltype(ϕ0c[1])),ϕ0c.ϕqI.logσ_ζI_offsets)))
+    # code tied to UniScalingApprox
+    # hcat(exp.(res_elbo.ϕc.ϕqI.logσ_ζI_base .+ vcat(one(eltype(ϕ0c[1])),res_elbo.ϕc.ϕqI.logσ_ζI_offsets)), 
+    #     exp.(ϕ0c.ϕqI.logσ_ζI_base .+ vcat(one(eltype(ϕ0c[1])),ϕ0c.ϕqI.logσ_ζI_offsets)))
     #        
     hp_samp, hi_agg_samp = HVI.sample_posterior(rng, prob, res_elbo.ϕc; 
         scenario, 
