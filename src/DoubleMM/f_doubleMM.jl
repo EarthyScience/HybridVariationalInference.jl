@@ -442,7 +442,7 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     xP = int_xP_sites(vcat(repeat(xP_S1, 1, n_site), repeat(xP_S2, 1, n_site)))
     #xP[:S1,:]
     #θP = get_θP(prob) # for DoubleMMCase par_templates gives correct θP
-    θP = pt.θP #get_hybridproblem_θP(prob; scenario)
+    θP = pt.θP 
     (y_true, _) = f(θP, θMs_true', xP)    
     σ_o = FloatType(0.01)
     #σ_o = FloatType(0.002)
@@ -471,26 +471,6 @@ function HVI.get_hybridproblem_cor_ends(prob::DoubleMMCase; scenario::Val{scen})
         (P = [length(pt.θP)], M = [length(pt.θM)])
     end
 end
-
-# TODO: separate parameters and computing tools from specification of the Problem
-function HVI.get_hybridproblem_ϕq(prob::DoubleMMCase; scenario::Val{scen}) where {scen}
-    approx = get_hybridproblem_HVIApproximation(prob; scenario)
-    FT = get_hybridproblem_float_type(prob; scenario) 
-    cor_ends = get_hybridproblem_cor_ends(prob; scenario)
-    (;θP, θM)  = get_hybridproblem_par_templates(prob; scenario)
-    n_site, _ = get_hybridproblem_n_site_and_batch(prob; scenario)
-    (;transP, transM)  = get_hybridproblem_transforms(prob; scenario)
-    (;ϕqc, approx) = init_hybrid_ϕunc(approx, cor_ends, zero(FT); θM, transM, n_site)    
-    pt = get_hybridproblem_par_templates(prob; scenario)
-    ranef_spec = get_hybridproblem_ranef(prob; scenario)
-    #ranef = get_ranef_computer(ranef_spec, keys(pt.θM), n_site, one(eltype(ϕq0)))
-    ranef = get_ranef_computer(ranef_spec, keys(pt.θM), n_site, one(FT))
-    ϕq_ranef = setup_ϕq_ranef(ranef)
-    ϕqc = CA.ComponentVector(ϕqc, ranef = ϕq_ranef)
-    # for DoubleMMCase templates gives the correct values
-    ϕqP = HVI.update_μP_by_θP(ϕqc, θP, transP)
-end
-
 
 function HVI.get_hybridproblem_penalty_computer(prob::DoubleMMCase; scenario = ())
     ZeroPenaltyComputer()

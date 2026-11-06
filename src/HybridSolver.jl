@@ -36,6 +36,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     pt = get_hybridproblem_par_templates(prob; scenario)
     g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
     # TODO: separate parameters from problem description - right now optimized
+    error("remove solve(prob, ::HybridPointSolver), get_hybridproblem_ϕq not supported any more")
     ϕq0 = get_hybridproblem_ϕq(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
@@ -283,6 +284,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     ranef = get_ranef_computer(
         ranef_spec, keys(pt.θM), n_site, one(eltype(pt.θM)))
     ϕq_ranef = setup_ϕq_ranef(ranef)
+    error("remove solve(prob, ::HybridPosteriorSolver), get_hybridproblem_ϕq not supported any more")
     ϕq = CA.ComponentVector(get_hybridproblem_ϕq(prob; scenario), ranef = ϕq_ranef)
     (; ϕ, interpreters) = init_hybrid_params(ϕg0, ϕq)
     int_ϕq = interpreters.ϕq
@@ -488,6 +490,7 @@ function compute_elbo_components(
     (; θP, θM) = pt
     cor_ends = get_hybridproblem_cor_ends(prob; scenario)
     g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
+    error("remove compute_elbo_components, get_hybridproblem_ϕq not supported any more")
     ϕq = get_hybridproblem_ϕq(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     (; ϕ, interpreters) = init_hybrid_params(ϕg0, ϕq)

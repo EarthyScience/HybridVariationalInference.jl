@@ -27,12 +27,11 @@ Fields:
   parameters.
 """
 struct HybridProblem <: AbstractHybridProblem
-    #θP::CA.ComponentVector
+    θP::CA.ComponentVector
     θM::CA.ComponentVector
     f_batch::Union{Any,AbstractPBMApplicatorSpec}
     g::AbstractModelApplicator
-    ϕg::Any # depends on framework
-    ϕq::CA.ComponentVector
+    ϕg::Any # depends on framework, TODO rename to ϕg0
     priors::AbstractDict
     py::Any # any callable
     transM::Stacked
@@ -49,8 +48,8 @@ struct HybridProblem <: AbstractHybridProblem
     #penalty_computer::
     #inner constructor to constrain the types
     function HybridProblem(
+            θP::CA.ComponentVector,
             θM::CA.ComponentVector,
-            ϕq::CA.ComponentVector, # = init_hybrid_ϕunc(approx, cor_ends, zero(eltype(θM))),
             g::AbstractModelApplicator,
             ϕg::AbstractVector,
             f_batch::Union{Any,AbstractPBMApplicatorSpec}, # TODO remove Any rename to pbm_spec
@@ -68,46 +67,48 @@ struct HybridProblem <: AbstractHybridProblem
             penalty_computer::PenaltyComputerOrFunction = ZeroPenaltyComputer(),
             ranef::AbstractRandomEffects = NullRandomEffects(),
     ) where N
-        new(
-            θM, f_batch, g, ϕg, ϕq, priors, py, transM, transP, cor_ends, 
+        prob = new(
+            θP, θM, f_batch, g, ϕg, priors, py, transM, transP, cor_ends, 
             train_dataloader, test_data, n_site, n_batch, pbm_covars, 
             approx, penalty_computer, ranef)
+        check_hybridproblem_par_templates(prob)
+        prob
     end
 end
 
-"""
-    init_hybrid_ϕq(θP, θM, transP; cor_ends, n_site)
+# """
+#     init_hybrid_ϕq(θP, θM, transP; cor_ends, n_site)
 
-Initialize the non-ML parameter vector.    
-"""
-function init_hybrid_ϕq(
-    approx::AbstractHVIApproximation,
-    θP::CA.ComponentVector,
-    θM::CA.ComponentVector,
-    transP::Stacked,
-    cor_ends::NamedTuple = (P = [length(θP)], M = [length(θM)]);
-    n_site::Integer,
-    # need dummy, so that ϕq.ranef is a ComponentVector rather than plain Array
-    ϕq_ranef::CA.ComponentVector = CA.ComponentVector{eltype(θM)}(dummy=θM[1:0]),
-    kwargs...,
-)
-    FT = promote_type(eltype(θP), eltype(θM))
-    (;ϕqc, approx) = init_hybrid_ϕunc(approx, cor_ends, zero(FT); θM, n_site, kwargs...)
-    ϕqc = CA.ComponentVector(ϕqc; ranef = ϕq_ranef)
-    ϕqP = update_μP_by_θP(ϕqc, θP, transP)
-    (;ϕqc = ϕqP, approx)
-end
+# Initialize the non-ML parameter vector.    
+# """
+# function init_hybrid_ϕq(
+#     approx::AbstractHVIApproximation,
+#     θP::CA.ComponentVector,
+#     θM::CA.ComponentVector,
+#     transP::Stacked,
+#     cor_ends::NamedTuple = (P = [length(θP)], M = [length(θM)]);
+#     n_site::Integer,
+#     # need dummy, so that ϕq.ranef is a ComponentVector rather than plain Array
+#     ϕq_ranef::CA.ComponentVector = CA.ComponentVector{eltype(θM)}(dummy=θM[1:0]),
+#     kwargs...,
+# )
+#     FT = promote_type(eltype(θP), eltype(θM))
+#     (;ϕqc, approx) = init_hybrid_ϕunc(approx, cor_ends, zero(FT); θM, n_site, kwargs...)
+#     ϕqc = CA.ComponentVector(ϕqc; ranef = ϕq_ranef)
+#     ϕqP = update_μP_by_θP(ϕqc, θP, transP)
+#     (;ϕqc = ϕqP, approx)
+# end
 
 
-"""
-    create_ϕq(θP, ϕunc, transP::Stacked)
+# """
+#     create_ϕq(θP, ϕunc, transP::Stacked)
 
-Add information on μP to ϕunc.
-"""
-function update_μP_by_θP(ϕq::CA.ComponentVector, θP::CA.ComponentVector, transP::Stacked)
-    μP = inverse(transP)(θP)
-    ϕq = CA.ComponentVector(ϕq; μP)
-end
+# Add information on μP to ϕunc.
+# """
+# function update_μP_by_θP(ϕq::CA.ComponentVector, θP::CA.ComponentVector, transP::Stacked)
+#     μP = inverse(transP)(θP)
+#     ϕq = CA.ComponentVector(ϕq; μP)
+# end
 
 """
     HybridProblem(prob::AbstractHybridProblem; scenario = ()
@@ -119,6 +120,7 @@ function HybridProblem(prob::AbstractHybridProblem; scenario = Val(()), kwargs..
     update_hybridProblem(prob; scenario, kwargs...)
 end
 function update_hybridProblem(prob::AbstractHybridProblem; scenario, 
+    θP = get_hybridproblem_par_templates(prob; scenario).θP,
     θM = get_hybridproblem_par_templates(prob; scenario).θM,
     g = get_hybridproblem_MLapplicator(prob; scenario)[1],
     ϕg = get_hybridproblem_MLapplicator(prob; scenario)[2],
@@ -131,35 +133,19 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
     test_data = get_hybridproblem_test_data(prob; scenario),
     n_site = get_hybridproblem_n_site_and_batch(prob; scenario)[1],
     n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)[2],
-    cor_ends = nothing,
+    cor_ends = get_hybridproblem_cor_ends(prob; scenario),
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario),
-    ϕq = get_hybridproblem_ϕq(prob; scenario),
-    θP = nothing,
-    ϕunc = nothing,
     approx::Union{AbstractHVIApproximation, AbstractHVIApproxSpec} = get_hybridproblem_HVIApproxSpec(prob; scenario),
     penalty_computer::PenaltyComputerOrFunction = get_hybridproblem_penalty_computer(prob; scenario),  
     ranef = get_hybridproblem_ranef(prob; scenario),
     )
     n_batch_before = get_hybridproblem_n_site_and_batch(prob; scenario)[2]
-    cor_ends_new = if !isnothing(cor_ends)
-        # if new cor_ends was specified then re-initialize the ρsP and ρsM in ϕq
-        (;ϕqc) = init_hybrid_ϕunc(approx, cor_ends, zero(eltype(ϕq)); θM, transM, n_site)
-        ϕq = CA.ComponentVector(;ϕq..., ρsP = ϕqc.ρsP, ρsM = ϕqc.ρsM)
-        cor_ends
-    else
-        get_hybridproblem_cor_ends(prob; scenario)
-    end
-    if !isnothing(θP)
-        ϕq = update_μP_by_θP(ϕq, θP, transP)
-    end
-    if !isnothing(ϕunc)
-        ϕq = CA.ComponentVector(ϕq; ϕunc...)
-    end
     if ranef != get_hybridproblem_ranef(prob; scenario)
         # when ranef has been updated, create new default parameter vector
-        ranefc = get_ranef_computer(ranef, keys(θM), n_site, one(eltype(ϕq)))
-        ϕq_ranef = setup_ϕq_ranef(ranefc)
-        ϕq = CA.ComponentVector((;ϕq..., ranef = ϕq_ranef))
+        error("implement resetting ranef")
+        #ranefc = get_ranef_computer(ranef, keys(θM), n_site, one(eltype(ϕq)))
+        # ϕq_ranef = setup_ϕq_ranef(ranefc)
+        # ϕq = CA.ComponentVector((;ϕq..., ranef = ϕq_ranef))
     end
     if n_batch != n_batch_before
         # if updating n_btach, then need to adjust f_batch and train_dataloader
@@ -167,15 +153,14 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
            train_dataloader.data, batchsize=n_batch)  
         f_batch = create_nsite_applicator(f_batch, n_batch)
     end
-    HybridProblem(θM, ϕq, g, ϕg, f_batch, priors, py, transM, transP, train_dataloader,
-        test_data, n_site, n_batch; cor_ends = cor_ends_new, pbm_covars, 
+    HybridProblem(θP, θM, g, ϕg, f_batch, priors, py, transM, transP, train_dataloader,
+        test_data, n_site, n_batch; cor_ends, pbm_covars, 
         approx, penalty_computer, ranef)
 end
 
 function HybridProblem(prob::HybridProblem; kwargs... )
     update_hybridProblem(prob; scenario = Val(()), kwargs...)
 end
-
 
 # """
 #     update(prob::HybridProblem; ...)
@@ -207,54 +192,16 @@ end
 #         train_dataloader, n_covar, n_site, n_batch, cor_ends, pbm_covars)
 # end
 
-function get_hybridproblem_par_templates(prob::HybridProblem; scenario = ())
+function check_hybridproblem_par_templates(prob::HybridProblem; scenario = ())
+    (; θP, θM) = get_hybridproblem_par_templates(prob; scenario)
     pbm_spec = get_hybridproblem_PBmodelSpec(prob; scenario)
-    ax_θP = get_axis_θP(pbm_spec)
-    ax_θM = get_axis_θM(pbm_spec)
-    #FT = get_hybridproblem_float_type(prob; scenario)
-    FT = eltype(prob.θM)
-    θP = CA.ComponentVector(ones(FT, axis_length(ax_θP)), ax_θP)
-    θM = CA.ComponentVector(ones(FT, axis_length(ax_θM)), ax_θM)
-    (; θP, θM) 
+    @assert get_axis_θP(pbm_spec) == CA.getaxes(θP)[1]
+    @assert get_axis_θM(pbm_spec) == CA.getaxes(θM)[1]
+    true
 end
 
-# deprecated, better use predict_point_hvi
-# """
-#     compute_hybridproblem_par_expected(prob::HybridProblem, xM; scenario = ())
-
-# Compute the expected PBM model parameters for given covariates 
-# (n_covariate x n_site).
-
-# Returns a tuple of
-# - `θP`: ComponentVector of population-level parameters
-# - `θMs_tr`: ComponentArray (n_site x n_par) of individual (site) parameters
-# """
-# function compute_hybridproblem_par_expected(prob::HybridProblem, xM; 
-#     scenario = (), cdev = identity)
-#     n_site = size(xM,2)
-#     θP = get_hybridproblem_θP(prob; scenario)
-#     g, ϕg = get_hybridproblem_MLapplicator(prob; scenario)
-#     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
-#     transMs = StackedArray(transM, n_site)
-#     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
-#     xMP = if isempty(pbm_covars) 
-#         xM 
-#     else
-#         intP = ComponentArrayInterpreter(θP)
-#         pbm_covar_indices = CA.getdata(intP(1:length(intP))[pbm_covars])
-#         ζP = inverse(transP)(θP)
-#         _append_each_covars(xM, CA.getdata(ζP), pbm_covar_indices)
-#     end
-#     θMs_tr_m = gtrans(g, transMs, xMP, ϕg; cdev=identity, is_testmode=true)
-#     # attach parameter names in columns
-#     (;θM) = get_hybridproblem_par_templates(prob; scenario)
-#     intm = ComponentArrayInterpreter((n_site,), θM)
-#     θMs_tr = intm(θMs_tr_m)
-#     (; θP, θMs_tr) 
-# end
-
-function get_hybridproblem_ϕq(prob::HybridProblem; scenario = ())
-    prob.ϕq
+function get_hybridproblem_par_templates(prob::HybridProblem; scenario = ())
+    (; prob.θP, prob.θM) 
 end
 
 function get_hybridproblem_neg_logden_obs(prob::HybridProblem; scenario = ())

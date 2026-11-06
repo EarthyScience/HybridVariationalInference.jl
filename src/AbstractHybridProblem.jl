@@ -9,7 +9,6 @@ For a specific prob, provide functions that specify details
 - `get_hybridproblem_PBmodelSpec`
 - `get_hybridproblem_neg_logden_obs`
 - `get_hybridproblem_par_templates`
-- `get_hybridproblem_ϕq`
 - `get_hybridproblem_train_dataloader` (may use `construct_dataloader_from_synthetic`)
 - `get_hybridproblem_test_data`
 - `get_hybridproblem_priors` 
@@ -20,12 +19,6 @@ optionally
 - `get_hybridproblem_cor_ends` (defaults to include all correlations: 
   `(P = [length(θP)], M = [length(θM)])`)
 - `get_hybridproblem_pbmpar_covars` (defaults to empty tuple)
-
-
-The initial value of parameters to estimate is spread
-- `ϕg`: parameter of the MLapplicator: returned by `get_hybridproblem_MLapplicator`
-- `ζP`: mean of the PBmodel parameters: returned by `get_hybridproblem_par_templates`
-- `ϕq`: additional parameters of the approximte posterior: returned by `get_hybridproblem_ϕq`
 """
 abstract type AbstractHybridProblem end;
 
@@ -159,39 +152,6 @@ Provide a template tuple of ComponentVectors `θP` and `θM`
 at unconstrained (original) scale.
 """
 function get_hybridproblem_par_templates end
-
-"""
-    get_hybridproblem_ϕq(::AbstractHybridProblem; scenario)
-
-Provide a ComponentArray of the non-ML parameters. Usually those
-contain the means of the unconstrained scale population parameters, μP.
-"""
-function get_hybridproblem_ϕq(prob::AbstractHybridProblem; scenario) end
-
-"""
-    get_hybridproblem_θP(::AbstractHybridProblem; scenario)
-
-Provide current expectations of population level PBM parameters on
-constrained original scale.
-Defaults to inverse-transform of `ϕq.μP`.
-"""
-function get_hybridproblem_θP(prob::AbstractHybridProblem; scenario = Val(())) 
-    # TODO remove - keep parameters separate of prob
-    approx_spec = get_hybridproblem_HVIApproxSpec(prob; scenario)
-    pbm_spec = get_hybridproblem_PBmodelSpec(prob; scenario)
-    cor_ends = get_hybridproblem_cor_ends(prob; scenario)
-    template = ones(get_hybridproblem_float_type(prob; scenario),0)
-    (;ϕqPc, ϕqIc) = create_hybrid_ϕuncs(approx_spec, template; cor_ends)
-    #ϕq = get_hybridproblem_ϕq(prob; scenario)
-    transP = get_hybridproblem_transforms(prob; scenario).transP
-    μP = view(ϕqPc, Val(:μζP))
-    θP = if isempty(μP) 
-        CA.ComponentVector{eltype(ϕq)}()
-    else
-        apply_preserve_axes(transP, μP)
-    end
-end
-
 
 """
     get_hybridproblem_transforms(::AbstractHybridProblem; scenario)

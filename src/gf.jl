@@ -139,7 +139,8 @@ function gf(prob::AbstractHybridProblem, xM::AbstractMatrix, xP::AbstractMatrix;
     intP = ComponentArrayInterpreter(pt.θP)
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
     pbm_covar_indices = CA.getdata(intP(1:length(intP))[pbm_covars])
-    ϕq = get_hybridproblem_ϕq(prob; scenario)
+    error("remove gf, get_hybridproblem_ϕq not supported any more")
+    #ϕq = get_hybridproblem_ϕq(prob; scenario)
     ζP = ϕq[Val(:μP)];
     gdev, cdev = gdevs.gdev_M, infer_cdev(gdevs)
     g_dev, ϕg_dev, xM_dev, ζP_dev =  gdev(g), gdev(ϕg), gdev(CA.getdata(xM)), gdev(CA.getdata(ζP))
