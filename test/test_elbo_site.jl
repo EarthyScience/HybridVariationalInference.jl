@@ -320,7 +320,9 @@ end
     ρsMt = zeros(CP.sumn(n_θM-1))
     CP._setρ_unscaled!(ρsMt, Ut)
     σt = [0.06, 0.08, 0.01]
-    ϕqIct = CA.ComponentVector(logσ_ζM=log.(σt), ρsM=ρsMt)
+    coef_logσ_ζMs = zeros(length(σt),2)
+    coef_logσ_ζMs[:,1] .= log.(σt)
+    ϕqIct = CA.ComponentVector(coef_logσ_ζMs = coef_logσ_ζMs, ρsM=ρsMt)
     approx2 = get_HVIApproximation(approx2_spec; ϕqPc=ϕqPc1, ϕqIc=ϕqIct)
     h2M = CP.prepare_elbo_helpers(approx2_spec, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC = n_MCt, 
         n_cov, n_covP = n_covP0, n_M, cor_ends, use_diff_cache=Val(false), n_obs)
@@ -361,9 +363,10 @@ end
     ϕqIct = CA.ComponentVector(logσ_ζI_base = log.(σt[1]), logσ_ζI_offsets=(log.(σt[2:end]) .- log(σt[1])), ρsM=ρsMt)
     approxS2 = get_HVIApproximation(approxS2_spec; ϕqPc=ϕqPc1, ϕqIc=ϕqIct)
     #MeanUniScalingHVIApproximation(log(σt[1]))
-    h2S = CP.prepare_elbo_helpers(approxS2_spec, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC = n_MCt, 
+    local h2S2
+    h2S2 = CP.prepare_elbo_helpers(approxS2_spec, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC = n_MCt, 
         n_cov, n_covP = n_covP0, n_M, cor_ends, n_obs, use_diff_cache=Val(false))
-    CP.sample_ζsM!(ζsMt, logσ_ζMt, approxS2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2S.helpers_sites[1].sample_buffers)
+    CP.sample_ζsM!(ζsMt, logσ_ζMt, approxS2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2S2.helpers_sites[1].sample_buffers)
     @test vec(mean(ζsMt, dims=2)) ≈ μt atol=0.01
     @test cor(ζsMt[1,:], ζsMt[2,:]) ≈ Σct[1,2] atol=0.02
     @test cor(ζsMt[1,:], ζsMt[3,:]) ≈ Σct[1,3] atol=0.02
@@ -371,9 +374,9 @@ end
     @test std(ζsMt; dims=2) ≈ σt_scaled atol=0.01
     @test ((ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers) -> 
         @allocated CP.sample_ζsM!(ζsM, logσ_ζM, approx, rnormM1, ϕqIc, ϕm, cor_endsM, sample_buffers))(
-        ζsMt, logσ_ζMt, approxS2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2S.helpers_sites[1].sample_buffers) == 0
+        ζsMt, logσ_ζMt, approxS2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2S2.helpers_sites[1].sample_buffers) == 0
     #@profview_allocs loop_samplesample_ζsM(1000, ζsMt, logσ_ζMt, approxS, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2S.helpers_sites[1].sample_buffers)
-    @allocated loop_samplesample_ζsM(1000, ζsMt, logσ_ζMt, approxS2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2S.helpers_sites[1].sample_buffers)
+    @allocated loop_samplesample_ζsM(1000, ζsMt, logσ_ζMt, approxS2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2S2.helpers_sites[1].sample_buffers)
 
     # # Regression: sample_ζsM! must not allocate when reached through the
     # # ForwardDiff-reconstructed ComponentArray-view path used by
@@ -507,15 +510,19 @@ end
 
     approx2 = MeanHVIApproximation()
     hiM1 = h0M.helpers_sites[1]
+    coef_logσ_ζMs = zeros(length(ϕqIc.logσ_ζM),2)
+    coef_logσ_ζMs[:,1] .= ϕqIc.logσ_ζM
+    ϕqIcM = CA.ComponentVector(coef_logσ_ζMs = coef_logσ_ζMs, ρsM=ϕqIc.ρsM)
+    ϕmsM = randn!(similar(h0M.ϕms_mcs[1:n_θM,:,1])) # g here, gives more components Scaling
     @test isfinite(CP.compute_nelboi_z!(hiM1, CP.NegElbo(), approx2, rnormM1, nljoint_args_ind1, 
-        ϕms1, ϕqIc, θsP1, cor_ends.M, transM, nljoint_args_fix, n_site))
+        ϕmsM, ϕqIcM, θsP1, cor_ends.M, transM, nljoint_args_fix, n_site))
     function alloc_compute_nelboi_zM!(hiM1, approx2, rnormM1, nljoint_args_ind1, 
-        ϕms1, ϕqIc, θsP1, cor_endsM, transM, nljoint_args_fix, n_site)
+        ϕmsM, ϕqIcM, θsP1, cor_endsM, transM, nljoint_args_fix, n_site)
         @test (@allocated CP.compute_nelboi_z!(hiM1, CP.NegElbo(), approx2, rnormM1, nljoint_args_ind1, 
-        ϕms1, ϕqIc, θsP1, cor_endsM, transM, nljoint_args_fix, n_site)) == 0 
+        ϕmsM, ϕqIcM, θsP1, cor_endsM, transM, nljoint_args_fix, n_site)) == 0 
     end
     alloc_compute_nelboi_zM!(hiM1, approx2, rnormM1, nljoint_args_ind1, 
-        ϕms1, ϕqIc, θsP1, cor_ends.M, transM, nljoint_args_fix, n_site)
+        ϕmsM, ϕqIcM, θsP1, cor_ends.M, transM, nljoint_args_fix, n_site)
 end
 
 @testset "pullback_g_apply!" begin
@@ -1002,6 +1009,7 @@ end
     CP.randnPM!(rng1, rnormPM)
     randn!(rng1, ϕ2S.ϕg)
     randn!(rng1, indiv_args.xM)
+    @assert size(h2S.ζsP) == size(rnormPM.P)
     primal2S = CP.neg_elbo_sites!(h2S, CP.NegElbo(), ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix2S)
     grad0, gradh2S = CP.grad_neg_elbo_sites(
         h2S, (;), CP.NegElbo(), ϕ2S, rnormPM, sample_args2S, indiv_args, nljoint_args_fix2S; n_MC_val, 
