@@ -22,7 +22,9 @@ function get_loss_ran_tr_f(rng, prob, itrain_site; scenario = Val((:default,)),
     ranef_spec = get_hybridproblem_ranef(prob; scenario)     
     ranef = get_ranef_computer(
         ranef_spec, keys(pt.θM), n_site, one(eltype(ζMs)))
-    f_batch = get_hybridproblem_PBmodel(prob; scenario)
+    pbm_spec = get_hybridproblem_PBModelSpec(prob; scenario)
+    error("TODO create proper f and f_batch from pbm_spec")
+    f_batch = TODO 
     f = create_nsite_applicator(f_batch, 1)
     xP_itrain = train_data.xP[:,[itrain_site]]
     ϕqc = prob.ϕq

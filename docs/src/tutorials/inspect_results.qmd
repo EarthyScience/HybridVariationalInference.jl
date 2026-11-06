@@ -69,10 +69,8 @@ using function [`sample_posterior`](@ref).
 using StableRNGs
 import HybridVariationalInference as CP
 rng = StableRNG(112)
-n_MC = 400
-# TODO generate inside sample_posterior based on n_sample_pred
-h30 = CP.prepare_elbo_helpers(res_solve.h0, probo; scenario=(), n_MC, use_diff_cache=Val(false));
-sampP, sampI = sample_posterior(rng, probo, res_solve.ϕc; elbo_helpers = h30)
+n_sample_pred = 400
+sampP, sampI = sample_posterior(rng, probo, res_solve.ϕc; n_sample_pred)
 θsP = sampP.θsP
 θsMs = sampI.θsM
 y = sampI.y;

@@ -173,7 +173,9 @@ test_without_flux = (scenario) -> begin
         frac_cluster_all = 1 ./ n_sites_cluster[clusters] 
         train_loader = get_hybridproblem_train_dataloader(prob; scenario)
         (xM, xP, y_o, y_unc, itrain_sites) = first(train_loader)
-        f = get_hybridproblem_PBmodel(prob; scenario)
+        error("implement proper get_PopulationApplicator")
+        pbm_spec = get_hybridproblem_PBmodel(prob; scenario)
+        f = TODO
         py = get_hybridproblem_neg_logden_obs(prob; scenario)
         #f(par_templates.θP, hcat(par_templates.θM, par_templates.θM), xP[1:2])
         (; transM, transP) = get_hybridproblem_transforms(prob; scenario)

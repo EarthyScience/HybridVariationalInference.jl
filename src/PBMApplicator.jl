@@ -19,13 +19,13 @@ function PBMPopulationAppSpec(fθpop!;
 end
 
 function get_PopulationApplicator(spec::PBMPopulationAppSpec,
-    θ_template::AbstractVector{FT},
+    θ_template::AbstractArray{FT},
     n_MC_Val::Val{NMC},
-    diffchunk::ForwardDiff.Chunk{chunk} = ForwardDiff.Chunk(8),
+    diffchunk::Union{Nothing,ForwardDiff.Chunk{chunk}} = ForwardDiff.Chunk(8),
 ) where {FT, NMC, chunk}
     is_MC = ones(FT, NMC)'
     θFixm = convert.(FT,CA.getdata(spec.θFix)) .* is_MC
-    θFixm_dc = PAT.DiffCache(θFixm, chunk)
+    θFixm_dc = isnothing(diffchunk) ? nothing : PAT.DiffCache(θFixm, chunk)
     # θ = vcat(vcat(θPm, θMm), θFixm)
     PBMPopulationApplicator(spec.fθpop!, θFixm, θFixm_dc, spec.ax_θs, spec.ax_xP)        
 end 
@@ -115,6 +115,8 @@ function apply_model!(pred, app::PBMPopulationApplicator{AXS,AXP},
     else
         app.θFixm
     end
+    @assert eltype(θsP) == eltype(θsM) == eltype(θFixm_dual) "θsP, θsM, θFixm_dual" *
+        " need have the same eltype, but was $((eltype(θsP), eltype(θsM), eltype(θFixm_dual)))"
     θc = VcatCAs(AXS, CA.getdata(θsP), CA.getdata(θsM), θFixm_dual)
     #xPc = app.int_xP(CA.getdata(xP))
     #xPc = CA.ComponentArray(CA.getdata(xP), AXP, θc.flataxes...)
@@ -155,12 +157,13 @@ function apply_model(app::PBMPopulationApplicator,θP::AbstractMatrix{FT}, θMs_
     (pred, nothing)
 end
 # several site, single MC
-function apply_model(app::PBMPopulationApplicator, θP::AbstractVector{FT}, θMs_tr::AbstractMatrix, xP::AbstractMatrix) where FT
+function apply_model(app::PBMPopulationApplicator{AX,AXX}, θP::AbstractVector{FT}, 
+    θMs_tr::AbstractMatrix, xP::AbstractMatrix) where {FT,AX,AXX}
     # for a single MC-run
     local n_obs, n_site, pred, θsP, θsM
-    n_obs = get_n_obs(xP[:,1])
+    n_obs = get_n_obs(CA.ComponentVector(xP[:,1], AXX))
     n_site, n_θM = size(θMs_tr)
-    θsP = reshape(θP, length(θP), 1)
+    θsP = reshape(θP, length(θP), 1) # make a 1-column matrix
     pred = zeros(FT, n_obs, n_site, 1)
     # i_site = 1
     for i_site in 1:n_site
@@ -170,7 +173,8 @@ function apply_model(app::PBMPopulationApplicator, θP::AbstractVector{FT}, θMs
     (pred[:,:,1], nothing)
 end
 
-function get_n_obs(xP::CA.ComponentVector)
+@inline function get_n_obs(xP::CA.ComponentVector)
+    #isempty(keys(xP)) ? length(xP) : length(xP[Val(keys(xP)[1])])
     isempty(keys(xP)) ? length(xP) : length(xP[keys(xP)[1]])
 end
 

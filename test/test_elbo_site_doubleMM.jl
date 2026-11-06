@@ -31,7 +31,8 @@ import PreallocationTools as PAT
 prob0 = DoubleMM.DoubleMMCase()
 #scenario = Val((:use_Lux,:usePopPBM,:covarK2,:uniscaling,))
 #scenario = Val((:use_Lux,:usePopPBM,:uniscaling,)) # omit covars -> vector site ϕm
-scenario = Val((:use_Lux,:usePopPBM,:uniscaling,:use_rangescaling)) # omit covars, rangescaling
+#scenario = Val((:use_Lux,:usePopPBM,:uniscaling,:use_rangescaling)) # omit covars, rangescaling
+scenario = Val((:use_Lux,:useSitePBM,:uniscaling,:use_rangescaling)) # omit covars, rangescaling
 
 
 
@@ -52,7 +53,8 @@ scenario = Val((:use_Lux,:usePopPBM,:uniscaling,:use_rangescaling)) # omit covar
         y_o = CA.getdata(y_o)[:,i_indiv_batch], y_unc = CA.getdata(y_unc)[:,i_indiv_batch], 
         i_indiv_train = i_indiv_batch) 
     #
-    pbm = create_nsite_applicator(get_hybridproblem_PBmodel(prob0; scenario), n_MC; diffchunk)      
+    pbm_spec = get_hybridproblem_PBModelSpec(prob0; scenario)
+    pbm = get_PopulationApplicator(pbm_spec, ϕc.ϕqP, n_MC_val, diffchunk)      
     nljoint_args_fix =(;
          f! = pbm, 
          fLogLik = get_hybridproblem_neg_logden_obs(prob0; scenario)
@@ -173,7 +175,8 @@ end
         (; xM, xP, y_o, y_unc, θMs_true, y_true)) do x
         x[:,i_indiv]
     end
-    prob = HybridProblem(prob0; scenario)
+    prob = HybridProblem(prob0; scenario) # test transferring all components
+    # prob = prob0  # for faster debugging of f_doubleMM functions
     y_o2 = get_hybridproblem_train_dataloader(prob; scenario).data[3]
     @test y_o == y_o2 # make sure to use the same synthetic data for good y_true
     solver = HybridSolverSite(alg=Optimisers.Adam(0.0001))

@@ -61,7 +61,7 @@ struct HybridProblem <: AbstractHybridProblem
             test_data::NamedTuple,
             n_site::Int,
             n_batch::Int;
-            cor_ends::NamedTuple = (P = [length(ϕq[Val(:μP)])], M = [length(θM)]),
+            cor_ends::NamedTuple = (P = [length(θP)], M = [length(θM)]),
             pbm_covars::NTuple{N,Symbol} = (),
             approx::Union{AbstractHVIApproximation, AbstractHVIApproxSpec} = MeanHVIApproximationMat(),
             penalty_computer::PenaltyComputerOrFunction = ZeroPenaltyComputer(),
@@ -124,7 +124,7 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
     θM = get_hybridproblem_par_templates(prob; scenario).θM,
     g = get_hybridproblem_MLapplicator(prob; scenario)[1],
     ϕg = get_hybridproblem_MLapplicator(prob; scenario)[2],
-    f_batch = get_hybridproblem_PBmodelSpec(prob; scenario),
+    f_batch = get_hybridproblem_PBModelSpec(prob; scenario),
     priors = get_hybridproblem_priors(prob; scenario),
     py = get_hybridproblem_neg_logden_obs(prob; scenario),
     transP = get_hybridproblem_transforms(prob; scenario).transP,
@@ -194,7 +194,7 @@ end
 
 function check_hybridproblem_par_templates(prob::HybridProblem; scenario = ())
     (; θP, θM) = get_hybridproblem_par_templates(prob; scenario)
-    pbm_spec = get_hybridproblem_PBmodelSpec(prob; scenario)
+    pbm_spec = get_hybridproblem_PBModelSpec(prob; scenario)
     @assert get_axis_θP(pbm_spec) == CA.getaxes(θP)[1]
     @assert get_axis_θM(pbm_spec) == CA.getaxes(θM)[1]
     true
@@ -212,17 +212,7 @@ function get_hybridproblem_transforms(prob::HybridProblem; scenario = ())
     (; transP = prob.transP, transM = prob.transM)
 end
 
-# function get_hybridproblem_sizes(prob::HybridProblem; scenario = ())
-#     n_θM = length(prob.θM)
-#     n_θP = length(prob.θP)
-#     (; n_covar=prob.n_covar, n_batch=prob.n_batch, n_θM, n_θP)
-# end
-
-function get_hybridproblem_PBmodel(prob::HybridProblem; scenario = ())
-    prob.f_batch
-end
-
-function get_hybridproblem_PBmodelSpec(prob::HybridProblem; scenario = ())
+function get_hybridproblem_PBModelSpec(prob::HybridProblem; scenario = ())
     @assert prob.f_batch isa AbstractPBMApplicatorSpec "f_batch is not a PBMApplicatorSpec"
     prob.f_batch
 end

@@ -5,8 +5,7 @@ for different cases of hybrid problem setups.
 For a specific prob, provide functions that specify details
 - `get_hybridproblem_MLapplicator`
 - `get_hybridproblem_transforms`
-- `get_hybridproblem_PBmodel`
-- `get_hybridproblem_PBmodelSpec`
+- `get_hybridproblem_PBModelSpec`
 - `get_hybridproblem_neg_logden_obs`
 - `get_hybridproblem_par_templates`
 - `get_hybridproblem_train_dataloader` (may use `construct_dataloader_from_synthetic`)
@@ -121,21 +120,27 @@ function get_hybridproblem_MLapplicator(
 end
 
 """
-    get_hybridproblem_PBmodel(::AbstractHybridProblem; scenario::NTuple=())
+    get_hybridproblem_PBModelSpec(::AbstractHybridProblem; scenario::NTuple=())
+    get_PopulationApplicator(pbm_spec, template_arr, Val(n_MC), diffchunk)  
 
-Construct the process-based model function 
-`f(θP::AbstractVector, θMs::AbstractMatrix, x) -> (AbstractVector, AbstractMatrix)`
+Construct the process-based model applicator that computes predictions for 
+a sample of parameters for a single individual.
+`f(θP::AbstractMatrix, θMs::AbstractMatrix, x::AbstractVector) -> AbstractVector`
+
 with
-- θP: calibrated parameters that are constant across site
-- θMs: calibrated parameters that vary across sites, with a  column for each site
-- x: drivers, indexed by site
+- θP: calibrated parameters that are constant across individuals (each column a sample)
+- θMs: calibrated parameters that vary across individuals
+- x: drivers for given site
+returns a Vector of predictions
 
-returns a tuple of predictions with components
-- first, those that are constant across sites
-- second, those that vary across sites, with a column for each site
+- `get_hybridproblem_PBModelSpec` returns a specification independent of the 
+   solver details
+- `get_PopulationApplicator` constructs the applicator with runtime 
+  - `template_arr`: array of used eltype of parameters
+  - `Val(n_MC)`: number of MC-runs used. Specify as value-type for type inference
+  - `diffchunk`: a `ForwardDiff.Chunk` object with static number of derivatives 
 """
-function get_hybridproblem_PBmodel end
-function get_hybridproblem_PBmodelSpec end
+function get_hybridproblem_PBModelSpec end
 
 """
     get_hybridproblem_neg_logden_obs(::AbstractHybridProblem; scenario)

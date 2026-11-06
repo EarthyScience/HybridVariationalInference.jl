@@ -364,7 +364,8 @@ end
         # θPs = θ[:P,:]
         # ζPs = invt.transP.(θPs)
         # ζMs = invt.transM.(θMs_i)
-        # _f = get_hybridproblem_PBmodel(probo; scenario)
+        # pbm_spec = get_hybridproblem_PBModelSpec(probo; scenario)
+        # _f = TODO
         # y_site = map(eachcol(θPs), θMs_i) do θP, θM
         #       y = _f(θP, reshape(θM, (length(θM), 1)), xP[[i_site]])
         #     y[:,1]
@@ -460,7 +461,8 @@ prob = HybridProblem(prob0o);
 
 (; θM, θP) = get_hybridproblem_par_templates(prob; scenario)
 n_θM, n_θP = length.((θM, θP))
-f = get_hybridproblem_PBmodel(prob; scenario)
+pbm_spec = get_hybridproblem_PBModelSpec(prob; scenario)
+f = TODO
 
 @model function fsites(y, ::Type{T} = Float64; f, n_θP, n_θM, σ_o) where {T}
     n_obs, n_site = size(y)
@@ -560,7 +562,8 @@ end
 end
 
 #ζi = first(eachrow(Array(chain)))
-f = get_hybridproblem_PBmodel(probc; scenario)
+pbm_spec = get_hybridproblem_PBModelSpec(probc; scenario)
+f = TODO
 f_allsites = create_nsite_applicator(f, n_site)
 #ζs = mapreduce(ζi -> transposeMs(ζi, intm_PMs_gen, true), hcat, eachrow(Array(chain)));
 ζsP = Array(chain)[:,1:n_θP]'
@@ -951,7 +954,8 @@ end
 
     (; θM, θP) = get_hybridproblem_par_templates(prob; scenario)
     n_θM, n_θP = length.((θM, θP))
-    f = get_hybridproblem_PBmodel(prob; scenario)
+    pbm_spec = get_hybridproblem_PBModelSpec(prob; scenario)
+    f = TODO
 
     @model function fsites_uc(
             y, ::Type{T} = Float64; f, n_θP, n_θM, σ_o, n_obs = length(σ_o)) where {T}

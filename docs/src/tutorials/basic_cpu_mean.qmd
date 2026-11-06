@@ -285,7 +285,8 @@ y1 = f_batch(CA.getdata(θP), CA.getdata(θMs), CA.getdata(x_batch))[2]
     #using Cthulhu
     #@descend_code_warntype f_batch(CA.getdata(θP), CA.getdata(θMs), CA.getdata(x_batch))
     prob0 = HVI.DoubleMM.DoubleMMCase()
-    f_batch0 = get_hybridproblem_PBmodel(prob0)
+    pbm_spec = get_hybridproblem_PBModelSpec(prob0)
+    f_batch0 = TODO
     y1f = f_batch0(θP, θMs, x_batch)[2]
     y1 .- y1f  # equal
 end

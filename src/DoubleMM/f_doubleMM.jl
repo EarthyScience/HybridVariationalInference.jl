@@ -162,6 +162,19 @@ function f_doubleMM_pop!(pred, θs, xPc::CA.ComponentVector{T}) where T
     pred
 end
 
+function f_doubleMM!(pred, θs, xPc::CA.ComponentVector{T}) where T
+    S1 = view(xPc, Val(:S1), :)
+    S2 = view(xPc, Val(:S2), :)
+    # cycle across columns of different MC-runs
+    for (j,θ) in enumerate(eachcol(θs))
+        # extract parameters inpendent of order and whether they are in θP,θI, or θFix
+        @unpack_val r0, r1, K1, K2 = θ # now scalar parameters
+        view(pred,:,j) .= r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
+    end
+    pred
+end    
+
+
 
 # function f_doubleMM_sites(θc_tr::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
 #     # extract the parameters as vectors
@@ -297,33 +310,19 @@ end
 #     cl::CLT
 # end
 
-function HVI.get_hybridproblem_PBmodel(prob::DoubleMMCase; scenario::Val{scen}) where {scen}
-    # θall defined in this module above
-    # TODO check and test for population or sites, currently return only site specific
-    pt = get_hybridproblem_par_templates(prob; scenario)
-    keys_fixed = Tuple(k for k in setdiff(keys(θall), (keys(pt.θP)..., keys(pt.θM)...))) 
-    θFix = isempty(keys_fixed) ? CA.ComponentVector{eltype(θall)}() : θall[keys_fixed]
-    xPvec = int_xP1(vcat(xP_S1, xP_S2))
-    if (:useSitePBM ∈ scen)
-        PBMSiteApplicator(f_doubleMM; pt.θP, pt.θM, θFix, xPvec)
-    elseif (:usePopPBM ∈ scen)
-        local n_MC = 1  # default n_MC to implement no-MC version of apply_model
-        PBMPopulationApplicator(f_doubleMM_pop!, n_MC; pt.θP, pt.θM, θFix, xPvec)     
-    else
-        n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
-        PBMPopulationApplicatorTr(f_doubleMM_sites, n_batch; pt.θP, pt.θM, θFix, xPvec)
-    end
-end
-
-function HVI.get_hybridproblem_PBmodelSpec(prob::DoubleMMCase; scenario::Val{scen}) where {scen}
+function HVI.get_hybridproblem_PBModelSpec(prob::DoubleMMCase; scenario::Val{scen}) where {scen}
     pt = get_hybridproblem_par_templates(prob; scenario)
     keys_fixed = Tuple(k for k in setdiff(keys(θall), (keys(pt.θP)..., keys(pt.θM)...))) 
     θFix = isempty(keys_fixed) ? CA.ComponentVector{eltype(θall)}() : θall[keys_fixed]
     xPvec = int_xP1(vcat(xP_S1, xP_S2))
     if (:usePopPBM ∈ scen)
         PBMPopulationAppSpec(f_doubleMM_pop!; pt.θP, pt.θM, θFix, xPvec)     
+    elseif (:useSitePBM ∈ scen)
+        PBMPopulationAppSpec(f_doubleMM!; pt.θP, pt.θM, θFix, xPvec)     
     else
-        error("implement get_hybridproblem_PBmodelSpec for scenarios without usePopPBM")
+        error("implement get_hybridproblem_PBModelSpec for DoubleMMCase for other applicators")
+        n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+        PBMPopulationApplicatorTr(f_doubleMM_sites, n_batch; pt.θP, pt.θM, θFix, xPvec)
     end
 end
 
@@ -344,7 +343,7 @@ end
 #     # make sure the same order of columns as in intθ
 #     # reshape big matrix into NamedTuple of drivers S1 and S2 
 #     #   for broadcasting need sites in rows
-#     #xPM = map(p -> CA.getdata(xP[p,:])', pos_xP)get_hybridproblem_PBmodel
+#     #xPM = map(p -> CA.getdata(xP[p,:])', pos_xP)
 #     xPM = map(p -> CA.getdata(xP)'[:, p], cl.pos_xP)
 #     θFixd = (θP isa GPUArraysCore.AbstractGPUVector) ? cl.θFix_dev : cl.θFix
 #     θ = hcat(CA.getdata(θP[cl.isP]), CA.getdata(θMs), θFixd)
@@ -354,11 +353,12 @@ end
 # end
 
 function HVI.get_hybridproblem_neg_logden_obs(::DoubleMMCase; scenario::Val{scen}) where scen
-    if (:usePopPBM ∈ scen)    
-        HVI.neg_logden_indep_normal_sum
-    else
-        neg_logden_indep_normal
-    end
+    HVI.neg_logden_indep_normal_sum
+    # if (:usePopPBM ∈ scen)    
+    #     HVI.neg_logden_indep_normal_sum
+    # else
+    #     neg_logden_indep_normal
+    # end
 end
 
 # function HVI.get_hybridproblem_float_type(::DoubleMMCase; scenario)
@@ -435,8 +435,10 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     int_θMs_sites = ComponentArrayInterpreter(pt.θM, (n_site,))
     transM_sites = StackedArray(transM, n_site)
     θMs_true = int_θMs_sites(transM_sites(ζMs_true))
-    f_batch = get_hybridproblem_PBmodel(prob; scenario)
-    f = create_nsite_applicator(f_batch, n_site)
+    pbm_spec = get_hybridproblem_PBModelSpec(prob; scenario) 
+    n_MC_val = Val(3)
+    diffchunk = nothing # not used in Forward run
+    f = get_PopulationApplicator(pbm_spec, θMs_true, n_MC_val, diffchunk)      
     #xP = fill((; S1 = xP_S1, S2 = xP_S2), n_siteall)
     int_xP_sites = ComponentArrayInterpreter(int_xP1, (n_site,))
     xP = int_xP_sites(vcat(repeat(xP_S1, 1, n_site), repeat(xP_S2, 1, n_site)))

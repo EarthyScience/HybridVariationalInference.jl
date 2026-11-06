@@ -56,7 +56,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridSolverSite
     #
     approx = get_HVIApproximation(approx_spec; ϕqPc, ϕqIc)
     diffchunk = ForwardDiff.Chunk(8)
-    pbm_spec = get_hybridproblem_PBmodelSpec(prob; scenario)
+    pbm_spec = get_hybridproblem_PBModelSpec(prob; scenario)
     pbm = get_PopulationApplicator(pbm_spec, ϕc.ϕqP, Val(NMC), diffchunk)      
     nljoint_args_fix =(;
          f! = pbm, 
@@ -215,7 +215,7 @@ function predict_point(prob::AbstractHybridProblem, ϕc, dataloader; scenario=()
     approx = get_HVIApproximation(approx_spec; ϕqPc, ϕqIc)
     #
     diffchunk = ForwardDiff.Chunk(8)
-    pbm_spec = get_hybridproblem_PBmodelSpec(prob; scenario)
+    pbm_spec = get_hybridproblem_PBModelSpec(prob; scenario)
     pbm = get_PopulationApplicator(pbm_spec, par_templates.θP, Val(1), diffchunk)      
     nljoint_args_fix =(;
          f! = pbm, 
@@ -269,7 +269,7 @@ function predict_point(prob::AbstractHybridProblem, ϕc, dataloader; scenario=()
     h0p[keys_predict_pop], hi_agg
 end
 
-function predict_stat(rng, prob::AbstractHybridProblem, ϕc; scenario, kwargs...) 
+function predict_stat(rng, prob::AbstractHybridProblem, ϕc; scenario=(), kwargs...) 
     dataloader = get_hybridproblem_train_dataloader(prob; scenario)
     predict_stat(rng, prob, ϕc, dataloader; scenario, kwargs...)
 end
@@ -290,7 +290,6 @@ function predict_stat(rng, prob::AbstractHybridProblem, ϕc, dataloader; scenari
         n_MC = n_sample_pred,
         use_diff_cache = Val(false)),
 )  
-    # TODO make elbo_helpers optional
     is_ret_sample = (keys_stat == ())
     h0 = elbo_helpers
     dataloader = get_hybridproblem_train_dataloader(prob; scenario)
@@ -304,7 +303,6 @@ function predict_stat(rng, prob::AbstractHybridProblem, ϕc, dataloader; scenari
     n_θP = length(par_templates.θP)
     n_θM = length(par_templates.θM)
     g, ϕg = get_hybridproblem_MLapplicator(prob; scenario)
-    # TODO: separate parameters from problem description - right now optimized
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     cor_ends = get_hybridproblem_cor_ends(prob; scenario)
     approx_spec = get_hybridproblem_HVIApproxSpec(prob; scenario)
@@ -316,9 +314,12 @@ function predict_stat(rng, prob::AbstractHybridProblem, ϕc, dataloader; scenari
     intϕqI = get_concrete(ComponentArrayInterpreter(ϕqIc))
     approx = get_HVIApproximation(approx_spec; ϕqPc, ϕqIc)
     #
+    # TODO smaller diffchunk from helpers?
     diffchunk = ForwardDiff.Chunk(8)
-    pbm_spec = get_hybridproblem_PBmodelSpec(prob; scenario)
-    pbm = get_PopulationApplicator(pbm_spec, par_templates.θP, Val(1), diffchunk)      
+    pbm_spec = get_hybridproblem_PBModelSpec(prob; scenario)
+    # TODO aovid Val(n_sample_pred) - but maybe ok because of function barrier
+    #   and writing to already seized array
+    pbm = get_PopulationApplicator(pbm_spec, par_templates.θP, Val(n_sample_pred), diffchunk)      
     nljoint_args_fix =(;
          f! = pbm, 
          fLogLik = get_hybridproblem_neg_logden_obs(prob; scenario)
@@ -338,7 +339,6 @@ function predict_stat(rng, prob::AbstractHybridProblem, ϕc, dataloader; scenari
         approx, g, is_testmode = false, pbm_covar_indices, intϕqP, intϕqI, cor_ends, 
         transP, transM)
     sample_args_test = (;sample_args..., is_testmode = true)
-    #nljoint_args_fix_test = (;nljoint_args_fix..., f! = ) 
     # convert from DiffCache to normal vector
     h0p = if h0.helpers_sites[1][1] isa PAT.DiffCache 
         h0p = (; h0..., helpers_sites = map(
@@ -361,7 +361,7 @@ function predict_stat(rng, prob::AbstractHybridProblem, ϕc, dataloader; scenari
     hi_agg = mapfoldl(red, enumerate(dataloader), init=map(x -> x[:,:,1:0], hi_agg_batch)
             ) do (i_batch, data_batch)
         indiv_args = NamedTuple{keys_indiv}(data_batch)
-        randnPM!(rng, rnormPM)   
+        randnPM!(rng, rnormPM) 
         neg_elbo_sites!(h0p, NegElbo(), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix)
         if is_ret_sample
             for key in keys_predict_indiv
@@ -431,7 +431,8 @@ function compute_stat!(a, x; keys_stat = (:mean, :std, :q025, :q975, :mode, :med
 end
 
 function sample_posterior(rng, prob::AbstractHybridProblem, ϕc; kwargs...) 
-    predict_stat(rng, prob::AbstractHybridProblem, ϕc; kwargs...,
+    predict_stat(rng, prob::AbstractHybridProblem, ϕc; 
          keys_stat = (),
+         kwargs...,
     )    
 end
