@@ -58,7 +58,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridSolverSite
     approx = get_HVIApproximation(approx_spec; ϕqPc, ϕqIc)
     diffchunk = ForwardDiff.Chunk(8)
     pbm_spec = get_hybridproblem_PBModelSpec(prob; scenario)
-    pbm = get_PopulationApplicator(pbm_spec, ϕc.ϕqP, Val(NMC), diffchunk)      
+    pbm = get_PBModelApplicator(pbm_spec, ϕc.ϕqP, Val(NMC), diffchunk)      
     nljoint_args_fix =(;
          f! = pbm, 
          fLogLik = get_hybridproblem_neg_logden_obs(prob; scenario),
@@ -217,7 +217,7 @@ function predict_point(prob::AbstractHybridProblem, ϕc, dataloader; scenario=()
     #
     diffchunk = ForwardDiff.Chunk(8)
     pbm_spec = get_hybridproblem_PBModelSpec(prob; scenario)
-    pbm = get_PopulationApplicator(pbm_spec, par_templates.θP, Val(1), diffchunk)      
+    pbm = get_PBModelApplicator(pbm_spec, par_templates.θP, Val(1), diffchunk)      
     nljoint_args_fix =(;
          f! = pbm, 
          fLogLik = get_hybridproblem_neg_logden_obs(prob; scenario),
@@ -321,7 +321,7 @@ function predict_stat(rng, prob::AbstractHybridProblem, ϕc, dataloader; scenari
     pbm_spec = get_hybridproblem_PBModelSpec(prob; scenario)
     # TODO aovid Val(n_sample_pred) - but maybe ok because of function barrier
     #   and writing to already seized array
-    pbm = get_PopulationApplicator(pbm_spec, par_templates.θP, Val(n_sample_pred), diffchunk)      
+    pbm = get_PBModelApplicator(pbm_spec, par_templates.θP, Val(n_sample_pred), diffchunk)      
     nljoint_args_fix =(;
          f! = pbm, 
          fLogLik = get_hybridproblem_neg_logden_obs(prob; scenario),

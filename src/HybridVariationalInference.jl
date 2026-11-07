@@ -102,7 +102,7 @@ include("ModelApplicator.jl")
 export AbstractPBMApplicator, NullPBMApplicator, PBMSiteApplicator, PBMPopulationApplicatorTr
 export DirectPBMApplicator, PBMPopulationGlobalApplicator, PBMPopulationApplicator
 export create_nsite_applicator
-export AbstractPBMApplicatorSpec, PBMPopulationAppSpec, get_PopulationApplicator
+export AbstractPBMApplicatorSpec, PBMPopulationAppSpec, get_PBModelApplicator
 include("PBMApplicatorTr.jl")
 include("PBMApplicator.jl")
 

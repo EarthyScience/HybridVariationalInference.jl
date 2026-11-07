@@ -121,7 +121,7 @@ end
 
 """
     get_hybridproblem_PBModelSpec(::AbstractHybridProblem; scenario::NTuple=())
-    get_PopulationApplicator(pbm_spec, template_arr, Val(n_MC), diffchunk)  
+    get_PBModelApplicator(pbm_spec, template_arr, Val(n_MC), diffchunk)  
 
 Construct the process-based model applicator that computes predictions for 
 a sample of parameters for a single individual.
@@ -135,7 +135,7 @@ returns a Vector of predictions
 
 - `get_hybridproblem_PBModelSpec` returns a specification independent of the 
    solver details
-- `get_PopulationApplicator` constructs the applicator with runtime 
+- `get_PBModelApplicator` constructs the applicator with runtime 
   - `template_arr`: array of used eltype of parameters
   - `Val(n_MC)`: number of MC-runs used. Specify as value-type for type inference
   - `diffchunk`: a `ForwardDiff.Chunk` object with static number of derivatives 

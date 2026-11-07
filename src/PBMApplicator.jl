@@ -18,7 +18,7 @@ function PBMPopulationAppSpec(fθpop!;
     PBMPopulationAppSpec(fθpop!, θFix, Val(ax_θs), Val(ax_xP))
 end
 
-function get_PopulationApplicator(spec::PBMPopulationAppSpec,
+function get_PBModelApplicator(spec::PBMPopulationAppSpec,
     θ_template::AbstractArray{FT},
     n_MC_Val::Val{NMC},
     diffchunk::Union{Nothing,ForwardDiff.Chunk{chunk}} = ForwardDiff.Chunk(8),

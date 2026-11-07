@@ -318,7 +318,7 @@ prob = HybridProblem(θP, θM, g_chain_scaled, ϕg0,
 x_batch = xP[:,1:n_batch]
 n_MC_val = Val(3)
 diffchunk = nothing # not used in Forward run
-pbm = get_PopulationApplicator(pbm_spec, θP, n_MC_val, diffchunk)      
+pbm = get_PBModelApplicator(pbm_spec, θP, n_MC_val, diffchunk)      
 pred = pbm(CA.getdata(θP), CA.getdata(θMs_tr), CA.getdata(x_batch))[1]
 
 () -> begin

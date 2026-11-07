@@ -438,7 +438,7 @@ function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
     pbm_spec = get_hybridproblem_PBModelSpec(prob; scenario) 
     n_MC_val = Val(1) # here only one prediction
     diffchunk = nothing # not used in Forward run
-    f = get_PopulationApplicator(pbm_spec, θMs_true, n_MC_val, diffchunk)      
+    f = get_PBModelApplicator(pbm_spec, θMs_true, n_MC_val, diffchunk)      
     #xP = fill((; S1 = xP_S1, S2 = xP_S2), n_siteall)
     int_xP_sites = ComponentArrayInterpreter(int_xP1, (n_site,))
     xP = int_xP_sites(vcat(repeat(xP_S1, 1, n_site), repeat(xP_S2, 1, n_site)))

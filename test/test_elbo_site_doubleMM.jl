@@ -56,7 +56,7 @@ scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling)) # omit covars, rangescal
         i_indiv_train = i_indiv_batch) 
     #
     pbm_spec = get_hybridproblem_PBModelSpec(prob0; scenario)
-    pbm = get_PopulationApplicator(pbm_spec, ϕc.ϕqP, n_MC_val, diffchunk)      
+    pbm = get_PBModelApplicator(pbm_spec, ϕc.ϕqP, n_MC_val, diffchunk)      
     nljoint_args_fix =(;
          f! = pbm, 
          fLogLik = get_hybridproblem_neg_logden_obs(prob0; scenario),
