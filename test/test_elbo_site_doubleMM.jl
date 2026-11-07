@@ -275,6 +275,15 @@ end
     @test size(hp_samp.θsP,2) == n_sample_pred
     @test keys(hi_agg_samp.θsM[:,1,1]) == keys(θMs_true[:,1])
     @test size(hi_agg_samp.θsM)[2:3] == (n_sample_pred, n_indiv_train)
+    #
+    # compare prediction uncertainty with observation uncertainty
+    pred = hi_agg_samp.y
+    pred_mean = mean(CA.getdata(pred); dims=2)[:,1,:]
+    pred_sd = std(CA.getdata(pred); dims=2)[:,1,:]
+    mean(pred_sd)
+    # @usingany UnicodePlots
+    # histogram(vec(pred_sd))
+    exp(y_unc[1]/2) # will be larger than prediction uncertainty
  end
 
 

@@ -75,7 +75,6 @@ function neg_elbo_sites!(
     h.sum_logσ_ζP[] = sum_logσ_ζP
     h.exp_ladJacTP[] = exp_ladJacTP
     elbo = elbo_z - exp_ladJacTP - sum_logσ_ζP
-    #elbo = elbo_z - exp_ladJacTP*n_indiv_train - sum_logσ_ζP
 end
 
 @inline function set_ζsP!(
@@ -121,12 +120,16 @@ function compute_nelboi_z!(hi, loss_mode::AbstractElboLossMode, approx::Abstract
     # individual components of the ELBO are estimated using a sample/batch of sites
     #    need to correct by n_indiv_train/n_indiv_batch
     #    n_indiv cannot be assumed constant because of fewer in last batch 
+    # assume transformation and sampling occuring only once across all sites
+    #    corresponds to alleatoric uncertainty?
     sum_logσ_ζM = sum(hi.logσ_ζM)
     hi.sum_logσ_ζM[] = ForwardDiff.value(sum_logσ_ζM)
     hi.exp_ladJacTM[] = ForwardDiff.value(exp_ladJacTM)
-    #nelboi_z = (exp_nL - sum_logσ_ζM - exp_ladJacTM) * n_indiv_train/n_indiv_batch 
-    #nelboi_z = (exp_nL - sum_logσ_ζM) * n_indiv_train/n_indiv_batch  - (exp_ladJacTM / n_indiv_batch)  
-    nelboi_z = exp_nL - sum_logσ_ζM - exp_ladJacTM/n_indiv_batch 
+    #nelboi_z = exp_nL - sum_logσ_ζM/n_indiv_batch - exp_ladJacTM/n_indiv_batch # gets mean
+    # correct exp_nL and sum_logσ_ζM  by n_indiv_train/n_indiv_batch
+    #nelboi_z = exp_nL* n_indiv_train/n_indiv_batch - sum_logσ_ζM/n_indiv_batch - exp_ladJacTM/n_indiv_batch* n_indiv_train/n_indiv_batch 
+    # factor out
+    nelboi_z = ((exp_nL - exp_ladJacTM/n_indiv_batch) * n_indiv_train - sum_logσ_ζM) / n_indiv_batch 
 end
 
 @inline function set_ζsM!(ζsM, logσ_ζM, ::NegElbo, approx, rnormM, ϕqIc, ϕm, cor_endsM, sample_buffers)
@@ -231,16 +234,16 @@ function prepare_elbo_helpers(h::NamedTuple; approx_spec::AbstractHVIApproxSpec,
         y_buffer = Matrix{TF}(undef, n_obs, n_MC),
         sample_buffers = prepare_ind_sample_buffers(approx_spec, cor_ends.M, template_TF),
     ) for i in 1:n_site]
-    helpers_sites = use_dc ? map(hi -> map_leaves_nt(x -> PAT.DiffCache(x, chunk), hi),his) : his
-    hi = helpers_sites[1]
-    Main.@infiltrate_main
-
+    helpers_sites = use_dc ? map(hi -> map_leaves_nt(x -> x isa AbstractArray ? PAT.DiffCache(x, chunk) : x, hi),his) : his
+    #hi = helpers_sites[1]
     h = (;
         ζsP = Matrix{TF}(undef, n_θP, n_MC),
         θsP = Matrix{TF}(undef, n_θP, n_MC),
         logσ_ζP = Vector{TF}(undef, n_θP),
         ϕms = Matrix{TF}(undef, n_M, n_site),        
         ϕms_mcs = Array{TF,3}(undef, n_M, n_MC, n_site),
+        sum_logσ_ζP = Ref(zero(TF)),
+        exp_ladJacTP = Ref(zero(TF)),
         ϕms_mcs2D_buffer = Matrix{TF}(undef, n_M, n_MC * n_site),        
         xMP = Matrix{TG}(undef, (n_covXP), n_MC * n_site),
         sample_buffers = prepare_sample_buffers(approx_spec, cor_ends.P, template_TF),
