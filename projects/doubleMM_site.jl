@@ -1,7 +1,6 @@
 # updated doubleMM.jl with using HybridSolveSite
 
-# start from within projects directory mljulia --project
-# Pkg.activate("projects"); cd("projects")
+Pkg.activate("projects"); cd("projects")
 using Test 
 using HybridVariationalInference
 using HybridVariationalInference: HybridVariationalInference as HVI
@@ -44,7 +43,7 @@ solver_point = HybridSolverSite(; alg = OptimizationOptimisers.Adam(0.005))
 #solver_point = HybridPointSolver(; alg = Adam(), n_batch = 200)
 n_batches_in_epoch = n_site ÷ n_batch
 n_epoch = 120
-res_point = solve(prob0, solver_point, NegElbo(); scenario,
+res_point = solve(prob0, solver_point, NegLogDensity(); scenario,
     rng, epochs = n_epoch);
 
 # TODO adjust to new sampling
@@ -172,12 +171,12 @@ solver_post = solver_point
 end
 
 #----------- HVI without strong prior on θmean
-function fstate_ϕq(state)
-    u = state.u |> cpu
-    #Main.@infiltrate_main
-    uc = interpreters.ϕg_ϕq(u)
-    uc.ϕq.ρsM
-end
+# function fstate_ϕq(state)
+#     u = state.u |> cpu
+#     #Main.@infiltrate_main
+#     uc = interpreters.ϕg_ϕq(u)
+#     uc.ϕq.ρsM
+# end
 n_epoch = 100
 #n_epoch = 400
 #n_epoch = 2
@@ -439,21 +438,23 @@ using PDMats
 using Turing
 using MCMCChains
 # construct a prior on log scale that ranges roughly across 1e.3 to 10
-prior_ζ = fit(Normal, @qp_ll(log(1e-2)), @qp_uu(log(10)))
+prior_ζ = fit(Normal{Float32}, @qp_ll(log(1e-2)), @qp_uu(log(10)))
 prior_ζn = (n) -> MvNormal(fill(prior_ζ.μ, n), PDiagMat(fill(abs2(prior_ζ.σ), n)))
 prior_ζn(3)
 prob = HybridProblem(prob0);
+@assert eltype(rand(prior_ζn(3))) == Float32
 
 (; θM, θP) = get_hybridproblem_par_templates(prob; scenario)
 n_θM, n_θP = length.((θM, θP))
 pbm_spec = get_hybridproblem_PBModelSpec(prob; scenario)
-f = TODO
+import ForwardDiff
+f = get_PBModelApplicator(pbm_spec, θP, Val(1), ForwardDiff.Chunk(12)) # single prediction
 
-@model function fsites(y, ::Type{T} = Float64; f, n_θP, n_θM, σ_o) where {T}
+@model function fsites(y, ::Type{T} = Float32; f, n_θP, n_θM, σ_o) where {T}
     n_obs, n_site = size(y)
     prior_ζP = prior_ζn(n_θP)
     prior_ζM_sites = fill(prior_ζn(n_site), n_θM)
-    ζP ~ prior_ζP #MvNormal(n_θP, 10.0)
+    ζP ~ prior_ζP 
     # CAUTION: order of vectorizing matrix depends on order of ~
     # need to assign each variable in first site first, then second site, ...
     #   need to construct different MvNormal prior if std differs by variable
@@ -471,8 +472,11 @@ f = TODO
     #σ_o ~ truncated(Normal(0, 1); lower=0)
     #TODO specify with transPM
     # @show ζP
-    # Main.@infiltrate_main # step to second time 
-    y_pred = f(exp.(ζP), exp.(ζMs)', xP)[2] # first is global
+    ζPm = repeat(ζP, 1, 1)
+    #j = 1
+    for j in 1:n_site
+        HVI.apply_model!(y_pred[:,j:j], f, exp.(ζPm[:,j:j]), exp.(ζMs[:,j:j]), xP[:,j])
+    end
     for i_obs in 1:n_obs
         y[i_obs, :] ~ MvNormal(y_pred[i_obs, :], σ_o[i_obs]) # single value σ instead of variance
     end
@@ -482,23 +486,23 @@ f = TODO
     y_pred
 end
 
-model = fsites(y_o; f = prob0.f_allsites, n_θP, n_θM, σ_o)
+# TODO rename f_batch to pbmodel
+include("scratch_include.jl")
+model = fsites(y_o; f, n_θP, n_θM, σ_o)
+tmp = sample(model, NUTS(0,0.65), 2, initial_params = InitFromParams((
+    ζP = log.(CA.getdata(θP_true)), ζMs = log.(CA.getdata(θMs_true))))
+)
+#ζ0_true .+ eltype(ζ0_true)(0.001))
 
 # setup transformers and interpreters for forward prediction
 cor_ends = get_hybridproblem_cor_ends(prob; scenario)
 g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
-ϕunc0 = get_hybridproblem_ϕq(prob; scenario)
+#ϕunc0 = get_hybridproblem_ϕq(prob; scenario)
 (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
-hpints = HybridProblemInterpreters(prob; scenario)
-(; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = HVI.init_hybrid_params(
-    θP, θM, cor_ends, ϕg0, hpints; transP, transM, ϕunc0);
+# hpints = get_hybridproblem_interpreters(prob; scenario)
+# (; ϕ, transPMs_batch, interpreters, get_transPMs, get_ca_int_PMs) = HVI.init_hybrid_params(
+#     θP, θM, cor_ends, ϕg0, hpints; transP, transM, ϕunc0);
 
-intm_PMs_gen = get_int_PMs_site(hpints);
-#intm_PMs_gen = get_ca_int_PMs(100);
-#trans_PMs_gen = get_transPMs(n_site);
-trans_Ms_gen = StackedArray(transM, n_site)
-
-#trans_PMs_gen = get_transPMs(100);
 
 """
 ζMs in chain are all first parameter, all second parameters, ...
@@ -512,6 +516,7 @@ end
 # θ_true = vcat(CA.getdata(θP_true), vec(CA.getdata(θMs_true)));
 # ζ_true = log.(θ_true);
 θ0_true = vcat(CA.getdata(θP_true), vec(CA.getdata(θMs_true'))); # note the transpose
+
 ζ0_true = log.(θ0_true);
 #transposeMs(θ0_true, intm_PMs_gen, true) == θ_true
 
@@ -521,7 +526,7 @@ end
 # takes ~ 25 minutes
 #n_sample_NUTS = 800
 n_sample_NUTS = 2000
-#tmp = sample(model, NUTS(0,0.65), 2, initial_params = ζ0_true .+ 0.001)
+tmp = sample(model, NUTS(0,0.65), 2, initial_params = ζ0_true .+ 0.001)
 #chain = sample(model, NUTS(), n_sample_NUTS, initial_params = ζ0_true .+ 0.001)
 #n_sample_NUTS = 24
 n_threads = 8
