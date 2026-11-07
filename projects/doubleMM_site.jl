@@ -136,8 +136,8 @@ end
 end
 
 #----------- Hybrid Variational inference: HVI
-using MLUtils
-using Bijectors
+# using MLUtils
+# using Bijectors
 
 solver_post = solver_point
 
@@ -170,267 +170,269 @@ solver_post = solver_point
     end
 end
 
-#----------- HVI without strong prior on θmean
-# function fstate_ϕq(state)
-#     u = state.u |> cpu
-#     #Main.@infiltrate_main
-#     uc = interpreters.ϕg_ϕq(u)
-#     uc.ϕq.ρsM
-# end
-n_epoch = 100
-#n_epoch = 400
-#n_epoch = 2
-res_elbo = solve(prob0, solver_post, NegElbo(); ϕ0c = res_point.ϕc, scenario, 
-    epochs=n_epoch,
-    #show_train_loss = Val(true)
-    );
+function interactive_elbo() 
+    #----------- HVI without strong prior on θmean
+    # function fstate_ϕq(state)
+    #     u = state.u |> cpu
+    #     #Main.@infiltrate_main
+    #     uc = interpreters.ϕg_ϕq(u)
+    #     uc.ϕq.ρsM
+    # end
+    n_epoch = 100
+    #n_epoch = 400
+    #n_epoch = 2
+    res_elbo = solve(prob0, solver_post, NegElbo(); ϕ0c = res_point.ϕc, scenario, 
+        epochs=n_epoch,
+        #show_train_loss = Val(true)
+        );
 
-() -> begin # store and reload optimized problem
-    using JLD2
-    #fname_probos = "intermediate/probos_$(last(scenario)).jld2"
-    fname_probos = "intermediate/probos800_$(last(HVI._val_value(scenario))).jld2"
-    @show fname_probos
-    #JLD2.save(fname_probos, Dict("prob1o" => prob1o, "prob2o" => prob2o))
-    JLD2.save(fname_probos, Dict("prob2o" => prob2o))
-    tmp = JLD2.load(fname_probos)
-    prob2o = probo = tmp["prob2o"]
-end
-
-() -> begin # load the non-covar scenario, and neglect_cor scenario
-    using JLD2
-    scenario_indep = Val(Tuple(s for s in HVI._val_value(scenario) if s != :covarK2))
-    fname_probos_indep = "intermediate/probos800_$(last(HVI._val_value(scenario_indep))).jld2"
-    #fname_probos = "intermediate/probos800_omit_r0.jld2"
-    tmp = JLD2.load(fname_probos_indep)
-    prob2o_indep = tmp["prob2o"]
-    # test predicting correct obs-uncertainty of predictive posterior
-    n_sample_pred = 400
-    (; y, θsP, θsMs_tr) = predict_hvi(rng, prob2o_indep; scenario = scenario_indep, n_sample_pred);
-    (y2_indep, θsP2_indep, θsMs2_tr_indep) = (y, θsP, θsMs_tr);
-    #θsMs2_tr_indep .- θsMs2_tr
-    #(θ2_indep, y2_indep) = (θ2, y2)  # workaround to use covarK2 when loading failed
-    #
-    scenario_neglect_cor = Val((HVI._val_value(scenario)..., :neglect_cor))
-    fname_probos_neglect_cor = "intermediate/probos800_$(last(HVI._val_value(scenario_neglect_cor))).jld2"
-    #fname_probos = "intermediate/probos800_omit_r0.jld2"
-    tmp = JLD2.load(fname_probos_neglect_cor)
-    prob2o_neglect_cor = tmp["prob2o"]
-    # test predicting correct obs-uncertainty of predictive posterior
-    n_sample_pred = 400
-    (; y, θsP, θsMs_tr) = predict_hvi(rng, prob2o_neglect_cor; scenario = scenario_neglect_cor, n_sample_pred);
-    (y2_neglect_cor, θsP2_neglect_cor, θsMs2_tr_neglect_cor) = (y, θsP, θsMs_tr);
-    #
-    scenario_K1global = Val((HVI._val_value(scenario)..., :K1global))
-    fname_probos_K1global = "intermediate/probos800_$(last(HVI._val_value(scenario_K1global))).jld2"
-    #fname_probos = "intermediate/probos800_omit_r0.jld2"
-    tmp = JLD2.load(fname_probos_K1global)
-    prob2o_K1global = tmp["prob2o"]
-    # test predicting correct obs-uncertainty of predictive posterior
-    n_sample_pred = 400
-    (; y, θsP, θsMs_tr) = predict_hvi(rng, prob2o_K1global; scenario = scenario_K1global, n_sample_pred);
-    (y2_K1global, θsP2_K1global, θsMs2_tr_K1global) = (y, θsP, θsMs_tr);
-end
-
-() -> begin # optimize using LUX
-    #using Lux
-    g_lux = Lux.Chain(
-        # dense layer with bias that maps to 8 outputs and applies `tanh` activation
-        Lux.Dense(n_covar => n_covar * 4, tanh),
-        Lux.Dense(n_covar * 4 => n_covar * 4, logistic),
-        # dense layer without bias that maps to n outputs and `identity` activation
-        Lux.Dense(n_covar * 4 => n_θM, identity, use_bias = false)
-    )
-    ps, st = Lux.setup(Random.default_rng(), g_lux)
-    ps_ca = CA.ComponentArray(ps) |> gpu
-    st = st |> gpu
-    g_luxs = StatefulLuxLayer{true}(g_lux, nothing, st)
-    g_luxs(xM_gpu[:, 1:n_batch], ps_ca)
-    ax_g = CA.getaxes(ps_ca)
-    g_luxs(xM_gpu[:, 1:n_batch], CA.ComponentArray(ϕ.ϕg, ax_g))
-    interpreters = (interpreters..., ϕg = ComponentArrayInterpreter(ps_ca))
-    ϕg = CA.ComponentArray(ϕ.ϕg, ax_g)
-    ϕgc = interpreters.ϕg(ϕ.ϕg)
-    g_flux = g_luxs
-end
-
-exp.(res_elbo.ϕc.ϕqP.logσ_ζP)
-exp.(res_elbo.ϕc.ϕqI.coef_logσ_ζMs[:,1])
-
-# test predicting correct obs-uncertainty of predictive posterior
-n_sample_pred = 400
-hp_samp, hi_agg_samp = HVI.sample_posterior(rng, prob0, res_elbo.ϕc; 
-    scenario, 
-    n_sample_pred,
-    );
-y = y2 = hi_agg_samp.y
-θsP = θsP2 = hp_samp.θsP
-θsMs = θsMs2 = hi_agg_samp.θsM
-
-size(y) # n_obs x  n_sample_pred x n_site,
-size(θsMs)  # n_θM x n_sample x n_site 
-σ_o_post = dropdims(std(CA.getdata(y); dims = 2), dims = 2);
-σ_o = exp.(y_unc[:, 1] / 2)
-
-#describe(σ_o_post)
-hcat(σ_o, # fill(mean_σ_o_MC, length(σ_o)),
-    mean(σ_o_post, dims = 2), sqrt.(mean(abs2, σ_o_post, dims = 2)))
-# VI predicted uncertainty is smaller than HMC predicted one
-mean_y_pred = map(mean, eachslice(y; dims = (1, 3)));
-#describe(mean_y_pred - y_o)
-histogram(vec(mean_y_pred) - vec(y_true)) # predictions centered around y_o (or y_true)
-plt = scatterplot(vec(y_true), vec(mean_y_pred));
-lineplot!(plt, 0, 2)
-mean(mean_y_pred - y_true) # still ok
-
-mean_θMs = CA.ComponentArray(mean(CA.getdata(θsMs); dims = 2)[:,1,:], CA.getaxes(θMs_true))
-plt = scatterplot(θMs_true[1,:], mean_θMs[1,:]);
-lineplot!(plt, 0, 1)
-plt = scatterplot(θMs_true[2,:], mean_θMs[2,:])
-histogram(θsP)
-#scatter(fig[1,1], CA.getdata(θMs_true[1, :]), CA.getdata(mean_θ.Ms[1, :])); ablines!(fig[1,1], 0, 1)
-#@usingany AlgebraOfGraphices
-#fig = Figure()
-#draw!(fig, data(DataFrame(x=CA.getdata(θMs_true[1, :]), y = CA.getdata(mean_θ.Ms[1, :]))) * mapping(:x, :y) * visual(Scatter))
-#lineplot!(plt, 0, 1)
-#plt = scatterplot(θMs_true[1, :], mean_θ.Ms[1, :] - θMs_true[1, :])
-#plt = scatterplot(θMs_true[2, :], mean_θ.Ms[2, :] - θMs_true[2, :])
-#plt = scatterplot(mean_θ.Ms[2, :] - θMs_true[2, :], mean_θ.Ms[1, :] - θMs_true[1, :])
-# mode_θ = map(mode, eachrow(θ))
-# plt = scatterplot(θMs_true[1, :], mode_θ.Ms[1, :]); lineplot!(plt, 0, 1)
-
-() -> begin # compare elbo components for mean-constrained unconstrained
-    # solver_MC = HybridPosteriorSolver(; alg = Adam(0.01), n_batch = 30, n_MC = 300)
-    # n_batches_in_epoch = n_site ÷ solver_MC.n_batch
-    # (; ϕ, θP, resopt, interpreters) = solve(prob2o, solver_MC; scenario,
-    #     rng, callback = callback_loss(n_batches_in_epoch), maxiters = 14);
-    # resopt.objective
-    # (; ϕ, θP, resopt, interpreters) = solve(prob1o, solver_MC; scenario,
-    #     rng, callback = callback_loss(n_batches_in_epoch), maxiters = 14);
-    # resopt.objective
-    # probo = prob3o = HybridProblem(prob2; ϕg = cpu_ca(ϕ).ϕg, θP = θP, ϕq = cpu_ca(ϕ).ϕq)
-
-    solver_post2 = HybridPosteriorSolver(solver_post; n_MC = 30)
-    #solver_post2 = HybridPosteriorSolver(solver_post; n_MC = 3)
-    n_rep = 30
-    n_batchf = n_site
-    n_batchf = n_site ÷ 10
-    elbo = map(1:n_rep) do i_rep
-        HVI.compute_elbo_components(
-            prob2o, solver_post2; scenario, n_batch = n_batchf) |> collect
-    end |> x -> stack(x; dims = 1)
-    elbo_c = map(1:n_rep) do i_rep
-        HVI.compute_elbo_components(
-            prob1o, solver_post2; scenario, n_batch = n_batchf) |> collect
-    end |> x -> stack(x; dims = 1)
-    #@usingany AlgebraOfGraphics
-    #@usingany CairoMakie
-    #const AoG = AlgebraOfGraphics
-    #@usingany DataFrames
-    df = vcat(
-        insertcols!(DataFrame(elbo, [:nLy, :ent, :nLmean_θ]), :scenario => "unconstrained"),
-        insertcols!(DataFrame(elbo_c, [:nLy, :ent, :nLmean_θ]), :scenario => "θmean")
-    ) |> x -> insertcols!(x, :elbo => -x.nLy + x.ent)
-    plt = data(df) * mapping(:scenario, :elbo) * visual(BoxPlot)
-    fig = draw(plt).figure
-    save("tmp.svg", fig)
-    save("elbo_boxplot.pdf", fig)
-end
-
-() -> begin # look at distribution of parameters, predictions, and likelihood and elob at one site
-    # compare prob1o (with constraining theta to be near original mean) to unconstrained HVI
-    function predict_site(probo, i_site)
-        (; y, θsP, θsMs_tr, entropy_ζ) = predict_hvi(rng, probo; scenario, n_sample_pred)
-        y_site = y[:, i_site, :]
-        θMs_i = CA.ComponentArray(θsMs_tr[i_site,:,:], (CA.getaxes(θMs_true)[1], CA.FlatAxis()))
-        r1s = θMs_i[:r1,:]
-        # K1s = map(x -> x[2], θMs_i)
-        # invt = map(Bijectors.inverse, get_hybridproblem_transforms(probo; scenario))
-        # θPs = θ[:P,:]
-        # ζPs = invt.transP.(θPs)
-        # ζMs = invt.transM.(θMs_i)
-        # pbm_spec = get_hybridproblem_PBModelSpec(probo; scenario)
-        # _f = TODO
-        # y_site = map(eachcol(θPs), θMs_i) do θP, θM
-        #       y = _f(θP, reshape(θM, (length(θM), 1)), xP[[i_site]])
-        #     y[:,1]
-        # end |> stack
-        nLs = get_hybridproblem_neg_logden_obs(
-            probo; scenario).(eachcol(y_site), Ref(y_o[:, i_site]), Ref(y_unc[:, i_site]))
-        (; r1s, nLs, entropy_ζ, y_site)
+    () -> begin # store and reload optimized problem
+        using JLD2
+        #fname_probos = "intermediate/probos_$(last(scenario)).jld2"
+        fname_probos = "intermediate/probos800_$(last(HVI._val_value(scenario))).jld2"
+        @show fname_probos
+        #JLD2.save(fname_probos, Dict("prob1o" => prob1o, "prob2o" => prob2o))
+        JLD2.save(fname_probos, Dict("prob2o" => prob2o))
+        tmp = JLD2.load(fname_probos)
+        prob2o = probo = tmp["prob2o"]
     end
-    i_site = 1
-    (r1s, nLs, ent, y_site) = predict_site(prob2o, i_site)
-    (r1sc, nLsc, entc, y_sitec) = predict_site(prob1o, i_site) # result from point-solver
-    mean(nLs), mean(nLsc)
-    ent, entc
-    # with larger uncertaintsy (higher entropy) in unconstrained cost much lower
-    mean(nLs) - ent, mean(nLsc) - entc
 
-    #@usingany CairoMakie
-    #@usingany AlgebraOfGraphics
-    #@usingany DataFrames
-    const aog = AlgebraOfGraphics
+    () -> begin # load the non-covar scenario, and neglect_cor scenario
+        using JLD2
+        scenario_indep = Val(Tuple(s for s in HVI._val_value(scenario) if s != :covarK2))
+        fname_probos_indep = "intermediate/probos800_$(last(HVI._val_value(scenario_indep))).jld2"
+        #fname_probos = "intermediate/probos800_omit_r0.jld2"
+        tmp = JLD2.load(fname_probos_indep)
+        prob2o_indep = tmp["prob2o"]
+        # test predicting correct obs-uncertainty of predictive posterior
+        n_sample_pred = 400
+        (; y, θsP, θsMs_tr) = predict_hvi(rng, prob2o_indep; scenario = scenario_indep, n_sample_pred);
+        (y2_indep, θsP2_indep, θsMs2_tr_indep) = (y, θsP, θsMs_tr);
+        #θsMs2_tr_indep .- θsMs2_tr
+        #(θ2_indep, y2_indep) = (θ2, y2)  # workaround to use covarK2 when loading failed
+        #
+        scenario_neglect_cor = Val((HVI._val_value(scenario)..., :neglect_cor))
+        fname_probos_neglect_cor = "intermediate/probos800_$(last(HVI._val_value(scenario_neglect_cor))).jld2"
+        #fname_probos = "intermediate/probos800_omit_r0.jld2"
+        tmp = JLD2.load(fname_probos_neglect_cor)
+        prob2o_neglect_cor = tmp["prob2o"]
+        # test predicting correct obs-uncertainty of predictive posterior
+        n_sample_pred = 400
+        (; y, θsP, θsMs_tr) = predict_hvi(rng, prob2o_neglect_cor; scenario = scenario_neglect_cor, n_sample_pred);
+        (y2_neglect_cor, θsP2_neglect_cor, θsMs2_tr_neglect_cor) = (y, θsP, θsMs_tr);
+        #
+        scenario_K1global = Val((HVI._val_value(scenario)..., :K1global))
+        fname_probos_K1global = "intermediate/probos800_$(last(HVI._val_value(scenario_K1global))).jld2"
+        #fname_probos = "intermediate/probos800_omit_r0.jld2"
+        tmp = JLD2.load(fname_probos_K1global)
+        prob2o_K1global = tmp["prob2o"]
+        # test predicting correct obs-uncertainty of predictive posterior
+        n_sample_pred = 400
+        (; y, θsP, θsMs_tr) = predict_hvi(rng, prob2o_K1global; scenario = scenario_K1global, n_sample_pred);
+        (y2_K1global, θsP2_K1global, θsMs2_tr_K1global) = (y, θsP, θsMs_tr);
+    end
 
-    # especially uncertainty is put to r1 (compensated by larger K1)
-    df = DataFrame(r1 = vcat(r1s, r1sc),
-        scenario = vcat(fill.(["unconstrained", "meanθ"], n_sample_pred)...))
-    plt = data(df) * mapping(:r1, color = :scenario => "Scenario") * aog.density()
-    plth = mapping([θMs_true[:r1, 1]]) * visual(VLines; linestyle = :dash)
-    fig = Figure(; size = (640, 480))
-    fig = Figure(; size = (320, 240))
-    gp = fig[1, 1]
-    fd = draw!(gp, plt + plth)
-    legend!(
-        gp, fd; tellwidth = false, halign = :right, valign = :top, margin = (10, 10, 10, 10))
-    save("r1_density.pdf", fig)
-    save("tmp.svg", fig)
+    () -> begin # optimize using LUX
+        #using Lux
+        g_lux = Lux.Chain(
+            # dense layer with bias that maps to 8 outputs and applies `tanh` activation
+            Lux.Dense(n_covar => n_covar * 4, tanh),
+            Lux.Dense(n_covar * 4 => n_covar * 4, logistic),
+            # dense layer without bias that maps to n outputs and `identity` activation
+            Lux.Dense(n_covar * 4 => n_θM, identity, use_bias = false)
+        )
+        ps, st = Lux.setup(Random.default_rng(), g_lux)
+        ps_ca = CA.ComponentArray(ps) |> gpu
+        st = st |> gpu
+        g_luxs = StatefulLuxLayer{true}(g_lux, nothing, st)
+        g_luxs(xM_gpu[:, 1:n_batch], ps_ca)
+        ax_g = CA.getaxes(ps_ca)
+        g_luxs(xM_gpu[:, 1:n_batch], CA.ComponentArray(ϕ.ϕg, ax_g))
+        interpreters = (interpreters..., ϕg = ComponentArrayInterpreter(ps_ca))
+        ϕg = CA.ComponentArray(ϕ.ϕg, ax_g)
+        ϕgc = interpreters.ϕg(ϕ.ϕg)
+        g_flux = g_luxs
+    end
 
-    # observations are matched similarly well
-    # with larger uncertainty the right-skewed shape of K1 leads to left-skewed y
-    df = DataFrame(
-        y = vcat(vec(y_site .- y_true[:, i_site]), vec(y_sitec .- y_true[:, i_site])),
-        scenario = vcat(fill.(["unconstrained", "meanθ"], n_sample_pred * size(y_o, 1))...))
-    plt = data(df) *
-          mapping(:y => "y_predicted - y_observed", color = :scenario => "Scenario") *
-          aog.density()
-    plth = mapping([0.0]) * visual(VLines; linestyle = :dash)
-    fig = Figure(; size = (640, 480))
-    gp = fig[1, 1]
-    fg = draw!(gp, plt + plth)
-    legend!(
-        gp, fg; tellwidth = false, halign = :right, valign = :top, margin = (10, 10, 10, 10))
-    save("ys_density.pdf", fig)
-    save("tmp.svg", fig)
+    exp.(res_elbo.ϕc.ϕqP.logσ_ζP)
+    exp.(res_elbo.ϕc.ϕqI.coef_logσ_ζMs[:,1])
 
-    #slightly worse (higher) negLogLikelihood
-    df = DataFrame(nL = vcat(nLs, nLsc),
-        scenario = vcat(fill.(["unconstrained", "meanθ"], n_sample_pred)...))
-    plt = data(df) * mapping(:nL => "-logDensity", color = :scenario => "Scenario") *
-          aog.density()
-    fig = Figure()
-    gp = fig[1, 1]
-    fg = draw!(gp, plt)
-    legend!(
-        gp, fg; tellwidth = false, halign = :right, valign = :top, margin = (10, 10, 10, 10))
-    save("negLogDensity.pdf", fig)
-    save("tmp.svg", fig)
-end
+    # test predicting correct obs-uncertainty of predictive posterior
+    n_sample_pred = 400
+    hp_samp, hi_agg_samp = HVI.sample_posterior(rng, prob0, res_elbo.ϕc; 
+        scenario, 
+        n_sample_pred,
+        );
+    y = y2 = hi_agg_samp.y
+    θsP = θsP2 = hp_samp.θsP
+    θsMs = θsMs2 = hi_agg_samp.θsM
 
-() -> begin # look at θP, θM1 of first site
-    θPM = vcat(θP_true, θMs_true[:, 1])
-    intm = ComponentArrayInterpreter(θPM, (n_sample_pred,))
-    θ1c = intm(θ[1:length(θPM), :])
-    θPM
-    #histogram((θ1c[:r0, :]))
-    histogram((θ1c[:K2, :]))
-    histogram((θ1c[:r1, :]))
-    histogram((θ1c[:K1, :]))
-    # overestimates r1 and underestimates K1
-    # all parameters estimated to high (true not in cf bounds)
-    scatterplot(θ1c[:r1, :], θ1c[:K1, :])  # r1 and K1 strongly correlated (from θM)
-    scatterplot(θ1c[:r0, :], θ1c[:K2, :])  # r0 and K also correlated (from θP)
-    scatterplot(θ1c[:r0, :], θ1c[:K1, :])  # no correlation (modeled independent)
-end
+    size(y) # n_obs x  n_sample_pred x n_site,
+    size(θsMs)  # n_θM x n_sample x n_site 
+    σ_o_post = dropdims(std(CA.getdata(y); dims = 2), dims = 2);
+    σ_o = exp.(y_unc[:, 1] / 2)
+
+    #describe(σ_o_post)
+    hcat(σ_o, # fill(mean_σ_o_MC, length(σ_o)),
+        mean(σ_o_post, dims = 2), sqrt.(mean(abs2, σ_o_post, dims = 2)))
+    # VI predicted uncertainty is smaller than HMC predicted one
+    mean_y_pred = map(mean, eachslice(y; dims = (1, 3)));
+    #describe(mean_y_pred - y_o)
+    histogram(vec(mean_y_pred) - vec(y_true)) # predictions centered around y_o (or y_true)
+    plt = scatterplot(vec(y_true), vec(mean_y_pred));
+    lineplot!(plt, 0, 2)
+    mean(mean_y_pred - y_true) # still ok
+
+    mean_θMs = CA.ComponentArray(mean(CA.getdata(θsMs); dims = 2)[:,1,:], CA.getaxes(θMs_true))
+    plt = scatterplot(θMs_true[1,:], mean_θMs[1,:]);
+    lineplot!(plt, 0, 1)
+    plt = scatterplot(θMs_true[2,:], mean_θMs[2,:])
+    histogram(θsP)
+    #scatter(fig[1,1], CA.getdata(θMs_true[1, :]), CA.getdata(mean_θ.Ms[1, :])); ablines!(fig[1,1], 0, 1)
+    #@usingany AlgebraOfGraphices
+    #fig = Figure()
+    #draw!(fig, data(DataFrame(x=CA.getdata(θMs_true[1, :]), y = CA.getdata(mean_θ.Ms[1, :]))) * mapping(:x, :y) * visual(Scatter))
+    #lineplot!(plt, 0, 1)
+    #plt = scatterplot(θMs_true[1, :], mean_θ.Ms[1, :] - θMs_true[1, :])
+    #plt = scatterplot(θMs_true[2, :], mean_θ.Ms[2, :] - θMs_true[2, :])
+    #plt = scatterplot(mean_θ.Ms[2, :] - θMs_true[2, :], mean_θ.Ms[1, :] - θMs_true[1, :])
+    # mode_θ = map(mode, eachrow(θ))
+    # plt = scatterplot(θMs_true[1, :], mode_θ.Ms[1, :]); lineplot!(plt, 0, 1)
+
+    () -> begin # compare elbo components for mean-constrained unconstrained
+        # solver_MC = HybridPosteriorSolver(; alg = Adam(0.01), n_batch = 30, n_MC = 300)
+        # n_batches_in_epoch = n_site ÷ solver_MC.n_batch
+        # (; ϕ, θP, resopt, interpreters) = solve(prob2o, solver_MC; scenario,
+        #     rng, callback = callback_loss(n_batches_in_epoch), maxiters = 14);
+        # resopt.objective
+        # (; ϕ, θP, resopt, interpreters) = solve(prob1o, solver_MC; scenario,
+        #     rng, callback = callback_loss(n_batches_in_epoch), maxiters = 14);
+        # resopt.objective
+        # probo = prob3o = HybridProblem(prob2; ϕg = cpu_ca(ϕ).ϕg, θP = θP, ϕq = cpu_ca(ϕ).ϕq)
+
+        solver_post2 = HybridPosteriorSolver(solver_post; n_MC = 30)
+        #solver_post2 = HybridPosteriorSolver(solver_post; n_MC = 3)
+        n_rep = 30
+        n_batchf = n_site
+        n_batchf = n_site ÷ 10
+        elbo = map(1:n_rep) do i_rep
+            HVI.compute_elbo_components(
+                prob2o, solver_post2; scenario, n_batch = n_batchf) |> collect
+        end |> x -> stack(x; dims = 1)
+        elbo_c = map(1:n_rep) do i_rep
+            HVI.compute_elbo_components(
+                prob1o, solver_post2; scenario, n_batch = n_batchf) |> collect
+        end |> x -> stack(x; dims = 1)
+        #@usingany AlgebraOfGraphics
+        #@usingany CairoMakie
+        #const AoG = AlgebraOfGraphics
+        #@usingany DataFrames
+        df = vcat(
+            insertcols!(DataFrame(elbo, [:nLy, :ent, :nLmean_θ]), :scenario => "unconstrained"),
+            insertcols!(DataFrame(elbo_c, [:nLy, :ent, :nLmean_θ]), :scenario => "θmean")
+        ) |> x -> insertcols!(x, :elbo => -x.nLy + x.ent)
+        plt = data(df) * mapping(:scenario, :elbo) * visual(BoxPlot)
+        fig = draw(plt).figure
+        save("tmp.svg", fig)
+        save("elbo_boxplot.pdf", fig)
+    end
+
+    () -> begin # look at distribution of parameters, predictions, and likelihood and elob at one site
+        # compare prob1o (with constraining theta to be near original mean) to unconstrained HVI
+        function predict_site(probo, i_site)
+            (; y, θsP, θsMs_tr, entropy_ζ) = predict_hvi(rng, probo; scenario, n_sample_pred)
+            y_site = y[:, i_site, :]
+            θMs_i = CA.ComponentArray(θsMs_tr[i_site,:,:], (CA.getaxes(θMs_true)[1], CA.FlatAxis()))
+            r1s = θMs_i[:r1,:]
+            # K1s = map(x -> x[2], θMs_i)
+            # invt = map(Bijectors.inverse, get_hybridproblem_transforms(probo; scenario))
+            # θPs = θ[:P,:]
+            # ζPs = invt.transP.(θPs)
+            # ζMs = invt.transM.(θMs_i)
+            # pbm_spec = get_hybridproblem_PBModelSpec(probo; scenario)
+            # _f = TODO
+            # y_site = map(eachcol(θPs), θMs_i) do θP, θM
+            #       y = _f(θP, reshape(θM, (length(θM), 1)), xP[[i_site]])
+            #     y[:,1]
+            # end |> stack
+            nLs = get_hybridproblem_neg_logden_obs(
+                probo; scenario).(eachcol(y_site), Ref(y_o[:, i_site]), Ref(y_unc[:, i_site]))
+            (; r1s, nLs, entropy_ζ, y_site)
+        end
+        i_site = 1
+        (r1s, nLs, ent, y_site) = predict_site(prob2o, i_site)
+        (r1sc, nLsc, entc, y_sitec) = predict_site(prob1o, i_site) # result from point-solver
+        mean(nLs), mean(nLsc)
+        ent, entc
+        # with larger uncertaintsy (higher entropy) in unconstrained cost much lower
+        mean(nLs) - ent, mean(nLsc) - entc
+
+        #@usingany CairoMakie
+        #@usingany AlgebraOfGraphics
+        #@usingany DataFrames
+        const aog = AlgebraOfGraphics
+
+        # especially uncertainty is put to r1 (compensated by larger K1)
+        df = DataFrame(r1 = vcat(r1s, r1sc),
+            scenario = vcat(fill.(["unconstrained", "meanθ"], n_sample_pred)...))
+        plt = data(df) * mapping(:r1, color = :scenario => "Scenario") * aog.density()
+        plth = mapping([θMs_true[:r1, 1]]) * visual(VLines; linestyle = :dash)
+        fig = Figure(; size = (640, 480))
+        fig = Figure(; size = (320, 240))
+        gp = fig[1, 1]
+        fd = draw!(gp, plt + plth)
+        legend!(
+            gp, fd; tellwidth = false, halign = :right, valign = :top, margin = (10, 10, 10, 10))
+        save("r1_density.pdf", fig)
+        save("tmp.svg", fig)
+
+        # observations are matched similarly well
+        # with larger uncertainty the right-skewed shape of K1 leads to left-skewed y
+        df = DataFrame(
+            y = vcat(vec(y_site .- y_true[:, i_site]), vec(y_sitec .- y_true[:, i_site])),
+            scenario = vcat(fill.(["unconstrained", "meanθ"], n_sample_pred * size(y_o, 1))...))
+        plt = data(df) *
+            mapping(:y => "y_predicted - y_observed", color = :scenario => "Scenario") *
+            aog.density()
+        plth = mapping([0.0]) * visual(VLines; linestyle = :dash)
+        fig = Figure(; size = (640, 480))
+        gp = fig[1, 1]
+        fg = draw!(gp, plt + plth)
+        legend!(
+            gp, fg; tellwidth = false, halign = :right, valign = :top, margin = (10, 10, 10, 10))
+        save("ys_density.pdf", fig)
+        save("tmp.svg", fig)
+
+        #slightly worse (higher) negLogLikelihood
+        df = DataFrame(nL = vcat(nLs, nLsc),
+            scenario = vcat(fill.(["unconstrained", "meanθ"], n_sample_pred)...))
+        plt = data(df) * mapping(:nL => "-logDensity", color = :scenario => "Scenario") *
+            aog.density()
+        fig = Figure()
+        gp = fig[1, 1]
+        fg = draw!(gp, plt)
+        legend!(
+            gp, fg; tellwidth = false, halign = :right, valign = :top, margin = (10, 10, 10, 10))
+        save("negLogDensity.pdf", fig)
+        save("tmp.svg", fig)
+    end
+
+    () -> begin # look at θP, θM1 of first site
+        θPM = vcat(θP_true, θMs_true[:, 1])
+        intm = ComponentArrayInterpreter(θPM, (n_sample_pred,))
+        θ1c = intm(θ[1:length(θPM), :])
+        θPM
+        #histogram((θ1c[:r0, :]))
+        histogram((θ1c[:K2, :]))
+        histogram((θ1c[:r1, :]))
+        histogram((θ1c[:K1, :]))
+        # overestimates r1 and underestimates K1
+        # all parameters estimated to high (true not in cf bounds)
+        scatterplot(θ1c[:r1, :], θ1c[:K1, :])  # r1 and K1 strongly correlated (from θM)
+        scatterplot(θ1c[:r0, :], θ1c[:K2, :])  # r0 and K also correlated (from θP)
+        scatterplot(θ1c[:r0, :], θ1c[:K1, :])  # no correlation (modeled independent)
+    end
+end # interactive_elbo
 
 #---- do an DEMC inversion of the PBM model with parameters at log-scale
 using DistributionFits
@@ -438,19 +440,24 @@ using PDMats
 using Turing
 using MCMCChains
 # construct a prior on log scale that ranges roughly across 1e.3 to 10
-prior_ζ = fit(Normal{Float32}, @qp_ll(log(1e-2)), @qp_uu(log(10)))
+# Turing does not work well with Float32, switch all to Float64
+# prior_ζ = fit(Normal{Float32}, @qp_ll(log(1e-2)), @qp_uu(log(10)))
+# prior_ζn = (n) -> MvNormal(fill(prior_ζ.μ, n), PDiagMat(fill(abs2(prior_ζ.σ), n)))
+prior_ζ = fit(Normal, @qp_ll(log(1e-2)), @qp_uu(log(10)))
 prior_ζn = (n) -> MvNormal(fill(prior_ζ.μ, n), PDiagMat(fill(abs2(prior_ζ.σ), n)))
 prior_ζn(3)
 prob = HybridProblem(prob0);
-@assert eltype(rand(prior_ζn(3))) == Float32
+#@assert eltype(rand(prior_ζn(3))) == Float32
+@assert eltype(rand(prior_ζn(3))) == Float64
 
 (; θM, θP) = get_hybridproblem_par_templates(prob; scenario)
 n_θM, n_θP = length.((θM, θP))
 pbm_spec = get_hybridproblem_PBModelSpec(prob; scenario)
 import ForwardDiff
-f = get_PBModelApplicator(pbm_spec, θP, Val(1), ForwardDiff.Chunk(12)) # single prediction
+#f = get_PBModelApplicator(pbm_spec, θP, Val(1), ForwardDiff.Chunk(25)) # single prediction
+f = get_PBModelApplicator(pbm_spec, zeros(0), Val(1), ForwardDiff.Chunk(25)) # single prediction
 
-@model function fsites(y, ::Type{T} = Float32; f, n_θP, n_θM, σ_o) where {T}
+@model function fsites(y, ::Type{T} = Float64; f, n_θP, n_θM, xP, xM, σ_o) where {T}
     n_obs, n_site = size(y)
     prior_ζP = prior_ζn(n_θP)
     prior_ζM_sites = fill(prior_ζn(n_site), n_θM)
@@ -474,33 +481,61 @@ f = get_PBModelApplicator(pbm_spec, θP, Val(1), ForwardDiff.Chunk(12)) # single
     # @show ζP
     ζPm = repeat(ζP, 1, 1)
     #j = 1
+    y_pred = Matrix{T}(undef, n_obs, n_site)
     for j in 1:n_site
-        HVI.apply_model!(y_pred[:,j:j], f, exp.(ζPm[:,j:j]), exp.(ζMs[:,j:j]), xP[:,j])
+        HVI.apply_model!(@view(y_pred[:,j:j]), f, exp.(ζPm), exp.(ζMs[:,j:j]), xP[:,j])
     end
+    # i_obs = 1
     for i_obs in 1:n_obs
         y[i_obs, :] ~ MvNormal(y_pred[i_obs, :], σ_o[i_obs]) # single value σ instead of variance
     end
-    #Main.@infiltrate_main # step to second time 
     # θMs_MCc[:,:,1] # checking row- or column-order of θMs_tr
     # exp.(ζMs)
     y_pred
 end
 
-# TODO rename f_batch to pbmodel
-include("scratch_include.jl")
-model = fsites(y_o; f, n_θP, n_θM, σ_o)
-tmp = sample(model, NUTS(0,0.65), 2, initial_params = InitFromParams((
-    ζP = log.(CA.getdata(θP_true)), ζMs = log.(CA.getdata(θMs_true))))
-)
-#ζ0_true .+ eltype(ζ0_true)(0.001))
+@model function f_resid(y, ::Type{T} = Float64; pbm, θP_true, θMs_true, xP, σ_o, σ_r = 1.0) where T
+    n_obs, n_site = size(y)
+    n_θP = length(θP_true)
+    n_θM = size(θMs_true, 1)
+    # residuals on log scale: θ = θ_true * exp(r) stays positive
+    rP ~ filldist(Normal(0.0, σ_r), n_θP)
+    rMs ~ filldist(Normal(0.0, σ_r), n_θM, n_site) # single matrix-valued variable
+    # Float64 (AdvancedHMC metric is Float64), Dual during ForwardDiff gradient
+    θPm = reshape(CA.getdata(θP_true) .* exp.(rP), :, 1) # 1 column matrix
+    y_pred = Matrix{T}(undef, n_obs, n_site)
+    for j in 1:n_site
+        θMm = reshape(CA.getdata(θMs_true)[:, j] .* exp.(rMs[:, j]), :, 1)
+        # use a view: y_pred[:,j:j] would be a copy and y_pred would stay undef
+        HVI.apply_model!(view(y_pred, :, j:j), pbm, θPm, θMm, xP[:, j])
+    end
+    for i_obs in 1:n_obs
+        y[i_obs, :] ~ MvNormal(y_pred[i_obs, :], σ_o[i_obs]) # single value σ instead of variance
+    end
+    y_pred
+end
 
-using FillArrays
-include("scratch_include.jl")
+# # # TODO rename f_batch to pbmodel
+# include("scratch_include.jl")
+# model = fsites(y_o; f, n_θP, n_θM, xP = convert.(Float64, xP), xM = convert.(Float64, xM), σ_o)
+# tmp = sample(model, NUTS(0,0.65), 2, initial_params = InitFromParams((
+#     ζP = convert.(Float64, log.(CA.getdata(θP_true))), 
+#     ζMs = convert.(Float64, log.(CA.getdata(θMs_true)))))
+# )
+# #ζ0_true .+ eltype(ζ0_true)(0.001))
+
+#include("scratch_include.jl")
 model = f_resid(y_o; pbm=f, θP_true, θMs_true, xP, σ_o)
-tmp = sample(model, NUTS(0,0.65), 2, 
-    initial_params = InitFromParams((
-    rP = Zeros(Float32, n_θP), rMs = Zeros(Float32, n_θM, n_site)
-)))
+initial_params = InitFromParams((
+    rP = zeros(n_θP), rMs = zeros(n_θM, n_site) # Float64: AdvancedHMC metric is Float64
+))
+tmp = sample(model, NUTS(0,0.65), 2; initial_params)
+
+n_threads = 8
+n_sample_NUTS = 2000
+chain = sample(model, NUTS(), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
+    n_threads; initial_params=fill(initial_params, n_threads))
+
 
 
 
@@ -543,6 +578,14 @@ tmp = sample(model, NUTS(0,0.65), 2, initial_params = ζ0_true .+ 0.001)
 n_threads = 8
 chain = sample(model, NUTS(), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
     n_threads, initial_params = fill(ζ0_true .+ 0.001, n_threads))
+
+() -> begin
+    using JLD2
+    fname = "intermediate/doubleMM_chain_rPMs_$(last(HVI._val_value(scenario))).jld2"
+    jldsave(fname, false, IOStream; chain)
+    chain = load(fname, "chain"; iotype = IOStream);
+    n_sample_NUTS = size(Array(chain),1)
+end
 
 
 () -> begin

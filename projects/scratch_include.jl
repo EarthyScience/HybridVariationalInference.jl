@@ -1,4 +1,4 @@
-@model function fsites(y, ::Type{T} = Float32; f, n_θP, n_θM, σ_o) where {T}
+@model function fsites(y, ::Type{T} = Float64; f, n_θP, n_θM, xP, xM, σ_o) where {T}
     n_obs, n_site = size(y)
     prior_ζP = prior_ζn(n_θP)
     prior_ζM_sites = fill(prior_ζn(n_site), n_θM)
@@ -24,7 +24,7 @@
     #j = 1
     y_pred = Matrix{T}(undef, n_obs, n_site)
     for j in 1:n_site
-        HVI.apply_model!(y_pred[:,j:j], f, exp.(ζPm), exp.(ζMs[:,j:j]), xP[:,j])
+        HVI.apply_model!(@view(y_pred[:,j:j]), f, exp.(ζPm), exp.(ζMs[:,j:j]), xP[:,j])
     end
     # i_obs = 1
     for i_obs in 1:n_obs
@@ -35,28 +35,23 @@
     y_pred
 end
 
-@model function f_resid(y, ::Type{T} = Float32; pbm, θP_true, θMs_true, xP, σ_o) where {T}
+@model function f_resid(y, ::Type{T} = Float64; pbm, θP_true, θMs_true, xP, σ_o, σ_r = 1.0) where T
     n_obs, n_site = size(y)
-    # TODO 
     n_θP = length(θP_true)
-    n_θM = size(θMs_true,1)
-    rP ~ MvNormal(Zeros(Float32, n_θP), I*10)
-    rMs = Matrix{T}(undef, n_θM, n_site)
-    θP = θP_true .+ rP
-    θPm = repeat(θP,1,1) # 1 column matrix
+    n_θM = size(θMs_true, 1)
+    # residuals on log scale: θ = θ_true * exp(r) stays positive
+    rP ~ filldist(Normal(0.0, σ_r), n_θP)
+    rMs ~ filldist(Normal(0.0, σ_r), n_θM, n_site) # single matrix-valued variable
+    # Float64 (AdvancedHMC metric is Float64), Dual during ForwardDiff gradient
+    θPm = reshape(CA.getdata(θP_true) .* exp.(rP), :, 1) # 1 column matrix
     y_pred = Matrix{T}(undef, n_obs, n_site)
     for j in 1:n_site
-        rMs[:,j] ~ MvNormal(Zeros(Float32, n_θM), I*10)
-        θM = θMs_true[:,j] .+ rMs[j]
-        θMm = repeat(θM,1,1)
-        if eltype(θPm) == Float64
-            Main.@infiltrate_main
-        end
-        HVI.apply_model!(y_pred[:,j:j], pbm, θPm, θMm, xP[:,j])
+        θMm = reshape(CA.getdata(θMs_true)[:, j] .* exp.(rMs[:, j]), :, 1)
+        # use a view: y_pred[:,j:j] would be a copy and y_pred would stay undef
+        HVI.apply_model!(view(y_pred, :, j:j), pbm, θPm, θMm, xP[:, j])
     end
     for i_obs in 1:n_obs
         y[i_obs, :] ~ MvNormal(y_pred[i_obs, :], σ_o[i_obs]) # single value σ instead of variance
     end
     y_pred
 end
-
