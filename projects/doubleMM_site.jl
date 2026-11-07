@@ -494,6 +494,17 @@ tmp = sample(model, NUTS(0,0.65), 2, initial_params = InitFromParams((
 )
 #ζ0_true .+ eltype(ζ0_true)(0.001))
 
+using FillArrays
+include("scratch_include.jl")
+model = f_resid(y_o; pbm=f, θP_true, θMs_true, xP, σ_o)
+tmp = sample(model, NUTS(0,0.65), 2, 
+    initial_params = InitFromParams((
+    rP = Zeros(Float32, n_θP), rMs = Zeros(Float32, n_θM, n_site)
+)))
+
+
+
+
 # setup transformers and interpreters for forward prediction
 cor_ends = get_hybridproblem_cor_ends(prob; scenario)
 g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)

@@ -35,20 +35,23 @@
     y_pred
 end
 
-@model function fallea(y, ::Type{T} = Float32; θP_true, θMs_true, pbm, xP, σ_o) where {T}
+@model function f_resid(y, ::Type{T} = Float32; pbm, θP_true, θMs_true, xP, σ_o) where {T}
     n_obs, n_site = size(y)
     # TODO 
     n_θP = length(θP_true)
     n_θM = size(θMs_true,1)
-    rP ~ MvNormal(Zeros(n_θP), I*10)
-    rM = Matrix{T}(undev, n_θM, n_site)
+    rP ~ MvNormal(Zeros(Float32, n_θP), I*10)
+    rMs = Matrix{T}(undef, n_θM, n_site)
     θP = θP_true .+ rP
     θPm = repeat(θP,1,1) # 1 column matrix
     y_pred = Matrix{T}(undef, n_obs, n_site)
     for j in 1:n_site
-        rM[:,j] ~ MvNormal(Zeros(n_θM), I*10)
-        θM = θM_true[:,j] .+ rM[j]
+        rMs[:,j] ~ MvNormal(Zeros(Float32, n_θM), I*10)
+        θM = θMs_true[:,j] .+ rMs[j]
         θMm = repeat(θM,1,1)
+        if eltype(θPm) == Float64
+            Main.@infiltrate_main
+        end
         HVI.apply_model!(y_pred[:,j:j], pbm, θPm, θMm, xP[:,j])
     end
     for i_obs in 1:n_obs
