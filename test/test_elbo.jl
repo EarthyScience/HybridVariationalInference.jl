@@ -67,7 +67,7 @@ test_scenario = (scenario) -> begin
     #get_hybridproblem_
 
     #θsite_true = get_hybridproblem_par_templates(probc; scenario)
-    n_site, n_batch = get_hybridproblem_n_site_and_batch(probc; scenario)
+    n_site, n_batch = get_hybridproblem_n_indiv_train_and_batch(probc; scenario)
     # note: need to use prob rather than probc here, make sure the same
     rng = StableRNG(111)
     (; xM, θP_true, θMs_true, xP,  y_true,  y_o, y_unc) = 

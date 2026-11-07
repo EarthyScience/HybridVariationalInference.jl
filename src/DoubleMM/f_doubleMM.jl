@@ -249,7 +249,7 @@ function HVI.get_hybridproblem_MLapplicator(
     priors = Tuple(priors_dict[k] for k in keys(θM))
     (; transM) = get_hybridproblem_transforms(prob; scenario)
     lowers, uppers = HVI.get_quantile_transformed(priors, transM)
-    #n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    #n_site, n_batch = get_hybridproblem_n_indiv_train_and_batch(prob; scenario)
     approx = get_hybridproblem_HVIApproximation(prob; scenario)
     range_scaled = if approx isa AbstractMeanScalingHVIApproximation
     #range_scaled = if any((:scalingall, :clustered_sites, :clustered_sites2, :uniscaling) .∈ Ref(scen))
@@ -321,7 +321,7 @@ function HVI.get_hybridproblem_PBModelSpec(prob::DoubleMMCase; scenario::Val{sce
         PBMPopulationAppSpec(f_doubleMM!; pt.θP, pt.θM, θFix, xPvec)     
     else
         error("implement get_hybridproblem_PBModelSpec for DoubleMMCase for other applicators")
-        n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+        n_site, n_batch = get_hybridproblem_n_indiv_train_and_batch(prob; scenario)
         PBMPopulationApplicatorTr(f_doubleMM_sites, n_batch; pt.θP, pt.θM, θFix, xPvec)
     end
 end
@@ -370,7 +370,7 @@ end
 # const xP_S2 = Float32[1.0, 2.0, 3.0, 4.0, 5.0, 5.0, 5.0, 5.0]
 
 HVI.get_hybridproblem_n_covar(prob::DoubleMMCase; scenario::Val) = 5
-function HVI.get_hybridproblem_n_site_and_batch(prob::DoubleMMCase;
+function HVI.get_hybridproblem_n_indiv_train_and_batch(prob::DoubleMMCase;
         scenario::Val{scen}) where {scen}
     n_batch = 20
     n_site = 800
@@ -385,7 +385,7 @@ end
 function HVI.get_hybridproblem_train_dataloader(prob::DoubleMMCase; scenario::Val{scen},
         rng::AbstractRNG = StableRNG(111), kwargs...
 ) where {scen}
-    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    n_site, n_batch = get_hybridproblem_n_indiv_train_and_batch(prob; scenario)
     # In order to avoid circular dependencies, need to implement specific version of
     #    HVI.get_hybridproblem_n_covar, which be default relies on the train_dataloader
     dl = construct_dataloader_from_synthetic(rng, prob; scenario, n_batch, kwargs...) 
@@ -415,7 +415,7 @@ end
 
 function HVI.get_i_sites_test(prob::DoubleMMCase; scenario::Val{scen}) where {scen}
     rng = StableRNG(222)
-    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    n_site, n_batch = get_hybridproblem_n_indiv_train_and_batch(prob; scenario)
     n_site_test = n_site ÷ 10
     i_sites_test = sample(rng, 1:n_site, n_site_test, replace=false)
 end
@@ -423,7 +423,7 @@ end
 function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
         scenario::Val{scen}) where {scen}
     n_covar_pc = 2
-    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    n_site, n_batch = get_hybridproblem_n_indiv_train_and_batch(prob; scenario)
     pt = get_hybridproblem_par_templates(prob; scenario)
     n_covar = get_hybridproblem_n_covar(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)

@@ -34,10 +34,10 @@ cdev = gdev isa MLDataDevices.AbstractGPUDevice ? cpu_device() : identity
 prob0_ = HybridProblem(DoubleMM.DoubleMMCase(); scenario);
 (; xM, θP_true, θMs_true, xP,  y_true, y_o, y_unc
 ) = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); scenario);
-n_site, n_batch = get_hybridproblem_n_site_and_batch(prob0_; scenario)
+n_site, n_batch = get_hybridproblem_n_indiv_train_and_batch(prob0_; scenario)
 ζP_true, ζMs_true = log.(θP_true), log.(θMs_true)
 itrain_sites = 1:n_site
-n_site, n_batch = get_hybridproblem_n_site_and_batch(prob0_; scenario)
+n_site, n_batch = get_hybridproblem_n_indiv_train_and_batch(prob0_; scenario)
 train_dataloader = MLUtils.DataLoader(
     (xM, xP, y_o, y_unc, 1:n_site);
     batchsize = n_batch, partial = false)

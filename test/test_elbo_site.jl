@@ -88,7 +88,7 @@ isUsingSimpleChains = false
     g, ϕg = construct_ChainsApplicator(rng, chain0, Float32)
     ϕgv = collect(ϕg)
     #
-    n_site = 8
+    n_indiv_batch = 8
     n_MC = 3; n_MC_val = Val(3)
     n_obs = 4
     transP = Stacked((HVI.Exp(),),(1:n_θP,) )
@@ -111,15 +111,15 @@ isUsingSimpleChains = false
     intϕqP = get_concrete(ComponentArrayInterpreter(ϕqPc1))
     intϕqI = get_concrete(ComponentArrayInterpreter(ϕqIc1))
     #
-    xM = randn(eltype(ϕg),n_cov, n_site)
-    xP1 = randn(eltype(ϕqP), n_obs, n_site)
+    xM = randn(eltype(ϕg),n_cov, n_indiv_batch)
+    xP1 = randn(eltype(ϕqP), n_obs, n_indiv_batch)
     xPvec = CA.ComponentVector(
         S1=range(1.1; length=n_obs, step=0.1),
         S2=range(2.1; length=n_obs, step=0.1)
         )
-    y_o1 = randn(eltype(ϕqP), n_obs, n_site)
-    y_unc1 = zeros(eltype(ϕqP), n_obs, n_site) .+ 0.01
-    indiv_args1 = (;xM, xP = xP1, y_o=y_o1, y_unc = y_unc1,i_indiv_train = 1:n_site) 
+    y_o1 = randn(eltype(ϕqP), n_obs, n_indiv_batch)
+    y_unc1 = zeros(eltype(ϕqP), n_obs, n_indiv_batch) .+ 0.01
+    indiv_args1 = (;xM, xP = xP1, y_o=y_o1, y_unc = y_unc1,i_indiv_train = 1:n_indiv_batch) 
     ϕm1 = CP.apply_model(g, xM, ϕg)
     #
 
@@ -138,6 +138,7 @@ isUsingSimpleChains = false
          fLogLik = HVI.fLogLik_dummy,
          #ax_θP = CA.getaxes(θP_tmplt)[1],
          #axθM = CA.getaxes(θM_tmplt)[1], 
+         n_indiv_train = n_indiv_batch,
          )
     #
     ζP = randn(n_θP)
@@ -175,20 +176,20 @@ isUsingSimpleChains = false
     ϕms2 == ϕms2z
 
     # preallocate helpers and shadows
-    rnormPM = CP.prepare_rnorm(ϕqP; n_θP, n_θM, n_MC, n_indiv=n_site)
-    rnormPM_point = CP.prepare_rnorm(ϕqP; n_θP, n_θM, n_MC=1, n_indiv=n_site)
+    rnormPM = CP.prepare_rnorm(ϕqP; n_θP, n_θM, n_MC, n_indiv = n_indiv_batch)
+    rnormPM_point = CP.prepare_rnorm(ϕqP; n_θP, n_θM, n_MC=1, n_indiv = n_indiv_batch)
     # size(rnormPM.P)
     approx_spec = CP.DiagonalHVIApproxSpec()
     approx = get_HVIApproximation(approx_spec; ϕqPc=ϕqPc1, ϕqIc=ϕqIc1)
     CP.randnPM!(rng, rnormPM)
-    h0 = CP.prepare_elbo_helpers(approx_spec, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP0, n_M, cor_ends, n_obs)
-    h2 = CP.prepare_elbo_helpers(approx_spec, ϕg2, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs)
+    h0 = CP.prepare_elbo_helpers(approx_spec, ϕg, ϕqP; n_θP, n_θM, n_indiv_batch, n_MC, n_cov, n_covP = n_covP0, n_M, cor_ends, n_obs)
+    h2 = CP.prepare_elbo_helpers(approx_spec, ϕg2, ϕqP; n_θP, n_θM, n_indiv_batch, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs)
     CP.check_elbo_helpers(h0, xM, pbm_covar_indices0; n_ϕg = length(ϕg))
     CP.check_elbo_helpers(h2, xM, pbm_covar_indices2; n_ϕg = length(ϕg2))
     randn!(h0.θsP) # for testing should initialized to finite values
     randn!(h2.θsP) # for testing should initialized to finite values
-    h0_point = CP.prepare_elbo_helpers(approx_spec, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC=1, n_cov, n_covP = n_covP0, n_M, cor_ends, n_obs)
-    h2_point = CP.prepare_elbo_helpers(approx_spec, ϕg2, ϕqP; n_θP, n_θM, n_site, n_MC=1, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs)
+    h0_point = CP.prepare_elbo_helpers(approx_spec, ϕg, ϕqP; n_θP, n_θM, n_indiv_batch, n_MC=1, n_cov, n_covP = n_covP0, n_M, cor_ends, n_obs)
+    h2_point = CP.prepare_elbo_helpers(approx_spec, ϕg2, ϕqP; n_θP, n_θM, n_indiv_batch, n_MC=1, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs)
     CP.check_elbo_helpers(h0_point, xM, pbm_covar_indices0; n_ϕg = length(ϕg))
     CP.check_elbo_helpers(h2_point, xM, pbm_covar_indices2; n_ϕg = length(ϕg2))
     randn!(h0_point.θsP) # for testing should initialized to finite values
@@ -196,8 +197,8 @@ isUsingSimpleChains = false
     #
     approxM_spec = CP.MeanHVIApproxMatSpec()
     approxM = get_HVIApproximation(approxM_spec; ϕqPc=ϕqPc1, ϕqIc=ϕqIc1)
-    h0M = CP.prepare_elbo_helpers(approxM_spec, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP0, n_M, cor_ends, n_obs)
-    h2M = CP.prepare_elbo_helpers(approxM_spec, ϕg2, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs)
+    h0M = CP.prepare_elbo_helpers(approxM_spec, ϕg, ϕqP; n_θP, n_θM, n_indiv_batch, n_MC, n_cov, n_covP = n_covP0, n_M, cor_ends, n_obs)
+    h2M = CP.prepare_elbo_helpers(approxM_spec, ϕg2, ϕqP; n_θP, n_θM, n_indiv_batch, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs)
     randn!(h0M.θsP) # for testing should initialized to finite values
     randn!(h2M.θsP) # for testing should initialized to finite values
     #
@@ -205,9 +206,9 @@ isUsingSimpleChains = false
     intϕqIS = get_concrete(ComponentArrayInterpreter(ϕqIcS))
     approxS_spec = MeanUniScalingHVIApproxSpec()
     approxS = get_HVIApproximation(approxS_spec, ϕqPc=ϕqPc1, ϕqIc=ϕqIcS)
-    h0S = prepare_elbo_helpers(approxS_spec, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP0, n_M, cor_ends, n_obs)
-    h2S = prepare_elbo_helpers(approxS_spec, ϕg2, ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs)
-    h2S_point = CP.prepare_elbo_helpers(approxS_spec, ϕg2, ϕqP; n_θP, n_θM, n_site, n_MC=1, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs)
+    h0S = prepare_elbo_helpers(approxS_spec, ϕg, ϕqP; n_θP, n_θM, n_indiv_batch, n_MC, n_cov, n_covP = n_covP0, n_M, cor_ends, n_obs)
+    h2S = prepare_elbo_helpers(approxS_spec, ϕg2, ϕqP; n_θP, n_θM, n_indiv_batch, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs)
+    h2S_point = CP.prepare_elbo_helpers(approxS_spec, ϕg2, ϕqP; n_θP, n_θM, n_indiv_batch, n_MC=1, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs)
     randn!(h0S.θsP) # for testing should initialized to finite values
     randn!(h2S.θsP) # for testing should initialized to finite values
     randn!(h2S_point.θsP) # for testing should initialized to finite values
@@ -235,7 +236,7 @@ end
     ρst = zeros(1)  #zeros(CP.sumn(n_θP-1))
     CP._setρ_unscaled!(ρst, Ut[1:2,1:2])
     ϕqPct = CA.ComponentVector(μζP = [-1.0, 0.0, 1.0], logσ_ζP=log.(σt), ρsP=ρst)
-    h2M = CP.prepare_elbo_helpers(approxS_spec, ϕg, ϕqP; n_θM, n_θP, n_site, n_MC = n_MCt, 
+    h2M = CP.prepare_elbo_helpers(approxS_spec, ϕg, ϕqP; n_θM, n_θP, n_indiv_batch, n_MC = n_MCt, 
         n_cov, n_covP = n_covP0, n_M, cor_ends, use_diff_cache=Val(false), n_obs)
     CP.sample_ζsP!(ζsPt, logσ_ζPt, approxS, rnormPt, ϕqPct, cor_ends.P, h2M.sample_buffers)
     @test vec(mean(ζsPt, dims=2)) ≈ ϕqPct.μζP atol=0.01
@@ -324,7 +325,7 @@ end
     coef_logσ_ζMs[:,1] .= log.(σt)
     ϕqIct = CA.ComponentVector(coef_logσ_ζMs = coef_logσ_ζMs, ρsM=ρsMt)
     approx2 = get_HVIApproximation(approx2_spec; ϕqPc=ϕqPc1, ϕqIc=ϕqIct)
-    h2M = CP.prepare_elbo_helpers(approx2_spec, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC = n_MCt, 
+    h2M = CP.prepare_elbo_helpers(approx2_spec, ϕg, ϕqP; n_θP, n_θM, n_indiv_batch, n_MC = n_MCt, 
         n_cov, n_covP = n_covP0, n_M, cor_ends, use_diff_cache=Val(false), n_obs)
     CP.sample_ζsM!(ζsMt, logσ_ζMt, approx2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2M.helpers_sites[1].sample_buffers)
     @test vec(mean(ζsMt, dims=2)) ≈ μt atol=0.01
@@ -364,7 +365,7 @@ end
     approxS2 = get_HVIApproximation(approxS2_spec; ϕqPc=ϕqPc1, ϕqIc=ϕqIct)
     #MeanUniScalingHVIApproximation(log(σt[1]))
     local h2S2
-    h2S2 = CP.prepare_elbo_helpers(approxS2_spec, ϕg, ϕqP; n_θP, n_θM, n_site, n_MC = n_MCt, 
+    h2S2 = CP.prepare_elbo_helpers(approxS2_spec, ϕg, ϕqP; n_θP, n_θM, n_indiv_batch, n_MC = n_MCt, 
         n_cov, n_covP = n_covP0, n_M, cor_ends, n_obs, use_diff_cache=Val(false))
     CP.sample_ζsM!(ζsMt, logσ_ζMt, approxS2, rnormM1t, ϕqIct, ϕmt, cor_ends.M, h2S2.helpers_sites[1].sample_buffers)
     @test vec(mean(ζsMt, dims=2)) ≈ μt atol=0.01
@@ -433,17 +434,17 @@ end
     ϕms1 = h0.ϕms[:,1]
     θsP1 = h0.θsP
     CP.compute_nelboi_z!(hi1, CP.NegElbo(), approx, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1, 
-        cor_ends.M, transM, nljoint_args_fix, n_site)     
+        cor_ends.M, transM, nljoint_args_fix, n_indiv_batch)     
     #@code_warntype CP.compute_nelboi_z!(hi1, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1)
     # need two wrap in tmpf to avoid allocations due to boxing
     function tmpf(hi, loss_mode, approx, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1, cor_endsM, transM, nljoint_args_fix, n_site)
         @test (@allocated CP.compute_nelboi_z!(hi, loss_mode, approx, rnormM1, nljoint_args_ind1, ϕms1, 
             ϕqIc, θsP1, cor_endsM, transM, nljoint_args_fix, n_site)) == 0
     end
-    tmpf(hi1, CP.NegElbo(), approx, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1, cor_ends.M, transM, nljoint_args_fix, n_site)
+    tmpf(hi1, CP.NegElbo(), approx, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1, cor_ends.M, transM, nljoint_args_fix, n_indiv_batch)
     CP.compute_nelboi_z!(hi1, CP.NegLogDensity(), approx, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1, 
-        cor_ends.M, transM, nljoint_args_fix, n_site)     
-    tmpf(hi1, CP.NegLogDensity(), approx, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1, cor_ends.M, transM, nljoint_args_fix, n_site)
+        cor_ends.M, transM, nljoint_args_fix, n_indiv_batch)     
+    tmpf(hi1, CP.NegLogDensity(), approx, rnormM1, nljoint_args_ind1, ϕms1, ϕqIc, θsP1, cor_ends.M, transM, nljoint_args_fix, n_indiv_batch)
     #
     # test with views as input to compute_nelboi_z! and differnt ϕm per MC
     h21 = h2.helpers_sites[1]
@@ -451,7 +452,7 @@ end
     ϕm = randn!(similar(h2.ϕms_mcs[:,:,1]))
     inputs = CA.ComponentVector(ϕqIc=ϕqIc, ϕm = ϕm, θsP= θsP1)
     CP.compute_nelboi_z!(h21, CP.NegElbo(), approx, rnormM1, nljoint_args_ind1, inputs.ϕm, inputs.ϕqIc, 
-        inputs.θsP, cor_ends.M, transM, nljoint_args_fix, n_site)
+        inputs.θsP, cor_ends.M, transM, nljoint_args_fix, n_indiv_batch)
     # with 
     ϕms1_ = view(inputs, Val(:ϕm))
     ϕqIc_ = view(inputs, Val(:ϕqIc))
@@ -468,13 +469,13 @@ end
         #@profview_allocs loop_compute_nelboi_z(10_000,h21, loss_mode, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix, n_site)
         @test (@allocated loop_compute_nelboi_z(100,h21, loss_mode, approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_endsM, transM, nljoint_args_fix, n_site)) == 0
     end
-    alloc_compute_nelboi_z(h21, CP.NegElbo(), approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_ends.M, transM, nljoint_args_fix, n_site)
-    alloc_compute_nelboi_z(h21, CP.NegLogDensity(), approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_ends.M, transM, nljoint_args_fix, n_site)
+    alloc_compute_nelboi_z(h21, CP.NegElbo(), approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_ends.M, transM, nljoint_args_fix, n_indiv_batch)
+    alloc_compute_nelboi_z(h21, CP.NegLogDensity(), approx, rnormM1, nljoint_args_ind1, ϕms1_, ϕqIc_, θsP1_, cor_ends.M, transM, nljoint_args_fix, n_indiv_batch)
     # 
     gradh2 = @inferred CP.prepare_gradelbo_helpers(inputs.ϕqIc, inputs.ϕm, inputs.θsP, ϕg, ϕqPc, approx; 
         pbm_covar_indices=pbm_covar_indices2, n_workers=1,
         h=h2, rnormMi = rnormPM.M[1], nljoint_args_indi=nljoint_args_ind1,
-        n_site, n_cov, cor_ends, transP, transM, nljoint_args_fix, loss_mode, n_MC_val)
+        n_indiv_batch, n_cov, cor_ends, transP, transM, nljoint_args_fix, loss_mode, n_MC_val)
     hw_channel = gradh2.hw_channel
     # alternative: invoke forwarddiff_grad_nelboi_z! with ϕqIc_ and θsP_ as views,
     # passing dϕmvecs as the plain array. The views are created once *outside* the
@@ -515,14 +516,14 @@ end
     ϕqIcM = CA.ComponentVector(coef_logσ_ζMs = coef_logσ_ζMs, ρsM=ϕqIc.ρsM)
     ϕmsM = randn!(similar(h0M.ϕms_mcs[1:n_θM,:,1])) # g here, gives more components Scaling
     @test isfinite(CP.compute_nelboi_z!(hiM1, CP.NegElbo(), approx2, rnormM1, nljoint_args_ind1, 
-        ϕmsM, ϕqIcM, θsP1, cor_ends.M, transM, nljoint_args_fix, n_site))
+        ϕmsM, ϕqIcM, θsP1, cor_ends.M, transM, nljoint_args_fix, n_indiv_batch))
     function alloc_compute_nelboi_zM!(hiM1, approx2, rnormM1, nljoint_args_ind1, 
         ϕmsM, ϕqIcM, θsP1, cor_endsM, transM, nljoint_args_fix, n_site)
         @test (@allocated CP.compute_nelboi_z!(hiM1, CP.NegElbo(), approx2, rnormM1, nljoint_args_ind1, 
         ϕmsM, ϕqIcM, θsP1, cor_endsM, transM, nljoint_args_fix, n_site)) == 0 
     end
     alloc_compute_nelboi_zM!(hiM1, approx2, rnormM1, nljoint_args_ind1, 
-        ϕmsM, ϕqIcM, θsP1, cor_ends.M, transM, nljoint_args_fix, n_site)
+        ϕmsM, ϕqIcM, θsP1, cor_ends.M, transM, nljoint_args_fix, n_indiv_batch)
 end
 
 @testset "pullback_g_apply!" begin
@@ -696,7 +697,7 @@ end
 function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by enzyme
     # do not use DiffCache here for helpers_sites
     h0p = CP.prepare_elbo_helpers(approx, ϕg, ϕqP; 
-        n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP0, n_M, cor_ends, n_obs,
+        n_θP, n_θM, n_indiv_batch, n_MC, n_cov, n_covP = n_covP0, n_M, cor_ends, n_obs,
         use_diff_cache = Val(false))
     # and store results to compare to hand-crafted mixed AD
     dh0p = Enzyme.make_zero(h0p)
@@ -747,7 +748,7 @@ function grad_neg_elbo_sites_enzyme() # differentiate entire neg_elbo_sites by e
     end
 
     h2p = CP.prepare_elbo_helpers(approx, ϕg2, ϕqP; 
-        n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs,
+        n_θP, n_θM, n_indiv_batch, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs,
         use_diff_cache = Val(false))
     dh2p = Enzyme.make_zero(h2p)
     indiv_args = indiv_args1
@@ -807,11 +808,11 @@ function grad_neg_elbo_sites_enzyme_scaled()
         intϕqP, intϕqI=intϕqIS, cor_ends, 
         transP, transM)
     h2Sp = CP.prepare_elbo_helpers(sample_args2S.approx, ϕg2, ϕqP; 
-        n_θP, n_θM, n_site, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs, 
+        n_θP, n_θM, n_indiv_batch, n_MC, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs, 
         use_diff_cache = Val(false))
     dh2Sp = Enzyme.make_zero(h2Sp)
     h2Sp_point = CP.prepare_elbo_helpers(sample_args2S.approx, ϕg2, ϕqP; 
-        n_θP, n_θM, n_site, n_MC=1, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs, 
+        n_θP, n_θM, n_indiv_batch, n_MC=1, n_cov, n_covP = n_covP2, n_M, cor_ends, n_obs, 
         use_diff_cache = Val(false))
     dh2Sp_point = Enzyme.make_zero(h2Sp_point)
     #
@@ -901,7 +902,7 @@ function tmp_reference_revision()
         approx,
         rnormPM,
         ϕgv, ϕqP, ϕqI, g, nothing; #pbm_covar_indices2;
-        i_sites_train = 1:n_site,     
+        i_sites_train = 1:n_indiv_batch,     
         intϕqP, intϕqI,
         xM,
         cor_ends,
@@ -920,7 +921,7 @@ end
     is_testmode = false
     n_threads_proc = min(Threads.nthreads(), 4)
     n_workers = Distributed.nworkers() * n_threads_proc
-    basesize = n_site ÷ Distributed.nworkers()
+    basesize = n_indiv_batch ÷ Distributed.nworkers()
     distributedEx = Transducers.DistributedEx(;basesize, 
         threads_basesize = Int(ceil(basesize / n_threads_proc))) 
     #

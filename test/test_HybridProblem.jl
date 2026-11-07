@@ -54,7 +54,7 @@ function construct_problem(; scenario::Val{scen}) where scen
     end    
     rng = StableRNG(111)
     # n_batch = 10
-    n_site, n_batch = get_hybridproblem_n_site_and_batch(CP.DoubleMM.DoubleMMCase(); scenario)
+    n_site, n_batch = get_hybridproblem_n_indiv_train_and_batch(CP.DoubleMM.DoubleMMCase(); scenario)
     n_site_test = 60
     # dependency on DeoubleMMCase -> take care of changes in covariates
     (; xM, θP_true, θMs_true, xP, y_true,  y_o, y_unc
@@ -168,7 +168,7 @@ test_without_flux = (scenario) -> begin
         rng = StableRNG(111)
         g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
         pt = get_hybridproblem_par_templates(prob; scenario)
-        n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+        n_site, n_batch = get_hybridproblem_n_indiv_train_and_batch(prob; scenario)
         n_sites_cluster, clusters = CP.get_clusters(n_site; scenario)
         frac_cluster_all = 1 ./ n_sites_cluster[clusters] 
         train_loader = get_hybridproblem_train_dataloader(prob; scenario)
@@ -354,7 +354,7 @@ test_with_flux_gpu = (scenario) -> begin
             #(;transP, transM) = get_hybridproblem_transforms(DoubleMM.DoubleMMCase(); scenario = scenf)
             prob = probg = HybridProblem(DoubleMM.DoubleMMCase(); scenario = scenf);
             solver = HybridPosteriorSolver(; alg=Adam(0.02),  n_MC=3)
-            n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario = scenf)
+            n_site, n_batch = get_hybridproblem_n_indiv_train_and_batch(prob; scenario = scenf)
             n_batches_in_epoch =  n_site ÷ n_batch
             (; probo, ϕ, resopt) = solve(prob, solver; scenario = scenf, rng,
                 #maxiters = 37, # smallest value by trial and error
@@ -440,7 +440,7 @@ test_with_flux_gpu = (scenario) -> begin
                 #     f_allsites = gdev(probg.f_allsites))
                 #prob = CP.update(probg, transM = identity, transP = identity);
                 solver = HybridPosteriorSolver(; alg=Adam(0.02), n_MC=3)
-                n_site, n_batch = get_hybridproblem_n_site_and_batch(probg; scenario = scenf)
+                n_site, n_batch = get_hybridproblem_n_indiv_train_and_batch(probg; scenario = scenf)
                 n_batches_in_epoch = n_site ÷ n_batch
                 (; ϕ, θP, resopt, probo) = solve(probg, solver; scenario = scenf, rng,
                     #maxiters = 37, # smallest value by trial and error

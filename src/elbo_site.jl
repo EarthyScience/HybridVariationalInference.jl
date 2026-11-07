@@ -53,13 +53,13 @@ function neg_elbo_sites!(
     template = ϕqI # only important for gradient
     θsP = h.θsP
     keys_nljoint_args_indi_val = Val(keys(nljoint_args_inds))
-    n_indiv = size(h.ϕms,2)
+    n_indiv_batch = size(h.ϕms,2)
     # closure with approx, transM, and kwargs
     function compute_nelboi_z_cl!(hi, rnormM, nljoint_args_indi_tup, ϕm) 
         #nljoint_args_indi = NamedTuple{keys_nljoint_args_indi}(nljoint_args_indi_tup)
         nljoint_args_indi = name_tuple(nljoint_args_indi_tup, keys_nljoint_args_indi_val)
         compute_nelboi_z!(hi, loss_mode, approx, rnormM, nljoint_args_indi, ϕm, 
-        ϕqIc, θsP, cor_ends.M, transM, nljoint_args_fix, n_indiv) 
+        ϕqIc, θsP, cor_ends.M, transM, nljoint_args_fix, n_indiv_batch) 
     end
     #res_site = map(compute_nelboi_z!, loss_mode, h.helpers_sites, rnormPM.M, i_sites_train, ϕm_it)
     #MAYBE: distributed mapreduce: 
@@ -70,7 +70,12 @@ function neg_elbo_sites!(
     # loglik = sum(x -> x.loglik, res_site)
     # costTrans = sum(x -> x.costTrans, res_site)
     #elbo = sum(first, res_site) - sum(h.logσ_ζP)
-    elbo = elbo_z - exp_ladJacTP - sum(h.logσ_ζP)
+    (;n_indiv_train) = nljoint_args_fix
+    sum_logσ_ζP = sum(h.logσ_ζP)
+    h.sum_logσ_ζP[] = sum_logσ_ζP
+    h.exp_ladJacTP[] = exp_ladJacTP
+    elbo = elbo_z - exp_ladJacTP - sum_logσ_ζP
+    #elbo = elbo_z - exp_ladJacTP*n_indiv_train - sum_logσ_ζP
 end
 
 @inline function set_ζsP!(
@@ -94,16 +99,17 @@ name_tuple(tup, ::Val{KEYS}) where KEYS = NamedTuple{KEYS}(tup)
 
 function compute_nelboi_z!(hi, loss_mode::AbstractElboLossMode, approx::AbstractHVIApproximation,
     rnormM, nljoint_args_indi, ϕm::AbstractArray, ϕqIc::AbstractArray, θsP, 
-    cor_endsM, transM, nljoint_args_fix, n_indiv::Int) 
+    cor_endsM, transM, nljoint_args_fix, n_indiv_batch::Int) 
     # DM is 1 (vector) if no population covariates - constant across MC
     #       2 (Matrix) if g is driven by population covariates - differs across MC
     # on update -> sync corresponding function within grad_neg_elbo_sites
     if hi.ζsM isa PAT.DiffCache
         # Gradiend called twice because of different dimensions need to pick the Dual
         template = eltype(ϕqIc) <: ForwardDiff.Dual ? ϕqIc : θsP
-        hi = map_leaves_nt(x -> PAT.get_tmp(x, template), hi)
+        hi = map_leaves_nt(x -> x isa PAT.DiffCache ? PAT.get_tmp(x, template) : x, hi)
     end
     #ζsM, logσ_ζM, rnorm, ϕqc::AbstractVector{T}, ϕm::AbstractMatrix, buffer_nθM::AbstractVector
+    (; n_indiv_train) = nljoint_args_fix
     set_ζsM!(hi.ζsM, hi.logσ_ζM, loss_mode, approx, rnormM, ϕqIc, ϕm, cor_endsM, hi.sample_buffers)
     exp_ladJacTM = transformζ!(hi.θsM, transM, hi.ζsM)  # return value captures ladJacT
     # first component needs to be the full elbo
@@ -112,10 +118,15 @@ function compute_nelboi_z!(hi, loss_mode::AbstractElboLossMode, approx::Abstract
     #   devide the exp_ladJacTM by n_indiv. otherwise
     #      with exp-backtransformation, decreases ζI to decrease exp_ladJacTM 
     #      at the expense of increased ζP, whose ladJacTM only counts once
-    # TODO: think of treating logσ_ζM similarly?
-    nelboi_z = exp_nL - (exp_ladJacTM / n_indiv) - (sum(hi.logσ_ζM) / n_indiv)
-    #nelboi_z = exp_nL - (exp_ladJacTM / n_indiv) - sum(hi.logσ_ζM) 
-    #nelboi_z = exp_nL - exp_ladJacTM - sum(hi.logσ_ζM)
+    # individual components of the ELBO are estimated using a sample/batch of sites
+    #    need to correct by n_indiv_train/n_indiv_batch
+    #    n_indiv cannot be assumed constant because of fewer in last batch 
+    sum_logσ_ζM = sum(hi.logσ_ζM)
+    hi.sum_logσ_ζM[] = ForwardDiff.value(sum_logσ_ζM)
+    hi.exp_ladJacTM[] = ForwardDiff.value(exp_ladJacTM)
+    #nelboi_z = (exp_nL - sum_logσ_ζM - exp_ladJacTM) * n_indiv_train/n_indiv_batch 
+    #nelboi_z = (exp_nL - sum_logσ_ζM) * n_indiv_train/n_indiv_batch  - (exp_ladJacTM / n_indiv_batch)  
+    nelboi_z = exp_nL - sum_logσ_ζM - exp_ladJacTM/n_indiv_batch 
 end
 
 @inline function set_ζsM!(ζsM, logσ_ζM, ::NegElbo, approx, rnormM, ϕqIc, ϕm, cor_endsM, sample_buffers)
@@ -152,7 +163,7 @@ end
 
 function prepare_elbo_helpers(approx_spec::AbstractHVIApproxSpec, 
     ϕg::AbstractArray{TG}, template_TF::AbstractArray{TF};
-    n_θP, n_θM, n_site, n_MC, n_cov, n_covP, n_M, cor_ends, n_obs,
+    n_θP, n_θM, n_indiv_batch, n_MC, n_cov, n_covP, n_M, cor_ends, n_obs,
     use_diff_cache::Val{use_dc} = Val(true),
     diffchunk::ForwardDiff.Chunk{chunk} = ForwardDiff.Chunk(8),
     ) where {TG, TF, use_dc, chunk}
@@ -161,19 +172,24 @@ function prepare_elbo_helpers(approx_spec::AbstractHVIApproxSpec,
         θsM = Matrix{TF}(undef, n_θM, n_MC),
         logσ_ζM = Vector{TF}(undef, n_θM),
         y = Matrix{TF}(undef, n_obs, n_MC),
+        sum_logσ_ζM = Ref(zero(TF)),
+        exp_ladJacTM = Ref(zero(TF)),
         # TODO move buffers to Channel object
         y_buffer = Matrix{TF}(undef, n_obs, n_MC),
         sample_buffers = prepare_ind_sample_buffers(approx_spec, cor_ends.M, template_TF),
-    ) for i in 1:n_site]
-    helpers_sites = use_dc ? map(hi -> map_leaves_nt(x -> PAT.DiffCache(x, chunk), hi),his) : his
+    ) for i in 1:n_indiv_batch]
+    helpers_sites = use_dc ? map(hi -> map_leaves_nt(x -> x isa AbstractArray ? PAT.DiffCache(x, chunk) : x, hi),his) : his
+    #hi1 = first(helpers_sites)
     h = (;
         ζsP = Matrix{TF}(undef, n_θP, n_MC),
         θsP = Matrix{TF}(undef, n_θP, n_MC),
         logσ_ζP = Vector{TF}(undef, n_θP),
-        ϕms = Matrix{TF}(undef, n_M, n_site),        
-        ϕms_mcs = Array{TF,3}(undef, n_M, n_MC, n_site),
-        ϕms_mcs2D_buffer = Matrix{TF}(undef, n_M, n_MC * n_site),        
-        xMP = Matrix{TG}(undef, (n_cov + n_covP), n_MC * n_site),
+        ϕms = Matrix{TF}(undef, n_M, n_indiv_batch),        
+        ϕms_mcs = Array{TF,3}(undef, n_M, n_MC, n_indiv_batch),
+        sum_logσ_ζP = Ref(zero(TF)),
+        exp_ladJacTP = Ref(zero(TF)),
+        ϕms_mcs2D_buffer = Matrix{TF}(undef, n_M, n_MC * n_indiv_batch),        
+        xMP = Matrix{TG}(undef, (n_cov + n_covP), n_MC * n_indiv_batch),
         sample_buffers = prepare_sample_buffers(approx_spec, cor_ends.P, template_TF),
         #diffchunk,
         helpers_sites,
@@ -209,11 +225,16 @@ function prepare_elbo_helpers(h::NamedTuple; approx_spec::AbstractHVIApproxSpec,
         θsM = Matrix{TF}(undef, n_θM, n_MC),
         logσ_ζM = Vector{TF}(undef, n_θM),
         y = Matrix{TF}(undef, n_obs, n_MC),
+        sum_logσ_ζM = Ref(zero(TF)),
+        exp_ladJacTM = Ref(zero(TF)),
         # TODO move buffers to Channel object
         y_buffer = Matrix{TF}(undef, n_obs, n_MC),
         sample_buffers = prepare_ind_sample_buffers(approx_spec, cor_ends.M, template_TF),
     ) for i in 1:n_site]
     helpers_sites = use_dc ? map(hi -> map_leaves_nt(x -> PAT.DiffCache(x, chunk), hi),his) : his
+    hi = helpers_sites[1]
+    Main.@infiltrate_main
+
     h = (;
         ζsP = Matrix{TF}(undef, n_θP, n_MC),
         θsP = Matrix{TF}(undef, n_θP, n_MC),
@@ -410,12 +431,13 @@ function transformζ!(θs, trans, ζs::AbstractArray{TF}) where TF
     n_MC = size(ζs,2)
     # θs1 = exp.(ζs)
     # ladJacT1 = sum(ζs) / n_MC
-    _, ladJacT_sum = with_logabsdet_jacobian_stacked!(θs, trans, ζs)  # return value captures ladJacT
+     # return value captures ladJacT
+    _, ladJacT_sum = with_logabsdet_jacobian_stacked!(θs, trans, ζs) 
     ladJacT = ladJacT_sum / n_MC
 end
 
 """
-compute the expected value of the negative log joint density of observations
+compute the expected value across MC-samples of the negative log joint density of observations
 and parameters
 """
 function exp_nLi!(

@@ -33,8 +33,9 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridSolverSite
     indiv_args_test = (;tmp[keys(tmp)[1:4]]..., i_indiv_train = tmp.itrain_sites)
     keys_indiv = (:xM, :xP, :y_o, :y_unc, :i_indiv_train)
     indiv_args1 = NamedTuple{keys_indiv}(first(train_loader))
-    n_indiv_batch = size(indiv_args1.y_o,2)
     n_indiv_test = size(indiv_args_test.y_o,2)
+    n_indiv_train, n_indiv_batch = get_hybridproblem_n_indiv_train_and_batch(prob; scenario)
+    @assert n_indiv_batch == size(indiv_args1.y_o,2)
     #
     # TODO: separate parameters from problem description - right now optimized
      g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
@@ -60,13 +61,13 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridSolverSite
     pbm = get_PopulationApplicator(pbm_spec, ϕc.ϕqP, Val(NMC), diffchunk)      
     nljoint_args_fix =(;
          f! = pbm, 
-         fLogLik = get_hybridproblem_neg_logden_obs(prob; scenario)
+         fLogLik = get_hybridproblem_neg_logden_obs(prob; scenario),
+         n_indiv_train,
          )
     h0 = prepare_elbo_helpers(prob; scenario, ϕc, y_o = indiv_args1.y_o, n_MC=NMC);
     h0_test = prepare_elbo_helpers(prob; scenario, ϕc, y_o = indiv_args_test.y_o, n_MC=NMC);
     if TRAIN
         indiv_args_train =  NamedTuple{keys(indiv_args_test)}(train_loader.data)
-        n_indiv_train = size(indiv_args_train.xM,2)
         h0_train = prepare_elbo_helpers(prob; scenario, ϕc, y_o = indiv_args_train.y_o, n_MC=NMC);
         rnormPM_train = prepare_rnorm(ϕc.ϕqP; n_θP, n_θM, n_MC=NMC, n_indiv=n_indiv_train)
     end
@@ -153,10 +154,10 @@ function prepare_elbo_helpers(prob::AbstractHybridProblem; scenario=(),
     n_cov = get_hybridproblem_n_covar(prob; scenario)
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
     n_covP = length(pbm_covars)
-    n_obs, n_site = size(y_o)
+    n_obs, n_indiv_batch = size(y_o)
     # TODO rennamve to n_indiv
     h0 = prepare_elbo_helpers(
-        approx_spec, ϕc.ϕg, ϕc.ϕqP; n_θP, n_θM, n_site, n_MC, n_cov, n_covP, n_M, 
+        approx_spec, ϕc.ϕg, ϕc.ϕqP; n_θP, n_θM, n_indiv_batch, n_MC, n_cov, n_covP, n_M, 
         cor_ends, n_obs, kwargs...);
 end
 
@@ -195,7 +196,7 @@ function predict_point(prob::AbstractHybridProblem, ϕc, dataloader; scenario=()
     keys_indiv = (:xM, :xP, :y_o, :y_unc, :i_indiv_train)
     indiv_args1 = NamedTuple{keys_indiv}(first(dataloader))
     # TODO replace n_site by n_indiv
-    n_indiv_train, n_batch_  = get_hybridproblem_n_site_and_batch(prob; scenario)
+    n_indiv_train, n_indiv_batch_  = get_hybridproblem_n_indiv_train_and_batch(prob; scenario)
     n_obs, n_indiv_batch = size(indiv_args1.y_o)
     #
     par_templates = get_hybridproblem_par_templates(prob; scenario)
@@ -219,7 +220,8 @@ function predict_point(prob::AbstractHybridProblem, ϕc, dataloader; scenario=()
     pbm = get_PopulationApplicator(pbm_spec, par_templates.θP, Val(1), diffchunk)      
     nljoint_args_fix =(;
          f! = pbm, 
-         fLogLik = get_hybridproblem_neg_logden_obs(prob; scenario)
+         fLogLik = get_hybridproblem_neg_logden_obs(prob; scenario),
+         n_indiv_train,
          )
     n_M = get_numberof_MLinputs(approx, par_templates.θM)
     n_cov = get_hybridproblem_n_covar(prob; scenario)
@@ -296,7 +298,7 @@ function predict_stat(rng, prob::AbstractHybridProblem, ϕc, dataloader; scenari
     keys_indiv = (:xM, :xP, :y_o, :y_unc, :i_indiv_train)
     indiv_args1 = NamedTuple{keys_indiv}(first(dataloader))
     # TODO replace n_site by n_indiv
-    n_indiv_train, n_batch  = get_hybridproblem_n_site_and_batch(prob; scenario)
+    n_indiv_train, n_indiv_batch  = get_hybridproblem_n_indiv_train_and_batch(prob; scenario)
     n_obs, n_site = size(indiv_args1.y_o)
     #
     par_templates = get_hybridproblem_par_templates(prob; scenario)
@@ -322,7 +324,8 @@ function predict_stat(rng, prob::AbstractHybridProblem, ϕc, dataloader; scenari
     pbm = get_PopulationApplicator(pbm_spec, par_templates.θP, Val(n_sample_pred), diffchunk)      
     nljoint_args_fix =(;
          f! = pbm, 
-         fLogLik = get_hybridproblem_neg_logden_obs(prob; scenario)
+         fLogLik = get_hybridproblem_neg_logden_obs(prob; scenario),
+         n_indiv_train,
          )
     n_M = get_numberof_MLinputs(approx, par_templates.θM)
     n_cov = get_hybridproblem_n_covar(prob; scenario)
@@ -346,7 +349,7 @@ function predict_stat(rng, prob::AbstractHybridProblem, ϕc, dataloader; scenari
     else
         h0
     end
-    @assert n_batch == size(indiv_args1.xM,2)
+    @assert n_indiv_batch == size(indiv_args1.xM,2)
     #
     ϕ = map(CA.getdata, ϕc)
     h1 = h0p.helpers_sites[1]
@@ -355,7 +358,7 @@ function predict_stat(rng, prob::AbstractHybridProblem, ϕc, dataloader; scenari
     local n_col_agg, hi_agg_batch, red, hi_agg, hp_agg
     n_col_agg = is_ret_sample ? n_sample_pred : length(keys_stat)
     hi_agg_batch = NamedTuple{keys_predict_indiv}(map(keys_predict_indiv) do key
-        Array{eltype(h1[key]),3}(undef, size(h1[key],1), n_col_agg, n_batch) 
+        Array{eltype(h1[key]),3}(undef, size(h1[key],1), n_col_agg, n_indiv_batch) 
     end)
     red = make_tuple_reducer((x,y) -> cat(x,y, dims=3))
     hi_agg = mapfoldl(red, enumerate(dataloader), init=map(x -> x[:,:,1:0], hi_agg_batch)
@@ -365,13 +368,13 @@ function predict_stat(rng, prob::AbstractHybridProblem, ϕc, dataloader; scenari
         neg_elbo_sites!(h0p, NegElbo(), ϕ, rnormPM, sample_args, indiv_args, nljoint_args_fix)
         if is_ret_sample
             for key in keys_predict_indiv
-                for ii in 1:n_batch
+                for ii in 1:n_indiv_batch
                     hi_agg_batch[key][:,:,ii] .= h0p.helpers_sites[ii][key]
                 end
             end
         else
             for key in keys_predict_indiv
-                for i_batch in 1:n_batch
+                for i_batch in 1:n_indiv_batch
                     compute_stat!(view(hi_agg_batch[key],:,:,i_batch), 
                         h0p.helpers_sites[i_batch][key]; keys_stat)
                 end

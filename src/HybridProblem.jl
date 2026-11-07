@@ -124,22 +124,22 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
     θM = get_hybridproblem_par_templates(prob; scenario).θM,
     g = get_hybridproblem_MLapplicator(prob; scenario)[1],
     ϕg = get_hybridproblem_MLapplicator(prob; scenario)[2],
-    f_batch = get_hybridproblem_PBModelSpec(prob; scenario),
+    pbm_spec = get_hybridproblem_PBModelSpec(prob; scenario),
     priors = get_hybridproblem_priors(prob; scenario),
     py = get_hybridproblem_neg_logden_obs(prob; scenario),
     transP = get_hybridproblem_transforms(prob; scenario).transP,
     transM = get_hybridproblem_transforms(prob; scenario).transM,
     train_dataloader = get_hybridproblem_train_dataloader(prob; scenario),
     test_data = get_hybridproblem_test_data(prob; scenario),
-    n_site = get_hybridproblem_n_site_and_batch(prob; scenario)[1],
-    n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)[2],
+    n_indiv_train = get_hybridproblem_n_indiv_train_and_batch(prob; scenario)[1],
+    n_indiv_batch = get_hybridproblem_n_indiv_train_and_batch(prob; scenario)[2],
     cor_ends = get_hybridproblem_cor_ends(prob; scenario),
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario),
     approx::Union{AbstractHVIApproximation, AbstractHVIApproxSpec} = get_hybridproblem_HVIApproxSpec(prob; scenario),
     penalty_computer::PenaltyComputerOrFunction = get_hybridproblem_penalty_computer(prob; scenario),  
     ranef = get_hybridproblem_ranef(prob; scenario),
     )
-    n_batch_before = get_hybridproblem_n_site_and_batch(prob; scenario)[2]
+    n_batch_before = get_hybridproblem_n_indiv_train_and_batch(prob; scenario)[2]
     if ranef != get_hybridproblem_ranef(prob; scenario)
         # when ranef has been updated, create new default parameter vector
         error("implement resetting ranef")
@@ -147,14 +147,13 @@ function update_hybridProblem(prob::AbstractHybridProblem; scenario,
         # ϕq_ranef = setup_ϕq_ranef(ranefc)
         # ϕq = CA.ComponentVector((;ϕq..., ranef = ϕq_ranef))
     end
-    if n_batch != n_batch_before
-        # if updating n_btach, then need to adjust f_batch and train_dataloader
+    if n_indiv_batch != n_batch_before
+        # if updating n_btach, then need to adjust train_dataloader
         train_dataloader = MLUtils.DataLoader(
-           train_dataloader.data, batchsize=n_batch)  
-        f_batch = create_nsite_applicator(f_batch, n_batch)
+           train_dataloader.data, batchsize=n_indiv_batch)  
     end
-    HybridProblem(θP, θM, g, ϕg, f_batch, priors, py, transM, transP, train_dataloader,
-        test_data, n_site, n_batch; cor_ends, pbm_covars, 
+    HybridProblem(θP, θM, g, ϕg, pbm_spec, priors, py, transM, transP, train_dataloader,
+        test_data, n_indiv_train, n_indiv_batch; cor_ends, pbm_covars, 
         approx, penalty_computer, ranef)
 end
 
@@ -239,7 +238,7 @@ end
 function get_hybridproblem_pbmpar_covars(prob::HybridProblem; scenario = ()) 
     prob.pbm_covars
 end
-function get_hybridproblem_n_site_and_batch(prob::HybridProblem; scenario = ())
+function get_hybridproblem_n_indiv_train_and_batch(prob::HybridProblem; scenario = ())
     prob.n_site, prob.n_batch
 end
 

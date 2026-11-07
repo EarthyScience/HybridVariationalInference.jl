@@ -120,7 +120,7 @@ export AbstractHybridProblem, AbstractPenaltyComputer, CustomPenaltyComputer,
         get_hybridproblem_test_data,
         get_hybridproblem_neg_logden_obs,
         get_hybridproblem_n_covar, # default
-        get_hybridproblem_n_site_and_batch,
+        get_hybridproblem_n_indiv_train_and_batch,
         get_hybridproblem_cor_ends,
         get_hybridproblem_priors,
         get_hybridproblem_pbmpar_covars,

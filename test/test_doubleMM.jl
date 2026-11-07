@@ -34,7 +34,7 @@ scenario = Val((:default,))
 #scenario = Val((:use_Flux,))
 #scenario = Val((:use_Flux,:f_on_gpu))
 
-n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+n_site, n_batch = get_hybridproblem_n_indiv_train_and_batch(prob; scenario)
 par_templates = get_hybridproblem_par_templates(prob; scenario)
 
 @testset "get_hybridproblem_priors" begin
@@ -225,7 +225,7 @@ end
 @testset "loss_g" begin
     g, ϕg0 = get_hybridproblem_MLapplicator(rng, prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
-    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    n_site, n_batch = get_hybridproblem_n_indiv_train_and_batch(prob; scenario)
     transMs = StackedArray(transM, n_batch)
     xM_batch = xM[:, 1:n_batch]
     θMs_true_tb = θMs_true[:, 1:20]'
@@ -276,7 +276,7 @@ end
     g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
     pt = get_hybridproblem_par_templates(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
-    n_site, n_site_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    n_site, n_site_batch = get_hybridproblem_n_indiv_train_and_batch(prob; scenario)
     frac_cluster_all = fill(1, n_site)
     pbm_spec = get_hybridproblem_PBModelSpec(prob; scenario)
     f = get_PopulationApplicator

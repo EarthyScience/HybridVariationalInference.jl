@@ -11,7 +11,7 @@ For a specific prob, provide functions that specify details
 - `get_hybridproblem_train_dataloader` (may use `construct_dataloader_from_synthetic`)
 - `get_hybridproblem_test_data`
 - `get_hybridproblem_priors` 
-- `get_hybridproblem_n_site_and_batch` 
+- `get_hybridproblem_n_indiv_train_and_batch` 
 optionally
 - `gen_hybridproblem_synthetic`
 - `get_hybridproblem_float_type` (defaults to `eltype(θM)`)
@@ -194,11 +194,11 @@ function get_hybridproblem_pbmpar_covars(::AbstractHybridProblem; scenario)
 end
 
 """
-    get_hybridproblem_n_site_and_batch(::AbstractHybridProblem; scenario)
+    get_hybridproblem_n_indiv_train_and_batch(::AbstractHybridProblem; scenario)
 
 Provide the number of sites. 
 """
-function get_hybridproblem_n_site_and_batch end
+function get_hybridproblem_n_indiv_train_and_batch end
 
 
 """

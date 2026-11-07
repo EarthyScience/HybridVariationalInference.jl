@@ -43,8 +43,9 @@ scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling)) # omit covars, rangescal
     diffchunk = ForwardDiff.Chunk(8)
     n_MC = 3; n_MC_val = Val(3)
     rng = StableRNG(1234)
+    n_indiv_train, n_indiv_batch  = get_hybridproblem_n_indiv_train_and_batch(prob0; scenario)
     (; xM, θP_true, θMs_true, xP,  y_true,  y_o, y_unc,) = gen_hybridproblem_synthetic(rng, prob0; scenario);
-    i_indiv_batch = 10 .+ (1:20)
+    i_indiv_batch = 10 .+ (1:n_indiv_batch)
 
     (;ϕqP, ϕqI) = CP.get_get_hybridproblem_initial_ϕc(prob0; scenario)
     g, ϕg = get_hybridproblem_MLapplicator(prob0; scenario)
@@ -58,7 +59,8 @@ scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling)) # omit covars, rangescal
     pbm = get_PopulationApplicator(pbm_spec, ϕc.ϕqP, n_MC_val, diffchunk)      
     nljoint_args_fix =(;
          f! = pbm, 
-         fLogLik = get_hybridproblem_neg_logden_obs(prob0; scenario)
+         fLogLik = get_hybridproblem_neg_logden_obs(prob0; scenario),
+         n_indiv_train,
          )
 
     h0 = prepare_elbo_helpers(prob0; scenario, ϕc, y_o = indiv_args1.y_o, n_MC);
@@ -69,11 +71,11 @@ scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling)) # omit covars, rangescal
     randn!(h0.θsP) # for testing should initialized to finite values
     randn!(h0_point.θsP) # for testing should initialized to finite values
     par_templates = get_hybridproblem_par_templates(prob0; scenario)
-    n_indiv = length(i_indiv_batch)
+    n_indiv_train = length(i_indiv_batch)
     n_θP = length(par_templates.θP)
     n_θM = length(par_templates.θM)
-    rnormPM = CP.prepare_rnorm(ϕc.ϕqP; n_θP, n_θM, n_MC, n_indiv)
-    rnormPM_point = CP.prepare_rnorm(ϕc.ϕqP; n_θP, n_θM, n_MC=1, n_indiv)
+    rnormPM = CP.prepare_rnorm(ϕc.ϕqP; n_θP, n_θM, n_MC, n_indiv = n_indiv_train)
+    rnormPM_point = CP.prepare_rnorm(ϕc.ϕqP; n_θP, n_θM, n_MC=1, n_indiv = n_indiv_train)
 
     local  rng1, ϕ, sample_args, primal
     ϕ = map(CA.getdata, ϕc)
@@ -171,7 +173,7 @@ end
     n_indiv_all = size(y_o,2)
     i_indiv_test = HVI.get_i_sites_test(prob0; scenario)
     i_indiv = setdiff(1:n_indiv_all, i_indiv_test)
-    n_indiv = length(i_indiv)
+    n_indiv_train = length(i_indiv)
     (; xM, xP, y_o, y_unc, θMs_true, y_true) = map(
         (; xM, xP, y_o, y_unc, θMs_true, y_true)) do x
         x[:,i_indiv]
@@ -180,7 +182,7 @@ end
     # prob = prob0  # for faster debugging of f_doubleMM functions
     y_o2 = get_hybridproblem_train_dataloader(prob; scenario).data[3]
     @test y_o == y_o2 # make sure to use the same synthetic data for good y_true
-    solver = HybridSolverSite(alg=Optimisers.Adam(0.0001))
+    solver = HybridSolverSite(alg=Optimisers.Adam(0.01))
     #ϕ0c = (;ϕg = copy(CA.getdata(ϕg)), ϕqP=copy(ϕqP), ϕqI=copy(ϕqI))
     # res = CommonSolve.solve(prob_syn, solver, CP.NegLogDensity(), (;); scenario, 
     #     epochs=0,  );
@@ -189,16 +191,32 @@ end
     ϕ0c.ϕqP.μζP .+= log(0.8)  # start from 90%
     exp.(ϕ0c.ϕqP.μζP) # updated during solve
     # @usingany Cthulhu
-    @inferred first(CommonSolve.solve(prob, solver, CP.NegLogDensity(); ϕ0c, scenario, 
-        epochs=1,
-        ))
+    # first point estimate
     res = CommonSolve.solve(prob, solver, CP.NegLogDensity(); ϕ0c, scenario, 
-        epochs=3_000,
+        epochs=8_000,
         #show_train_loss = Val(true)
         );
-    hp, hi_agg = HVI.predict_point(prob, res.ϕc; scenario)
+    @inferred first(CommonSolve.solve(prob, solver, CP.NegLogDensity(); ϕ0c= res.ϕc, scenario, 
+        epochs=1,
+        ))
+    res = CommonSolve.solve(prob, solver, CP.NegLogDensity(); ϕ0c= res.ϕc, scenario, 
+        epochs=1,
+        );
+    # res = CommonSolve.solve(prob, solver, CP.NegLogDensity(); ϕ0c=res.ϕc, scenario, 
+    #     epochs=3_000,
+    #     #show_train_loss = Val(true)
+    #     );
+    hp, hi_agg = HVI.predict_point(prob, res.ϕc; scenario, elbo_helpers = res.h0)
+    res.h0.exp_ladJacTP[]
+    res.h0.helpers_sites[1].exp_ladJacTM[]
+    sum(hi -> hi.exp_ladJacTM[], res.h0.helpers_sites)
+    res.h0.exp_ladJacTP[] * n_indiv_train
+    sum(hi -> hi.exp_ladJacTM[], res.h0.helpers_sites)
+
+
     @test hp.θsP[:,1] ≈ θP_true atol=0.1
     @test mean(abs.(hi_agg.θsM .- θMs_true)) < 0.05
+    #hi_agg.θsM .- θMs_true
     () -> begin
         exp.(res.ϕc.ϕqP.μζP)
         #@test exp.(intϕqP(res.ϕ.ϕqP).μζP) ≈ θP_true atol = 0.1
@@ -256,7 +274,7 @@ end
     @test keys(hp_samp.θsP[:,1]) == keys(θP_true)
     @test size(hp_samp.θsP,2) == n_sample_pred
     @test keys(hi_agg_samp.θsM[:,1,1]) == keys(θMs_true[:,1])
-    @test size(hi_agg_samp.θsM)[2:3] == (n_sample_pred, n_indiv)
+    @test size(hi_agg_samp.θsM)[2:3] == (n_sample_pred, n_indiv_train)
  end
 
 

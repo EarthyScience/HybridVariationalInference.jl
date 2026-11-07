@@ -28,7 +28,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     is_omitting_NaNbatches = false,
     is_omit_priors::Val{omit_priors} = Val(false),
     clusters::AbstractVector{<:Integer} = 
-        1:first(get_hybridproblem_n_site_and_batch(prob; scenario)),
+        1:first(get_hybridproblem_n_indiv_train_and_batch(prob; scenario)),
     cluster_rep = 1,
     kwargs...
 ) where {is_infer, omit_priors}
@@ -39,7 +39,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPointSolve
     error("remove solve(prob, ::HybridPointSolver), get_hybridproblem_ϕq not supported any more")
     ϕq0 = get_hybridproblem_ϕq(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
-    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    n_site, n_batch = get_hybridproblem_n_indiv_train_and_batch(prob; scenario)
     ranef_spec = get_hybridproblem_ranef(prob; scenario)     
     ranef = get_ranef_computer(
         ranef_spec, keys(pt.θM), n_site, one(eltype(ϕq0)))
@@ -266,7 +266,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     is_omit_priors::Val{omit_priors} = Val(false),
     approx = prob.approx,
     clusters::AbstractVector{<:Integer} = 
-        1:first(get_hybridproblem_n_site_and_batch(prob; scenario)),
+        1:first(get_hybridproblem_n_indiv_train_and_batch(prob; scenario)),
     cluster_rep = 1, 
     epochs_callback = max(1, floor(Int, epochs/10)),
     callback = (state, loss_val) -> false,
@@ -277,7 +277,7 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridPosteriorS
     g, ϕg0 = get_hybridproblem_MLapplicator(prob; scenario)
     (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
     pbm_covars = get_hybridproblem_pbmpar_covars(prob; scenario)
-    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    n_site, n_batch = get_hybridproblem_n_indiv_train_and_batch(prob; scenario)
     n_sites_cluster = [count(==(element),clusters) for element in 1:maximum(clusters)]
     frac_cluster_all = (1 / cluster_rep) ./ n_sites_cluster[clusters] 
     ranef_spec = get_hybridproblem_ranef(prob; scenario)     
@@ -485,7 +485,7 @@ function compute_elbo_components(
     scenario, rng=Random.default_rng(), gdev=gpu_device(),
     θmean_quant=0.0,
     kwargs...)
-    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    n_site, n_batch = get_hybridproblem_n_indiv_train_and_batch(prob; scenario)
     pt = get_hybridproblem_par_templates(prob; scenario)
     (; θP, θM) = pt
     cor_ends = get_hybridproblem_cor_ends(prob; scenario)

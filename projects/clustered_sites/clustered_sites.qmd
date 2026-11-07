@@ -69,7 +69,7 @@ end
     train_data = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); scenario);
     n_site = size(train_data.θMs_true, 2)
     train_data = (; train_data..., i_sites = 1:n_site)
-    n_site, n_batch_orig = get_hybridproblem_n_site_and_batch(probo; scenario)
+    n_site, n_batch_orig = get_hybridproblem_n_indiv_train_and_batch(probo; scenario)
     train_dataloader = MLUtils.DataLoader(
         CA.getdata.(values(train_data[(:xM, :xP, :y_o, :y_unc, :i_sites)])), batchsize=n_batch_orig, partial=false, shuffle=true)  
     probo_tut = HybridProblem(prob_tut; train_dataloader)    
@@ -90,7 +90,7 @@ train_data = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); scenario)
 n_site = size(train_data.θMs_true, 2)
 train_data = (; train_data..., i_sites = 1:n_site)
 prob0 = HybridProblem(DoubleMM.DoubleMMCase(); scenario, n_batch);
-#get_hybridproblem_n_site_and_batch(prob0; scenario)
+#get_hybridproblem_n_indiv_train_and_batch(prob0; scenario)
 get_hybridproblem_par_templates(prob0; scenario)
 ```
 

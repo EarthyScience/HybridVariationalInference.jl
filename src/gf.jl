@@ -122,7 +122,7 @@ function gf(prob::AbstractHybridProblem, xM::AbstractMatrix, xP::AbstractMatrix;
 ) where is_infer
     gdevs = isnothing(gdevs) ? get_gdev_MP(scenario) : gdevs
     g, ϕg = get_hybridproblem_MLapplicator(prob; scenario)
-    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    n_site, n_batch = get_hybridproblem_n_indiv_train_and_batch(prob; scenario)
     n_site_pred = size(xP,2)
     @assert size(xM, 2) == n_site_pred
     f_batch = get_hybridproblem_PBmodel(prob; scenario)

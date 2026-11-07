@@ -77,7 +77,7 @@ function grad_neg_elbo_sites(
     ϕm_buffer_key = use_ϕm_matrix ? :ϕms : :ϕms_mcs
     h_ϕm = h[ϕm_buffer_key]
     check_elbo_helpers(h, xM, pbm_covar_indices; n_ϕg = length(ϕg))
-    n_cov, n_site = size(xM)
+    n_cov, n_indiv_batch = size(xM)
     n_θP, n_MC = size(h.ζsP)
     @assert n_MC == NMC
     ax_θP = get_axis_θP(nljoint_args_fix.f!)
@@ -90,7 +90,7 @@ function grad_neg_elbo_sites(
         ϕqIc, selectdim(h_ϕm, ndims(h_ϕm), 1), h.ζsP, ϕg, ϕqPc, approx; 
         pbm_covar_indices, n_workers,
         h, rnormMi = rnormPM.M[1], nljoint_args_indi,
-        n_site, n_cov, cor_ends, transP, transM, nljoint_args_fix, loss_mode,
+        n_indiv_batch, n_cov, cor_ends, transP, transM, nljoint_args_fix, loss_mode,
         n_MC_val)
     hw_channel = gradh.hw_channel
     #
@@ -121,7 +121,7 @@ function grad_neg_elbo_sites(
     # a1_ = first(zip(h.helpers_sites, rnormPM.M, zip_eachlastdims(nljoint_args_inds), ϕm_it, 1:n_site))
     # Test.@inferred cl(a1_)
     res = Folds.mapreduce(cl, make_tuple_reducer(+), 
-        zip(h.helpers_sites, rnormPM.M, zip_eachlastdims(nljoint_args_inds), ϕm_it, 1:n_site),
+        zip(h.helpers_sites, rnormPM.M, zip_eachlastdims(nljoint_args_inds), ϕm_it, 1:n_indiv_batch),
         executor; init)
     # copy SharedArray into preallocated plain array for ∂elbo_∂θP
     ∂elbo_∂ϕqm = gradh.∂elbo_∂ϕqm 
@@ -251,10 +251,9 @@ function forwarddiff_grad_nelboi_z!(hi, rnormM,
     end
 end
 
-# TODO remove unused arguments
 function make_nelboiz_lazy_cls_vv(hi, approx::AbstractHVIApproximation, 
     rnormM, nljoint_args_indi, 
-    cor_endsM, transM, nljoint_args_fix, n_indiv,
+    cor_endsM, transM, nljoint_args_fix, n_indiv_batch,
     loss_mode::AbstractElboLossMode,
     ax_ϕqI::CA.Axis
     ) 
@@ -268,7 +267,7 @@ function make_nelboiz_lazy_cls_vv(hi, approx::AbstractHVIApproximation,
         compute_nelboi_z!(
             hi, loss_mode, approx, rnormM, nljoint_args_indi,
             ϕm_dual, ϕqIc_dual, θsP_dual, 
-            cor_endsM, transM, nljoint_args_fix, n_indiv,
+            cor_endsM, transM, nljoint_args_fix, n_indiv_batch,
         )[1]
     end
 end
@@ -308,12 +307,12 @@ function get_pullback_cl_sample_ζsP(::AbstractArray{TF}; n_θP, n_MC, sample_bu
 end
 
 function get_pullback_g_apply(::AbstractArray{TG}, ::AbstractArray{TF}; 
-    n_θP, n_cov, n_covP, n_MC, n_site, n_M,
+    n_θP, n_cov, n_covP, n_MC, n_indiv, n_M,
     ) where {TG, TF}
-    xMP_ = Matrix{TG}(undef, (n_cov + n_covP), n_MC * n_site)
+    xMP_ = Matrix{TG}(undef, (n_cov + n_covP), n_MC * n_indiv)
     dxMP_ = similar(xMP_)
-    ϕms_ = Matrix{TF}(undef, n_M, n_site)
-    ϕms_mcs_ = Array{TF,3}(undef, n_M, n_MC, n_site)
+    ϕms_ = Matrix{TF}(undef, n_M, n_indiv)
+    ϕms_mcs_ = Array{TF,3}(undef, n_M, n_MC, n_indiv)
     dϕms_ = similar(ϕms_)
     dϕms_mcs_ = similar(ϕms_mcs_)
     #dζsP_ = Matrix{TF}(undef, n_θP, n_MC)
@@ -326,7 +325,7 @@ function get_pullback_g_apply(::AbstractArray{TG}, ::AbstractArray{TF};
         n_cov_f, n_site_f = size(xM)
         n_covP_f = isnothing(pbm_covar_indices) ? 0 : length(pbm_covar_indices)
         n_MC_f = size(ζsP,2)
-        @assert (n_cov, n_covP, n_MC, n_site) == (n_cov_f, n_covP_f, n_MC_f, n_site_f)
+        @assert (n_cov, n_covP, n_MC, n_indiv) == (n_cov_f, n_covP_f, n_MC_f, n_site_f)
         @assert size(dϕms_buffer) == size(dϕm)
     
         fill!(dϕg,  zero(eltype(dϕg)))
@@ -438,7 +437,7 @@ function prepare_gradelbo_helpers(
     approx::AbstractHVIApproximation; 
     pbm_covar_indices, n_workers,
     h, rnormMi, nljoint_args_indi,
-    n_site, n_cov, cor_ends,
+    n_indiv_batch, n_cov, cor_ends,
     transP::Stacked, transM::Stacked,
     nljoint_args_fix,
     loss_mode::AbstractElboLossMode,
@@ -480,7 +479,7 @@ function prepare_gradelbo_helpers(
     #
     local nelboiz_vv, θsP_ϕm_ϕqI_vv1, diffchunks_elbo_vv
     nelboiz_vv = make_nelboiz_lazy_cls_vv(hi1, approx, rnormMi, nljoint_args_indi, 
-        cor_ends.M, transM, nljoint_args_fix, n_site, loss_mode, CA.getaxes(ϕqIc)[1], )
+        cor_ends.M, transM, nljoint_args_fix, n_indiv_batch, loss_mode, CA.getaxes(ϕqIc)[1], )
     θsP_ϕm_ϕqI_vv1 = θsP_ϕm_ϕqI_vv(θsP,ϕm,ϕqIc)
     # n_M >= n_θM but not static
     diffchunks_elbo_vv = ForwardDiff.Chunk(min(chunk, 
@@ -519,15 +518,15 @@ function prepare_gradelbo_helpers(
         ∂elbo_∂ϕm_∂ζP = similar(θsP),
         ∂elbo_∂logσ_ζP = Vector{TF}(undef, size(θsP,1)),
         ∂elbo_∂θP_∂ζP = Matrix{TF}(undef, size(θsP)),
-        ∂elbo_∂ϕqm = Array{TF}(undef, size(ϕm)..., n_site),
+        ∂elbo_∂ϕqm = Array{TF}(undef, size(ϕm)..., n_indiv_batch),
         hw_channel,
         pullback_cl_sample_ζsP! = get_pullback_cl_sample_ζsP(CA.getdata(ϕqPc); 
             n_θP, n_MC, sample_buffers = h.sample_buffers),
         pullback_cl_transformζsP! = get_pullback_cl_transformζ!(CA.getdata(ϕqPc); n_θ = n_θP, n_MC),
         pullback_g_apply! = get_pullback_g_apply(
-            ϕg, ϕqPc; n_θP, n_cov, n_covP, n_MC, n_site, n_M),
+            ϕg, ϕqPc; n_θP, n_cov, n_covP, n_MC, n_indiv = n_indiv_batch, n_M),
         # SharedArrays last because of problems with ReferenceRevision
-        dϕmvecs = SharedArrays.SharedArray{TF}(n_ϕmvec, n_site), 
+        dϕmvecs = SharedArrays.SharedArray{TF}(n_ϕmvec, n_indiv_batch), 
         #dθsP = SharedArrays.SharedArray{TF}(n_θP, n_MC), 
     )
 end

@@ -29,7 +29,7 @@ function test_with_scenario(scenario)
 
     (; xM, θP_true, θMs_true, xP,  y_true,  y_o
     ) = gen_hybridproblem_synthetic(rng, prob; scenario)
-    n_site, n_batch = get_hybridproblem_n_site_and_batch(prob; scenario)
+    n_site, n_batch = get_hybridproblem_n_indiv_train_and_batch(prob; scenario)
 
     FT = get_hybridproblem_float_type(prob; scenario)
 
