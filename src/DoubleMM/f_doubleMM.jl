@@ -152,6 +152,22 @@ function f_doubleMM_sites(θc_tr::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
     #(rep_fac .* r0') .+ (rep_fac .* r1') .* S1 ./ ((rep_fac .* K1') .+ S1) .* S2 ./ ((rep_fac .* K2') .+ S2)
 end
 
+# function f_doubleMM_sites_notr(θc::CA.ComponentMatrix, xPc::CA.ComponentMatrix)
+#     S1 = view(xPc, Val(:S1), :)
+#     S2 = view(xPc, Val(:S2), :)
+#     is_valid = isfinite.(S1) .&& isfinite.(S2)
+#     # need to multiply already each parameter by is_valid to prevent nan_inf_gradients
+#     r0 = is_valid .* CA.getdata(θc_tr[Val(:r0),:])
+#     r1 = is_valid .* CA.getdata(θc_tr[Val(:r1),:])
+#     K1 = is_valid .* CA.getdata(θc_tr[Val(:K1),:])
+#     K2 = is_valid .* CA.getdata(θc_tr[Val(:K2),:])
+#     # each variable is a matrix (n_obs x n_site)
+#     #r0 .+ r1 .* S1 ./ (K1 .+ S1) .* S2 ./ (K2 .+ S2)
+#     lim1 = S1 ./ (K1 .+ S1)
+#     lim2 = S2 ./ (K2 .+ S2)
+#     y = r0 .+ r1 .* lim1 .* lim2
+# end
+
 function f_doubleMM_pop!(pred, θs, xPc::CA.ComponentVector{T}) where T
     S1 = view(xPc, Val(:S1), :)
     S2 = view(xPc, Val(:S2), :)

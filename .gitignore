@@ -31,3 +31,5 @@ intermediate/*
 alloc-profile.pb.gz
 src/elbo.jl
 docs/src/tutorials/intermediate/basic_cpu_results_before_site.jld2
+**/Manifest*.toml
+projects/intermediate/*
