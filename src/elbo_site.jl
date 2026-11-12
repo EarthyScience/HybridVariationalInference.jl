@@ -48,6 +48,12 @@ function neg_elbo_sites!(
     #g_apply!(h[ϕms_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode, h.ϕms_mcs2D_buffer) 
     g_apply!(h[ϕms_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
     exp_ladJacTP = transformζ!(h.θsP, transP, h.ζsP)  # return value captures ladJacT
+    # using ShareAdd
+    # @usingany UnicodePlots
+    # scatterplot(vec(h.ζsP), h[ϕms_buffer_key][1,:,1])
+    # scatterplot(vec(h.ζsP), h[ϕms_buffer_key][2,:,1])
+    # scatterplot(vec(h.ζsP), h[ϕms_buffer_key][1,:,2])
+    # scatterplot(vec(h.ζsP), h[ϕms_buffer_key][2,:,2])
     # so that one can provide its gradient to the pullback
     ϕm_it = eachslice(h[ϕms_buffer_key]; dims = ndims(h[ϕms_buffer_key]))
     template = ϕqI # only important for gradient
@@ -111,6 +117,11 @@ function compute_nelboi_z!(hi, loss_mode::AbstractElboLossMode, approx::Abstract
     (; n_indiv_train) = nljoint_args_fix
     set_ζsM!(hi.ζsM, hi.logσ_ζM, loss_mode, approx, rnormM, ϕqIc, ϕm, cor_endsM, hi.sample_buffers)
     exp_ladJacTM = transformζ!(hi.θsM, transM, hi.ζsM)  # return value captures ladJacT
+    # Main.@infiltrate_main
+    # using ShareAdd
+    # @usingany UnicodePlots
+    # scatterplot(vec(ϕm[1,:]), hi.ζsM[1,:])
+
     # first component needs to be the full elbo
     exp_nL = exp_nLi!(hi.y, θsP, hi.θsM, nljoint_args_indi, nljoint_args_fix, hi)[1]
     # in order to yield similar weights of population and individual parameters

@@ -34,3 +34,5 @@ docs/src/tutorials/intermediate/basic_cpu_results_before_site.jld2
 projects/Manifest.toml
 **/Manifest*.toml
 projects/intermediate/*
+job.*
+projects/prog.out
