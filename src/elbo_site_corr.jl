@@ -1,4 +1,4 @@
-function sample_ζsP!(ζsP, logσ_ζP, 
+function sample_ζsP!(ζsP, ζsP_resid, logσ_ζP, 
     ::Union{AbstractMeanHVIApproximation,MeanUniScalingHVIApproximation},
     rnorm, ϕqPc::AbstractVector{T}, cor_endsP, sample_buffers::NamedTuple) where T
     μζP = CA.getdata(view(ϕqPc,Val(:μζP)))
@@ -31,7 +31,8 @@ function sample_ζsP!(ζsP, logσ_ζP,
         #ζsP_r .= μζP_r .+ exp.(logσ_ζP_r) .* ζsP_r # allocates more than loop with Enzyme 
         @inbounds for i in axes(ζsP_r,1)
             @inbounds for j in axes(ζsP_r,2)
-                ζsP_r[i,j] = μζP_r[i] + exp(logσ_ζP_r[i]) * ζsP_r[i,j] 
+                ζsP_resid[i,j] = exp(logσ_ζP_r[i]) * ζsP_r[i,j] 
+                ζsP_r[i,j] = μζP_r[i] + ζsP_resid[i,j]
             end
             # add diagonals of U to logσ
             #   diagonal elements of scaled transformation σ_i = σζ_i U_ii 
@@ -39,7 +40,6 @@ function sample_ζsP!(ζsP, logσ_ζP,
         end
         ρ_start = ρ_end + 1
         zcor_before_start = cor_endsP[ib]
-        
     end
     @assert ρ_start-1 == length(ρsP)
     nothing         

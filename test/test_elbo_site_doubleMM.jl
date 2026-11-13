@@ -199,13 +199,11 @@ end
     @inferred first(CommonSolve.solve(prob, solver, CP.NegLogDensity(); ϕ0c= res.ϕc, scenario, 
         epochs=1,
         ))
-    res = CommonSolve.solve(prob, solver, CP.NegLogDensity(); ϕ0c= res.ϕc, scenario, 
-        epochs=1,
+    # need more iterations to reach correct θsP
+    res = CommonSolve.solve(prob, solver, CP.NegLogDensity(); ϕ0c=res.ϕc, scenario, 
+        epochs=3_000,
+        #show_train_loss = Val(true)
         );
-    # res = CommonSolve.solve(prob, solver, CP.NegLogDensity(); ϕ0c=res.ϕc, scenario, 
-    #     epochs=3_000,
-    #     #show_train_loss = Val(true)
-    #     );
     hp, hi_agg = HVI.predict_point(prob, res.ϕc; scenario, elbo_helpers = res.h0)
     res.h0.exp_ladJacTP[]
     res.h0.helpers_sites[1].exp_ladJacTM[]

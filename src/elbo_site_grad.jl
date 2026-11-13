@@ -94,7 +94,7 @@ function grad_neg_elbo_sites(
         n_MC_val)
     hw_channel = gradh.hw_channel
     #
-    set_ζsP!(h.ζsP, h.logσ_ζP, loss_mode, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers) # n_P * n_MC
+    set_ζsP!(h.ζsP, h.ζsP_resid, h.logσ_ζP, loss_mode, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers) # n_P * n_MC
     g_apply!(h_ϕm, ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
     @assert all(isfinite.(h_ϕm))
     ladJacTP = transformζ!(h.θsP, transP, h.ζsP)  # return value captures ladJacT
@@ -151,10 +151,12 @@ function grad_neg_elbo_sites(
         )
     #
     # pullback gradients of ∂elbo_∂ζP, ∂elbo_∂ϕm_∂ζP, and ∂elbo_∂logσ_ζP to dϕqP
+    #TODO where pull back from?, preallocate
+    dζsP_resid = zero(∂elbo_∂θP_∂ζP)
     pullack_sample_ζsP!(gradh.dϕqPc, loss_mode,
-        ∂elbo_∂θP_∂ζP + gradh.∂elbo_∂ϕm_∂ζP, gradh.∂elbo_∂logσ_ζP,
+        ∂elbo_∂θP_∂ζP + gradh.∂elbo_∂ϕm_∂ζP, dζsP_resid, gradh.∂elbo_∂logσ_ζP,
         gradh,
-        h.ζsP, h.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers,
+        h.ζsP, h.ζsP_resid, h.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers,
         )
     # need same names as in ϕ for Optimizer
     if !all(isfinite.(gradh.dϕg)) || !all(isfinite.(gradh.dϕqPc)) || !all(isfinite.(gradh.dϕqIc)) 
@@ -171,13 +173,14 @@ function set_∂elbo_∂logσ_ζP!(∂elbo_∂logσ_ζP::AbstractVector{T}, ::Un
 end
 
 
-function pullack_sample_ζsP!(dϕqPc, ::Union{NegElbo, NegLogDensityCovar}, dζsP, dlogσ_ζP, gradh, args...) 
-    gradh.pullback_cl_sample_ζsP!(dϕqPc, dζsP, dlogσ_ζP, args...)
+function pullack_sample_ζsP!(dϕqPc, ::Union{NegElbo, NegLogDensityCovar}, dζsP, dζsP_resid, dlogσ_ζP, gradh, args...) 
+    gradh.pullback_cl_sample_ζsP!(dϕqPc, dζsP, dζsP_resid, dlogσ_ζP, args...)
 end
-function pullack_sample_ζsP!(dϕqPc, ::NegLogDensity, dζsP, dlogσ_ζP::AbstractVector{TF}, args...) where TF
+function pullack_sample_ζsP!(dϕqPc, ::NegLogDensity, dζsP, dζsP_resid, dlogσ_ζP::AbstractVector{TF}, args...) where TF
     #error("debug pullack_sample_ζsP!(dϕqPc, ::NegLogDensity")
     n_θM = size(dζsP, 1)
     @assert all(dlogσ_ζP .== zero(TF))
+    @assert all(dζsP_resid .== zero(TF))
     dϕqPc[1:n_θM] .= dζsP
     dϕqPc[(n_θM+1):end] .= zero(TF)
     dϕqPc
@@ -275,27 +278,32 @@ end
 function get_pullback_cl_sample_ζsP(::AbstractArray{TF}; n_θP, n_MC, sample_buffers) where TF
     #dϕqc, dζsP, dlogσ_ζP, ζsP, logσ_ζP, rnormP, ϕqc)
     ζsP_ = Matrix{TF}(undef, n_θP, n_MC)
+    ζsP_resid_ = similar(ζsP_)
     logσ_ζP_ = Vector{TF}(undef, n_θP)
     dζsP_ = similar(ζsP_)  # allocate space for derivatives
+    dζsP_resid_ = similar(ζsP_resid_)  # allocate space for derivatives
     dlogσ_ζP_ = similar(logσ_ζP_)
     drnormP = similar(ζsP_)
     dsample_buffers = map_leaves_nt(similar, sample_buffers) # allocate space for derivatives
     #
-    function pullback_cl_sample_ζsP!(dϕqc, dζsP, dlogσ_ζP, ζsP, logσ_ζP, 
+    function pullback_cl_sample_ζsP!(dϕqc, dζsP, dζsP_resid, dlogσ_ζP, ζsP, ζsP_resid, logσ_ζP, 
         approx::AbstractHVIApproximation, rnormP, ϕqc, cor_endsP, sample_buffers::NamedTuple)
         Enzyme.make_zero!(dϕqc)
         Enzyme.make_zero!(dsample_buffers)
         fill!(dϕqc, 0)            # the derivative to compute 
         copyto!(dζsP_, dζsP)      # input cotangents (modified in-place by Enzyme)
+        copyto!(dζsP_resid_, dζsP_resid)      
         copyto!(dlogσ_ζP_, dlogσ_ζP)
         copyto!(ζsP_, ζsP)        # modified in-place by Enzyme
+        copyto!(dζsP_resid_, ζsP_resid)        # modified in-place by Enzyme
         copyto!(logσ_ζP_, logσ_ζP)
         EnzBuffers = isempty(sample_buffers) ? Enzyme.Const(sample_buffers) : 
             Enzyme.Duplicated(sample_buffers, dsample_buffers)
         Enzyme.autodiff(
             Enzyme.Reverse,
             sample_ζsP!,
-            Enzyme.Duplicated(ζsP_, dζsP_),  
+            Enzyme.Duplicated(ζsP_, dζsP_), 
+            Enzyme.Duplicated(ζsP_resid_, dζsP_resid_), 
             Enzyme.Duplicated(logσ_ζP_, dlogσ_ζP_),  
             Enzyme.Const(approx),
             Enzyme.DuplicatedNoNeed(rnormP, drnormP),  

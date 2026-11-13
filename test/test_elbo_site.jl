@@ -230,6 +230,7 @@ end
     n_MCt = 10_000
     rnormPt = randn(n_θP, n_MCt)
     ζsPt = similar(rnormPt)
+    ζsPt_resid = similar(rnormPt)
     logσ_ζPt = zeros(n_θP)
     Σct = PDMats.PDMat([1.0 0.8 0.0; 0.8 1.0 0.0; 0.0 0.0 1.0])
     Ut = cholesky(Σct).U
@@ -238,7 +239,7 @@ end
     ϕqPct = CA.ComponentVector(μζP = [-1.0, 0.0, 1.0], logσ_ζP=log.(σt), ρsP=ρst)
     h2M = CP.prepare_elbo_helpers(approxS_spec, ϕg, ϕqP; n_θM, n_θP, n_indiv_batch, n_MC = n_MCt, 
         n_cov, n_covP = n_covP0, n_M, cor_ends, use_diff_cache=Val(false), n_obs)
-    CP.sample_ζsP!(ζsPt, logσ_ζPt, approxS, rnormPt, ϕqPct, cor_ends.P, h2M.sample_buffers)
+    CP.sample_ζsP!(ζsPt, ζsPt_resid, logσ_ζPt, approxS, rnormPt, ϕqPct, cor_ends.P, h2M.sample_buffers)
     @test vec(mean(ζsPt, dims=2)) ≈ ϕqPct.μζP atol=0.01
     @test cor(ζsPt[1,:], ζsPt[2,:]) ≈ Σct[1,2] atol=0.03
     @test cor(ζsPt[1,:], ζsPt[3,:]) ≈ Σct[1,3] atol=0.03
@@ -246,14 +247,14 @@ end
     @test std(ζsPt[1,:]) ≈ σt[1] atol=0.01
     @test std(ζsPt[2,:]) ≈ σt[2] atol=0.01
     @test std(ζsPt[3,:]) ≈ σt[3] atol=0.01  
-    function alloc_samplesample_ζsP(ζsP, logσ_ζP, approx, rnormP, ϕqPc, cor_endsP, sample_buffers)
-        CP.sample_ζsP!(ζsP, logσ_ζP, approx, rnormP, ϕqPc, cor_endsP, sample_buffers)
-        @allocated CP.sample_ζsP!(ζsP, logσ_ζP, approx, rnormP, ϕqPc, cor_endsP, sample_buffers)
+    function alloc_samplesample_ζsP(ζsP, ζsPt_resid, logσ_ζP, approx, rnormP, ϕqPc, cor_endsP, sample_buffers)
+        CP.sample_ζsP!(ζsP, ζsPt_resid, logσ_ζP, approx, rnormP, ϕqPc, cor_endsP, sample_buffers)
+        @allocated CP.sample_ζsP!(ζsP, ζsPt_resid, logσ_ζP, approx, rnormP, ϕqPc, cor_endsP, sample_buffers)
     end
-    @test alloc_samplesample_ζsP(ζsPt, logσ_ζPt, approxS, rnormPt, ϕqPct, cor_ends.P, h2M.sample_buffers) == 0
-    function loop_samplesample_ζsP(n, ζsP, logσ_ζP, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) 
+    @test alloc_samplesample_ζsP(ζsPt, ζsPt_resid, logσ_ζPt, approxS, rnormPt, ϕqPct, cor_ends.P, h2M.sample_buffers) == 0
+    function loop_samplesample_ζsP(n, ζsP, ζsPt_resid, logσ_ζP, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) 
         for i in 1:n
-            CP.sample_ζsP!(ζsP, logσ_ζP, approx, rnormP, ϕqPc, cor_endsP, sample_buffers)
+            CP.sample_ζsP!(ζsP, ζsPt_resid, logσ_ζP, approx, rnormP, ϕqPc, cor_endsP, sample_buffers)
         end
     end
     #@profview_allocs loop_samplesample_ζsP(10_000, ζsPt, logσ_ζPt, approxS, rnormPt, ϕqPct, cor_ends.P, h2M.sample_buffers)
@@ -425,7 +426,7 @@ end
     loss_mode = CP.NegElbo()
     xM = indiv_args1.xM; r2end = 2:length(indiv_args1)
     nljoint_args_inds = NamedTuple{keys(indiv_args1)[r2end]}(values(indiv_args1)[r2end])
-    CP.sample_ζsP!(h0.ζsP, h0.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P, h0.sample_buffers) # n_P * n_MC
+    CP.sample_ζsP!(h0.ζsP, h0.ζsP_resid, h0.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P, h0.sample_buffers) # n_P * n_MC
     CP.g_apply!(h0.ϕms, ϕg, xM, h0.ζsP, nothing, g, h0.xMP, false)     
     hi1 = h0.helpers_sites[1]
     nljoint_args_ind1 = NamedTuple{keys(nljoint_args_inds)}(
