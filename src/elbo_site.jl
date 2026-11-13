@@ -46,13 +46,15 @@ function neg_elbo_sites!(
     ϕqIc = intϕqI(ϕqI)
     pbm_covar_indices = !isnothing(pbm_covar_indices) && isempty(pbm_covar_indices) ? nothing : pbm_covar_indices
     #
-    set_ζsP!(h.ζsP, h.ζsP_resid, h.logσ_ζP, loss_mode, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers) # n_P * n_MC
+    set_ζsP!(h.μζP, h.ζsP_resid, h.logσ_ζP, loss_mode, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers) # n_P * n_MC
+    add_resids!(h.ζsP, h.μζP, h.ζsP_resid)
     # (n_M x n_sit)  or (n_M x n_MC x n_sit)    
     #ϕms_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
     # TODO implement global modifcation of mean individual parameters by covariates
     #   and only run the ML model for mean parameters
     ϕms_buffer_key = :ϕms 
     # TODO remove pbm_covar_indices from g_apply
+    #g_apply!(h[ϕms_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode, h.ϕms_mcs2D_buffer) 
     g_apply!(h[ϕms_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode, h.ϕms_mcs2D_buffer) 
     exp_ladJacTP = transformζ!(h.θsP, transP, h.ζsP)  # return value captures ladJacT
     # using ShareAdd
@@ -90,16 +92,21 @@ function neg_elbo_sites!(
     elbo = elbo_z - exp_ladJacTP - sum_logσ_ζP
 end
 
+# to check the pullback of ζsP to μζP and ζsP_resid with Enzyme
+@inline function add_resids!(ζsP, μζP, ζsP_resid)
+    ζsP .= μζP .+ ζsP_resid
+end
+
 @inline function set_ζsP!(
-    ζsP, ζsP_resid, logσ_ζP::AbstractVector{T}, loss_mode::Union{NegElbo, NegLogDensityCovar}, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) where T
+    μ_ζP, ζsP_resid, logσ_ζP::AbstractVector{T}, loss_mode::Union{NegElbo, NegLogDensityCovar}, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) where T
     # enhance range of sampled ζP during fitting pop_ind_correlations in g
     logσ_ζP_mod = loss_mode isa NegLogDensityCovar ? logσ_ζP .+ T(log(10)) : logσ_ζP
-    sample_ζsP!(ζsP, ζsP_resid, logσ_ζP_mod, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) # n_P * n_MC    
+    sample_ζsP!(μ_ζP, ζsP_resid, logσ_ζP_mod, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) # n_P * n_MC    
 end
 @inline function set_ζsP!(
-    ζsP, ζsP_resid, logσ_ζP::AbstractVector{T}, ::NegLogDensity, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) where T
+    μ_ζP, ζsP_resid, logσ_ζP::AbstractVector{T}, ::NegLogDensity, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) where T
     ζsP_resid .= zero(T)
-    ζsP .= CA.getdata(view(ϕqPc,Val(:μζP)))
+    μ_ζP .= CA.getdata(view(ϕqPc,Val(:μζP)))
     logσ_ζP .= zero(T) # omit loss component of entropy of distribution
 end
 
@@ -204,6 +211,7 @@ function prepare_elbo_helpers(approx_spec::AbstractHVIApproxSpec,
     #hi1 = first(helpers_sites)
     h = (;
         ζsP = Matrix{TF}(undef, n_θP, n_MC),
+        μζP = Vector{TF}(undef, n_θP),
         ζsP_resid = Matrix{TF}(undef, n_θP, n_MC),
         θsP = Matrix{TF}(undef, n_θP, n_MC),
         logσ_ζP = Vector{TF}(undef, n_θP),
@@ -258,6 +266,7 @@ function prepare_elbo_helpers(h::NamedTuple; approx_spec::AbstractHVIApproxSpec,
     #hi = helpers_sites[1]
     h = (;
         ζsP = Matrix{TF}(undef, n_θP, n_MC),
+        μζP = Vector{TF}(undef, n_θP),
         ζsP_resid = Matrix{TF}(undef, n_θP, n_MC),
         θsP = Matrix{TF}(undef, n_θP, n_MC),
         logσ_ζP = Vector{TF}(undef, n_θP),
@@ -298,12 +307,11 @@ function check_elbo_helpers(h::NamedTuple, xM::AbstractMatrix, pbm_covar_indices
     @assert size(hi.logσ_ζM.du) == (n_θM,)
 end
 
-function sample_ζsP!(ζsP, ζsP_resid, logσ_ζP, ::DiagonalHVIApproximation, rnormP, 
+function sample_ζsP!(μζP, ζsP_resid, logσ_ζP, ::DiagonalHVIApproximation, rnormP, 
     ϕqc::AbstractVector{T}, cor_endsP, sample_buffers::NamedTuple) where T
-    μζP = CA.getdata(view(ϕqc,Val(:μζP)))
+    μζP .= CA.getdata(view(ϕqc,Val(:μζP)))
     logσ_ζP .= view(ϕqc, Val(:logσ_ζP))
     ζsP_resid .= (exp.(logσ_ζP) .* rnormP)
-    ζsP .= μζP .+ ζsP_resid
     nothing
 end
 prepare_sample_buffers(::DiagonalHVIApproxSpec, cor_endsP, template_TF) = (;)
@@ -377,14 +385,21 @@ function g_apply!(ϕm::AbstractMatrix{TF}, ϕg::AbstractVector{TG}, xM::Abstract
     is_testmode::Bool,
     ϕms_mcs2D_buffer = nothing, # only required for pbm_covar_indices not nothing
     ) where {TG, TF}
-        Main.@infiltrate_main
-        #@assert size(xMP) == ((n_cov + n_covP) , n_site * n_MC)
-        @assert size(ζsP,2) == 1 # mc-sampled a single ζP - consistent with returning ϕm matrix
-        n_site = size(xM,2)
-        n_MC = size(xMP) ÷ n_site
-        ζsP_mc = repeat(ζsP, 1, n_MC) 
-        update_xMP!(xMP, xM, ζsP_mc, pbm_covar_indices)
-        apply_model!(ϕm, g, xMP, ϕg; is_testmode) # allocates view
+        # use only one MC sample but fake covariates (using zero g inputs)
+        n_site = size(ϕm,2)
+        n_cov = length(pbm_covar_indices)
+        @inbounds for i in 1:n_site
+            # Copy xM block
+            # for each site i there are n_MC columns, j, with the same xM
+            for k in 1:n_cov
+                xMP[k, i] = xM[k, i]
+            end
+            # Fill pbm covariates block
+            for (k, idx) in enumerate(pbm_covar_indices)
+                xMP[n_cov + k, i] = zero(TG) #TG === TF ? ζsP[idx,i] : convert(TG, ζsP[idx,i])
+            end
+        end        
+        apply_model!(ϕm, g, @view(xMP[:,1:n_site]), ϕg; is_testmode) # allocates view
         return nothing
 end
 function g_apply!(ϕm::AbstractMatrix{TF}, ϕg::AbstractVector{TG}, xM::AbstractMatrix{TG}, 

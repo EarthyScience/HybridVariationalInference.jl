@@ -1,9 +1,9 @@
-function sample_ζsP!(ζsP, ζsP_resid, logσ_ζP, 
+function sample_ζsP!(μζP, ζsP_resid, logσ_ζP, 
     ::Union{AbstractMeanHVIApproximation,MeanUniScalingHVIApproximation},
     rnorm, ϕqPc::AbstractVector{T}, cor_endsP, sample_buffers::NamedTuple) where T
-    μζP = CA.getdata(view(ϕqPc,Val(:μζP)))
+    μζP .= CA.getdata(view(ϕqPc,Val(:μζP)))
     logσ_ζP .= view(ϕqPc, Val(:logσ_ζP))
-    n_θP, n_MC = size(ζsP)
+    n_θP, n_MC = size(ζsP_resid)
     @assert size(rnorm) == (n_θP, n_MC)
     @assert size(μζP) == (n_θP,)
     ρsP = view(ϕqPc, Val(:ρsP))
@@ -26,13 +26,12 @@ function sample_ζsP!(ζsP, ζsP_resid, logσ_ζP,
         ρsP_r = view(ρsP, ρ_start:ρ_end)
         _setU_scaled!(U, ρsP_r)
         # rotate the noise in place into ζsM[r,:], then scale and add the mean
-        ζsP_r = view(ζsP, r, :)
-        mul!(ζsP_r, U', rnorm_r)
+        ζsP_resid_r = view(ζsP_resid, r, :)
+        mul!(ζsP_resid_r, U', rnorm_r)
         #ζsP_r .= μζP_r .+ exp.(logσ_ζP_r) .* ζsP_r # allocates more than loop with Enzyme 
-        @inbounds for i in axes(ζsP_r,1)
-            @inbounds for j in axes(ζsP_r,2)
-                ζsP_resid[i,j] = exp(logσ_ζP_r[i]) * ζsP_r[i,j] 
-                ζsP_r[i,j] = μζP_r[i] + ζsP_resid[i,j]
+        @inbounds for i in axes(ζsP_resid_r,1)
+            @inbounds for j in axes(ζsP_resid_r,2)
+                ζsP_resid_r[i,j] = exp(logσ_ζP_r[i]) * ζsP_resid_r[i,j] 
             end
             # add diagonals of U to logσ
             #   diagonal elements of scaled transformation σ_i = σζ_i U_ii 
