@@ -166,12 +166,12 @@ end
 function set_∂elbo_∂logσ_ζP!(∂elbo_∂logσ_ζP::AbstractVector{T}, ::NegElbo) where T
     ∂elbo_∂logσ_ζP .= -one(T)  
 end
-function set_∂elbo_∂logσ_ζP!(∂elbo_∂logσ_ζP::AbstractVector{T}, ::NegLogDensity) where T
+function set_∂elbo_∂logσ_ζP!(∂elbo_∂logσ_ζP::AbstractVector{T}, ::Union{NegLogDensity, NegLogDensityCovar}) where T
     ∂elbo_∂logσ_ζP .= zero(T)  
 end
 
 
-function pullack_sample_ζsP!(dϕqPc, ::NegElbo, dζsP, dlogσ_ζP, gradh, args...) 
+function pullack_sample_ζsP!(dϕqPc, ::Union{NegElbo, NegLogDensityCovar}, dζsP, dlogσ_ζP, gradh, args...) 
     gradh.pullback_cl_sample_ζsP!(dϕqPc, dζsP, dlogσ_ζP, args...)
 end
 function pullack_sample_ζsP!(dϕqPc, ::NegLogDensity, dζsP, dlogσ_ζP::AbstractVector{TF}, args...) where TF

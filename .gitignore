@@ -35,4 +35,4 @@ projects/Manifest.toml
 **/Manifest*.toml
 projects/intermediate/*
 job.*
-projects/prog.out
+projects/prog*.out

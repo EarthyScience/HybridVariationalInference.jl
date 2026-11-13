@@ -12,6 +12,10 @@ end
 abstract type AbstractElboLossMode end
 struct NegElbo <: AbstractElboLossMode end
 struct NegLogDensity <: AbstractElboLossMode end
+"""
+Sample ζP but do not add random noise to ζMs to aid fitting g for correlations
+"""
+struct NegLogDensityCovar <: AbstractElboLossMode end
 
 """
 elbo_helpers need to be initialized with new random numbers
@@ -84,14 +88,16 @@ function neg_elbo_sites!(
 end
 
 @inline function set_ζsP!(
-    ζsP, logσ_ζP, ::NegElbo, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) 
-    sample_ζsP!(ζsP, logσ_ζP, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) # n_P * n_MC    
+    ζsP, logσ_ζP::AbstractVector{T}, loss_mode::Union{NegElbo, NegLogDensityCovar}, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) where T
+    # enhance range of sampled ζP during fitting pop_ind_correlations in g
+    logσ_ζP_mod = loss_mode isa NegLogDensityCovar ? logσ_ζP .+ T(log(10)) : logσ_ζP
+    sample_ζsP!(ζsP, logσ_ζP_mod, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) # n_P * n_MC    
 end
-@inline function set_ζsP!(
-    ζsP, logσ_ζP::AbstractMatrix{T}, ::NegLogDensity, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) where T
-    ζsP .= CA.getdata(view(ϕqPc,Val(:μζP)))
-    logσ_ζP .= zero(T) # omit loss component of entropy of distribution
-end
+# @inline function set_ζsP!(
+#     ζsP, logσ_ζP::AbstractMatrix{T}, ::NegLogDensity, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) where T
+#     ζsP .= CA.getdata(view(ϕqPc,Val(:μζP)))
+#     logσ_ζP .= zero(T) # omit loss component of entropy of distribution
+# end
 @inline function set_ζsP!(
     ζsP, logσ_ζP::AbstractVector{T}, ::NegLogDensity, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) where T
     ζsP .= CA.getdata(view(ϕqPc,Val(:μζP)))
@@ -117,10 +123,9 @@ function compute_nelboi_z!(hi, loss_mode::AbstractElboLossMode, approx::Abstract
     (; n_indiv_train) = nljoint_args_fix
     set_ζsM!(hi.ζsM, hi.logσ_ζM, loss_mode, approx, rnormM, ϕqIc, ϕm, cor_endsM, hi.sample_buffers)
     exp_ladJacTM = transformζ!(hi.θsM, transM, hi.ζsM)  # return value captures ladJacT
-    # Main.@infiltrate_main
-    # using ShareAdd
-    # @usingany UnicodePlots
+    # using ShareAdd; @usingany UnicodePlots
     # scatterplot(vec(ϕm[1,:]), hi.ζsM[1,:])
+    # set_ζsM!(hi.ζsM, hi.logσ_ζM, NegLogDensity(), approx, rnormM, ϕqIc, ϕm, cor_endsM, hi.sample_buffers)
 
     # first component needs to be the full elbo
     exp_nL = exp_nLi!(hi.y, θsP, hi.θsM, nljoint_args_indi, nljoint_args_fix, hi)[1]
@@ -146,12 +151,16 @@ end
 @inline function set_ζsM!(ζsM, logσ_ζM, ::NegElbo, approx, rnormM, ϕqIc, ϕm, cor_endsM, sample_buffers)
     sample_ζsM!(ζsM, logσ_ζM, approx, rnormM, ϕqIc, ϕm, cor_endsM, sample_buffers)
 end
-@inline function set_ζsM!(ζsM, logσ_ζM::AbstractArray{T}, ::NegLogDensity, approx, rnormM, ϕqIc, ϕm::AbstractVector, cor_endsM, sample_buffers) where T
+@inline function set_ζsM!(ζsM, logσ_ζM::AbstractArray{T}, ::Union{NegLogDensity,NegLogDensityCovar}, approx, rnormM, ϕqIc, 
+    ϕm::AbstractVector, cor_endsM, sample_buffers
+) where T
     ζsM .= view(ϕm, 1:size(ζsM,1))    # recycling fills all rows
     logσ_ζM .= zero(T)
     nothing
 end
-@inline function set_ζsM!(ζsM, logσ_ζM::AbstractArray{T}, ::NegLogDensity, approx, rnormM, ϕqIc, ϕm::AbstractMatrix, cor_endsM, sample_buffers) where T
+@inline function set_ζsM!(ζsM, logσ_ζM::AbstractArray{T}, ::Union{NegLogDensity,NegLogDensityCovar}, approx, rnormM, ϕqIc, 
+    ϕm::AbstractMatrix, cor_endsM, sample_buffers
+) where T
     ζsM .= view(ϕm, 1:size(ζsM,1), :)    # μζM in first n_θM entries
     logσ_ζM .= zero(T)
     nothing
