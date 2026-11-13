@@ -12,6 +12,10 @@ end
 abstract type AbstractElboLossMode end
 struct NegElbo <: AbstractElboLossMode end
 struct NegLogDensity <: AbstractElboLossMode end
+"""
+Sample ζP but do not add random noise to ζMs to aid fitting g for correlations
+"""
+struct NegLogDensityCovar <: AbstractElboLossMode end
 
 """
 elbo_helpers need to be initialized with new random numbers
@@ -48,6 +52,12 @@ function neg_elbo_sites!(
     #g_apply!(h[ϕms_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode, h.ϕms_mcs2D_buffer) 
     g_apply!(h[ϕms_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode) 
     exp_ladJacTP = transformζ!(h.θsP, transP, h.ζsP)  # return value captures ladJacT
+    # using ShareAdd
+    # @usingany UnicodePlots
+    # scatterplot(vec(h.ζsP), h[ϕms_buffer_key][1,:,1])
+    # scatterplot(vec(h.ζsP), h[ϕms_buffer_key][2,:,1])
+    # scatterplot(vec(h.ζsP), h[ϕms_buffer_key][1,:,2])
+    # scatterplot(vec(h.ζsP), h[ϕms_buffer_key][2,:,2])
     # so that one can provide its gradient to the pullback
     ϕm_it = eachslice(h[ϕms_buffer_key]; dims = ndims(h[ϕms_buffer_key]))
     template = ϕqI # only important for gradient
@@ -75,18 +85,19 @@ function neg_elbo_sites!(
     h.sum_logσ_ζP[] = sum_logσ_ζP
     h.exp_ladJacTP[] = exp_ladJacTP
     elbo = elbo_z - exp_ladJacTP - sum_logσ_ζP
-    #elbo = elbo_z - exp_ladJacTP*n_indiv_train - sum_logσ_ζP
 end
 
 @inline function set_ζsP!(
-    ζsP, logσ_ζP, ::NegElbo, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) 
-    sample_ζsP!(ζsP, logσ_ζP, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) # n_P * n_MC    
+    ζsP, logσ_ζP::AbstractVector{T}, loss_mode::Union{NegElbo, NegLogDensityCovar}, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) where T
+    # enhance range of sampled ζP during fitting pop_ind_correlations in g
+    logσ_ζP_mod = loss_mode isa NegLogDensityCovar ? logσ_ζP .+ T(log(10)) : logσ_ζP
+    sample_ζsP!(ζsP, logσ_ζP_mod, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) # n_P * n_MC    
 end
-@inline function set_ζsP!(
-    ζsP, logσ_ζP::AbstractMatrix{T}, ::NegLogDensity, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) where T
-    ζsP .= CA.getdata(view(ϕqPc,Val(:μζP)))
-    logσ_ζP .= zero(T) # omit loss component of entropy of distribution
-end
+# @inline function set_ζsP!(
+#     ζsP, logσ_ζP::AbstractMatrix{T}, ::NegLogDensity, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) where T
+#     ζsP .= CA.getdata(view(ϕqPc,Val(:μζP)))
+#     logσ_ζP .= zero(T) # omit loss component of entropy of distribution
+# end
 @inline function set_ζsP!(
     ζsP, logσ_ζP::AbstractVector{T}, ::NegLogDensity, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) where T
     ζsP .= CA.getdata(view(ϕqPc,Val(:μζP)))
@@ -112,6 +123,10 @@ function compute_nelboi_z!(hi, loss_mode::AbstractElboLossMode, approx::Abstract
     (; n_indiv_train) = nljoint_args_fix
     set_ζsM!(hi.ζsM, hi.logσ_ζM, loss_mode, approx, rnormM, ϕqIc, ϕm, cor_endsM, hi.sample_buffers)
     exp_ladJacTM = transformζ!(hi.θsM, transM, hi.ζsM)  # return value captures ladJacT
+    # using ShareAdd; @usingany UnicodePlots
+    # scatterplot(vec(ϕm[1,:]), hi.ζsM[1,:])
+    # set_ζsM!(hi.ζsM, hi.logσ_ζM, NegLogDensity(), approx, rnormM, ϕqIc, ϕm, cor_endsM, hi.sample_buffers)
+
     # first component needs to be the full elbo
     exp_nL = exp_nLi!(hi.y, θsP, hi.θsM, nljoint_args_indi, nljoint_args_fix, hi)[1]
     # in order to yield similar weights of population and individual parameters
@@ -121,23 +136,31 @@ function compute_nelboi_z!(hi, loss_mode::AbstractElboLossMode, approx::Abstract
     # individual components of the ELBO are estimated using a sample/batch of sites
     #    need to correct by n_indiv_train/n_indiv_batch
     #    n_indiv cannot be assumed constant because of fewer in last batch 
+    # assume transformation and sampling occuring only once across all sites
+    #    corresponds to alleatoric uncertainty?
     sum_logσ_ζM = sum(hi.logσ_ζM)
     hi.sum_logσ_ζM[] = ForwardDiff.value(sum_logσ_ζM)
     hi.exp_ladJacTM[] = ForwardDiff.value(exp_ladJacTM)
-    #nelboi_z = (exp_nL - sum_logσ_ζM - exp_ladJacTM) * n_indiv_train/n_indiv_batch 
-    #nelboi_z = (exp_nL - sum_logσ_ζM) * n_indiv_train/n_indiv_batch  - (exp_ladJacTM / n_indiv_batch)  
-    nelboi_z = exp_nL - sum_logσ_ζM - exp_ladJacTM/n_indiv_batch 
+    #nelboi_z = exp_nL - sum_logσ_ζM/n_indiv_batch - exp_ladJacTM/n_indiv_batch # gets mean
+    # correct exp_nL and sum_logσ_ζM  by n_indiv_train/n_indiv_batch
+    #nelboi_z = exp_nL* n_indiv_train/n_indiv_batch - sum_logσ_ζM/n_indiv_batch - exp_ladJacTM/n_indiv_batch* n_indiv_train/n_indiv_batch 
+    # factor out
+    nelboi_z = ((exp_nL - exp_ladJacTM/n_indiv_batch) * n_indiv_train - sum_logσ_ζM) / n_indiv_batch 
 end
 
 @inline function set_ζsM!(ζsM, logσ_ζM, ::NegElbo, approx, rnormM, ϕqIc, ϕm, cor_endsM, sample_buffers)
     sample_ζsM!(ζsM, logσ_ζM, approx, rnormM, ϕqIc, ϕm, cor_endsM, sample_buffers)
 end
-@inline function set_ζsM!(ζsM, logσ_ζM::AbstractArray{T}, ::NegLogDensity, approx, rnormM, ϕqIc, ϕm::AbstractVector, cor_endsM, sample_buffers) where T
+@inline function set_ζsM!(ζsM, logσ_ζM::AbstractArray{T}, ::Union{NegLogDensity,NegLogDensityCovar}, approx, rnormM, ϕqIc, 
+    ϕm::AbstractVector, cor_endsM, sample_buffers
+) where T
     ζsM .= view(ϕm, 1:size(ζsM,1))    # recycling fills all rows
     logσ_ζM .= zero(T)
     nothing
 end
-@inline function set_ζsM!(ζsM, logσ_ζM::AbstractArray{T}, ::NegLogDensity, approx, rnormM, ϕqIc, ϕm::AbstractMatrix, cor_endsM, sample_buffers) where T
+@inline function set_ζsM!(ζsM, logσ_ζM::AbstractArray{T}, ::Union{NegLogDensity,NegLogDensityCovar}, approx, rnormM, ϕqIc, 
+    ϕm::AbstractMatrix, cor_endsM, sample_buffers
+) where T
     ζsM .= view(ϕm, 1:size(ζsM,1), :)    # μζM in first n_θM entries
     logσ_ζM .= zero(T)
     nothing
@@ -231,16 +254,16 @@ function prepare_elbo_helpers(h::NamedTuple; approx_spec::AbstractHVIApproxSpec,
         y_buffer = Matrix{TF}(undef, n_obs, n_MC),
         sample_buffers = prepare_ind_sample_buffers(approx_spec, cor_ends.M, template_TF),
     ) for i in 1:n_site]
-    helpers_sites = use_dc ? map(hi -> map_leaves_nt(x -> PAT.DiffCache(x, chunk), hi),his) : his
-    hi = helpers_sites[1]
-    Main.@infiltrate_main
-
+    helpers_sites = use_dc ? map(hi -> map_leaves_nt(x -> x isa AbstractArray ? PAT.DiffCache(x, chunk) : x, hi),his) : his
+    #hi = helpers_sites[1]
     h = (;
         ζsP = Matrix{TF}(undef, n_θP, n_MC),
         θsP = Matrix{TF}(undef, n_θP, n_MC),
         logσ_ζP = Vector{TF}(undef, n_θP),
         ϕms = Matrix{TF}(undef, n_M, n_site),        
         ϕms_mcs = Array{TF,3}(undef, n_M, n_MC, n_site),
+        sum_logσ_ζP = Ref(zero(TF)),
+        exp_ladJacTP = Ref(zero(TF)),
         ϕms_mcs2D_buffer = Matrix{TF}(undef, n_M, n_MC * n_site),        
         xMP = Matrix{TG}(undef, (n_covXP), n_MC * n_site),
         sample_buffers = prepare_sample_buffers(approx_spec, cor_ends.P, template_TF),

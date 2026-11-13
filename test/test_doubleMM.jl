@@ -279,7 +279,7 @@ end
     n_site, n_site_batch = get_hybridproblem_n_indiv_train_and_batch(prob; scenario)
     frac_cluster_all = fill(1, n_site)
     pbm_spec = get_hybridproblem_PBModelSpec(prob; scenario)
-    f = get_PopulationApplicator
+    f = get_PBModelApplicator
     py = get_hybridproblem_neg_logden_obs(prob; scenario)
     priors = get_hybridproblem_priors(prob; scenario)
     priorsP = Tuple(priors[k] for k in keys(par_templates.θP))

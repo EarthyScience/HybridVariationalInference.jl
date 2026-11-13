@@ -85,7 +85,7 @@ test_scenario = (scenario) -> begin
     # prediction by g(ϕg, XM) does not correspond to θMs_true, randomly initialized
     # only the magnitude is there because of NormalScaling and prior
     g, ϕg0 = get_hybridproblem_MLapplicator(probc; scenario)
-    error("implement proper get_PopulationApplicator")
+    error("implement proper get_PBModelApplicator")
     pbm_spec = get_hybridproblem_PBmodel(prob; scenario)
     f = TODO
     f_pred = create_nsite_applicator(f, n_site)
