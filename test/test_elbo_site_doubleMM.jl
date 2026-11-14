@@ -194,7 +194,7 @@ end
     # first point estimate
     rng = StableRNG(1234)
     res = CommonSolve.solve(prob, solver, CP.NegLogDensity(); ϕ0c, scenario, rng,
-        epochs=8_000,
+        epochs=4_000,
         #show_train_loss = Val(true)
         );
     @inferred first(CommonSolve.solve(prob, solver, CP.NegLogDensity(); ϕ0c= res.ϕc, scenario, rng,

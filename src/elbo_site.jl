@@ -47,7 +47,7 @@ function neg_elbo_sites!(
     pbm_covar_indices = !isnothing(pbm_covar_indices) && isempty(pbm_covar_indices) ? nothing : pbm_covar_indices
     #
     set_ζsP!(h.μζP, h.ζsP_resid, h.logσ_ζP, loss_mode, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers) # n_P * n_MC
-    add_resids!(h.ζsP, h.μζP, h.ζsP_resid)
+    h.ζsP .= h.μζP .+ h.ζsP_resid
     # (n_M x n_sit)  or (n_M x n_MC x n_sit)    
     #ϕms_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
     # TODO implement global modifcation of mean individual parameters by covariates

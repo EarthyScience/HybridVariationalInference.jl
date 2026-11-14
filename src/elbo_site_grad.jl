@@ -75,10 +75,10 @@ function grad_neg_elbo_sites(
     use_ϕm_matrix = isnothing(pbm_covar_indices)
     ϕqPc = intϕqP(ϕqP) 
     ϕqIc = intϕqI(ϕqI)
-    # TODO 
-    #ϕm_buffer_key = use_ϕm_matrix ? :ϕms : :ϕms_mcs
-    #ϕm_buffer_key = :ϕms 
-    #h.ϕms = h[ϕm_buffer_key]
+    #ϕms_buffer_key = isnothing(pbm_covar_indices) ? :ϕms : :ϕms_mcs
+    # TODO implement global modifcation of mean individual parameters by covariates
+    #   and only run the ML model for mean parameters
+    ϕms_buffer_key = :ϕms 
     check_elbo_helpers(h, xM, pbm_covar_indices; n_ϕg = length(ϕg))
     n_cov, n_indiv_batch = size(xM)
     n_θP, n_MC = size(h.ζsP)
@@ -90,7 +90,7 @@ function grad_neg_elbo_sites(
     gradh = !isempty(grad_elbo_helpers) ? grad_elbo_helpers : 
     #Test.@inferred prepare_gradelbo_helpers(
     prepare_gradelbo_helpers(
-        ϕqIc, selectdim(h.ϕms, ndims(h.ϕms), 1), h.ζsP, ϕg, ϕqPc, approx; 
+        ϕqIc, selectdim(h[ϕms_buffer_key], ndims(h[ϕms_buffer_key]), 1), h.ζsP, ϕg, ϕqPc, approx; 
         pbm_covar_indices, n_workers,
         h, rnormMi = rnormPM.M[1], nljoint_args_indi,
         n_indiv_batch, n_cov, cor_ends, transP, transM, nljoint_args_fix, loss_mode,
@@ -99,8 +99,8 @@ function grad_neg_elbo_sites(
     #
     set_ζsP!(h.μζP, h.ζsP_resid, h.logσ_ζP, loss_mode, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers) # n_P * n_MC
     h.ζsP .= h.μζP .+ h.ζsP_resid
-    g_apply!(h.ϕms, ϕg, xM, h.ζsP_resid, pbm_covar_indices, g, h.xMP, is_testmode) 
-    @assert all(isfinite.(h.ϕms))
+    g_apply!(h[ϕms_buffer_key], ϕg, xM, h.ζsP_resid, pbm_covar_indices, g, h.xMP, is_testmode) 
+    @assert all(isfinite.(h[ϕms_buffer_key]))
     ladJacTP = transformζ!(h.θsP, transP, h.ζsP)  # return value captures ladJacT
     #
     # parallel ForwardDiffGradient through forwarddiff_grad_nelboi_z!
@@ -116,7 +116,7 @@ function grad_neg_elbo_sites(
     cl = ForwardDiffGradNelboiZCl(
         approx, ϕqIc, gradh.dϕmvecs, gradh.hw_channel, cor_ends.M, transM,
         Val(keys(nljoint_args_inds)), nljoint_args_fix, loss_mode, n_MC_val)    
-    ϕm_it = eachslice(h.ϕms; dims = ndims(h.ϕms))
+    ϕm_it = eachslice(h[ϕms_buffer_key]; dims = ndims(h[ϕms_buffer_key]))
         # _a1 = Test.@inferred first(zip(h.helpers_sites, rnormPM.M, zip_eachlastdims(nljoint_args_inds), ϕm_it, 1:n_site))
         # Test.@inferred cl(_a1)
     init = (;
@@ -140,7 +140,7 @@ function grad_neg_elbo_sites(
     #
     # pullback gradients of ϕqm -> gradh.dϕg and gradh.dζsP
     gradh.pullback_g_apply!(
-        gradh.dϕg, gradh.∂elbo_∂ϕm_∂ζPresid, h.ϕms, ∂elbo_∂ϕqm, 
+        gradh.dϕg, gradh.∂elbo_∂ϕm_∂ζPresid, h[ϕms_buffer_key], ∂elbo_∂ϕqm, 
         ϕg, xM, h.ζsP_resid, pbm_covar_indices, g, is_testmode)
     #
     # pullback gradients of ∂elbo_∂θP to ∂elbo_∂θP_∂ζP
@@ -157,7 +157,8 @@ function grad_neg_elbo_sites(
     # pullback gradients of ∂elbo_∂ζP, ∂elbo_∂ϕm_∂ζPresid, and ∂elbo_∂logσ_ζP to dϕqP
     #TODO change/add gradh.∂elbo_∂ϕm_∂ζPresid to new matrix mulitply
     gradh.∂ζP .= ∂elbo_∂θP_∂ζP 
-    gradh.dμζP .= sum(gradh.∂ζP; dims=2)  # in forward broadcasted to each column
+    #gradh.dμζP .= sum(gradh.∂ζP; dims=2)  # in forward broadcasted to each column
+    sum!(gradh.dμζP, gradh.∂ζP) # same as line above but without allocating
     gradh.dζsP_resid .= gradh.∂ζP .+ gradh.∂elbo_∂ϕm_∂ζPresid
     # ∂ζP = ∂elbo_∂θP_∂ζP .+ gradh.∂elbo_∂ϕm_∂ζPresid
     # dμζP = sum(∂ζP; dims=2)  # in forward broadcasted to each column
@@ -370,7 +371,7 @@ function get_pullback_g_apply(::AbstractArray{TG}, ::AbstractArray{TF};
         # ϕms_buffer = isnothing(pbm_covar_indices) ? ϕms_ : ϕms_mcs_
         # dϕms_buffer = isnothing(pbm_covar_indices) ? dϕms_ : dϕms_mcs_
         ϕms_buffer = ϕms isa AbstractMatrix ? ϕms_ : ϕms_mcs_
-        dϕms_buffer = ϕms isa Matrix ? dϕms_ : dϕms_mcs_
+        dϕms_buffer = ϕms isa AbstractMatrix ? dϕms_ : dϕms_mcs_
         # assert that buffers were constructed with correct sizes
         n_cov_f, n_site_f = size(xM)
         n_covP_f = isnothing(pbm_covar_indices) ? 0 : length(pbm_covar_indices)
