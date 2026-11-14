@@ -36,3 +36,4 @@ projects/Manifest.toml
 projects/intermediate/*
 job.*
 projects/prog*.out
+**/core.*
