@@ -68,6 +68,7 @@ function grad_neg_elbo_sites(
     (;ϕg, ϕqP, ϕqI) = map(CA.getdata, ϕ)
     TF = eltype(ϕqP)
     (;approx, g, is_testmode, pbm_covar_indices, intϕqP, intϕqI, cor_ends, transP, transM) = sample_args
+    pbm_covar_indices = !isnothing(pbm_covar_indices) && isempty(pbm_covar_indices) ? nothing : pbm_covar_indices    
     @assert keys(indiv_args)[1] == :xM
     xM = indiv_args.xM; r2end = 2:length(indiv_args)
     nljoint_args_inds = NamedTuple{keys(indiv_args)[r2end]}(values(indiv_args)[r2end])
@@ -139,8 +140,8 @@ function grad_neg_elbo_sites(
     #
     # pullback gradients of ϕqm -> gradh.dϕg and gradh.dζsP
     gradh.pullback_g_apply!(
-        gradh.dϕg, gradh.∂elbo_∂ϕm_∂ζP, h.ϕms, ∂elbo_∂ϕqm, 
-        ϕg, xM, h.ζsP, pbm_covar_indices, g, is_testmode)
+        gradh.dϕg, gradh.∂elbo_∂ϕm_∂ζPresid, h.ϕms, ∂elbo_∂ϕqm, 
+        ϕg, xM, h.ζsP_resid, pbm_covar_indices, g, is_testmode)
     #
     # pullback gradients of ∂elbo_∂θP to ∂elbo_∂θP_∂ζP
     ∂elbo_∂θP_∂ζP = gradh.∂elbo_∂θP_∂ζP
@@ -153,22 +154,20 @@ function grad_neg_elbo_sites(
         h.ζsP,
         )
     #
-    # pullback gradients of ∂elbo_∂ζP, ∂elbo_∂ϕm_∂ζP, and ∂elbo_∂logσ_ζP to dϕqP
-    #TODO preallocate
-    #TODO change/add gradh.∂elbo_∂ϕm_∂ζP to new matrix mulitply
-    # gradh.∂ζP .= ∂elbo_∂θP_∂ζP .+ gradh.∂elbo_∂ϕm_∂ζP
-    # gradh.dμζP .= sum(gradh.∂ζP; dims=2)  # in forward broadcasted to each column
-    # gradh.dζsP_resid .= gradh.∂ζP
-    ∂ζP = ∂elbo_∂θP_∂ζP .+ gradh.∂elbo_∂ϕm_∂ζP
-    dμζP = sum(∂ζP; dims=2)  # in forward broadcasted to each column
-    dζsP_resid = ∂ζP
+    # pullback gradients of ∂elbo_∂ζP, ∂elbo_∂ϕm_∂ζPresid, and ∂elbo_∂logσ_ζP to dϕqP
+    #TODO change/add gradh.∂elbo_∂ϕm_∂ζPresid to new matrix mulitply
+    gradh.∂ζP .= ∂elbo_∂θP_∂ζP 
+    gradh.dμζP .= sum(gradh.∂ζP; dims=2)  # in forward broadcasted to each column
+    gradh.dζsP_resid .= gradh.∂ζP .+ gradh.∂elbo_∂ϕm_∂ζPresid
+    # ∂ζP = ∂elbo_∂θP_∂ζP .+ gradh.∂elbo_∂ϕm_∂ζPresid
+    # dμζP = sum(∂ζP; dims=2)  # in forward broadcasted to each column
+    # dζsP_resid = ∂ζP
     #
     # pullback_add_resids! = get_pullback_add_resids!(h.ζsP; n_θP, n_MC)
     # pullback_add_resids!(gradh.dμζP, gradh.dζsP_resid, gradh.∂ζP, h.ζsP, h.μζP, h.ζsP_resid)
     #
     pullack_sample_ζsP!(gradh.dϕqPc, loss_mode,
-        #gradh.dμζP, gradh.dζsP_resid, 
-        dμζP, dζsP_resid, 
+        gradh.dμζP, gradh.dζsP_resid, 
         gradh.∂elbo_∂logσ_ζP,
         gradh,
         h.μζP, h.ζsP_resid, h.logσ_ζP, approx, rnormPM.P, ϕqPc, cor_ends.P, h.sample_buffers,
@@ -366,7 +365,7 @@ function get_pullback_g_apply(::AbstractArray{TG}, ::AbstractArray{TF};
     dϕms_mcs_ = similar(ϕms_mcs_)
     #dζsP_ = Matrix{TF}(undef, n_θP, n_MC)
     #
-    function pullback_g_apply!(dϕg, dζsP, ϕms, dϕm, ϕg, xM, ζsP,
+    function pullback_g_apply!(dϕg, dζsP_resid, ϕms, dϕm, ϕg, xM, ζsP_resid,
                                pbm_covar_indices, g, is_testmode)
         # ϕms_buffer = isnothing(pbm_covar_indices) ? ϕms_ : ϕms_mcs_
         # dϕms_buffer = isnothing(pbm_covar_indices) ? dϕms_ : dϕms_mcs_
@@ -375,12 +374,12 @@ function get_pullback_g_apply(::AbstractArray{TG}, ::AbstractArray{TF};
         # assert that buffers were constructed with correct sizes
         n_cov_f, n_site_f = size(xM)
         n_covP_f = isnothing(pbm_covar_indices) ? 0 : length(pbm_covar_indices)
-        n_MC_f = size(ζsP,2)
+        n_MC_f = size(ζsP_resid,2)
         @assert (n_cov, n_covP, n_MC, n_indiv) == (n_cov_f, n_covP_f, n_MC_f, n_site_f)
         @assert size(dϕms_buffer) == size(dϕm)
     
         fill!(dϕg,  zero(eltype(dϕg)))
-        fill!(dζsP, zero(eltype(dζsP))) # also output cotangent
+        fill!(dζsP_resid, zero(eltype(dζsP_resid))) # also output cotangent
         fill!(dxMP_, zero(eltype(dxMP_)))
         # primal will be updated as in the forward, but shadow needs to be preserved
         copyto!(ϕms_buffer, ϕms) # copy to avoid modifying ϕm (although should be the same)
@@ -395,7 +394,7 @@ function get_pullback_g_apply(::AbstractArray{TG}, ::AbstractArray{TF};
             Enzyme.Duplicated(ϕms_buffer, dϕms_buffer),
             Enzyme.Duplicated(ϕg, dϕg),
             Enzyme.Const(xM),
-            Enzyme.Duplicated(ζsP, dζsP),
+            Enzyme.Duplicated(ζsP_resid, dζsP_resid),
             Enzyme.Const(pbm_covar_indices),
             Enzyme.Const(g),
             Enzyme.Duplicated(xMP_, dxMP_),
@@ -566,7 +565,7 @@ function prepare_gradelbo_helpers(
         dϕqIc = similar(ϕqIc),
         dθsP = similar(θsP), 
         ∂elbo_∂θP = similar(θsP),
-        ∂elbo_∂ϕm_∂ζP = similar(θsP),
+        ∂elbo_∂ϕm_∂ζPresid = similar(θsP),
         ∂elbo_∂logσ_ζP = Vector{TF}(undef, size(θsP,1)),
         ∂elbo_∂θP_∂ζP = Matrix{TF}(undef, size(θsP)),
         ∂elbo_∂ϕqm = Array{TF}(undef, size(ϕm)..., n_indiv_batch),

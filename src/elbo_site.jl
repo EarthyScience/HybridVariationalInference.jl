@@ -55,7 +55,7 @@ function neg_elbo_sites!(
     ϕms_buffer_key = :ϕms 
     # TODO remove pbm_covar_indices from g_apply
     #g_apply!(h[ϕms_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode, h.ϕms_mcs2D_buffer) 
-    g_apply!(h[ϕms_buffer_key], ϕg, xM, h.ζsP, pbm_covar_indices, g, h.xMP, is_testmode, h.ϕms_mcs2D_buffer) 
+    g_apply!(h[ϕms_buffer_key], ϕg, xM, h.ζsP_resid, pbm_covar_indices, g, h.xMP, is_testmode, h.ϕms_mcs2D_buffer) 
     exp_ladJacTP = transformζ!(h.θsP, transP, h.ζsP)  # return value captures ladJacT
     # using ShareAdd
     # @usingany UnicodePlots
@@ -387,7 +387,9 @@ function g_apply!(ϕm::AbstractMatrix{TF}, ϕg::AbstractVector{TG}, xM::Abstract
     ) where {TG, TF}
         # use only one MC sample but fake covariates (using zero g inputs)
         n_site = size(ϕm,2)
-        n_cov = length(pbm_covar_indices)
+        n_cov = size(xM, 1)
+        n_covP = length(pbm_covar_indices)        
+        @assert size(xMP,1) == n_cov + n_covP
         @inbounds for i in 1:n_site
             # Copy xM block
             # for each site i there are n_MC columns, j, with the same xM
