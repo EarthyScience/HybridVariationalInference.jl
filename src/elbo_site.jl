@@ -164,6 +164,8 @@ function compute_nelboi_z!(hi, loss_mode::AbstractElboLossMode, approx::Abstract
     # nelboi_z = (exp_nL * n_indiv_train - exp_ladJacTM - sum_logσ_ζM) / n_indiv_batch 
     # test scaling all 3 additionally to n_indiv_train/n_indiv_batch  - still underestimates K2
     # nelboi_z = n_indiv_train/n_indiv_batch * (exp_nL - sum_logσ_ζM/n_indiv_batch - exp_ladJacTM/n_indiv_batch)
+    # test scaling nL and logSigma by nt/nb but keep ladJacI to sum to 1 - overestimate K2
+    nelboi_z = (exp_nL - sum_logσ_ζM) * n_indiv_train/n_indiv_batch - exp_ladJacTM/n_indiv_batch
     # 
     # theoretical adjust all terms by n_indiv_train/n_indiv_batch
     # nelboi_z = if loss_mode isa NegLogDensity

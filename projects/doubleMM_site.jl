@@ -67,7 +67,7 @@ function fit_pointwise()
     UnicodePlots.histogram(vec(y_pred) - vec(y_true)) # predictions centered around y_o (or y_true)
     res_point
 end
-#res_point = fit_pointwise();
+res_point = fit_pointwise();
 
 # do a few steps without minibatching, 
 #   by providing the data rather than the DataLoader
@@ -157,24 +157,42 @@ function interactive_elbo()
         epochs=n_epoch,
         #show_train_loss = Val(true)
         );
-    # continue with higher n_MC
-    solver_post_cor =  HybridSolverSite(; 
-        alg = OptimizationOptimisers.Adam(0.001), n_MC_val=Val(60))
-    n_epoch = 200
-    #n_epoch = 20
-    res_covar = solve(prob0, solver_post_cor, HVI.NegLogDensityCovar(); ϕ0c = res_elbo1.ϕc, scenario, 
-        epochs=n_epoch,
-        #show_train_loss = Val(true)
-        );
-    res_covar2 = solve(prob0, solver_post_cor, HVI.NegLogDensityCovar(); ϕ0c = res_covar.ϕc, scenario, 
-        epochs=1,
-        #show_train_loss = Val(true)
-        );
-    res_elbo = solve(prob0, solver_post_cor, NegElbo(); ϕ0c = res_covar.ϕc, scenario, 
-        epochs=n_epoch,
-        #show_train_loss = Val(true)
-        );
-    # gets worth on test loss - overfitting? separate train and test data
+    res_elbo = res_elbo1;
+    exp.(res_elbo.ϕc.ϕqP.μζP)
+    n_sample_pred = 60
+    hp_stat, hi_agg_stat = HVI.predict_stat(rng, prob0, res_elbo.ϕc; scenario, n_sample_pred);
+    hp_stat.θsP[1,:]  
+    hi_agg_stat.θsM[1,:,1]
+    hp = map(x -> x[:,Val(:mean)], hp_stat)
+    hi_agg = map(x -> x[:,Val(:mean),:], hi_agg_stat)
+    @test hp.θsP ≈ θP_true atol=0.2
+    @test mean(abs.(hi_agg.θsM .- θMs_true)) < 0.05
+    hi_std = map(x -> x[:,Val(:std),:], hi_agg_stat)
+    hi_std.θsM[:,1]  # indiv_1
+    hi_std.θsM[:,2]  # indiv_2  same magnitude
+    hi_agg.θsM[:,1]  
+    hi_agg.θsM[:,2]  
+
+    () -> begin
+        # continue with higher n_MC
+        solver_post_cor =  HybridSolverSite(; 
+            alg = OptimizationOptimisers.Adam(0.001), n_MC_val=Val(60))
+        n_epoch = 200
+        #n_epoch = 20
+        res_covar = solve(prob0, solver_post_cor, HVI.NegLogDensityCovar(); ϕ0c = res_elbo1.ϕc, scenario, 
+            epochs=n_epoch,
+            #show_train_loss = Val(true)
+            );
+        res_covar2 = solve(prob0, solver_post_cor, HVI.NegLogDensityCovar(); ϕ0c = res_covar.ϕc, scenario, 
+            epochs=1,
+            #show_train_loss = Val(true)
+            );
+        res_elbo = solve(prob0, solver_post_cor, NegElbo(); ϕ0c = res_covar.ϕc, scenario, 
+            epochs=n_epoch,
+            #show_train_loss = Val(true)
+            );
+        # gets worth on test loss - overfitting? separate train and test data
+    end
 
     () -> begin # store and reload optimized problem
         #fname_probos = "intermediate/probos_$(last(scenario)).jld2"
@@ -436,6 +454,7 @@ function interactive_elbo()
         scatterplot(θ1c[:r0, :], θ1c[:K1, :])  # no correlation (modeled independent)
     end
 end # interactive_elbo
+#res_elbo = interactive_elbo()
 
 () -> begin # priors on mean θ
     get_hybridproblem_cor_ends(prob0)
@@ -828,16 +847,19 @@ using CategoricalArrays
 using PairPlots
 
 function interactive_after_sample() 
-    fname_agg = "intermediate/doubleMM_chain_rPMs_agg_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
-    chn = load(fname_agg, "chn"; iotype = IOStream);
+    fname_chn = "intermediate/doubleMM_chain_rPMs_agg_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
+    fname_chn = "intermediate/doubleMM_chain_theta_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
+    chn = load(fname_chn, "chn"; iotype = IOStream);
     #chn = load(fname, "chn"; iotype = IOStream);
     chn2 = load(fname2, "chn"; iotype = IOStream);
     n_sample_NUTS = prod(size(Array(chn))[1:2])
 
     # graph and check convergence
     chn12 = chn[[@vn(rP), @vn(rMs[:,1]), @vn(rMs[:,2])]]
+    chn12 = chn[[@vn(θP), @vn(θMs[:,1]), @vn(θMs[:,2])]]
     chn12 = chn
     Makie.plot(chn12)
+    θMs_true[:,1:2]
     FlexiChains.Makie.meanplot(chn12) # larger uncertainty at the start
     # slow mixing of chains, and posterior of 0.86 rather than 1 for thetaMs[1,2]
     Makie.plot(chn12[iter=1:150])
@@ -849,6 +871,7 @@ function interactive_after_sample()
     # merge chains and recompute θ
     n_sample_, n_chain_ = FlexiChains.niters(chn), FlexiChains.nchains(chn)
     chnm = vcat((chn[chain=i] for i in 1:n_chain_)...)
+    chnt = chnm  # for θ sampled directly
     chnt = FlexiChains.transform_values(chnm,
         @vn(rP) => (rP -> θP_true .* rP) => @vn(θP),
         #@vn(rMs) => (rMs -> θMs_true .* rMs) => @vn(θMs),
@@ -856,7 +879,6 @@ function interactive_after_sample()
     )
     # inspect mean
     chn12 = chnt[[@vn(θP), @vn(θMs[:,1]), @vn(θMs[:,2])]]
-    FlexiChains.Makie.meanplot(chn12, axis=(;limits=((50, 2000), nothing))) # do not care about the initial uncertainty value
     pairplot(chn12)
     θMs_true[:,1]
     θMs_true[:,2]

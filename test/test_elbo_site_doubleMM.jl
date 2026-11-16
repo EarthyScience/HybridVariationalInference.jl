@@ -222,8 +222,8 @@ end
         #@test exp.(intϕqP(res.ϕ.ϕqP).μζP) ≈ θP_true atol = 0.1
         # run forward
         ϕ_tmp = (;res.ϕc.ϕg, ϕ0c.ϕqP, ϕ0c.ϕqI)
-        hp0, hi_agg0 = HVI.predict_point(res.h0, prob, ϕ0c; scenario)
-        hpt, hi_aggt = HVI.predict_point(res.h0, prob, ϕ_tmp; scenario)
+        hp0, hi_agg0 = HVI.predict_point(prob, ϕ0c; scenario, elbo_helpers = res.h0)
+        hpt, hi_aggt = HVI.predict_point(prob, ϕ_tmp; scenario, elbo_helpers = res.h0)
         # @usingany UnicodePlots
         i_obs = 3
         #scatterplot(hi_agg.θsM[i_obs,:], θMs_true[i_obs,:])
@@ -257,13 +257,18 @@ end
     n_sample_pred = 60
     hp_stat, hi_agg_stat = HVI.predict_stat(rng, prob, res_elbo.ϕc; scenario, n_sample_pred);
     @test eltype(hp_stat[1]) == eltype(hp_stat[2]) == eltype(ϕ0c.ϕqP)
-    hp_stat.θsP[1,:]
+    hp_stat.θsP[1,:]  
     hp_stat.θsP[2,:]
     hi_agg_stat.θsM[1,:,1]
     hp = map(x -> x[:,Val(:mean)], hp_stat)
     hi_agg = map(x -> x[:,Val(:mean),:], hi_agg_stat)
     @test hp.θsP ≈ θP_true atol=0.2
     @test mean(abs.(hi_agg.θsM .- θMs_true)) < 0.05
+    hi_std = map(x -> x[:,Val(:std),:], hi_agg_stat)
+    hi_std.θsM[:,1]  # indiv_1
+    hi_std.θsM[:,2]  # indiv_2  same magnitude
+    hi_agg.θsM[:,1]  
+    hi_agg.θsM[:,2]  
     # TODO test changed uncertainty and correlation
     @test res_elbo.ϕc.ϕqP.logσ_ζP != ϕ0c.ϕqP.logσ_ζP
     hcat(exp.(res_elbo.ϕc.ϕqP.logσ_ζP),exp.(ϕ0c.ϕqP.logσ_ζP))
