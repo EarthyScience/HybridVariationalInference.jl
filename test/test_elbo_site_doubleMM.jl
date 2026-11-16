@@ -182,7 +182,7 @@ end
     # prob = prob0  # for faster debugging of f_doubleMM functions
     y_o2 = get_hybridproblem_train_dataloader(prob; scenario).data[3]
     @test y_o == y_o2 # make sure to use the same synthetic data for good y_true
-    solver = HybridSolverSite(alg=Optimisers.Adam(0.01))
+    solver = HybridSolverSite(alg=Optimisers.Adam(0.02))
     #ϕ0c = (;ϕg = copy(CA.getdata(ϕg)), ϕqP=copy(ϕqP), ϕqI=copy(ϕqI))
     # res = CommonSolve.solve(prob_syn, solver, CP.NegLogDensity(), (;); scenario, 
     #     epochs=0,  );
@@ -194,7 +194,7 @@ end
     # first point estimate
     rng = StableRNG(1234)
     res = CommonSolve.solve(prob, solver, CP.NegLogDensity(); ϕ0c, scenario, rng,
-        epochs=4_000,
+        epochs=6_000,
         #show_train_loss = Val(true)
         );
     @inferred first(CommonSolve.solve(prob, solver, CP.NegLogDensity(); ϕ0c= res.ϕc, scenario, rng,

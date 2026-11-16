@@ -61,7 +61,7 @@ end
 end
 
 # provide a prior around true values
-@model function fsites(y, ::Type{T} = Float64; pbm, xP, σ_o, prior_ζP, prior_ζMs, helpers_channel) where {T}
+@model function fsitesζ_flat(y, ::Type{T} = Float64; pbm, xP, σ_o, prior_ζP, prior_ζMs, helpers_channel) where {T}
     n_obs, n_site = size(y)
     # ζP = rand(prior_ζP)
     # ζMs = rand(prior_ζMs)
@@ -74,6 +74,78 @@ end
         @assert size(y_pred) == (n_obs, 1, n_site)
         @view(θsP[:,1]) .= exp.(ζP)
         @view(θsMs[:,1,:]) .= exp.(ζMs)
+        for j in 1:n_site
+            HVI.apply_model!(view(y_pred, :, :, j), pbm, θsP, @view(θsMs[:,:,j]), @view(xP[:, j]))
+        end
+        for i_obs in 1:n_obs
+            y[i_obs, :] ~ MvNormal(view(y_pred, i_obs, 1, :), σ_o[i_obs]) # single value σ instead of variance
+        end
+        y_pred
+    end
+end
+
+@model function fsitesζ(y, ::Type{T} = Float64; pbm, xP, σ_o, prior_ζP, prior_ζMs, helpers_channel) where {T}
+    n_obs, n_site = size(y)
+    # ζP = rand(prior_ζP)
+    # ζMs = rand(prior_ζMs)
+    ζP ~ prior_ζP 
+    ζMs ~ prior_ζMs
+    with_channel_element(helpers_channel) do el_dc
+        local el, θsP, θsMs, y_pred
+        el = map(x -> PAT.get_tmp(x, ζP), el_dc)
+        (; θsP, θsMs, y_pred) = el
+        @assert size(y_pred) == (n_obs, 1, n_site)
+        @view(θsP[:,1]) .= exp.(ζP)
+        @view(θsMs[:,1,:]) .= exp.(ζMs)
+        for j in 1:n_site
+            HVI.apply_model!(view(y_pred, :, :, j), pbm, θsP, @view(θsMs[:,:,j]), @view(xP[:, j]))
+        end
+        for i_obs in 1:n_obs
+            y[i_obs, :] ~ MvNormal(view(y_pred, i_obs, 1, :), σ_o[i_obs]) # single value σ instead of variance
+        end
+        # account for the exp
+        Turing.@addlogprob! (-sum(ζP) -sum(ζMs))
+        y_pred
+    end
+end
+
+@model function fsitesζ2(y, ::Type{T} = Float64; pbm, xP, σ_o, prior_ζP, prior_ζMs, helpers_channel) where {T}
+    n_obs, n_indiv = size(y)
+    # ζP = rand(prior_ζP)
+    # ζMs = rand(prior_ζMs)
+    ζP ~ prior_ζP 
+    ζMs ~ prior_ζMs
+    with_channel_element(helpers_channel) do el_dc
+        local el, θsP, θsMs, y_pred
+        el = map(x -> PAT.get_tmp(x, ζP), el_dc)
+        (; θsP, θsMs, y_pred) = el
+        @assert size(y_pred) == (n_obs, 1, n_indiv)
+        @view(θsP[:,1]) .= exp.(ζP)
+        @view(θsMs[:,1,:]) .= exp.(ζMs)
+        for j in 1:n_indiv
+            HVI.apply_model!(view(y_pred, :, :, j), pbm, θsP, @view(θsMs[:,:,j]), @view(xP[:, j]))
+        end
+        for i_obs in 1:n_obs
+            y[i_obs, :] ~ MvNormal(view(y_pred, i_obs, 1, :), σ_o[i_obs]) # single value σ instead of variance
+        end
+        # account for the exp
+        Turing.@addlogprob! (-sum(ζP) -sum(ζMs)/n_indiv)
+        y_pred
+    end
+end
+
+
+@model function fsitesθ(y, ::Type{T} = Float64; pbm, xP, σ_o, prior_θP, prior_θMs, helpers_channel) where {T}
+    n_obs, n_site = size(y)
+    θP ~ prior_θP 
+    θMs ~ prior_θMs
+    with_channel_element(helpers_channel) do el_dc
+        local el, θsP, θsMs, y_pred
+        el = map(x -> PAT.get_tmp(x, θP), el_dc)
+        (; θsP, θsMs, y_pred) = el
+        @assert size(y_pred) == (n_obs, 1, n_site)
+        @view(θsP[:,1]) .= θP
+        @view(θsMs[:,1,:]) .= θMs
         for j in 1:n_site
             HVI.apply_model!(view(y_pred, :, :, j), pbm, θsP, @view(θsMs[:,:,j]), @view(xP[:, j]))
         end

@@ -89,7 +89,12 @@ function neg_elbo_sites!(
     sum_logσ_ζP = sum(h.logσ_ζP)
     h.sum_logσ_ζP[] = sum_logσ_ζP
     h.exp_ladJacTP[] = exp_ladJacTP
-    elbo = elbo_z - exp_ladJacTP - sum_logσ_ζP
+    # elbo = if loss_mode isa NegLogDensity
+    #     elbo_z
+    # else
+    #     elbo_z - exp_ladJacTP - sum_logσ_ζP
+    # end
+    elbo =  elbo_z - exp_ladJacTP - sum_logσ_ζP
 end
 
 # to check the pullback of ζsP to μζP and ζsP_resid with Enzyme
@@ -98,13 +103,15 @@ end
 end
 
 @inline function set_ζsP!(
-    μ_ζP, ζsP_resid, logσ_ζP::AbstractVector{T}, loss_mode::Union{NegElbo, NegLogDensityCovar}, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) where T
+    μ_ζP, ζsP_resid, logσ_ζP::AbstractVector{T}, loss_mode::Union{NegElbo, NegLogDensityCovar}, approx, rnormP, ϕqPc, cor_endsP, sample_buffers
+) where T
     # enhance range of sampled ζP during fitting pop_ind_correlations in g
     logσ_ζP_mod = loss_mode isa NegLogDensityCovar ? logσ_ζP .+ T(log(10)) : logσ_ζP
     sample_ζsP!(μ_ζP, ζsP_resid, logσ_ζP_mod, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) # n_P * n_MC    
 end
 @inline function set_ζsP!(
-    μ_ζP, ζsP_resid, logσ_ζP::AbstractVector{T}, ::NegLogDensity, approx, rnormP, ϕqPc, cor_endsP, sample_buffers) where T
+    μ_ζP, ζsP_resid, logσ_ζP::AbstractVector{T}, ::NegLogDensity, approx, rnormP, ϕqPc, cor_endsP, sample_buffers
+) where T
     ζsP_resid .= zero(T)
     μ_ζP .= CA.getdata(view(ϕqPc,Val(:μζP)))
     logσ_ζP .= zero(T) # omit loss component of entropy of distribution
@@ -152,6 +159,18 @@ function compute_nelboi_z!(hi, loss_mode::AbstractElboLossMode, approx::Abstract
     #nelboi_z = exp_nL* n_indiv_train/n_indiv_batch - sum_logσ_ζM/n_indiv_batch - exp_ladJacTM/n_indiv_batch* n_indiv_train/n_indiv_batch 
     # factor out
     nelboi_z = ((exp_nL - exp_ladJacTM/n_indiv_batch) * n_indiv_train - sum_logσ_ζM) / n_indiv_batch 
+    #
+    # test only scaling exp_nL to n_indiv_train/n_indiv_batch - underestimates K2
+    # nelboi_z = (exp_nL * n_indiv_train - exp_ladJacTM - sum_logσ_ζM) / n_indiv_batch 
+    # test scaling all 3 additionally to n_indiv_train/n_indiv_batch  - still underestimates K2
+    # nelboi_z = n_indiv_train/n_indiv_batch * (exp_nL - sum_logσ_ζM/n_indiv_batch - exp_ladJacTM/n_indiv_batch)
+    # 
+    # theoretical adjust all terms by n_indiv_train/n_indiv_batch
+    # nelboi_z = if loss_mode isa NegLogDensity
+    #     exp_nL
+    # else
+    #     n_indiv_train/n_indiv_batch * (exp_nL - exp_ladJacTM - sum_logσ_ζM)
+    # end
 end
 
 @inline function set_ζsM!(ζsM, logσ_ζM, ::NegElbo, approx, rnormM, ϕqIc, ϕm, cor_endsM, sample_buffers)

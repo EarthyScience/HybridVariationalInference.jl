@@ -167,7 +167,7 @@ function grad_neg_elbo_sites(
     # pullback_add_resids! = get_pullback_add_resids!(h.ζsP; n_θP, n_MC)
     # pullback_add_resids!(gradh.dμζP, gradh.dζsP_resid, gradh.∂ζP, h.ζsP, h.μζP, h.ζsP_resid)
     #
-    pullack_sample_ζsP!(gradh.dϕqPc, loss_mode,
+    pullack_set_ζsP!(gradh.dϕqPc, loss_mode,
         gradh.dμζP, gradh.dζsP_resid, 
         gradh.∂elbo_∂logσ_ζP,
         gradh,
@@ -188,18 +188,17 @@ function set_∂elbo_∂logσ_ζP!(∂elbo_∂logσ_ζP::AbstractVector{T}, ::Un
 end
 
 
-function pullack_sample_ζsP!(dϕqPc, ::Union{NegElbo, NegLogDensityCovar}, dμζP, dζsP_resid, dlogσ_ζP, gradh, args...) 
+function pullack_set_ζsP!(dϕqPc, ::Union{NegElbo, NegLogDensityCovar}, dμζP, dζsP_resid, dlogσ_ζP, gradh, args...) 
     gradh.pullback_cl_sample_ζsP!(dϕqPc, dμζP, dζsP_resid, dlogσ_ζP, args...)
     # Main.@infiltrate_main
     # hcat(dϕqPc[1:length(dμζP)], dμζP)
     # dϕqPc[(length(dμζP)+1):end]
     # dϕqPc
 end
-function pullack_sample_ζsP!(dϕqPc, ::NegLogDensity, dμζP, dζsP_resid, dlogσ_ζP::AbstractVector{TF}, args...) where TF
+function pullack_set_ζsP!(dϕqPc, ::NegLogDensity, dμζP, dζsP_resid, dlogσ_ζP::AbstractVector{TF}, args...) where TF
     #error("debug pullack_sample_ζsP!(dϕqPc, ::NegLogDensity")
     n_θM = size(dμζP, 1)
     @assert all(dlogσ_ζP .== zero(TF))
-    #@assert all(dζsP_resid .== zero(TF))
     dϕqPc[1:n_θM] .= dμζP
     dϕqPc[(n_θM+1):end] .= zero(TF)
     dϕqPc
