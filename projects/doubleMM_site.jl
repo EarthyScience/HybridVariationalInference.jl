@@ -21,6 +21,7 @@ using MLUtils
 rng = StableRNG(115)
 scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:omit_r0,))  # without omit_r0 ambiguous K2 estimated to high
 scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:omit_r0,:covarK2))  # with allow corr population
+#scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:covarK2,:notomit_r0))  
 # prob = DoubleMM.DoubleMMCase()
 
 #------ setup synthetic data and training data loader
@@ -67,7 +68,7 @@ function fit_pointwise()
     UnicodePlots.histogram(vec(y_pred) - vec(y_true)) # predictions centered around y_o (or y_true)
     res_point
 end
-res_point = fit_pointwise();
+#res_point = fit_pointwise();
 
 # do a few steps without minibatching, 
 #   by providing the data rather than the DataLoader
@@ -153,6 +154,7 @@ function interactive_elbo()
     # lower learning rate
     solver_post =  HybridSolverSite(; alg = OptimizationOptimisers.Adam(0.005))
     n_epoch = 1200
+    exp.(res_point.ϕc.ϕqP.μζP)
     res_elbo1 = solve(prob0, solver_post, NegElbo(); ϕ0c = res_point.ϕc, scenario, 
         epochs=n_epoch,
         #show_train_loss = Val(true)
@@ -176,8 +178,10 @@ function interactive_elbo()
     () -> begin
         # continue with higher n_MC
         solver_post_cor =  HybridSolverSite(; 
-            alg = OptimizationOptimisers.Adam(0.001), n_MC_val=Val(60))
+            alg = OptimizationOptimisers.Adam(0.005), n_MC_val=Val(60))
         n_epoch = 200
+        res_elbo2 = solve(prob0, solver_post_cor, NegElbo(); ϕ0c = res_elbo.ϕc, scenario, 
+            epochs=n_epoch, );
         #n_epoch = 20
         res_covar = solve(prob0, solver_post_cor, HVI.NegLogDensityCovar(); ϕ0c = res_elbo1.ϕc, scenario, 
             epochs=n_epoch,
@@ -187,10 +191,9 @@ function interactive_elbo()
             epochs=1,
             #show_train_loss = Val(true)
             );
+
         res_elbo = solve(prob0, solver_post_cor, NegElbo(); ϕ0c = res_covar.ϕc, scenario, 
-            epochs=n_epoch,
-            #show_train_loss = Val(true)
-            );
+            epochs=n_epoch, );
         # gets worth on test loss - overfitting? separate train and test data
     end
 
@@ -848,18 +851,23 @@ using PairPlots
 
 function interactive_after_sample() 
     fname_chn = "intermediate/doubleMM_chain_rPMs_agg_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
-    fname_chn = "intermediate/doubleMM_chain_theta_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
+    fname_chn = "intermediate/doubleMM_chain_zeta_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
+    fname_chn2 = "intermediate/doubleMM_chain_theta_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
     chn = load(fname_chn, "chn"; iotype = IOStream);
-    #chn = load(fname, "chn"; iotype = IOStream);
-    chn2 = load(fname2, "chn"; iotype = IOStream);
+    chn2 = load(fname_chn2, "chn"; iotype = IOStream);
     n_sample_NUTS = prod(size(Array(chn))[1:2])
 
     # graph and check convergence
+    keys(chn)
     chn12 = chn[[@vn(rP), @vn(rMs[:,1]), @vn(rMs[:,2])]]
+    chn12 = chn[[@vn(ζP), @vn(ζMs[:,1]), @vn(ζMs[:,2])]]
     chn12 = chn[[@vn(θP), @vn(θMs[:,1]), @vn(θMs[:,2])]]
+
     chn12 = chn
     Makie.plot(chn12)
     θMs_true[:,1:2]
+    log.(θMs_true[:,1:2])
+    log.(θP_true)
     FlexiChains.Makie.meanplot(chn12) # larger uncertainty at the start
     # slow mixing of chains, and posterior of 0.86 rather than 1 for thetaMs[1,2]
     Makie.plot(chn12[iter=1:150])
@@ -870,16 +878,22 @@ function interactive_after_sample()
 
     # merge chains and recompute θ
     n_sample_, n_chain_ = FlexiChains.niters(chn), FlexiChains.nchains(chn)
+    chnt2 = vcat((chn2_12[chain=i] for i in 1:n_chain_)...)
     chnm = vcat((chn[chain=i] for i in 1:n_chain_)...)
     chnt = chnm  # for θ sampled directly
     chnt = FlexiChains.transform_values(chnm,
         @vn(rP) => (rP -> θP_true .* rP) => @vn(θP),
-        #@vn(rMs) => (rMs -> θMs_true .* rMs) => @vn(θMs),
-        @vn(rM) => (rM -> θMs_true .* rM) => @vn(θMs),
+        @vn(rMs) => (rMs -> θMs_true .* rMs) => @vn(θMs),
+    )
+    chnt = FlexiChains.transform_values(chnm,
+        @vn(ζP) => (x -> exp.(x)) => @vn(θP),
+        @vn(ζMs) => (x -> exp.(x)) => @vn(θMs),
     )
     # inspect mean
     chn12 = chnt[[@vn(θP), @vn(θMs[:,1]), @vn(θMs[:,2])]]
-    pairplot(chn12)
+    chn2_12 = chnt2[[@vn(θP), @vn(θMs[:,1]), @vn(θMs[:,2])]]
+    pairplot(chnt2)
+    pairplot(chn2_12)
     θMs_true[:,1]
     θMs_true[:,2]
 
