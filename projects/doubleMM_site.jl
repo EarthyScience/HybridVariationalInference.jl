@@ -694,6 +694,7 @@ function sample_ζ_flatnormalprior()
 end
 #sample_ζ_flatnormalprior()
 
+
 # fsitesθ: sample θ on original untransformed scale
 function sample_fsitesθ()
     @info "sample_fsitesθ"
@@ -718,6 +719,36 @@ function sample_fsitesθ()
     jldsave(fname_theta, false, IOStream; chn)
 end
 #sample_fsitesθ()
+
+# start sampling theta but start from sample of zeta2
+function sample_fsitesθ2()
+    @info "sample_fsitesθ2"
+    include("scratch_include.jl")
+    fname_chn = "intermediate/doubleMM_chain_zeta2_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
+    chn = merge_chains(load(fname_chn, "chn"; iotype = IOStream));
+    chnt = compute_θchain(chn)
+    n_iter = FlexiChains.niters(chn)
+    init_θP = (iter) -> chnt[@vn(θP), iter=iter, chain=1]
+    init_θMs = (iter) -> chnt[@vn(θMs), iter=iter, chain=1]
+    rng3 = StableRNG(0815)
+    init_θMs(3)
+    sample_initial_params = (iter) -> InitFromParams((
+        θP = init_θP(iter),
+        θMs = init_θMs(iter),
+    ))
+    iters = sample(rng3, 1:n_iter, n_threads)
+    initial_params = map(sample_initial_params, iters)
+    model = fsitesθ(y_o; pbm = f, xP, σ_o, prior_θP, prior_θMs, helpers_channel)
+    adtype = AutoForwardDiff(chunksize=12)
+    #tmp = sample(rng, model, NUTS(0, 0.65; adtype), 2; initial_params=initial_params[1])
+    n_sample_NUTS = 700
+    #n_sample_NUTS = 16
+    chn = sample(rng, model, NUTS(8, 0.65), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
+        n_threads; initial_params=map(_ -> sample_initial_params(rng),1:n_threads))
+    fname_theta2 = "intermediate/doubleMM_chain_theta2_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
+    jldsave(fname_theta2, false, IOStream; chn)
+end
+#sample_fsitesθ2()
 
 # fsitesζ: sample ζ but apply adjustment of logdensity for the back-transformation
 function sample_fsitesζ()
@@ -767,7 +798,7 @@ function sample_fsitesζ2()
     fname_zeta2 = "intermediate/doubleMM_chain_zeta2_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
     jldsave(fname_zeta2, false, IOStream; chn)
 end
-sample_fsitesζ2()
+#sample_fsitesζ2()
 
 
 () -> begin # explore FlexiChains    
@@ -848,22 +879,41 @@ const aog = AlgebraOfGraphics
 using ColorBrewer: ColorBrewer
 using CategoricalArrays
 using PairPlots
+using DataFrames
+
+function compare_ζcorrection()
+    fname_chains = (
+        #ζ_uncor = "intermediate/doubleMM_chain_zeta_normal_$(last(HVI._val_value(scenario))).jld2",
+        ζ = "intermediate/doubleMM_chain_zeta_$(last(HVI._val_value(scenario))).jld2",
+        ζ2 = "intermediate/doubleMM_chain_zeta2_$(last(HVI._val_value(scenario))).jld2",
+        θ = "intermediate/doubleMM_chain_theta_$(last(HVI._val_value(scenario))).jld2",
+    )
+    chns = map(fname_chn -> load(fname_chn, "chn"; iotype = IOStream), fname_chains);
+    chnst = map(compute_θchain, chns);
+    chnst12 = map(cut2Ms, chnst);
+    # map(keys, chnst12)
+    # (chn12, label) = first(zip(chnst12, keys(chnst12)))
+    pairplot(( 
+        PairPlots.Series(DataFrame(chn12)[:,3:end], label=string(label))
+        for (chn12, label) in zip(chnst12, keys(chnst12)))...)
+end
 
 function interactive_after_sample() 
     fname_chn = "intermediate/doubleMM_chain_rPMs_agg_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
+    fname_chn = "intermediate/doubleMM_chain_zeta_normal_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
     fname_chn = "intermediate/doubleMM_chain_zeta_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
+    fname_chn = "intermediate/doubleMM_chain_zeta2_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
     fname_chn2 = "intermediate/doubleMM_chain_theta_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
     chn = load(fname_chn, "chn"; iotype = IOStream);
     chn2 = load(fname_chn2, "chn"; iotype = IOStream);
     n_sample_NUTS = prod(size(Array(chn))[1:2])
+    chn2_12 = cut2Ms(chn2) #chn2[[@vn(θP), @vn(θMs[:,1]), @vn(θMs[:,2])]]
 
     # graph and check convergence
-    keys(chn)
-    chn12 = chn[[@vn(rP), @vn(rMs[:,1]), @vn(rMs[:,2])]]
-    chn12 = chn[[@vn(ζP), @vn(ζMs[:,1]), @vn(ζMs[:,2])]]
-    chn12 = chn[[@vn(θP), @vn(θMs[:,1]), @vn(θMs[:,2])]]
+    include("scratch_include.jl")
+    
+    chn12 = cut2Ms(chn)
 
-    chn12 = chn
     Makie.plot(chn12)
     θMs_true[:,1:2]
     log.(θMs_true[:,1:2])
@@ -878,20 +928,13 @@ function interactive_after_sample()
 
     # merge chains and recompute θ
     n_sample_, n_chain_ = FlexiChains.niters(chn), FlexiChains.nchains(chn)
-    chnt2 = vcat((chn2_12[chain=i] for i in 1:n_chain_)...)
-    chnm = vcat((chn[chain=i] for i in 1:n_chain_)...)
-    chnt = chnm  # for θ sampled directly
-    chnt = FlexiChains.transform_values(chnm,
-        @vn(rP) => (rP -> θP_true .* rP) => @vn(θP),
-        @vn(rMs) => (rMs -> θMs_true .* rMs) => @vn(θMs),
-    )
-    chnt = FlexiChains.transform_values(chnm,
-        @vn(ζP) => (x -> exp.(x)) => @vn(θP),
-        @vn(ζMs) => (x -> exp.(x)) => @vn(θMs),
-    )
+    chnt2 = merge_chains(chn2)
+    chnm = merge_chains(chn)
+    chnt = compute_θchain(chnm)
     # inspect mean
     chn12 = chnt[[@vn(θP), @vn(θMs[:,1]), @vn(θMs[:,2])]]
     chn2_12 = chnt2[[@vn(θP), @vn(θMs[:,1]), @vn(θMs[:,2])]]
+    pairplot(DataFrame(chn12)[:,3:end], DataFrame(chn2_12)[:,3:end])
     pairplot(chnt2)
     pairplot(chn2_12)
     θMs_true[:,1]

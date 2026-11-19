@@ -682,7 +682,7 @@ function sample_ζ_flatnormalprior()
     #tmp = sample(model, NUTS(0, 0.65; adtype), 2; initial_params)
     #return nothing
 
-    n_sample_NUTS = 1_500
+    n_sample_NUTS = 700
     #n_sample_NUTS = 16
     chn = sample(model, NUTS(8, 0.65), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
         n_threads; initial_params=map(_ -> sample_initial_params(rng),1:n_threads))
@@ -852,10 +852,12 @@ using PairPlots
 function interactive_after_sample() 
     fname_chn = "intermediate/doubleMM_chain_rPMs_agg_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
     fname_chn = "intermediate/doubleMM_chain_zeta_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
+    fname_chn = "intermediate/doubleMM_chain_zeta2_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
     fname_chn2 = "intermediate/doubleMM_chain_theta_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
     chn = load(fname_chn, "chn"; iotype = IOStream);
     chn2 = load(fname_chn2, "chn"; iotype = IOStream);
     n_sample_NUTS = prod(size(Array(chn))[1:2])
+    chn2_12 = chn[[@vn(θP), @vn(θMs[:,1]), @vn(θMs[:,2])]]
 
     # graph and check convergence
     keys(chn)
@@ -863,7 +865,6 @@ function interactive_after_sample()
     chn12 = chn[[@vn(ζP), @vn(ζMs[:,1]), @vn(ζMs[:,2])]]
     chn12 = chn[[@vn(θP), @vn(θMs[:,1]), @vn(θMs[:,2])]]
 
-    chn12 = chn
     Makie.plot(chn12)
     θMs_true[:,1:2]
     log.(θMs_true[:,1:2])

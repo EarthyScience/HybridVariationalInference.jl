@@ -104,7 +104,7 @@ end
             y[i_obs, :] ~ MvNormal(view(y_pred, i_obs, 1, :), σ_o[i_obs]) # single value σ instead of variance
         end
         # account for the exp
-        Turing.@addlogprob! (-sum(ζP) -sum(ζMs))
+        Turing.@addlogprob! (+sum(ζP) +sum(ζMs))
         y_pred
     end
 end
@@ -129,7 +129,7 @@ end
             y[i_obs, :] ~ MvNormal(view(y_pred, i_obs, 1, :), σ_o[i_obs]) # single value σ instead of variance
         end
         # account for the exp
-        Turing.@addlogprob! (-sum(ζP) -sum(ζMs)/n_indiv)
+        Turing.@addlogprob! (+sum(ζP) +sum(ζMs)/n_indiv)
         y_pred
     end
 end
@@ -155,4 +155,45 @@ end
         y_pred
     end
 end
+
+
+
+
+
+
+function merge_chains(chn)
+    n_chain_ = FlexiChains.nchains(chn)
+    vcat((chn[chain=i] for i in 1:n_chain_)...)
+end
+
+function cut2Ms(chn)
+    if FlexiChains.Parameter(@vn(θP)) ∈ [keys(chn)...]
+        chn[[@vn(θP), @vn(θMs[:,1]), @vn(θMs[:,2])]]
+    elseif FlexiChains.Parameter(@vn(rP)) ∈ [keys(chn)...]
+        chn[[@vn(rP), @vn(rMs[:,1]), @vn(rMs[:,2])]]
+    elseif FlexiChains.Parameter(@vn(ζP)) ∈ [keys(chn)...]
+        chn[[@vn(ζP), @vn(ζMs[:,1]), @vn(ζMs[:,2])]]
+    else
+        error("neither rP, nor ζP, nor θP among chain parameters")
+    end
+end
+
+function compute_θchain(chn)
+    if FlexiChains.Parameter(@vn(rP)) ∈ keys(chn)
+        FlexiChains.transform_values(chn,
+            @vn(rP) => (rP -> θP_true .* rP) => @vn(θP),
+            @vn(rMs) => (rMs -> θMs_true .* rMs) => @vn(θMs),
+        )    
+    elseif FlexiChains.Parameter(@vn(ζP)) ∈ keys(chn)
+        FlexiChains.transform_values(chn,
+            @vn(ζP) => (x -> exp.(x)) => @vn(θP),
+            @vn(ζMs) => (x -> exp.(x)) => @vn(θMs),
+        )
+    elseif FlexiChains.Parameter(@vn(θP)) ∈ keys(chn)
+        chn
+    else
+        error("neither rP, nor ζP, nor θP among chain parameters")
+    end
+end
+
 
