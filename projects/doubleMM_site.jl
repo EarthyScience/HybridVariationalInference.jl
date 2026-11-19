@@ -717,6 +717,7 @@ function sample_fsitesθ()
     #fname = "intermediate/doubleMM_chain_rPMs2_$(last(HVI._val_value(scenario))).jld2" # LogNormal prior
     fname_theta = "intermediate/doubleMM_chain_theta_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
     jldsave(fname_theta, false, IOStream; chn)
+    @info "saved chn to $fname_theta"
 end
 #sample_fsitesθ()
 
@@ -772,6 +773,7 @@ function sample_fsitesζ()
     #fname = "intermediate/doubleMM_chain_rPMs2_$(last(HVI._val_value(scenario))).jld2" # LogNormal prior
     fname_zeta = "intermediate/doubleMM_chain_zeta_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
     jldsave(fname_zeta, false, IOStream; chn)
+    @info "saved chn to $fname_theta"
 end
 #sample_fsitesζ()
 
@@ -797,6 +799,7 @@ function sample_fsitesζ2()
     #fname = "intermediate/doubleMM_chain_rPMs2_$(last(HVI._val_value(scenario))).jld2" # LogNormal prior
     fname_zeta2 = "intermediate/doubleMM_chain_zeta2_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
     jldsave(fname_zeta2, false, IOStream; chn)
+    @info "saved chn to $fname_theta"
 end
 #sample_fsitesζ2()
 
