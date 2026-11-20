@@ -17,6 +17,7 @@ using UnicodePlots
 using Lux
 using MLUtils
 #import MLDataDevices, CUDA, cuDNN, GPUArraysCore
+import StatsBase
 
 rng = StableRNG(115)
 scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:omit_r0,))  # without omit_r0 ambiguous K2 estimated to high
@@ -737,15 +738,15 @@ function sample_fsitesθ2()
         θP = init_θP(iter),
         θMs = init_θMs(iter),
     ))
-    iters = sample(rng3, 1:n_iter, n_threads)
+    iters = rand(rng3, 1:n_iter, n_threads)
     initial_params = map(sample_initial_params, iters)
     model = fsitesθ(y_o; pbm = f, xP, σ_o, prior_θP, prior_θMs, helpers_channel)
     adtype = AutoForwardDiff(chunksize=12)
-    #tmp = sample(rng, model, NUTS(0, 0.65; adtype), 2; initial_params=initial_params[1])
+    #tmp = sample(rng3, model, NUTS(0, 0.65; adtype), 2; initial_params=initial_params[1])
     n_sample_NUTS = 700
     #n_sample_NUTS = 16
-    chn = sample(rng, model, NUTS(8, 0.65), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
-        n_threads; initial_params=map(_ -> sample_initial_params(rng),1:n_threads))
+    chn = sample(rng3, model, NUTS(8, 0.65), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
+        n_threads; initial_params)
     fname_theta2 = "intermediate/doubleMM_chain_theta2_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
     jldsave(fname_theta2, false, IOStream; chn)
 end

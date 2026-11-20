@@ -692,7 +692,8 @@ function sample_ζ_flatnormalprior()
     fname_flatnormal = "intermediate/doubleMM_chain_zeta_normal_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
     jldsave(fname_flatnormal, false, IOStream; chn)
 end
-sample_ζ_flatnormalprior()
+#sample_ζ_flatnormalprior()
+
 
 # fsitesθ: sample θ on original untransformed scale
 function sample_fsitesθ()
@@ -716,8 +717,41 @@ function sample_fsitesθ()
     #fname = "intermediate/doubleMM_chain_rPMs2_$(last(HVI._val_value(scenario))).jld2" # LogNormal prior
     fname_theta = "intermediate/doubleMM_chain_theta_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
     jldsave(fname_theta, false, IOStream; chn)
+    @info "saved chn to $fname_theta"
 end
 #sample_fsitesθ()
+
+# start sampling theta but start from sample of zeta_normal
+function sample_fsitesθ2()
+    @info "sample_fsitesθ2"
+    include("scratch_include.jl")
+    fname_chn = "intermediate/doubleMM_chain_zeta_normal_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
+    chn = merge_chains(load(fname_chn, "chn"; iotype = IOStream));
+    chnt = compute_θchain(chn)
+    n_iter = FlexiChains.niters(chn)
+    init_θP = (iter) -> chnt[@vn(θP), iter=iter, chain=1]
+    init_θMs = (iter) -> chnt[@vn(θMs), iter=iter, chain=1]
+    rng3 = StableRNG(0815)
+    init_θMs(3)
+    sample_initial_params = (rng) -> begin
+        iter = rand(rng, 1:n_iter) # needs to be consistent across P and Ms
+        InitFromParams((
+            θP = init_θP(iter),
+            θMs = init_θMs(iter),
+        ))
+    end
+    initial_params_ = map(_ ->sample_initial_params(rng3), 1:n_threads)
+    model = fsitesθ(y_o; pbm = f, xP, σ_o, prior_θP, prior_θMs, helpers_channel)
+    adtype = AutoForwardDiff(chunksize=12)
+    #tmp = sample(rng3, model, NUTS(0, 0.65; adtype), 2; initial_params=sample_initial_params(rng3))
+    n_sample_NUTS = 700
+    #n_sample_NUTS = 16
+    chn = sample(rng3, model, NUTS(8, 0.65), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
+        n_threads; initial_params=map(_ -> sample_initial_params(rng3),1:n_threads))
+    fname_theta2 = "intermediate/doubleMM_chain_theta2_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
+    jldsave(fname_theta2, false, IOStream; chn)
+end
+#sample_fsitesθ2()
 
 # fsitesζ: sample ζ but apply adjustment of logdensity for the back-transformation
 function sample_fsitesζ()
@@ -741,6 +775,7 @@ function sample_fsitesζ()
     #fname = "intermediate/doubleMM_chain_rPMs2_$(last(HVI._val_value(scenario))).jld2" # LogNormal prior
     fname_zeta = "intermediate/doubleMM_chain_zeta_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
     jldsave(fname_zeta, false, IOStream; chn)
+    @info "saved chn to $fname_theta"
 end
 #sample_fsitesζ()
 
@@ -748,26 +783,29 @@ end
 function sample_fsitesζ2()
     @info "sample_fsitesζ2"
     include("scratch_include.jl")
+    local rng3, model, sample_initial_params, initial_params, adtype, n_sample_NUTS, chn
     model = fsitesζ2(y_o; pbm = f, xP, σ_o, prior_ζP, prior_ζMs, helpers_channel)
+    rng3 = StableRNG(1234)
     sample_initial_params = (rng=StableRNG(1234)) -> InitFromParams((
-        ζP = log.(rand(init_θP)),
-        ζMs = log.(rand(init_θMs)),
+        ζP = log.(rand(rng, init_θP)),
+        ζMs = log.(rand(rng, init_θMs)),
     ))
-    initial_params = sample_initial_params()
+    initial_params = sample_initial_params(rng3)
     adtype = AutoForwardDiff(chunksize=12)
     #tmp = sample(model, NUTS(0, 0.65; adtype), 2; initial_params)
     #return nothing
     n_sample_NUTS = 1_500
     #n_sample_NUTS = 16
-    chn = sample(model, NUTS(8, 0.65), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
-        n_threads; initial_params=map(_ -> sample_initial_params(rng),1:n_threads))
+    chn = sample(rng3, model, NUTS(8, 0.65), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
+        n_threads; initial_params=map(_ -> sample_initial_params(rng3),1:n_threads))
     # chn = sample(model, NUTS(8, 0.65), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
     #     n_threads; initial_params=fill(initial_params, n_threads))
     #fname = "intermediate/doubleMM_chain_rPMs2_$(last(HVI._val_value(scenario))).jld2" # LogNormal prior
     fname_zeta2 = "intermediate/doubleMM_chain_zeta2_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
     jldsave(fname_zeta2, false, IOStream; chn)
+    @info "saved chn to $fname_theta"
 end
-#sample_fsitesζ2()
+sample_fsitesζ2()
 
 
 () -> begin # explore FlexiChains    
@@ -850,11 +888,14 @@ using CategoricalArrays
 using PairPlots
 using DataFrames
 
+
 function compare_ζcorrection()
+
     fname_chains = (
         #ζ_uncor = "intermediate/doubleMM_chain_zeta_normal_$(last(HVI._val_value(scenario))).jld2",
+        ζflat = "intermediate/doubleMM_chain_zeta_normal_$(last(HVI._val_value(scenario))).jld2",
         ζ = "intermediate/doubleMM_chain_zeta_$(last(HVI._val_value(scenario))).jld2",
-        ζ2 = "intermediate/doubleMM_chain_zeta2_$(last(HVI._val_value(scenario))).jld2",
+        #ζ2 = "intermediate/doubleMM_chain_zeta2_$(last(HVI._val_value(scenario))).jld2",
         θ = "intermediate/doubleMM_chain_theta_$(last(HVI._val_value(scenario))).jld2",
     )
     chns = map(fname_chn -> load(fname_chn, "chn"; iotype = IOStream), fname_chains);
@@ -900,21 +941,6 @@ function interactive_after_sample()
     chnt2 = merge_chains(chn2)
     chnm = merge_chains(chn)
     chnt = compute_θchain(chnm)
-    chnt = if FlexiChains.Parameter(@vn(rP)) ∈ keys(chn)
-        FlexiChains.transform_values(chnm,
-            @vn(rP) => (rP -> θP_true .* rP) => @vn(θP),
-            @vn(rMs) => (rMs -> θMs_true .* rMs) => @vn(θMs),
-        )    
-        elseif FlexiChains.Parameter(@vn(ζP)) ∈ keys(chn)
-            FlexiChains.transform_values(chnm,
-                @vn(ζP) => (x -> exp.(x)) => @vn(θP),
-                @vn(ζMs) => (x -> exp.(x)) => @vn(θMs),
-            )
-        elseif FlexiChains.Parameter(@vn(θP)) ∈ keys(chn)
-            chn
-        else
-            error("neither rP, nor ζP, nor θP among chain parameters")
-        end
     # inspect mean
     chn12 = chnt[[@vn(θP), @vn(θMs[:,1]), @vn(θMs[:,2])]]
     chn2_12 = chnt2[[@vn(θP), @vn(θMs[:,1]), @vn(θMs[:,2])]]

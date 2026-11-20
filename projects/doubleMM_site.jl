@@ -737,15 +737,15 @@ function sample_fsitesθ2()
         θP = init_θP(iter),
         θMs = init_θMs(iter),
     ))
-    iters = sample(rng3, 1:n_iter, n_threads)
+    iters = rand(rng3, 1:n_iter, n_threads)
     initial_params = map(sample_initial_params, iters)
     model = fsitesθ(y_o; pbm = f, xP, σ_o, prior_θP, prior_θMs, helpers_channel)
     adtype = AutoForwardDiff(chunksize=12)
-    #tmp = sample(rng, model, NUTS(0, 0.65; adtype), 2; initial_params=initial_params[1])
+    #tmp = sample(rng3, model, NUTS(0, 0.65; adtype), 2; initial_params=initial_params[1])
     n_sample_NUTS = 700
     #n_sample_NUTS = 16
-    chn = sample(rng, model, NUTS(8, 0.65), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
-        n_threads; initial_params=map(_ -> sample_initial_params(rng),1:n_threads))
+    chn = sample(rng3, model, NUTS(8, 0.65), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
+        n_threads; initial_params)
     fname_theta2 = "intermediate/doubleMM_chain_theta2_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
     jldsave(fname_theta2, false, IOStream; chn)
 end
@@ -781,19 +781,21 @@ end
 function sample_fsitesζ2()
     @info "sample_fsitesζ2"
     include("scratch_include.jl")
+    local rng3, model, sample_initial_params, initial_params, adtype, n_sample_NUTS, chn
     model = fsitesζ2(y_o; pbm = f, xP, σ_o, prior_ζP, prior_ζMs, helpers_channel)
+    rng3 = StableRNG(1234)
     sample_initial_params = (rng=StableRNG(1234)) -> InitFromParams((
-        ζP = log.(rand(init_θP)),
-        ζMs = log.(rand(init_θMs)),
+        ζP = log.(rand(rng, init_θP)),
+        ζMs = log.(rand(rng, init_θMs)),
     ))
-    initial_params = sample_initial_params()
+    initial_params = sample_initial_params(rng3)
     adtype = AutoForwardDiff(chunksize=12)
     #tmp = sample(model, NUTS(0, 0.65; adtype), 2; initial_params)
     #return nothing
     n_sample_NUTS = 1_500
     #n_sample_NUTS = 16
-    chn = sample(model, NUTS(8, 0.65), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
-        n_threads; initial_params=map(_ -> sample_initial_params(rng),1:n_threads))
+    chn = sample(rng3, model, NUTS(8, 0.65), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
+        n_threads; initial_params=map(_ -> sample_initial_params(rng3),1:n_threads))
     # chn = sample(model, NUTS(8, 0.65), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
     #     n_threads; initial_params=fill(initial_params, n_threads))
     #fname = "intermediate/doubleMM_chain_rPMs2_$(last(HVI._val_value(scenario))).jld2" # LogNormal prior
@@ -884,11 +886,14 @@ using CategoricalArrays
 using PairPlots
 using DataFrames
 
+
 function compare_ζcorrection()
+
     fname_chains = (
         #ζ_uncor = "intermediate/doubleMM_chain_zeta_normal_$(last(HVI._val_value(scenario))).jld2",
+        ζflat = "intermediate/doubleMM_chain_zeta_normal_$(last(HVI._val_value(scenario))).jld2",
         ζ = "intermediate/doubleMM_chain_zeta_$(last(HVI._val_value(scenario))).jld2",
-        ζ2 = "intermediate/doubleMM_chain_zeta2_$(last(HVI._val_value(scenario))).jld2",
+        #ζ2 = "intermediate/doubleMM_chain_zeta2_$(last(HVI._val_value(scenario))).jld2",
         θ = "intermediate/doubleMM_chain_theta_$(last(HVI._val_value(scenario))).jld2",
     )
     chns = map(fname_chn -> load(fname_chn, "chn"; iotype = IOStream), fname_chains);
