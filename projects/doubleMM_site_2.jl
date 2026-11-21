@@ -23,21 +23,25 @@ scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:omit_r0,))  # without omi
 scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:omit_r0,:covarK2))  # with allow corr population
 #scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:covarK2,:notomit_r0))  
 # prob = DoubleMM.DoubleMMCase()
+# scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:omit_r0,:covarK2,:fewsites))  # only 80 sites
+scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:covarK2,:fewsites,:notomit_r0))  # only 80 sites
 
 #------ setup synthetic data and training data loader
 prob0_ = HybridProblem(DoubleMM.DoubleMMCase(); scenario);
 (; xM, θP_true, θMs_true, xP,  y_true, y_o, y_unc
 ) = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); scenario);
-n_site, n_batch = get_hybridproblem_n_indiv_train_and_batch(prob0_; scenario)
+n_site, n_batch = :fewsites ∈ HVI._val_value(scenario) ? (80,80) : 
+    get_hybridproblem_n_indiv_train_and_batch(prob0_; scenario)
+xM = xM[:,1:n_site]; xP = xP[:,1:n_site]; y_o =  y_o[:,1:n_site]; y_unc = y_unc[:,1:n_site]
+θMs_true = θMs_true[:,1:n_site]
 ζP_true, ζMs_true = log.(θP_true), log.(θMs_true)
 itrain_sites = 1:n_site
-n_site, n_batch = get_hybridproblem_n_indiv_train_and_batch(prob0_; scenario)
 train_dataloader = MLUtils.DataLoader(
-    (xM, xP, y_o, y_unc, 1:n_site);
+    (xM[:,1:n_site], xP[:,1:n_site], y_o[:,1:n_site], y_unc[:,1:n_site], 1:n_site);
     batchsize = n_batch, partial = false)
 σ_o = exp.(y_unc[:, 1] / 2)
 # assign the train_loader, otherwise it each time creates another version of synthetic data
-prob0 = HybridProblem(prob0_; train_dataloader)
+prob0 = HybridProblem(prob0_; train_dataloader, n_indiv_train = n_site, n_indiv_batch = n_batch)
 #tmp = HVI.get_hybridproblem_ϕq(prob0; scenario)
 #prob0.covar
 
@@ -708,8 +712,8 @@ function sample_fsitesθ()
     adtype = AutoForwardDiff(chunksize=12)
     #tmp = sample(model, NUTS(0, 0.65; adtype), 2; initial_params)
     #return nothing
-    n_sample_NUTS = 1_500
-    #n_sample_NUTS = 16
+    n_sample_NUTS = 700
+    #n_sample_NUTS = 12
     chn = sample(model, NUTS(8, 0.65), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
         n_threads; initial_params=map(_ -> sample_initial_params(rng),1:n_threads))
     # chn = sample(model, NUTS(8, 0.65), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
@@ -719,9 +723,9 @@ function sample_fsitesθ()
     jldsave(fname_theta, false, IOStream; chn)
     @info "saved chn to $fname_theta"
 end
-#sample_fsitesθ()
+sample_fsitesθ()
 
-# start sampling theta but start from sample of zeta_normal
+# start sampling theta but start from sample of zeta2
 function sample_fsitesθ2()
     @info "sample_fsitesθ2"
     include("scratch_include.jl")
@@ -750,6 +754,7 @@ function sample_fsitesθ2()
         n_threads; initial_params=map(_ -> sample_initial_params(rng3),1:n_threads))
     fname_theta2 = "intermediate/doubleMM_chain_theta2_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
     jldsave(fname_theta2, false, IOStream; chn)
+    @info "saved chn to $fname_theta2"
 end
 #sample_fsitesθ2()
 
@@ -805,7 +810,7 @@ function sample_fsitesζ2()
     jldsave(fname_zeta2, false, IOStream; chn)
     @info "saved chn to $fname_theta"
 end
-sample_fsitesζ2()
+#sample_fsitesζ2()
 
 
 () -> begin # explore FlexiChains    
@@ -890,13 +895,14 @@ using DataFrames
 
 
 function compare_ζcorrection()
-
     fname_chains = (
         #ζ_uncor = "intermediate/doubleMM_chain_zeta_normal_$(last(HVI._val_value(scenario))).jld2",
         ζflat = "intermediate/doubleMM_chain_zeta_normal_$(last(HVI._val_value(scenario))).jld2",
         ζ = "intermediate/doubleMM_chain_zeta_$(last(HVI._val_value(scenario))).jld2",
-        #ζ2 = "intermediate/doubleMM_chain_zeta2_$(last(HVI._val_value(scenario))).jld2",
+        ζ2 = "intermediate/doubleMM_chain_zeta2_$(last(HVI._val_value(scenario))).jld2",
         θ = "intermediate/doubleMM_chain_theta_$(last(HVI._val_value(scenario))).jld2",
+        # from different starting conditions
+        θ2 = "intermediate/doubleMM_chain_theta2_$(last(HVI._val_value(scenario))).jld2",
     )
     chns = map(fname_chn -> load(fname_chn, "chn"; iotype = IOStream), fname_chains);
     chnst = map(compute_θchain, chns);
@@ -906,6 +912,8 @@ function compare_ζcorrection()
     pairplot(( 
         PairPlots.Series(DataFrame(chn12)[:,3:end], label=string(label))
         for (chn12, label) in zip(chnst12, keys(chnst12)))...)
+    # theta and theta2 go to the same optimium -> independent of initial conditions
+    # zeta_flat and zeta2 result in thetaP biased low
 end
 
 function interactive_after_sample() 
