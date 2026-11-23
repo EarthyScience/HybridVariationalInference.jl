@@ -47,6 +47,11 @@ prob0 = HybridProblem(prob0_; train_dataloader, n_indiv_train = n_site, n_indiv_
 #tmp = HVI.get_hybridproblem_ϕq(prob0; scenario)
 #prob0.covar
 
+train_dataloader_all = MLUtils.DataLoader(
+    (xM[:,1:n_site], xP[:,1:n_site], y_o[:,1:n_site], y_unc[:,1:n_site], 1:n_site);
+    batchsize = n_site, partial = false)
+prob_all = HybridProblem(prob0_; train_dataloader = train_dataloader_all, n_indiv_train = n_site, n_indiv_batch = n_site)
+
 function fit_pointwise()
     #------- pointwise hybrid model fit
     solver_point = HybridSolverSite(; alg = OptimizationOptimisers.Adam(0.001))
@@ -80,32 +85,40 @@ end
 # using MLUtils
 # using Bijectors
 using JLD2
-function interactive_elbo() 
+function interactive_elbo(;ϕ0c = res_point.ϕc, n_epoch=1200) 
     #----------- HVI without strong prior on θmean
     # lower learning rate
     solver_post =  HybridSolverSite(; alg = OptimizationOptimisers.Adam(0.005))
-    n_epoch = 1200
-    exp.(res_point.ϕc.ϕqP.μζP)
-    res_elbo1 = solve(prob0, solver_post, NegElbo(); ϕ0c = res_point.ϕc, scenario, 
+    #n_epoch = 1200
+    #exp.(res_point.ϕc.ϕqP.μζP)
+    res_elbo1 = solve(prob0, solver_post, NegElbo(); ϕ0c, scenario, 
         epochs=n_epoch,
         #show_train_loss = Val(true)
         );
     return res_elbo1
-    res_elbo = res_elbo1;
-    exp.(res_elbo.ϕc.ϕqP.μζP)
-    n_sample_pred = 60
-    hp_stat, hi_agg_stat = HVI.predict_stat(rng, prob0, res_elbo.ϕc; scenario, n_sample_pred);
-    hp_stat.θsP[1,:]  
-    hi_agg_stat.θsM[1,:,1]
-    hp = map(x -> x[:,Val(:mean)], hp_stat)
-    hi_agg = map(x -> x[:,Val(:mean),:], hi_agg_stat)
-    @test hp.θsP ≈ θP_true atol=0.2
-    @test mean(abs.(hi_agg.θsM .- θMs_true)) < 0.05
-    hi_std = map(x -> x[:,Val(:std),:], hi_agg_stat)
-    hi_std.θsM[:,1]  # indiv_1
-    hi_std.θsM[:,2]  # indiv_2  same magnitude
-    hi_agg.θsM[:,1]  
-    hi_agg.θsM[:,2]  
+
+    () -> begin
+        res_elbo = solve(prob_all, solver_post, NegElbo(); ϕ0c, scenario, 
+            epochs=n_epoch,
+            #show_train_loss = Val(true)
+            );
+
+        res_elbo = res_elbo1;
+        exp.(res_elbo.ϕc.ϕqP.μζP)
+        n_sample_pred = 60
+        hp_stat, hi_agg_stat = HVI.predict_stat(rng, prob0, res_elbo.ϕc; scenario, n_sample_pred);
+        hp_stat.θsP[1,:]  
+        hi_agg_stat.θsM[1,:,1]
+        hp = map(x -> x[:,Val(:mean)], hp_stat)
+        hi_agg = map(x -> x[:,Val(:mean),:], hi_agg_stat)
+        @test hp.θsP ≈ θP_true atol=0.2
+        @test mean(abs.(hi_agg.θsM .- θMs_true)) < 0.05
+        hi_std = map(x -> x[:,Val(:std),:], hi_agg_stat)
+        hi_std.θsM[:,1]  # indiv_1
+        hi_std.θsM[:,2]  # indiv_2  same magnitude
+        hi_agg.θsM[:,1]  
+        hi_agg.θsM[:,2]  
+    end
 
     () -> begin
         # continue with higher n_MC
@@ -196,55 +209,57 @@ function interactive_elbo()
         g_flux = g_luxs
     end
 
-    exp.(res_elbo.ϕc.ϕqP.μζP)
-    exp.(res_point.ϕc.ϕqP.μζP)    
+    () -> begin
+        exp.(res_elbo.ϕc.ϕqP.μζP)
+        exp.(res_point.ϕc.ϕqP.μζP)    
 
-    exp.(res_elbo.ϕc.ϕqP.logσ_ζP)
-    exp.(res_elbo.ϕc.ϕqI.coef_logσ_ζMs[:,1])
+        exp.(res_elbo.ϕc.ϕqP.logσ_ζP)
+        exp.(res_elbo.ϕc.ϕqI.coef_logσ_ζMs[:,1])
 
-    # test predicting correct obs-uncertainty of predictive posterior
-    n_sample_pred = 400
-    hp_samp, hi_agg_samp = HVI.sample_posterior(rng, prob0, res_elbo.ϕc; 
-        scenario, 
-        n_sample_pred,
-        );
-    y = y2 = hi_agg_samp.y
-    θsP = θsP2 = hp_samp.θsP
-    θsMs = θsMs2 = hi_agg_samp.θsM
-    θsMs12 = hi_agg_samp.θsM[1:2,:,:]
-    nt12 = (;
-        θP1 = θsP[1,:],
-        θsM11 = θsMs[1,:,1],
-        θsM21 = θsMs[2,:,1],
-        θsM12 = θsMs[1,:,2],
-        θsM22 = θsMs[2,:,2],
-    )
-    # using PairPlots
-    # using CairoMakie
-    fig = pairplot(nt12)
-    save("../tmp/test.png", fig)
+        # test predicting correct obs-uncertainty of predictive posterior
+        n_sample_pred = 400
+        hp_samp, hi_agg_samp = HVI.sample_posterior(rng, prob0, res_elbo.ϕc; 
+            scenario, 
+            n_sample_pred,
+            );
+        y = y2 = hi_agg_samp.y
+        θsP = θsP2 = hp_samp.θsP
+        θsMs = θsMs2 = hi_agg_samp.θsM
+        θsMs12 = hi_agg_samp.θsM[1:2,:,:]
+        nt12 = (;
+            θP1 = θsP[1,:],
+            θsM11 = θsMs[1,:,1],
+            θsM21 = θsMs[2,:,1],
+            θsM12 = θsMs[1,:,2],
+            θsM22 = θsMs[2,:,2],
+        )
+        # using PairPlots
+        # using CairoMakie
+        fig = pairplot(nt12)
+        save("../tmp/test.png", fig)
 
-    size(y) # n_obs x  n_sample_pred x n_site,
-    size(θsMs)  # n_θM x n_sample x n_site 
-    σ_o_post = dropdims(std(CA.getdata(y); dims = 2), dims = 2);
-    σ_o = exp.(y_unc[:, 1] / 2)
+        size(y) # n_obs x  n_sample_pred x n_site,
+        size(θsMs)  # n_θM x n_sample x n_site 
+        σ_o_post = dropdims(std(CA.getdata(y); dims = 2), dims = 2);
+        σ_o = exp.(y_unc[:, 1] / 2)
 
-    #describe(σ_o_post)
-    hcat(σ_o, # fill(mean_σ_o_MC, length(σ_o)),
-        mean(σ_o_post, dims = 2), sqrt.(mean(abs2, σ_o_post, dims = 2)))
-    # VI predicted uncertainty is smaller than HMC predicted one
-    mean_y_pred = map(mean, eachslice(y; dims = (1, 3)));
-    #describe(mean_y_pred - y_o)
-    histogram(vec(mean_y_pred) - vec(y_true)) # predictions centered around y_o (or y_true)
-    plt = scatterplot(vec(y_true), vec(mean_y_pred));
-    lineplot!(plt, 0, 2)
-    mean(mean_y_pred - y_true) # still ok
+        #describe(σ_o_post)
+        hcat(σ_o, # fill(mean_σ_o_MC, length(σ_o)),
+            mean(σ_o_post, dims = 2), sqrt.(mean(abs2, σ_o_post, dims = 2)))
+        # VI predicted uncertainty is smaller than HMC predicted one
+        mean_y_pred = map(mean, eachslice(y; dims = (1, 3)));
+        #describe(mean_y_pred - y_o)
+        histogram(vec(mean_y_pred) - vec(y_true)) # predictions centered around y_o (or y_true)
+        plt = scatterplot(vec(y_true), vec(mean_y_pred));
+        lineplot!(plt, 0, 2)
+        mean(mean_y_pred - y_true) # still ok
 
-    mean_θMs = CA.ComponentArray(mean(CA.getdata(θsMs); dims = 2)[:,1,:], CA.getaxes(θMs_true))
-    plt = scatterplot(θMs_true[1,:], mean_θMs[1,:]);
-    lineplot!(plt, 0, 1)
-    plt = scatterplot(θMs_true[2,:], mean_θMs[2,:])
-    histogram(θsP)
+        mean_θMs = CA.ComponentArray(mean(CA.getdata(θsMs); dims = 2)[:,1,:], CA.getaxes(θMs_true))
+        plt = scatterplot(θMs_true[1,:], mean_θMs[1,:]);
+        lineplot!(plt, 0, 1)
+        plt = scatterplot(θMs_true[2,:], mean_θMs[2,:])
+        histogram(θsP)
+    end
     #scatter(fig[1,1], CA.getdata(θMs_true[1, :]), CA.getdata(mean_θ.Ms[1, :])); ablines!(fig[1,1], 0, 1)
     #@usingany AlgebraOfGraphices
     #fig = Figure()
@@ -389,7 +404,7 @@ function interactive_elbo()
         scatterplot(θ1c[:r0, :], θ1c[:K1, :])  # no correlation (modeled independent)
     end
 end # interactive_elbo
-#res_elbo = interactive_elbo()
+#res_elbo = interactive_elbo();
 
 #---- do an DEMC inversion of the PBM model with parameters at log-scale
 using DistributionFits
@@ -850,6 +865,8 @@ function compare_ζcorrection()
     chnst12 = map(chn -> cut2Ms(chn, keysP, keysM), chnst);
     chn12 = first(chnst12)
     #
+    res_elbo = interactive_elbo();
+    res_elbo = interactive_elbo(ϕ0c = res_elbo.ϕc);
     n_sample_pred = FlexiChains.niters(chn12)
     hp_samp, hi_agg_samp = HVI.sample_posterior(rng, prob0, res_elbo.ϕc; 
         scenario, 

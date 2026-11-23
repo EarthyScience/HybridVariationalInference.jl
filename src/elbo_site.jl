@@ -69,6 +69,10 @@ function neg_elbo_sites!(
     θsP = h.θsP
     keys_nljoint_args_indi_val = Val(keys(nljoint_args_inds))
     n_indiv_batch = size(h.ϕms,2)
+    if n_indiv_batch == 800
+        Main.@infiltrate_main
+    end
+
     # closure with approx, transM, and kwargs
     function compute_nelboi_z_cl!(hi, rnormM, nljoint_args_indi_tup, ϕm) 
         #nljoint_args_indi = NamedTuple{keys_nljoint_args_indi}(nljoint_args_indi_tup)
@@ -168,6 +172,8 @@ function compute_nelboi_z!(hi, loss_mode::AbstractElboLossMode, approx::Abstract
     nelboi_z = (exp_nL - sum_logσ_ζM) * n_indiv_train/n_indiv_batch - exp_ladJacTM/n_indiv_batch
     # test scaling nL and logSigma by nt/nb but keep ladJacI to actually transformed
     nelboi_z = (exp_nL - sum_logσ_ζM) * n_indiv_train/n_indiv_batch - exp_ladJacTM
+    # test no correction for batch
+    nelboi_z = (exp_nL - sum_logσ_ζM) - exp_ladJacTM
     # 
     # theoretical adjust all terms by n_indiv_train/n_indiv_batch
     # nelboi_z = if loss_mode isa NegLogDensity
