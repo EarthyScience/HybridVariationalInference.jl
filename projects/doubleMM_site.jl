@@ -24,7 +24,9 @@ scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:omit_r0,:covarK2))  # wit
 #scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:covarK2,:notomit_r0))  
 # prob = DoubleMM.DoubleMMCase()
 # scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:omit_r0,:covarK2,:fewsites))  # only 80 sites
-scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:covarK2,:fewsites,:notomit_r0))  # only 80 sites
+# not omitting r0 and few sites leads no-unique sampling across chains and large 
+#  discrepancies in inferred P.K2 and I.r1 and K1
+#scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:covarK2,:fewsites,:notomit_r0))  # only 80 sites
 
 #------ setup synthetic data and training data loader
 prob0_ = HybridProblem(DoubleMM.DoubleMMCase(); scenario);
@@ -74,81 +76,6 @@ function fit_pointwise()
 end
 #res_point = fit_pointwise();
 
-# do a few steps without minibatching, 
-#   by providing the data rather than the DataLoader
-() -> begin
-    solver1 = HybridPointSolver(; alg = Adam(0.01), n_batch = n_site)
-    (; ϕ, resopt) = solve(prob0, solver1; scenario, rng,
-        callback = callback_loss(20), maxiters = 400)
-    prob1o = HybridProblem(prob0; ϕg = cpu_ca(ϕ).ϕg, θP = cpu_ca(ϕ).θP)
-     y_pred, θMs_tr = gf(prob1o, xM, xP; scenario)
-    scatterplot(θMs_true[1, :], θMs_tr[1, :])
-    scatterplot(θMs_true[2, :], θMs_tr[2, :])
-    prob1o.θP
-    scatterplot(vec(y_true), vec(y_pred))
-
-    # still overestimating θMs_tr and θP
-end
-
-() -> begin # with more iterations?
-    prob2 = prob1o
-    (; ϕ, resopt) = solve(prob2, solver1; scenario, rng,
-        callback = callback_loss(20), maxiters = 600)
-    prob2o = HybridProblem(prob2; ϕg = collect(ϕ.ϕg), θP = ϕ.θP)
-     y_pred, θMs_tr = gf(prob2o, xM, xP)
-    prob2o.θP
-end
-
-() -> begin #----------- fit g to true θMs_tr 
-    # and fit gf starting from true parameters
-    prob = prob0
-    g, ϕg0_cpu = get_hybridproblem_MLapplicator(prob; scenario)
-    ϕg0 = (:use_Flux ∈ _val_value(scenario)) ? gdev(ϕg0_cpu) : ϕg0_cpu
-    (; transP, transM) = get_hybridproblem_transforms(prob; scenario)
-
-    function loss_g(ϕg, x, g, transM; gpu_handler = HVI.default_GPU_DataHandler)
-        ζMs = g(x, ϕg) # predict the log of the parameters
-        ζMs_cpu = gpu_handler(ζMs)
-        θMs_tr = reduce(hcat, map(transM, eachcol(ζMs_cpu))) # transform each column
-        loss = sum(abs2, θMs_tr .- θMs_true)
-        return loss, θMs_tr
-    end
-    loss_g(ϕg0, xM, g, transM)
-
-    optf = Optimization.OptimizationFunction((ϕg, p) -> loss_g(ϕg, xM, g, transM)[1],
-        Optimization.AutoZygote())
-    optprob = Optimization.OptimizationProblem(optf, ϕg0)
-    res = Optimization.solve(
-        optprob, Adam(0.015), callback = callback_loss(100), maxiters = 2000)
-
-    ϕg_opt1 = res.u
-    l1, θMs_tr = loss_g(ϕg_opt1, xM, g, transM)
-    #scatterplot(θMs_true[1,:], θMs_tr[1,:])
-    scatterplot(θMs_true[2, :], θMs_tr[2, :]) # able to fit θMs_tr[2,:]
-
-    prob3 = HybridProblem(prob0, ϕg = Array(ϕg_opt1), θP = θP_true)
-    solver1 = HybridPointSolver(; alg = Adam(0.01), n_batch = n_site)
-    (; ϕ, resopt) = solve(prob3, solver1; scenario, rng,
-        callback = callback_loss(50), maxiters = 600)
-    prob3o = HybridProblem(prob3; ϕg = cpu_ca(ϕ).ϕg, θP = cpu_ca(ϕ).θP)
-     y_pred, θMs_tr = gf(prob3o, xM, xP; scenario)
-    scatterplot(θMs_true[2, :], θMs_tr[2, :])
-    prob3o.θP
-    scatterplot(vec(y_true), vec(y_pred))
-    scatterplot(vec(y_true), vec(y_o))
-    scatterplot(vec(y_pred), vec(y_o))
-
-    () -> begin # optimized loss is indeed lower than with true parameters
-        int_ϕθP = ComponentArrayInterpreter(CA.ComponentVector(
-            ϕg = 1:length(prob0.ϕg), θP = prob0.θP))
-        loss_gf = get_loss_gf(prob0.g, prob0.transM, prob0.transP, prob0.f, Float32[], py, int_ϕθP)
-        loss_gf(vcat(prob3.ϕg, prob3.θP), xM, xP, y_o, y_unc, itrain_sites)[1]
-        loss_gf(vcat(prob3o.ϕg, prob3o.θP), xM, xP, y_o, y_unc, itrain_sites)[1]
-        #
-        loss_gf(vcat(prob2o.ϕg, prob2o.θP), xM, xP, y_o, y_unc, itrain_sites)[1]
-    end
-end
-
 #----------- Hybrid Variational inference: HVI
 # using MLUtils
 # using Bijectors
@@ -163,6 +90,7 @@ function interactive_elbo()
         epochs=n_epoch,
         #show_train_loss = Val(true)
         );
+    return res_elbo1
     res_elbo = res_elbo1;
     exp.(res_elbo.ϕc.ϕqP.μζP)
     n_sample_pred = 60
@@ -462,35 +390,6 @@ function interactive_elbo()
     end
 end # interactive_elbo
 #res_elbo = interactive_elbo()
-
-() -> begin # priors on mean θ
-    get_hybridproblem_cor_ends(prob0)
-    probh = prob0  # start from point optimized to infer uncertainty
-    #probh = prob1o  # start from point optimized to infer uncertainty
-    #probh = prob0  # start from no information
-    #solver_point = HybridPointSolver(; alg = Adam(), n_batch = 200)
-    n_batches_in_epoch = n_site ÷ n_batch
-    n_epoch = 40
-    (; ϕ, θP, resopt, interpreters, probo) = solve(probh, solver_post; scenario,
-        rng, callback = callback_loss(n_batches_in_epoch * 5),
-        maxiters = n_batches_in_epoch * n_epoch,
-        θmean_quant = 0.05);
-    #probh.get_train_loader(;n_batch = 50, scenario)
-    # update the problem with optimized parameters, including uncertainty
-    prob1o = probo;
-    n_sample_pred = 400
-    #(; θ, y) = predict_hvi(rng, prob1o, xM, xP; scenario, n_sample_pred);
-    (; y, θsP, θsMs_tr)  = predict_hvi(rng, prob1o; scenario, n_sample_pred, is_inferred=Val(true));
-    (y1, θsP1, θsMs1_tr) = (y, θsP, θsMs_tr);
-
-    () -> begin # prediction with fitted parameters  (should be smaller than mean)
-         y_pred2, θMs_tr = gf(prob1o, xM, xP; scenario)
-        scatterplot(θMs_true[1, :], θMs_tr[1, :])
-        scatterplot(θMs_true[2, :], θMs_tr[2, :])
-        hcat(θP_true, θP) # all parameters overestimated
-        histogram(vec(y_pred2) - vec(y_true)) # predicts an unsymmytric distribution
-    end
-end
 
 #---- do an DEMC inversion of the PBM model with parameters at log-scale
 using DistributionFits
@@ -927,21 +826,48 @@ function compare_ζcorrection()
         #ζ_uncor = "intermediate/doubleMM_chain_zeta_normal_$(last(HVI._val_value(scenario))).jld2",
         ζflat = "intermediate/doubleMM_chain_zeta_normal_$(last(HVI._val_value(scenario))).jld2",
         ζ = "intermediate/doubleMM_chain_zeta_$(last(HVI._val_value(scenario))).jld2",
-        ζ2 = "intermediate/doubleMM_chain_zeta2_$(last(HVI._val_value(scenario))).jld2",
+        #ζ2 = "intermediate/doubleMM_chain_zeta2_$(last(HVI._val_value(scenario))).jld2",
         θ = "intermediate/doubleMM_chain_theta_$(last(HVI._val_value(scenario))).jld2",
+        #θ = "intermediate/doubleMM_chain_thetac_$(last(HVI._val_value(scenario))).jld2",
         # from different starting conditions
-        θ2 = "intermediate/doubleMM_chain_theta2_$(last(HVI._val_value(scenario))).jld2",
+        #θ2 = "intermediate/doubleMM_chain_theta2_$(last(HVI._val_value(scenario))).jld2",
     )
     chns = map(fname_chn -> load(fname_chn, "chn"; iotype = IOStream), fname_chains);
     chnst = map(compute_θchain, chns);
     chnst12 = map(cut2Ms, chnst);
     # map(keys, chnst12)
     # (chn12, label) = first(zip(chnst12, keys(chnst12)))
+    chn12 = first(chnst12)
     pairplot(( 
         PairPlots.Series(DataFrame(chn12)[:,3:end], label=string(label))
         for (chn12, label) in zip(chnst12, keys(chnst12)))...)
     # theta and theta2 go to the same optimium -> independent of initial conditions
     # zeta_flat and zeta2 result in thetaP biased low
+    #
+    # together with HVI
+    keysP = keys(θsP[:,1])
+    keysM = keys(θsMs[:,1,1])
+    chnst12 = map(chn -> cut2Ms(chn, keysP, keysM), chnst);
+    chn12 = first(chnst12)
+    #
+    n_sample_pred = FlexiChains.niters(chn12)
+    hp_samp, hi_agg_samp = HVI.sample_posterior(rng, prob0, res_elbo.ϕc; 
+        scenario, 
+        n_sample_pred,
+        );
+    y = y2 = hi_agg_samp.y
+    θsP = θsP2 = hp_samp.θsP
+    df_hvi = hcat(
+        DataFrame(hp_samp.θsP', collect(keys(CA.getaxes(hp_samp.θsP)[1]))),
+        DataFrame(hi_agg_samp.θsM[:,:,1]', collect(string.(keys(CA.getaxes(hi_agg_samp.θsM)[1])) .* "_1")),
+        DataFrame(hi_agg_samp.θsM[:,:,2]', collect(string.(keys(CA.getaxes(hi_agg_samp.θsM)[1])) .* "_2")),
+    )
+    pairplot(( 
+        PairPlots.Series(DataFrame(chn12)[:,3:end], label=string(label))
+        for (chn12, label) in zip(chnst12, keys(chnst12)))..., 
+        PairPlots.Series(df_hvi, label="HVI_1")
+        )
+
 end
 
 function interactive_after_sample() 
@@ -950,10 +876,11 @@ function interactive_after_sample()
     fname_chn = "intermediate/doubleMM_chain_zeta_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
     fname_chn = "intermediate/doubleMM_chain_zeta2_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
     fname_chn2 = "intermediate/doubleMM_chain_theta_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
+    fname_chn2 = "intermediate/doubleMM_chain_thetac_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
     chn = load(fname_chn, "chn"; iotype = IOStream);
     chn2 = load(fname_chn2, "chn"; iotype = IOStream);
     n_sample_NUTS = prod(size(Array(chn))[1:2])
-    chn2_12 = cut2Ms(chn2) #chn2[[@vn(θP), @vn(θMs[:,1]), @vn(θMs[:,2])]]
+    chn2_12 = cut2Ms(chn2) 
 
     # graph and check convergence
     include("scratch_include.jl")
@@ -961,6 +888,7 @@ function interactive_after_sample()
     chn12 = cut2Ms(chn)
     Makie.plot(chn2_12)
     chn2_12 = cut2Ms(chn2) #chn2[[@vn(θP), @vn(θMs[:,1]), @vn(θMs[:,2])]]
+    θP_true
     θMs_true[:,1:2]
     log.(θMs_true[:,1:2])
     log.(θP_true)

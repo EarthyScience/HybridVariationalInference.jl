@@ -167,12 +167,31 @@ function merge_chains(chn)
 end
 
 function cut2Ms(chn)
-    if FlexiChains.Parameter(@vn(θP)) ∈ [keys(chn)...]
-        chn[[@vn(θP), @vn(θMs[:,1]), @vn(θMs[:,2])]]
+    n_θP = length(chn[@vn(θP), chain=1, iter=1])
+    n_θI = length(chn[@vn(θMs[:,1]), chain=1, iter=1])
+    keysP = [Symbol("θP[$i]") for i in 1:n_θP]
+    keysM = [Symbol("θP[$i,$j]") for i in 1:n_θI for j in 1:2]
+    cut2Ms(chn,keysP, keysM)
+end
+
+function cut2Ms(chn, keysP, keysM)
+    n_θP = length(chn[@vn(θP), chain=1, iter=1])
+    n_θI = length(chn[@vn(θMs[:,1]), chain=1, iter=1])
+    chn12 = if FlexiChains.Parameter(@vn(θP)) ∈ [keys(chn)...]
+        #chn[[@vn(θP), @vn(θMs[:,1]), @vn(θMs[:,2])]]
+        #chn[[@vn(θP[1]), @vn(θMs[1,1]), @vn(θMs[2,1]), @vn(θMs[1,2]), @vn(θMs[2,2])]]
+        chn12_θ = chn[vcat([@varname(θP[i]) for i in 1:n_θP], [@varname(θMs[i,1]) for i in 1:n_θI], [@varname(θMs[i,2]) for i in 1:n_θI])]
+        g(s) = Dict(
+            (@varname(θP[i]) => keysP[i] for i in 1:n_θP)...,
+            (@varname(θMs[i, j]) => Symbol("$(keysM[i])_$j") for i in 1:n_θI for j in 1:2)...,
+        )[s]    
+        FlexiChains.map_parameters(g, chn12_θ)
     elseif FlexiChains.Parameter(@vn(rP)) ∈ [keys(chn)...]
         chn[[@vn(rP), @vn(rMs[:,1]), @vn(rMs[:,2])]]
+        #chn[vcat([@varname(rP[i]) for i in 1:n_θP], [@varname(rMs[i,1]) for i in 1:n_θI], [@varname(rMs[i,2]) for i in 1:n_θI])]
     elseif FlexiChains.Parameter(@vn(ζP)) ∈ [keys(chn)...]
         chn[[@vn(ζP), @vn(ζMs[:,1]), @vn(ζMs[:,2])]]
+        #chn[vcat([@varname(ζP[i]) for i in 1:n_θP], [@varname(ζMs[i,1]) for i in 1:n_θI], [@varname(ζMs[i,2]) for i in 1:n_θI])]
     else
         error("neither rP, nor ζP, nor θP among chain parameters")
     end
