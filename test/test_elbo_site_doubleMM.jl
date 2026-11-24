@@ -193,11 +193,11 @@ end
     # @usingany Cthulhu
     # first point estimate
     rng = StableRNG(1234)
-    res = CommonSolve.solve(prob, solver, CP.NegLogDensity(); ϕ0c, scenario, rng,
+    res = CommonSolve.solve(rng, prob, solver, CP.NegLogDensity(); ϕ0c, scenario, 
         epochs=6_000,
         #show_train_loss = Val(true)
         );
-    @inferred first(CommonSolve.solve(prob, solver, CP.NegLogDensity(); ϕ0c= res.ϕc, scenario, rng,
+    @inferred first(CommonSolve.solve(rng, prob, solver, CP.NegLogDensity(); ϕ0c= res.ϕc, scenario, 
         epochs=1,
         ))
     # need more iterations to reach correct θsP
@@ -248,7 +248,7 @@ end
     exp.(res.ϕc.ϕqP.μζP) # ok before
     ϕ0c = res.ϕc
     ϕ0c.ϕqP
-    res_elbo = CommonSolve.solve(prob, solver, CP.NegElbo(); ϕ0c, scenario, rng,
+    res_elbo = CommonSolve.solve(rng, prob, solver, CP.NegElbo(); ϕ0c, scenario, 
         epochs=4_000,
         #show_train_loss = Val(true)
         );
