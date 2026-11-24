@@ -20,7 +20,7 @@ using MLUtils
 
 rng = StableRNG(115)
 scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:omit_r0,))  # without omit_r0 ambiguous K2 estimated to high
-scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:omit_r0,:covarK2))  # with allow corr population
+#scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:omit_r0,:covarK2))  # with allow corr population
 #scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:covarK2,:notomit_r0))  
 # prob = DoubleMM.DoubleMMCase()
 # scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:omit_r0,:covarK2,:fewsites))  # only 80 sites
@@ -28,44 +28,61 @@ scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:omit_r0,:covarK2))  # wit
 #  discrepancies in inferred P.K2 and I.r1 and K1
 #scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:covarK2,:fewsites,:notomit_r0))  # only 80 sites
 
+# :allsites: use n_batch = n_site
+#scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:allsites,:omit_r0,))  
+#scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:allsites,:omit_r0,:covarK2))  
+#scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:forthbatch,:omit_r0,))  
+#scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:forthbatch,:omit_r0,:covarK2))  
+
+
 #------ setup synthetic data and training data loader
-prob0_ = HybridProblem(DoubleMM.DoubleMMCase(); scenario);
-(; xM, θP_true, θMs_true, xP,  y_true, y_o, y_unc
-) = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); scenario);
-n_site, n_batch = :fewsites ∈ HVI._val_value(scenario) ? (80,80) : 
-    get_hybridproblem_n_indiv_train_and_batch(prob0_; scenario)
-xM = xM[:,1:n_site]; xP = xP[:,1:n_site]; y_o =  y_o[:,1:n_site]; y_unc = y_unc[:,1:n_site]
-θMs_true = θMs_true[:,1:n_site]
-ζP_true, ζMs_true = log.(θP_true), log.(θMs_true)
-itrain_sites = 1:n_site
-train_dataloader = MLUtils.DataLoader(
-    (xM[:,1:n_site], xP[:,1:n_site], y_o[:,1:n_site], y_unc[:,1:n_site], 1:n_site);
-    batchsize = n_batch, partial = false)
-σ_o = exp.(y_unc[:, 1] / 2)
-# assign the train_loader, otherwise it each time creates another version of synthetic data
-prob0 = HybridProblem(prob0_; train_dataloader, n_indiv_train = n_site, n_indiv_batch = n_batch)
-#tmp = HVI.get_hybridproblem_ϕq(prob0; scenario)
-#prob0.covar
+function create_problem(;scenario)
+    prob0_ = HybridProblem(DoubleMM.DoubleMMCase(); scenario);
+    (; xM, θP_true, θMs_true, xP,  y_true, y_o, y_unc
+    ) = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); scenario);
+    n_site, n_batch = :fewsites ∈ HVI._val_value(scenario) ? (80,80) : 
+        get_hybridproblem_n_indiv_train_and_batch(prob0_; scenario)
+    if :allsites ∈ HVI._val_value(scenario)
+        n_batch = n_site
+    end
+    if :forthbatch ∈ HVI._val_value(scenario)
+        n_batch = n_site ÷ 5
+    end
+    xM = xM[:,1:n_site]; xP = xP[:,1:n_site]; y_o =  y_o[:,1:n_site]; y_unc = y_unc[:,1:n_site]
+    θMs_true = θMs_true[:,1:n_site]
+    ζP_true, ζMs_true = log.(θP_true), log.(θMs_true)
+    itrain_sites = 1:n_site
+    train_dataloader = MLUtils.DataLoader(
+        (xM[:,1:n_site], xP[:,1:n_site], y_o[:,1:n_site], y_unc[:,1:n_site], 1:n_site);
+        batchsize = n_batch, partial = false, shuffle=true)
+    σ_o = exp.(y_unc[:, 1] / 2)
+    # assign the train_loader, otherwise it each time creates another version of synthetic data
+    prob0 = HybridProblem(prob0_; train_dataloader, n_indiv_train = n_site, n_indiv_batch = n_batch)
+end 
+prob0 = create_problem(;scenario)
 
-train_dataloader_all = MLUtils.DataLoader(
-    (xM[:,1:n_site], xP[:,1:n_site], y_o[:,1:n_site], y_unc[:,1:n_site], 1:n_site);
-    batchsize = n_site, partial = false)
-prob_all = HybridProblem(prob0_; train_dataloader = train_dataloader_all, n_indiv_train = n_site, n_indiv_batch = n_site)
+    #tmp = HVI.get_hybridproblem_ϕq(prob0; scenario)
+    #prob0.covar
 
-function fit_pointwise()
+function fit_pointwise(prob0::AbstractHybridProblem, args...; kwargs...)
+    rng = Random.default_rng()
+    fit_pointwise(rng, prob0, args...; kwargs...)
+end
+function fit_pointwise(rng::AbstractRNG, prob0::AbstractHybridProblem; n_epoch = 1_000, η=0.001)
     #------- pointwise hybrid model fit
-    solver_point = HybridSolverSite(; alg = OptimizationOptimisers.Adam(0.001))
+    solver_point = HybridSolverSite(; alg = OptimizationOptimisers.Adam(η))
     #solver_point = HybridPointSolver(; alg = Adam(0.01), n_batch = 30)
     #solver_point = HybridPointSolver(; alg = Adam(0.01), n_batch = 10)
     #solver_point = HybridPointSolver(; alg = Adam(), n_batch = 200)
+    n_site, n_batch = get_hybridproblem_n_indiv_train_and_batch(prob0)    
     n_batches_in_epoch = n_site ÷ n_batch
-    n_epoch = 120
-    n_epoch = 600
-    res_point = solve(prob0, solver_point, NegLogDensity(); scenario,
-        rng, epochs = n_epoch);
-
+    # n_epoch = 120
+    # n_epoch = 600
+    res_point = solve(rng, prob0, solver_point, NegLogDensity(); scenario, epochs = n_epoch);
+    return(res_point)
+    
     # TODO adjust to new sampling
-    hp, hi_agg = HVI.predict_point(prob0, res_point.ϕc; scenario)
+    hp, hi_agg = HVI.predict_point(rng, prob0, res_point.ϕc; scenario)
     y_pred = hi_agg.y
     θMs = hi_agg.θsM
     # @descend_code_warntype gf(prob0o; scenario)
@@ -79,30 +96,31 @@ function fit_pointwise()
     UnicodePlots.histogram(vec(y_pred) - vec(y_true)) # predictions centered around y_o (or y_true)
     res_point
 end
-#res_point = fit_pointwise();
+#res_point = fit_pointwise(prob0);
 
 #----------- Hybrid Variational inference: HVI
 # using MLUtils
 # using Bijectors
 using JLD2
-function interactive_elbo(;ϕ0c = res_point.ϕc, n_epoch=1200) 
+function interactive_elbo(prob0::AbstractHybridProblem, args...; kwargs...)
+    rng = Random.default_rng()
+    interactive_elbo(rng, prob0, args...; kwargs...)
+end
+function interactive_elbo(rng::AbstractRNG, prob0::AbstractHybridProblem; 
+    ϕ0c = res_point.ϕc, n_epoch=1200, η=0.0002) 
     #----------- HVI without strong prior on θmean
     # lower learning rate
-    solver_post =  HybridSolverSite(; alg = OptimizationOptimisers.Adam(0.005))
+    solver_post =  HybridSolverSite(; alg = OptimizationOptimisers.Adam(η))
+    #ϕ0c = res_point.ϕc
     #n_epoch = 1200
     #exp.(res_point.ϕc.ϕqP.μζP)
-    res_elbo1 = solve(prob0, solver_post, NegElbo(); ϕ0c, scenario, 
+    res_elbo1 = solve(rng, prob0, solver_post, NegElbo(); ϕ0c, scenario, 
         epochs=n_epoch,
         #show_train_loss = Val(true)
         );
     return res_elbo1
 
     () -> begin
-        res_elbo = solve(prob_all, solver_post, NegElbo(); ϕ0c, scenario, 
-            epochs=n_epoch,
-            #show_train_loss = Val(true)
-            );
-
         res_elbo = res_elbo1;
         exp.(res_elbo.ϕc.ϕqP.μζP)
         n_sample_pred = 60
@@ -404,7 +422,7 @@ function interactive_elbo(;ϕ0c = res_point.ϕc, n_epoch=1200)
         scatterplot(θ1c[:r0, :], θ1c[:K1, :])  # no correlation (modeled independent)
     end
 end # interactive_elbo
-#res_elbo = interactive_elbo();
+#res_elbo = interactive_elbo(prob0);
 
 #---- do an DEMC inversion of the PBM model with parameters at log-scale
 using DistributionFits
@@ -414,11 +432,13 @@ using Turing
 using FlexiChains
 using DimensionalData
 import PreallocationTools as PAT
+using JLD2
 
 # to adapt already the v0.7 syntax of FlexiChains
 macro vn(args...)
     return macroexpand(__module__, :(@FlexiChains.varname($(args...))))
 end
+include("scratch_include.jl")
 
 prob = HybridProblem(prob0);
 (; θM, θP) = get_hybridproblem_par_templates(prob; scenario)
@@ -518,8 +538,6 @@ end
 # )
 # #ζ0_true .+ eltype(ζ0_true)(0.001))
 
-using JLD2
-include("scratch_include.jl")
 # f_resid with sampling a multiplicative residual around each θ
 function sample_resid() 
     @info "sample_resid"
@@ -837,19 +855,25 @@ using DataFrames
 
 
 function compare_ζcorrection()
+    pt = get_hybridproblem_par_templates(prob0)
+    keysP = keys(pt.θP)
+    keysM = keys(pt.θM)
     fname_chains = (
-        #ζ_uncor = "intermediate/doubleMM_chain_zeta_normal_$(last(HVI._val_value(scenario))).jld2",
-        ζflat = "intermediate/doubleMM_chain_zeta_normal_$(last(HVI._val_value(scenario))).jld2",
-        ζ = "intermediate/doubleMM_chain_zeta_$(last(HVI._val_value(scenario))).jld2",
-        #ζ2 = "intermediate/doubleMM_chain_zeta2_$(last(HVI._val_value(scenario))).jld2",
-        θ = "intermediate/doubleMM_chain_theta_$(last(HVI._val_value(scenario))).jld2",
-        #θ = "intermediate/doubleMM_chain_thetac_$(last(HVI._val_value(scenario))).jld2",
+        #mc_ζ_uncor = "intermediate/doubleMM_chain_zeta_normal_$(last(HVI._val_value(scenario))).jld2",
+        #mc_ζflat = "intermediate/doubleMM_chain_zeta_normal_$(last(HVI._val_value(scenario))).jld2",
+        mc_ζ = "intermediate/doubleMM_chain_zeta_$(last(HVI._val_value(scenario))).jld2",
+        #mc_ζ2 = "intermediate/doubleMM_chain_zeta2_$(last(HVI._val_value(scenario))).jld2",
+        mc_θ = "intermediate/doubleMM_chain_theta_$(last(HVI._val_value(scenario))).jld2",
+        #mc_θ = "intermediate/doubleMM_chain_thetac_$(last(HVI._val_value(scenario))).jld2",
         # from different starting conditions
-        #θ2 = "intermediate/doubleMM_chain_theta2_$(last(HVI._val_value(scenario))).jld2",
+        #mc_θ2 = "intermediate/doubleMM_chain_theta2_$(last(HVI._val_value(scenario))).jld2",
     )
     chns = map(fname_chn -> load(fname_chn, "chn"; iotype = IOStream), fname_chains);
     chnst = map(compute_θchain, chns);
     chnst12 = map(cut2Ms, chnst);
+    # keysP = keys(hp_samp.θsP[:,1])
+    # keysM = keys(hi_agg_samp.θsM[:,1,1])
+    chnst12 = map(chn -> cut2Ms(chn, keysP, keysM), chnst);
     # map(keys, chnst12)
     # (chn12, label) = first(zip(chnst12, keys(chnst12)))
     chn12 = first(chnst12)
@@ -860,31 +884,48 @@ function compare_ζcorrection()
     # zeta_flat and zeta2 result in thetaP biased low
     #
     # together with HVI
-    keysP = keys(θsP[:,1])
-    keysM = keys(θsMs[:,1,1])
-    chnst12 = map(chn -> cut2Ms(chn, keysP, keysM), chnst);
-    chn12 = first(chnst12)
-    #
-    res_elbo = interactive_elbo();
-    res_elbo = interactive_elbo(ϕ0c = res_elbo.ϕc);
-    n_sample_pred = FlexiChains.niters(chn12)
-    hp_samp, hi_agg_samp = HVI.sample_posterior(rng, prob0, res_elbo.ϕc; 
-        scenario, 
-        n_sample_pred,
-        );
-    y = y2 = hi_agg_samp.y
-    θsP = θsP2 = hp_samp.θsP
-    df_hvi = hcat(
-        DataFrame(hp_samp.θsP', collect(keys(CA.getaxes(hp_samp.θsP)[1]))),
-        DataFrame(hi_agg_samp.θsM[:,:,1]', collect(string.(keys(CA.getaxes(hi_agg_samp.θsM)[1])) .* "_1")),
-        DataFrame(hi_agg_samp.θsM[:,:,2]', collect(string.(keys(CA.getaxes(hi_agg_samp.θsM)[1])) .* "_2")),
-    )
-    pairplot(( 
-        PairPlots.Series(DataFrame(chn12)[:,3:end], label=string(label))
-        for (chn12, label) in zip(chnst12, keys(chnst12)))..., 
-        PairPlots.Series(df_hvi, label="HVI_1")
+    hvi_scenarios = (
+        hvi_batchall_covar = Val((:allsites, :covarK2)),
+        hvi_batchall = Val((:allsites,)),
+        hvi_batch10th_covar = Val((:covarK2,)),
+        hvi_batch10th = Val(()),
         )
-
+    combine_scenarios = (scenario::Val{scen}, hvi_scenario::Val{hvi_scen}) where {scen, hvi_scen} = Val((scen..., hvi_scen...))
+    scenarios = map(s -> @inferred(combine_scenarios(scenario, s)), hvi_scenarios) 
+    scenario_comb = @inferred first(scenarios)
+    n_sample_pred = 400 #nrow(DataFrame(first(chnst12)))
+    prob_elbo_dfs = map(scenarios) do scenario_comb
+        @info "scenario = $scenario_comb"
+        local rng1, prob, res_point, res_elbo
+        rng1 = StableRNG(118)
+        prob = create_problem(;scenario = scenario_comb)
+        res_point = fit_pointwise(rng1, prob; n_epoch = 10_000);    
+        res_elbo = interactive_elbo(rng1, prob; ϕ0c = res_point.ϕc, n_epoch=4_000, η=0.001);
+        # res_elbo.ϕc.ϕqP.μζP[1] = log.(2.0) # try setting to true value but goes back
+        #res_elbo = interactive_elbo(ϕ0c = res_elbo.ϕc, n_epoch=400); # overfitting?
+        #res_elbo = interactive_elbo(ϕ0c = res_elbo.ϕc, n_epoch=2_000); # overfitting?
+        hp_samp, hi_agg_samp = HVI.sample_posterior(rng1, prob, res_elbo.ϕc;
+            n_sample_pred,
+            );
+        df_hvi = hcat(
+            DataFrame(hp_samp.θsP', collect(keys(CA.getaxes(hp_samp.θsP)[1]))),
+            DataFrame(hi_agg_samp.θsM[:,:,1]', collect(string.(keys(CA.getaxes(hi_agg_samp.θsM)[1])) .* "_1")),
+            DataFrame(hi_agg_samp.θsM[:,:,2]', collect(string.(keys(CA.getaxes(hi_agg_samp.θsM)[1])) .* "_2")),
+        );
+        (; prob, res_elbo, df_hvi)
+    end;
+    probs = map(x -> x.prob, prob_elbo_dfs);
+    res_elbos = map(x -> x.res_elbo, prob_elbo_dfs);
+    dfs_hvi = map(x -> x.df_hvi, prob_elbo_dfs);
+    fig = pairplot(
+        (PairPlots.Series(DataFrame(chn12)[:,3:end], label=string(label))
+        for (chn12, label) in zip(chnst12, keys(chnst12)))..., 
+        (PairPlots.Series(df_hvi, label=string(label))
+        for (df_hvi, label) in zip(dfs_hvi, keys(dfs_hvi)))..., 
+        )
+    () -> begin
+        save("intermediate/pairplots_omitr0.svg", fig)
+    end
 end
 
 function interactive_after_sample() 

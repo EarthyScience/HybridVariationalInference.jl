@@ -18,9 +18,13 @@ function HybridSolverSite(;alg = Optimisers.Adam(), n_MC_val=Val(3))
     HybridSolverSite(alg, n_MC_val)
 end
 
-function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridSolverSite{NMC_ELBO}, 
+function CommonSolve.solve(prob::AbstractHybridProblem, args...; kwargs...) 
+    rng = Random.default_rng()
+    solve(rng, prob, args...; kwargs...)
+end
+function CommonSolve.solve(rng::AbstractRNG, prob::AbstractHybridProblem, solver::HybridSolverSite{NMC_ELBO}, 
     loss_mode::AbstractElboLossMode = NegElbo(); 
-    scenario=Val(()), rng=Random.default_rng(),
+    scenario=Val(()), 
     ϕ0c=get_get_hybridproblem_initial_ϕc(prob; scenario),
     epochs,
     epochs_callback = max(1, floor(Int, epochs/10)),
@@ -433,7 +437,7 @@ function compute_stat!(a, x; keys_stat = (:mean, :std, :q025, :q975, :mode, :med
     a
 end
 
-function sample_posterior(rng, prob::AbstractHybridProblem, ϕc; kwargs...) 
+function sample_posterior(rng::AbstractRNG, prob::AbstractHybridProblem, ϕc; kwargs...) 
     predict_stat(rng, prob::AbstractHybridProblem, ϕc; 
          keys_stat = (),
          kwargs...,
