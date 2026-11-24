@@ -431,9 +431,9 @@ end
 
 function HVI.get_i_sites_test(prob::DoubleMMCase; scenario::Val{scen}) where {scen}
     rng = StableRNG(222)
-    n_site, n_batch = get_hybridproblem_n_indiv_train_and_batch(prob; scenario)
-    n_site_test = n_site ÷ 10
-    i_sites_test = sample(rng, 1:n_site, n_site_test, replace=false)
+    n_indiv, n_batch = get_hybridproblem_n_indiv_train_and_batch(prob; scenario)
+    n_site_test = n_indiv ÷ 10
+    i_indiv_test = sample(rng, 1:n_indiv, n_site_test, replace=false)
 end
 
 function HVI.gen_hybridproblem_synthetic(rng::AbstractRNG, prob::DoubleMMCase;
