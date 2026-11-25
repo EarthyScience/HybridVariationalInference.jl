@@ -12,11 +12,11 @@ This is useful for initializing the full posterior inference.
 struct HybridSolverSite{NMC,NMCT,A} <: AbstractHybridSolver
     alg::A
     n_MC_val::Val{NMC}
-    n_MC_val_test::Val{NMCT}
+    n_MC_test_val::Val{NMCT}
 end
 
-function HybridSolverSite(;alg = Optimisers.Adam(), n_MC_val=Val(3), n_MC_val_test=Val(300))
-    HybridSolverSite(alg, n_MC_val, n_MC_val_test)
+function HybridSolverSite(;alg = Optimisers.Adam(), n_MC_val=Val(3), n_MC_test_val=Val(300))
+    HybridSolverSite(alg, n_MC_val, n_MC_test_val)
 end
 
 function CommonSolve.solve(prob::AbstractHybridProblem, args...; kwargs...) 
@@ -34,7 +34,7 @@ function CommonSolve.solve(rng::AbstractRNG, prob::AbstractHybridProblem, solver
     min_delta = 0.0, # minimum decrease of loss_test to count as improvement
     epochs_eval = 1, # evaluate loss_test every epochs_eval epochs
     restore_best = true, # return parameters of best loss_test instead of last
-    n_loss_smooth = 10, # number of recent loss_test evaluations averaged for early stopping
+    n_loss_smooth = loss_mode isa NegLogDensity ? 1 : 10, # number of recent loss_test evaluations averaged for early stopping
 ) where {NMC_ELBO, NMCT_ELBO, TRAIN}
     NMC = loss_mode isa NegLogDensity ? 1 : NMC_ELBO
     NMCT = loss_mode isa NegLogDensity ? 1 : NMCT_ELBO

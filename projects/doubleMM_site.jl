@@ -16,6 +16,7 @@ using OptimizationOptimisers # Adam
 using UnicodePlots
 using Lux
 using MLUtils
+using StatsBase
 #import MLDataDevices, CUDA, cuDNN, GPUArraysCore
 
 rng = StableRNG(115)
@@ -33,6 +34,9 @@ scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:omit_r0,))  # without omi
 #scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:allsites,:omit_r0,:covarK2))  
 #scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:forthbatch,:omit_r0,))  
 #scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:forthbatch,:omit_r0,:covarK2))  
+
+# using UniScaling
+#scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:uniscaling,:omit_r0,))  # without omit_r0 ambiguous K2 estimated to high
 
 
 #------ setup synthetic data and training data loader
@@ -120,14 +124,16 @@ function interactive_elbo(prob0::AbstractHybridProblem, args...; kwargs...)
     interactive_elbo(rng, prob0, args...; kwargs...)
 end
 function interactive_elbo(rng::AbstractRNG, prob0::AbstractHybridProblem; 
-    ϕ0c = res_point.ϕc, n_epoch=1200, η=0.0002, patience=50) 
+    ϕ0c = res_point.ϕc, n_epoch=1200, η=0.0002, patience=50, 
+    n_MC_val=Val(3), n_MC_test_val=Val(300),
+    loss_mode = NegElbo(),) 
     #----------- HVI without strong prior on θmean
     # lower learning rate
-    solver_post =  HybridSolverSite(; alg = OptimizationOptimisers.Adam(η))
+    solver_post =  HybridSolverSite(; alg = OptimizationOptimisers.Adam(η), n_MC_val, n_MC_test_val)
     #ϕ0c = res_point.ϕc
     #n_epoch = 1200
     #exp.(res_point.ϕc.ϕqP.μζP)
-    res_elbo1 = solve(rng, prob0, solver_post, NegElbo(); ϕ0c, scenario, 
+    res_elbo1 = solve(rng, prob0, solver_post, loss_mode; ϕ0c, scenario, 
         epochs=n_epoch, patience,
         #show_train_loss = Val(true)
         );
@@ -436,6 +442,7 @@ function interactive_elbo(rng::AbstractRNG, prob0::AbstractHybridProblem;
     end
 end # interactive_elbo
 # res_elbo = interactive_elbo(prob0; n_epoch=8_000, patience = 1_000);
+res_elbo = interactive_elbo(prob0; n_epoch=8_000, patience = 1_000, loss_mode = NegElboFixϕgμI());
 # @usingany UnicodePlots
 # UnicodePlots.scatterplot(1:length(res_elbo.loss_test_hist), last.(res_elbo.loss_test_hist))
 
@@ -907,17 +914,31 @@ function compare_ζcorrection(rng_seed = 118)
         )
     combine_scenarios = (scenario::Val{scen}, hvi_scenario::Val{hvi_scen}) where {scen, hvi_scen} = Val((scen..., hvi_scen...))
     scenarios = map(s -> @inferred(combine_scenarios(scenario, s)), hvi_scenarios) 
-    scenario_comb = @inferred first(scenarios)
-    scenario_comb = @inferred first(Iterators.tail(scenarios))
+    scenario_comb = @inferred Base.first(scenarios)
+    scenario_comb = @inferred first(Base.tail(scenarios))
     n_sample_pred = 400 #nrow(DataFrame(first(chnst12)))
+    rng_seed = 815
     prob_elbo_dfs = map(scenarios) do scenario_comb
-        @info "scenario = $scenario_comb"
+        @info "-- scenario = $scenario_comb"
         local rng1, prob, res_point, res_elbo
         rng1 = StableRNG(rng_seed)
         prob = create_problem(rng1; scenario = scenario_comb)[1]
-        res_point = fit_pointwise(rng1, prob; n_epoch = 10_000, patience = 1_000);    
-        # UnicodePlots.scatterplot(first.(res_point.loss_test_hist), last.(res_point.loss_test_hist))
-        res_elbo = interactive_elbo(rng1, prob; ϕ0c = res_point.ϕc, n_epoch=8_000, patience = 2_000, η=0.0005);
+        # first fit the location
+        res_point = fit_pointwise(rng1, prob; n_epoch = 10_000, patience = 200);    
+        # UnicodePlots.scatterplot(Base.first.(res_point.loss_test_hist), Base.last.(res_point.loss_test_hist))
+        # next fit the uncertainty
+        res_elbo1 = interactive_elbo(rng1, prob; ϕ0c = res_point.ϕc, n_epoch=8_000, 
+            patience = 200, η=0.0005,
+            loss_mode = NegElboFixϕgμI(),
+            );
+        # UnicodePlots.scatterplot(Base.first.(res_elbo1.loss_test_hist), Base.last.(res_elbo1.loss_test_hist))
+        #@assert res_elbo1.ϕc.ϕg == res_point.ϕc.ϕg
+        # fit both together, with higher N_MC
+        res_elbo = interactive_elbo(rng1, prob; ϕ0c = res_elbo1.ϕc, n_epoch=8_000, 
+            patience = 200, η=0.0005,
+            n_MC_val=Val(30)
+            );
+        # UnicodePlots.scatterplot(Base.first.(res_elbo.loss_test_hist), Base.last.(res_elbo.loss_test_hist))
         # res_elbo.ϕc.ϕqP.μζP[1] = log.(2.0) # try setting to true value but goes back
         #res_elbo = interactive_elbo(ϕ0c = res_elbo.ϕc, n_epoch=400); # overfitting?
         #res_elbo = interactive_elbo(ϕ0c = res_elbo.ϕc, n_epoch=2_000); # overfitting?
@@ -929,16 +950,31 @@ function compare_ζcorrection(rng_seed = 118)
             DataFrame(hi_agg_samp.θsM[:,:,1]', collect(string.(keys(CA.getaxes(hi_agg_samp.θsM)[1])) .* "_1")),
             DataFrame(hi_agg_samp.θsM[:,:,2]', collect(string.(keys(CA.getaxes(hi_agg_samp.θsM)[1])) .* "_2")),
         );
-        (; prob, res_elbo, df_hvi)
+        (; prob, res_elbo, df_hvi, res_point, res_elbo1)
     end;
     probs = map(x -> x.prob, prob_elbo_dfs);
     res_elbos = map(x -> x.res_elbo, prob_elbo_dfs);
+    () -> begin
+        res_elbos1 = map(x -> x.res_elbo1, prob_elbo_dfs);
+        dfs_hvi = NamedTuple{keys(res_elbos1)}(map(zip(probs, res_elbos1)) do (prob, res_elbo)
+            hp_samp, hi_agg_samp = HVI.sample_posterior(rng1, prob, res_elbo.ϕc;
+                n_sample_pred,
+                );
+            df_hvi = hcat(
+                DataFrame(hp_samp.θsP', collect(keys(CA.getaxes(hp_samp.θsP)[1]))),
+                DataFrame(hi_agg_samp.θsM[:,:,1]', collect(string.(keys(CA.getaxes(hi_agg_samp.θsM)[1])) .* "_1")),
+                DataFrame(hi_agg_samp.θsM[:,:,2]', collect(string.(keys(CA.getaxes(hi_agg_samp.θsM)[1])) .* "_2")),
+            );
+        end);
+    end
     dfs_hvi = map(x -> x.df_hvi, prob_elbo_dfs);
+    # :hvi_batchall_covar 
+    dfs_hvi_plot = dfs_hvi #dfs_hvi[(:hvi_batchall, :hvi_batch10th, :hvi_batch10th_covar)];
     fig = pairplot(
         (PairPlots.Series(DataFrame(chn12)[:,3:end], label=string(label))
         for (chn12, label) in zip(chnst12, keys(chnst12)))..., 
         (PairPlots.Series(df_hvi, label=string(label))
-        for (df_hvi, label) in zip(dfs_hvi, keys(dfs_hvi)))..., 
+        for (df_hvi, label) in zip(dfs_hvi_plot, keys(dfs_hvi_plot)))..., 
         )
     () -> begin
         save("intermediate/pairplots_omitr0.svg", fig)

@@ -130,6 +130,18 @@ function grad_neg_elbo_sites(
     # copy SharedArray into preallocated plain array for ∂elbo_∂θP
     ∂elbo_∂ϕqm = gradh.∂elbo_∂ϕqm 
     copyto!(∂elbo_∂ϕqm, gradh.dϕmvecs) # copy from shared array
+    # in order to fit uncertainty components withoug overfitting the locations by the g ML
+    #   model, provide a loss_mode where g is not optimized for location
+    #   i.e. where the cotangent of the ouptus mu are set to zero (and do not propagate)
+    #   but other compoents of g, such as scaling uncertainty are still optimized
+    if loss_mode isa NegElboFixϕgμI
+        n_θI = axis_length(_val_value(nljoint_args_fix.f!.axθcomp)[2])
+        if ∂elbo_∂ϕqm isa AbstractMatrix
+            ∂elbo_∂ϕqm[1:n_θI,:] .= zero(eltype(∂elbo_∂ϕqm))
+        else
+            ∂elbo_∂ϕqm[1:n_θI,:,:] .= zero(eltype(∂elbo_∂ϕqm))
+        end
+    end
     # copy StaticVector into preallocated ComponentVector
     ∂elbo_∂θP = gradh.∂elbo_∂θP
     copyto!(∂elbo_∂θP, res.dθsP)
@@ -180,7 +192,7 @@ function grad_neg_elbo_sites(
     NamedTuple{keys(ϕ)}((gradh.dϕg, gradh.dϕqPc, gradh.dϕqIc, )), gradh
 end
 
-function set_∂elbo_∂logσ_ζP!(∂elbo_∂logσ_ζP::AbstractVector{T}, ::NegElbo) where T
+function set_∂elbo_∂logσ_ζP!(∂elbo_∂logσ_ζP::AbstractVector{T}, ::Union{NegElbo,NegElboFixϕgμI}) where T
     ∂elbo_∂logσ_ζP .= -one(T)  
 end
 function set_∂elbo_∂logσ_ζP!(∂elbo_∂logσ_ζP::AbstractVector{T}, ::Union{NegLogDensity, NegLogDensityCovar}) where T
@@ -188,7 +200,7 @@ function set_∂elbo_∂logσ_ζP!(∂elbo_∂logσ_ζP::AbstractVector{T}, ::Un
 end
 
 
-function pullack_set_ζsP!(dϕqPc, ::Union{NegElbo, NegLogDensityCovar}, dμζP, dζsP_resid, dlogσ_ζP, gradh, args...) 
+function pullack_set_ζsP!(dϕqPc, ::Union{NegElbo, NegElboFixϕgμI, NegLogDensityCovar}, dμζP, dζsP_resid, dlogσ_ζP, gradh, args...) 
     gradh.pullback_cl_sample_ζsP!(dϕqPc, dμζP, dζsP_resid, dlogσ_ζP, args...)
     # Main.@infiltrate_main
     # hcat(dϕqPc[1:length(dμζP)], dμζP)

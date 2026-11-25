@@ -13,6 +13,10 @@ abstract type AbstractElboLossMode end
 struct NegElbo <: AbstractElboLossMode end
 struct NegLogDensity <: AbstractElboLossMode end
 """
+Exluce ML-model, g, parameters from optimization to avoid overfitting
+"""
+struct NegElboFixϕgμI <: AbstractElboLossMode end
+"""
 Sample ζP but do not add random noise to ζMs to aid fitting g for correlations
 """
 struct NegLogDensityCovar <: AbstractElboLossMode end
@@ -104,7 +108,7 @@ end
 end
 
 @inline function set_ζsP!(
-    μ_ζP, ζsP_resid, logσ_ζP::AbstractVector{T}, loss_mode::Union{NegElbo, NegLogDensityCovar}, approx, rnormP, ϕqPc, cor_endsP, sample_buffers
+    μ_ζP, ζsP_resid, logσ_ζP::AbstractVector{T}, loss_mode::Union{NegElbo, NegElboFixϕgμI, NegLogDensityCovar}, approx, rnormP, ϕqPc, cor_endsP, sample_buffers
 ) where T
     # enhance range of sampled ζP during fitting pop_ind_correlations in g
     logσ_ζP_mod = loss_mode isa NegLogDensityCovar ? logσ_ζP .+ T(log(10)) : logσ_ζP
@@ -182,7 +186,7 @@ function compute_nelboi_z!(hi, loss_mode::AbstractElboLossMode, approx::Abstract
     # end
 end
 
-@inline function set_ζsM!(ζsM, logσ_ζM, ::NegElbo, approx, rnormM, ϕqIc, ϕm, cor_endsM, sample_buffers)
+@inline function set_ζsM!(ζsM, logσ_ζM, ::Union{NegElbo,NegElboFixϕgμI}, approx, rnormM, ϕqIc, ϕm, cor_endsM, sample_buffers)
     sample_ζsM!(ζsM, logσ_ζM, approx, rnormM, ϕqIc, ϕm, cor_endsM, sample_buffers)
 end
 @inline function set_ζsM!(ζsM, logσ_ζM::AbstractArray{T}, ::Union{NegLogDensity,NegLogDensityCovar}, approx, rnormM, ϕqIc, 

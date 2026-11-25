@@ -166,7 +166,7 @@ export neg_elbo_gtf, sample_posterior, predict_hvi, ZeroPenaltyComputer
 export predict_hvi_and_compute_elbo_components
 export get_hybridproblem_correlation_Ms, get_hybridproblem_cholesky_correlation_Ms
 export get_marginal_std
-export NegLogDensity, NegElbo
+export NegLogDensity, NegElbo, NegElboFixϕgμI
 export prepare_elbo_helpers
 include("elbo_dev.jl")
 include("elbo_sepvec.jl")

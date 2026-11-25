@@ -155,11 +155,11 @@ Compared to specifying bounds, this allows for the possibility
 The second constructor fits a normal distribution of the inverse-transformed 5% and 95%
 quantiles of prior distributions.
 """
-struct NormalScalingModelApplicator{VF,A} <: AbstractModelApplicator
+struct NormalScalingModelApplicator{VF,A,RS<:Union{Nothing,UnitRange{Int}}} <: AbstractModelApplicator
     app::A
     μ::VF
     σ::VF
-    range_scaled::UnitRange{Int}
+    range_scaled::RS
 end
 @functor NormalScalingModelApplicator (app, μ, σ)
 
@@ -186,19 +186,19 @@ function NormalScalingModelApplicator(
     # use collect to make it an array that works with gpu
     μ = repeat(collect(FT, first.(pars)); inner=(repeat_inner,))  
     σ = repeat(collect(FT, last.(pars)); inner=(repeat_inner,))
-    app = if isempty(range_scaled) || (repeat_inner == 1)
+    app = if isnothing(range_scaled) || isempty(range_scaled) || (repeat_inner == 1)
         NormalScalingModelApplicator(app, μ, σ, range_scaled)
     else
         error("debug and implement NormalScalingModelApplicator with repeated blocks, e.g. for multivariate normal distribution with independent components")
         range_scaled_rep = repeat(range_scaled, inner=repeat_inner)
-        app_sub = NormalScalingModelApplicator(app, μ, σ, range_scaled_rep[2:end])
-        NormalScalingModelApplicator(app_sub, μ, σ, range_scaled_rep[2:end])
+        app_sub = NormalScalingModelApplicator(app, μ, σ, range_scaled)
+        NormalScalingModelApplicator(app_sub, μ, σ, range_scaled)
     end
 end
 
 function NormalScalingModelApplicator(
     app::AbstractModelApplicator, μ, σ; 
-    range_scaled = 1:0,  # empty range indicates rescaling all outputs
+    range_scaled = nothing,  # empty range indicates rescaling all outputs
     repeat_inner::Integer = 1) 
     pars = map(lowers, uppers) do lower, upper
         dζ = fit(Normal, @qp_l(lower), @qp_u(upper))
@@ -207,7 +207,7 @@ function NormalScalingModelApplicator(
     # use collect to make it an array that works with gpu
     μ = repeat(collect(FT, first.(pars)); inner=(repeat_inner,))  
     σ = repeat(collect(FT, last.(pars)); inner=(repeat_inner,))
-    range_scaled_rep = repeat(range_scaled, inner=repeat_inner)
+    range_scaled_rep = isnothing(range_scaled) ? nothing : repeat(range_scaled, inner=repeat_inner)
     NormalScalingModelApplicator(app, μ, σ, range_scaled_rep)
 end
 
