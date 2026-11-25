@@ -1,5 +1,5 @@
 #!/bin/bash -l
-# sbatch projects/doubleMM_slurm.sh
+# sbatch projects/doubleMM_slurm_2.sh
 # squeue -u twutz
 # Standard output and error:
 #SBATCH -o ./tmp/job.out.%j
@@ -7,7 +7,7 @@
 # Initial working directory:
 #SBATCH -D ./
 # Job Name:
-#SBATCH -J doubleMM_2
+#SBATCH -J dMM_2
 #
 #SBATCH --ntasks=1
 #SBATCH --nodes=1

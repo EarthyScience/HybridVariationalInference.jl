@@ -21,22 +21,27 @@ using MLUtils
 rng = StableRNG(115)
 scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:omit_r0,))  # without omit_r0 ambiguous K2 estimated to high
 scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:omit_r0,:covarK2))  # with allow corr population
+#scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:covarK2,:notomit_r0))  
 # prob = DoubleMM.DoubleMMCase()
+# scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:omit_r0,:covarK2,:fewsites))  # only 80 sites
+scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:covarK2,:fewsites,:notomit_r0))  # only 80 sites
 
 #------ setup synthetic data and training data loader
 prob0_ = HybridProblem(DoubleMM.DoubleMMCase(); scenario);
 (; xM, θP_true, θMs_true, xP,  y_true, y_o, y_unc
 ) = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); scenario);
-n_site, n_batch = get_hybridproblem_n_indiv_train_and_batch(prob0_; scenario)
+n_site, n_batch = :fewsites ∈ HVI._val_value(scenario) ? (80,80) : 
+    get_hybridproblem_n_indiv_train_and_batch(prob0_; scenario)
+xM = xM[:,1:n_site]; xP = xP[:,1:n_site]; y_o =  y_o[:,1:n_site]; y_unc = y_unc[:,1:n_site]
+θMs_true = θMs_true[:,1:n_site]
 ζP_true, ζMs_true = log.(θP_true), log.(θMs_true)
 itrain_sites = 1:n_site
-n_site, n_batch = get_hybridproblem_n_indiv_train_and_batch(prob0_; scenario)
 train_dataloader = MLUtils.DataLoader(
-    (xM, xP, y_o, y_unc, 1:n_site);
+    (xM[:,1:n_site], xP[:,1:n_site], y_o[:,1:n_site], y_unc[:,1:n_site], 1:n_site);
     batchsize = n_batch, partial = false)
 σ_o = exp.(y_unc[:, 1] / 2)
 # assign the train_loader, otherwise it each time creates another version of synthetic data
-prob0 = HybridProblem(prob0_; train_dataloader)
+prob0 = HybridProblem(prob0_; train_dataloader, n_indiv_train = n_site, n_indiv_batch = n_batch)
 #tmp = HVI.get_hybridproblem_ϕq(prob0; scenario)
 #prob0.covar
 
@@ -67,7 +72,7 @@ function fit_pointwise()
     UnicodePlots.histogram(vec(y_pred) - vec(y_true)) # predictions centered around y_o (or y_true)
     res_point
 end
-res_point = fit_pointwise();
+#res_point = fit_pointwise();
 
 # do a few steps without minibatching, 
 #   by providing the data rather than the DataLoader
@@ -153,28 +158,48 @@ function interactive_elbo()
     # lower learning rate
     solver_post =  HybridSolverSite(; alg = OptimizationOptimisers.Adam(0.005))
     n_epoch = 1200
+    exp.(res_point.ϕc.ϕqP.μζP)
     res_elbo1 = solve(prob0, solver_post, NegElbo(); ϕ0c = res_point.ϕc, scenario, 
         epochs=n_epoch,
         #show_train_loss = Val(true)
         );
-    # continue with higher n_MC
-    solver_post_cor =  HybridSolverSite(; 
-        alg = OptimizationOptimisers.Adam(0.001), n_MC_val=Val(60))
-    n_epoch = 200
-    #n_epoch = 20
-    res_covar = solve(prob0, solver_post_cor, HVI.NegLogDensityCovar(); ϕ0c = res_elbo1.ϕc, scenario, 
-        epochs=n_epoch,
-        #show_train_loss = Val(true)
-        );
-    res_covar2 = solve(prob0, solver_post_cor, HVI.NegLogDensityCovar(); ϕ0c = res_covar.ϕc, scenario, 
-        epochs=1,
-        #show_train_loss = Val(true)
-        );
-    res_elbo = solve(prob0, solver_post_cor, NegElbo(); ϕ0c = res_covar.ϕc, scenario, 
-        epochs=n_epoch,
-        #show_train_loss = Val(true)
-        );
-    # gets worth on test loss - overfitting? separate train and test data
+    res_elbo = res_elbo1;
+    exp.(res_elbo.ϕc.ϕqP.μζP)
+    n_sample_pred = 60
+    hp_stat, hi_agg_stat = HVI.predict_stat(rng, prob0, res_elbo.ϕc; scenario, n_sample_pred);
+    hp_stat.θsP[1,:]  
+    hi_agg_stat.θsM[1,:,1]
+    hp = map(x -> x[:,Val(:mean)], hp_stat)
+    hi_agg = map(x -> x[:,Val(:mean),:], hi_agg_stat)
+    @test hp.θsP ≈ θP_true atol=0.2
+    @test mean(abs.(hi_agg.θsM .- θMs_true)) < 0.05
+    hi_std = map(x -> x[:,Val(:std),:], hi_agg_stat)
+    hi_std.θsM[:,1]  # indiv_1
+    hi_std.θsM[:,2]  # indiv_2  same magnitude
+    hi_agg.θsM[:,1]  
+    hi_agg.θsM[:,2]  
+
+    () -> begin
+        # continue with higher n_MC
+        solver_post_cor =  HybridSolverSite(; 
+            alg = OptimizationOptimisers.Adam(0.005), n_MC_val=Val(60))
+        n_epoch = 200
+        res_elbo2 = solve(prob0, solver_post_cor, NegElbo(); ϕ0c = res_elbo.ϕc, scenario, 
+            epochs=n_epoch, );
+        #n_epoch = 20
+        res_covar = solve(prob0, solver_post_cor, HVI.NegLogDensityCovar(); ϕ0c = res_elbo1.ϕc, scenario, 
+            epochs=n_epoch,
+            #show_train_loss = Val(true)
+            );
+        res_covar2 = solve(prob0, solver_post_cor, HVI.NegLogDensityCovar(); ϕ0c = res_covar.ϕc, scenario, 
+            epochs=1,
+            #show_train_loss = Val(true)
+            );
+
+        res_elbo = solve(prob0, solver_post_cor, NegElbo(); ϕ0c = res_covar.ϕc, scenario, 
+            epochs=n_epoch, );
+        # gets worth on test loss - overfitting? separate train and test data
+    end
 
     () -> begin # store and reload optimized problem
         #fname_probos = "intermediate/probos_$(last(scenario)).jld2"
@@ -436,6 +461,7 @@ function interactive_elbo()
         scatterplot(θ1c[:r0, :], θ1c[:K1, :])  # no correlation (modeled independent)
     end
 end # interactive_elbo
+#res_elbo = interactive_elbo()
 
 () -> begin # priors on mean θ
     get_hybridproblem_cor_ends(prob0)
@@ -512,13 +538,22 @@ prior_ζMs = product_distribution(
     #[fit_mean_relerror(LogNormal, θMs_true[i,indiv], 0.5) for i in 1:n_θM, indiv in 1:n_site]
     [Normal(log(θMs_true[i,indiv]), 5.0) for i in 1:n_θM, indiv in 1:n_site]
 )
-init_ζP = product_distribution(
+prior_θP = product_distribution(
+    #map(i -> fit_mean_relerror(LogNormal, θP_true[i], 0.5), 1:n_θP) 
+    map(i -> Normal(θP_true[i], 20.0), 1:n_θP) 
+)
+prior_θMs = product_distribution(
+    #[fit_mean_relerror(LogNormal, θMs_true[i,indiv], 0.5) for i in 1:n_θM, indiv in 1:n_site]
+    [Normal(θMs_true[i,indiv], 20.0) for i in 1:n_θM, indiv in 1:n_site]
+)
+
+init_θP = product_distribution(
     map(i -> fit_mean_relerror(LogNormal, θP_true[i], 0.01), 1:n_θP)
 )
-init_ζMs = product_distribution(
+init_θMs = product_distribution(
     [fit_mean_relerror(LogNormal, θMs_true[i,indiv], 0.01) for i in 1:n_θM, indiv in 1:n_site]
 )
-log.(rand(init_ζMs))
+log.(rand(init_θMs))
 rand(prior_ζMs)
 
 pbm_spec = get_hybridproblem_PBModelSpec(prob; scenario)
@@ -571,7 +606,9 @@ end
 
 using JLD2
 include("scratch_include.jl")
-function sample_resid()
+# f_resid with sampling a multiplicative residual around each θ
+function sample_resid() 
+    @info "sample_resid"
     include("scratch_include.jl")
     model = f_resid(y_o; pbm = f, θP_true, θMs_true, xP, σ_o, prior_resP, prior_resMs, helpers_channel)
     #model = f_resid(y_o; pbm_channel, θP_true, θMs_true, xP, σ_o)
@@ -599,34 +636,9 @@ function sample_resid()
 end
 #sample_resid()
 
-function sample_ζ_flatnormalprior()
-    include("scratch_include.jl")
-    model = fsites(y_o; pbm = f, xP, σ_o, prior_ζP, prior_ζMs, helpers_channel)
-    #model = f_resid(y_o; pbm_channel, θP_true, θMs_true, xP, σ_o)
-    #model = f_resid(y_o; f_sites_tr, θP_true, θMs_true, xP, σ_o)
-    sample_initial_params = (rng=StableRNG(1234)) -> InitFromParams((
-        ζP = rand(init_ζP),
-        ζMs = log.(rand(init_ζMs)),
-    ))
-    initial_params = sample_initial_params()
-    adtype = AutoForwardDiff(chunksize=12)
-    #tmp = sample(model, NUTS(0, 0.65; adtype), 2; initial_params)
-    #return nothing
-
-    n_sample_NUTS = 2_000
-    #n_sample_NUTS = 1_000
-    #n_sample_NUTS = 16
-    chn = sample(model, NUTS(8, 0.65), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
-        n_threads; initial_params=map(_ -> sample_initial_params(rng),1:n_threads))
-    # chn = sample(model, NUTS(8, 0.65), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
-    #     n_threads; initial_params=fill(initial_params, n_threads))
-    #fname = "intermediate/doubleMM_chain_rPMs2_$(last(HVI._val_value(scenario))).jld2" # LogNormal prior
-    fname_flatnormal = "intermediate/doubleMM_chain_zeta_normal_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
-    jldsave(fname_flatnormal, false, IOStream; chn)
-end
-sample_ζ_flatnormalprior()
-
+# f_resid_agg: sample only a single residual added to all sites
 function sample_agg() # fast can be done interactive
+    @info "sample_agg"
     include("scratch_include.jl")
     model = f_resid_agg(y_o; pbm = f, θP_true, θMs_true, xP, σ_o, prior_resP, prior_resM, helpers_channel)
     #model = f_resid(y_o; pbm_channel, θP_true, θMs_true, xP, σ_o)
@@ -657,6 +669,148 @@ function sample_agg() # fast can be done interactive
     fname_agg = "intermediate/doubleMM_chain_rPMs_agg_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
     jldsave(fname_agg, false, IOStream; chn)
 end
+
+# fsitesζ_flat: sample on log-scale without correcting logden for transformation
+function sample_ζ_flatnormalprior()
+    @info "sample_ζ_flatnormalprior"
+    include("scratch_include.jl")
+    model = fsitesζ_flat(y_o; pbm = f, xP, σ_o, prior_ζP, prior_ζMs, helpers_channel)
+    #model = f_resid(y_o; pbm_channel, θP_true, θMs_true, xP, σ_o)
+    #model = f_resid(y_o; f_sites_tr, θP_true, θMs_true, xP, σ_o)
+    sample_initial_params = (rng=StableRNG(1234)) -> InitFromParams((
+        ζP = log.(rand(init_θP)),
+        ζMs = log.(rand(init_θMs)),
+    ))
+    initial_params = sample_initial_params()
+    adtype = AutoForwardDiff(chunksize=12)
+    #tmp = sample(model, NUTS(0, 0.65; adtype), 2; initial_params)
+    #return nothing
+
+    n_sample_NUTS = 1_500
+    #n_sample_NUTS = 16
+    chn = sample(model, NUTS(8, 0.65), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
+        n_threads; initial_params=map(_ -> sample_initial_params(rng),1:n_threads))
+    # chn = sample(model, NUTS(8, 0.65), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
+    #     n_threads; initial_params=fill(initial_params, n_threads))
+    #fname = "intermediate/doubleMM_chain_rPMs2_$(last(HVI._val_value(scenario))).jld2" # LogNormal prior
+    fname_flatnormal = "intermediate/doubleMM_chain_zeta_normal_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
+    jldsave(fname_flatnormal, false, IOStream; chn)
+end
+#sample_ζ_flatnormalprior()
+
+
+# fsitesθ: sample θ on original untransformed scale
+function sample_fsitesθ()
+    @info "sample_fsitesθ"
+    include("scratch_include.jl")
+    model = fsitesθ(y_o; pbm = f, xP, σ_o, prior_θP, prior_θMs, helpers_channel)
+    sample_initial_params = (rng=StableRNG(1234)) -> InitFromParams((
+        θP = rand(init_θP),
+        θMs = (rand(init_θMs)),
+    ))
+    initial_params = sample_initial_params()
+    adtype = AutoForwardDiff(chunksize=12)
+    #tmp = sample(model, NUTS(0, 0.65; adtype), 2; initial_params)
+    #return nothing
+    n_sample_NUTS = 700
+    #n_sample_NUTS = 12
+    chn = sample(model, NUTS(8, 0.65), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
+        n_threads; initial_params=map(_ -> sample_initial_params(rng),1:n_threads))
+    # chn = sample(model, NUTS(8, 0.65), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
+    #     n_threads; initial_params=fill(initial_params, n_threads))
+    #fname = "intermediate/doubleMM_chain_rPMs2_$(last(HVI._val_value(scenario))).jld2" # LogNormal prior
+    fname_theta = "intermediate/doubleMM_chain_theta_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
+    jldsave(fname_theta, false, IOStream; chn)
+    @info "saved chn to $fname_theta"
+end
+sample_fsitesθ()
+
+# start sampling theta but start from sample of zeta2
+function sample_fsitesθ2()
+    @info "sample_fsitesθ2"
+    include("scratch_include.jl")
+    fname_chn = "intermediate/doubleMM_chain_zeta_normal_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
+    chn = merge_chains(load(fname_chn, "chn"; iotype = IOStream));
+    chnt = compute_θchain(chn)
+    n_iter = FlexiChains.niters(chn)
+    init_θP = (iter) -> chnt[@vn(θP), iter=iter, chain=1]
+    init_θMs = (iter) -> chnt[@vn(θMs), iter=iter, chain=1]
+    rng3 = StableRNG(0815)
+    init_θMs(3)
+    sample_initial_params = (rng) -> begin
+        iter = rand(rng, 1:n_iter) # needs to be consistent across P and Ms
+        InitFromParams((
+            θP = init_θP(iter),
+            θMs = init_θMs(iter),
+        ))
+    end
+    initial_params_ = map(_ ->sample_initial_params(rng3), 1:n_threads)
+    model = fsitesθ(y_o; pbm = f, xP, σ_o, prior_θP, prior_θMs, helpers_channel)
+    adtype = AutoForwardDiff(chunksize=12)
+    #tmp = sample(rng3, model, NUTS(0, 0.65; adtype), 2; initial_params=sample_initial_params(rng3))
+    n_sample_NUTS = 700
+    #n_sample_NUTS = 16
+    chn = sample(rng3, model, NUTS(8, 0.65), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
+        n_threads; initial_params=map(_ -> sample_initial_params(rng3),1:n_threads))
+    fname_theta2 = "intermediate/doubleMM_chain_theta2_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
+    jldsave(fname_theta2, false, IOStream; chn)
+    @info "saved chn to $fname_theta2"
+end
+#sample_fsitesθ2()
+
+# fsitesζ: sample ζ but apply adjustment of logdensity for the back-transformation
+function sample_fsitesζ()
+    @info "sample_fsitesζ"
+    include("scratch_include.jl")
+    model = fsitesζ(y_o; pbm = f, xP, σ_o, prior_ζP, prior_ζMs, helpers_channel)
+    sample_initial_params = (rng=StableRNG(1234)) -> InitFromParams((
+        ζP = log.(rand(init_θP)),
+        ζMs = log.(rand(init_θMs)),
+    ))
+    initial_params = sample_initial_params()
+    adtype = AutoForwardDiff(chunksize=12)
+    #tmp = sample(model, NUTS(0, 0.65; adtype), 2; initial_params)
+    #return nothing
+    n_sample_NUTS = 1_500
+    #n_sample_NUTS = 16
+    chn = sample(model, NUTS(8, 0.65), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
+        n_threads; initial_params=map(_ -> sample_initial_params(rng),1:n_threads))
+    # chn = sample(model, NUTS(8, 0.65), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
+    #     n_threads; initial_params=fill(initial_params, n_threads))
+    #fname = "intermediate/doubleMM_chain_rPMs2_$(last(HVI._val_value(scenario))).jld2" # LogNormal prior
+    fname_zeta = "intermediate/doubleMM_chain_zeta_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
+    jldsave(fname_zeta, false, IOStream; chn)
+    @info "saved chn to $fname_theta"
+end
+#sample_fsitesζ()
+
+# same as fsitesζ but deviding transformation correction of ζMs by n_indiv
+function sample_fsitesζ2()
+    @info "sample_fsitesζ2"
+    include("scratch_include.jl")
+    local rng3, model, sample_initial_params, initial_params, adtype, n_sample_NUTS, chn
+    model = fsitesζ2(y_o; pbm = f, xP, σ_o, prior_ζP, prior_ζMs, helpers_channel)
+    rng3 = StableRNG(1234)
+    sample_initial_params = (rng=StableRNG(1234)) -> InitFromParams((
+        ζP = log.(rand(rng, init_θP)),
+        ζMs = log.(rand(rng, init_θMs)),
+    ))
+    initial_params = sample_initial_params(rng3)
+    adtype = AutoForwardDiff(chunksize=12)
+    #tmp = sample(model, NUTS(0, 0.65; adtype), 2; initial_params)
+    #return nothing
+    n_sample_NUTS = 1_500
+    #n_sample_NUTS = 16
+    chn = sample(rng3, model, NUTS(8, 0.65), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
+        n_threads; initial_params=map(_ -> sample_initial_params(rng3),1:n_threads))
+    # chn = sample(model, NUTS(8, 0.65), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
+    #     n_threads; initial_params=fill(initial_params, n_threads))
+    #fname = "intermediate/doubleMM_chain_rPMs2_$(last(HVI._val_value(scenario))).jld2" # LogNormal prior
+    fname_zeta2 = "intermediate/doubleMM_chain_zeta2_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
+    jldsave(fname_zeta2, false, IOStream; chn)
+    @info "saved chn to $fname_theta"
+end
+#sample_fsitesζ2()
 
 
 () -> begin # explore FlexiChains    
@@ -737,18 +891,51 @@ const aog = AlgebraOfGraphics
 using ColorBrewer: ColorBrewer
 using CategoricalArrays
 using PairPlots
+using DataFrames
+
+
+function compare_ζcorrection()
+    fname_chains = (
+        #ζ_uncor = "intermediate/doubleMM_chain_zeta_normal_$(last(HVI._val_value(scenario))).jld2",
+        ζflat = "intermediate/doubleMM_chain_zeta_normal_$(last(HVI._val_value(scenario))).jld2",
+        ζ = "intermediate/doubleMM_chain_zeta_$(last(HVI._val_value(scenario))).jld2",
+        ζ2 = "intermediate/doubleMM_chain_zeta2_$(last(HVI._val_value(scenario))).jld2",
+        θ = "intermediate/doubleMM_chain_theta_$(last(HVI._val_value(scenario))).jld2",
+        # from different starting conditions
+        θ2 = "intermediate/doubleMM_chain_theta2_$(last(HVI._val_value(scenario))).jld2",
+    )
+    chns = map(fname_chn -> load(fname_chn, "chn"; iotype = IOStream), fname_chains);
+    chnst = map(compute_θchain, chns);
+    chnst12 = map(cut2Ms, chnst);
+    # map(keys, chnst12)
+    # (chn12, label) = first(zip(chnst12, keys(chnst12)))
+    pairplot(( 
+        PairPlots.Series(DataFrame(chn12)[:,3:end], label=string(label))
+        for (chn12, label) in zip(chnst12, keys(chnst12)))...)
+    # theta and theta2 go to the same optimium -> independent of initial conditions
+    # zeta_flat and zeta2 result in thetaP biased low
+end
 
 function interactive_after_sample() 
-    fname_agg = "intermediate/doubleMM_chain_rPMs_agg_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
-    chn = load(fname_agg, "chn"; iotype = IOStream);
-    #chn = load(fname, "chn"; iotype = IOStream);
-    chn2 = load(fname2, "chn"; iotype = IOStream);
+    fname_chn = "intermediate/doubleMM_chain_rPMs_agg_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
+    fname_chn = "intermediate/doubleMM_chain_zeta_normal_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
+    fname_chn = "intermediate/doubleMM_chain_zeta_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
+    fname_chn = "intermediate/doubleMM_chain_zeta2_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
+    fname_chn2 = "intermediate/doubleMM_chain_theta_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
+    chn = load(fname_chn, "chn"; iotype = IOStream);
+    chn2 = load(fname_chn2, "chn"; iotype = IOStream);
     n_sample_NUTS = prod(size(Array(chn))[1:2])
+    chn2_12 = cut2Ms(chn2) #chn2[[@vn(θP), @vn(θMs[:,1]), @vn(θMs[:,2])]]
 
     # graph and check convergence
-    chn12 = chn[[@vn(rP), @vn(rMs[:,1]), @vn(rMs[:,2])]]
-    chn12 = chn
+    include("scratch_include.jl")
+    
+    chn12 = cut2Ms(chn)
+
     Makie.plot(chn12)
+    θMs_true[:,1:2]
+    log.(θMs_true[:,1:2])
+    log.(θP_true)
     FlexiChains.Makie.meanplot(chn12) # larger uncertainty at the start
     # slow mixing of chains, and posterior of 0.86 rather than 1 for thetaMs[1,2]
     Makie.plot(chn12[iter=1:150])
@@ -759,16 +946,15 @@ function interactive_after_sample()
 
     # merge chains and recompute θ
     n_sample_, n_chain_ = FlexiChains.niters(chn), FlexiChains.nchains(chn)
-    chnm = vcat((chn[chain=i] for i in 1:n_chain_)...)
-    chnt = FlexiChains.transform_values(chnm,
-        @vn(rP) => (rP -> θP_true .* rP) => @vn(θP),
-        #@vn(rMs) => (rMs -> θMs_true .* rMs) => @vn(θMs),
-        @vn(rM) => (rM -> θMs_true .* rM) => @vn(θMs),
-    )
+    chnt2 = merge_chains(chn2)
+    chnm = merge_chains(chn)
+    chnt = compute_θchain(chnm)
     # inspect mean
     chn12 = chnt[[@vn(θP), @vn(θMs[:,1]), @vn(θMs[:,2])]]
-    FlexiChains.Makie.meanplot(chn12, axis=(;limits=((50, 2000), nothing))) # do not care about the initial uncertainty value
-    pairplot(chn12)
+    chn2_12 = chnt2[[@vn(θP), @vn(θMs[:,1]), @vn(θMs[:,2])]]
+    pairplot(DataFrame(chn12)[:,3:end], DataFrame(chn2_12)[:,3:end])
+    pairplot(chnt2)
+    pairplot(chn2_12)
     θMs_true[:,1]
     θMs_true[:,2]
 

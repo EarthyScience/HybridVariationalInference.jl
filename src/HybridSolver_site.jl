@@ -9,24 +9,35 @@ This is useful for initializing the full posterior inference.
 
 - `alg`: The optimization algorithm to use for solving the problem, e.g. `Adam()`
 """
-struct HybridSolverSite{NMC,A} <: AbstractHybridSolver
+struct HybridSolverSite{NMC,NMCT,A} <: AbstractHybridSolver
     alg::A
     n_MC_val::Val{NMC}
+    n_MC_val_test::Val{NMCT}
 end
 
-function HybridSolverSite(;alg = Optimisers.Adam(), n_MC_val=Val(3)) 
-    HybridSolverSite(alg, n_MC_val)
+function HybridSolverSite(;alg = Optimisers.Adam(), n_MC_val=Val(3), n_MC_val_test=Val(300))
+    HybridSolverSite(alg, n_MC_val, n_MC_val_test)
 end
 
-function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridSolverSite{NMC_ELBO}, 
+function CommonSolve.solve(prob::AbstractHybridProblem, args...; kwargs...) 
+    rng = Random.default_rng()
+    solve(rng, prob, args...; kwargs...)
+end
+function CommonSolve.solve(rng::AbstractRNG, prob::AbstractHybridProblem, solver::HybridSolverSite{NMC_ELBO,NMCT_ELBO},
     loss_mode::AbstractElboLossMode = NegElbo(); 
-    scenario=Val(()), rng=Random.default_rng(),
+    scenario=Val(()), 
     ϕ0c=get_get_hybridproblem_initial_ϕc(prob; scenario),
     epochs,
     epochs_callback = max(1, floor(Int, epochs/10)),
     show_train_loss::Val{TRAIN} = Val(false),
-) where {NMC_ELBO, TRAIN}
+    patience = nothing, # number of test evaluations without improvement before stopping
+    min_delta = 0.0, # minimum decrease of loss_test to count as improvement
+    epochs_eval = 1, # evaluate loss_test every epochs_eval epochs
+    restore_best = true, # return parameters of best loss_test instead of last
+    n_loss_smooth = 10, # number of recent loss_test evaluations averaged for early stopping
+) where {NMC_ELBO, NMCT_ELBO, TRAIN}
     NMC = loss_mode isa NegLogDensity ? 1 : NMC_ELBO
+    NMCT = loss_mode isa NegLogDensity ? 1 : NMCT_ELBO
     train_loader = get_hybridproblem_train_dataloader(prob; scenario)
     # TODO replace key itrain_sites by i_indiv_train 
     tmp = get_hybridproblem_test_data(prob; scenario) 
@@ -64,15 +75,18 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridSolverSite
          fLogLik = get_hybridproblem_neg_logden_obs(prob; scenario),
          n_indiv_train,
          )
+    # test loss is evaluated with NMCT samples, requiring a pbm with NMCT columns
+    pbm_test = get_PBModelApplicator(pbm_spec, ϕc.ϕqP, Val(NMCT), diffchunk)
+    nljoint_args_fix_test = (;nljoint_args_fix..., f! = pbm_test)
     h0 = prepare_elbo_helpers(prob; scenario, ϕc, y_o = indiv_args1.y_o, n_MC=NMC);
-    h0_test = prepare_elbo_helpers(prob; scenario, ϕc, y_o = indiv_args_test.y_o, n_MC=NMC);
+    h0_test = prepare_elbo_helpers(prob; scenario, ϕc, y_o = indiv_args_test.y_o, n_MC=NMCT);
     if TRAIN
         indiv_args_train =  NamedTuple{keys(indiv_args_test)}(train_loader.data)
         h0_train = prepare_elbo_helpers(prob; scenario, ϕc, y_o = indiv_args_train.y_o, n_MC=NMC);
         rnormPM_train = prepare_rnorm(ϕc.ϕqP; n_θP, n_θM, n_MC=NMC, n_indiv=n_indiv_train)
     end
     rnormPM = prepare_rnorm(ϕc.ϕqP; n_θP, n_θM, n_MC=NMC, n_indiv=n_indiv_batch)
-    rnormPM_test = prepare_rnorm(ϕc.ϕqP; n_θP, n_θM, n_MC=NMC, n_indiv=n_indiv_test)
+    rnormPM_test = prepare_rnorm(ϕc.ϕqP; n_θP, n_θM, n_MC=NMCT, n_indiv=n_indiv_test)
     #
     # priors = get_hybridproblem_priors(prob; scenario)
     # priorsP = Tuple(priors[k] for k in keys(par_templates.θP))
@@ -83,7 +97,6 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridSolverSite
         approx, g, is_testmode = false, pbm_covar_indices, intϕqP, intϕqI, cor_ends, 
         transP, transM)
     sample_args_test = (;sample_args..., is_testmode = true)
-    #nljoint_args_fix_test = (;nljoint_args_fix..., f! = ) 
     # randnPM!(rng, rnormPM)
     #primal = neg_elbo_sites!(h0, loss_mode, ϕ, rnormPM, sample_args, indiv_args1, nljoint_args_fix)
     # res0, gradh0 = grad_neg_elbo_sites(
@@ -96,9 +109,18 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridSolverSite
     n_skips = 0
     # epoch = 1
     gradh = (;)
-    randnPM!(rng, rnormPM_test)   
-    loss_test0 = neg_elbo_sites!(h0_test, loss_mode, ϕ, rnormPM_test, sample_args_test, indiv_args_test, nljoint_args_fix)
+    # draw test random numbers only once, so that changes in loss_test
+    # are due to changes in ϕ rather than to MC noise
+    randnPM!(rng, rnormPM_test)
+    loss_test0 = neg_elbo_sites!(h0_test, loss_mode, ϕ, rnormPM_test, sample_args_test, indiv_args_test, nljoint_args_fix_test)
     @show loss_test0
+    loss_test = loss_test0
+    ϕ_best = map(copy, ϕ)
+    # best moving mean of the last n_loss_smooth evaluations of loss_test
+    loss_test_best = oftype(loss_test0, Inf)
+    epoch_best = 0
+    n_bad = 0
+    loss_test_hist = [(0, loss_test0)]
     stime = time()
     for epoch in 1:epochs
         is_testmode = false
@@ -125,12 +147,26 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridSolverSite
                 Optimisers.update!(opt_state, ϕ, grad_cv)
             end
         end
-        if (epoch % epochs_callback) == 0
-            ttime = time() - stime
+        is_callback = (epoch % epochs_callback) == 0
+        if is_callback || (epoch % epochs_eval) == 0
             # compute loss for test data
-            randnPM!(rng, rnormPM_test)   
-            loss_test = neg_elbo_sites!(h0_test, loss_mode, ϕ, rnormPM_test, sample_args_test, indiv_args_test, nljoint_args_fix)
-            @show round(ttime, digits=1), epoch, loss_test
+            loss_test = neg_elbo_sites!(h0_test, loss_mode, ϕ, rnormPM_test, sample_args_test, indiv_args_test, nljoint_args_fix_test)
+            push!(loss_test_hist, (epoch, loss_test))
+            # only count changes in the moving mean, because loss_test scatters
+            n_eval = length(loss_test_hist) - 1 # exclude the epoch-0 entry
+            if n_eval >= n_loss_smooth
+                loss_test_mean = mean(last(x) for x in @view loss_test_hist[end-n_loss_smooth+1:end])
+                if loss_test_mean < loss_test_best - min_delta
+                    loss_test_best, epoch_best, n_bad = loss_test_mean, epoch, 0
+                    foreach(copyto!, ϕ_best, ϕ)
+                else
+                    n_bad += 1
+                end
+            end
+        end
+        if is_callback
+            ttime = time() - stime
+            @show round(ttime, digits=1), epoch, loss_test, loss_test_best, epoch_best
             #@show exp.(ϕ.ϕqP[1:2]), grad_cv.ϕqP
             if TRAIN
                 randnPM!(rng, rnormPM_train)   
@@ -138,8 +174,14 @@ function CommonSolve.solve(prob::AbstractHybridProblem, solver::HybridSolverSite
                 @show loss_train
             end
         end
+        if !isnothing(patience) && n_bad >= patience
+            @info "Early stopping at epoch $epoch: best mean loss_test=$loss_test_best at epoch $epoch_best"
+            break
+        end
     end
-    (;ϕc = attach_axes(ϕ, ϕc), h0, h0_test)
+    # if the smoothing window was never filled, there is no best ϕ
+    ϕ_ret = (restore_best && epoch_best > 0) ? ϕ_best : ϕ
+    (;ϕc = attach_axes(ϕ_ret, ϕc), h0, h0_test, loss_test_best, epoch_best, loss_test_hist)
 end
 
 function prepare_elbo_helpers(prob::AbstractHybridProblem; scenario=(), 
@@ -433,7 +475,7 @@ function compute_stat!(a, x; keys_stat = (:mean, :std, :q025, :q975, :mode, :med
     a
 end
 
-function sample_posterior(rng, prob::AbstractHybridProblem, ϕc; kwargs...) 
+function sample_posterior(rng::AbstractRNG, prob::AbstractHybridProblem, ϕc; kwargs...) 
     predict_stat(rng, prob::AbstractHybridProblem, ϕc; 
          keys_stat = (),
          kwargs...,

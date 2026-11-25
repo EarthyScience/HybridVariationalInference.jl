@@ -182,7 +182,7 @@ end
     # prob = prob0  # for faster debugging of f_doubleMM functions
     y_o2 = get_hybridproblem_train_dataloader(prob; scenario).data[3]
     @test y_o == y_o2 # make sure to use the same synthetic data for good y_true
-    solver = HybridSolverSite(alg=Optimisers.Adam(0.01))
+    solver = HybridSolverSite(alg=Optimisers.Adam(0.02))
     #ϕ0c = (;ϕg = copy(CA.getdata(ϕg)), ϕqP=copy(ϕqP), ϕqI=copy(ϕqI))
     # res = CommonSolve.solve(prob_syn, solver, CP.NegLogDensity(), (;); scenario, 
     #     epochs=0,  );
@@ -193,11 +193,11 @@ end
     # @usingany Cthulhu
     # first point estimate
     rng = StableRNG(1234)
-    res = CommonSolve.solve(prob, solver, CP.NegLogDensity(); ϕ0c, scenario, rng,
-        epochs=4_000,
+    res = CommonSolve.solve(rng, prob, solver, CP.NegLogDensity(); ϕ0c, scenario, 
+        epochs=6_000,
         #show_train_loss = Val(true)
         );
-    @inferred first(CommonSolve.solve(prob, solver, CP.NegLogDensity(); ϕ0c= res.ϕc, scenario, rng,
+    @inferred first(CommonSolve.solve(rng, prob, solver, CP.NegLogDensity(); ϕ0c= res.ϕc, scenario, 
         epochs=1,
         ))
     # need more iterations to reach correct θsP
@@ -222,8 +222,8 @@ end
         #@test exp.(intϕqP(res.ϕ.ϕqP).μζP) ≈ θP_true atol = 0.1
         # run forward
         ϕ_tmp = (;res.ϕc.ϕg, ϕ0c.ϕqP, ϕ0c.ϕqI)
-        hp0, hi_agg0 = HVI.predict_point(res.h0, prob, ϕ0c; scenario)
-        hpt, hi_aggt = HVI.predict_point(res.h0, prob, ϕ_tmp; scenario)
+        hp0, hi_agg0 = HVI.predict_point(prob, ϕ0c; scenario, elbo_helpers = res.h0)
+        hpt, hi_aggt = HVI.predict_point(prob, ϕ_tmp; scenario, elbo_helpers = res.h0)
         # @usingany UnicodePlots
         i_obs = 3
         #scatterplot(hi_agg.θsM[i_obs,:], θMs_true[i_obs,:])
@@ -248,7 +248,7 @@ end
     exp.(res.ϕc.ϕqP.μζP) # ok before
     ϕ0c = res.ϕc
     ϕ0c.ϕqP
-    res_elbo = CommonSolve.solve(prob, solver, CP.NegElbo(); ϕ0c, scenario, rng,
+    res_elbo = CommonSolve.solve(rng, prob, solver, CP.NegElbo(); ϕ0c, scenario, 
         epochs=4_000,
         #show_train_loss = Val(true)
         );
@@ -257,13 +257,18 @@ end
     n_sample_pred = 60
     hp_stat, hi_agg_stat = HVI.predict_stat(rng, prob, res_elbo.ϕc; scenario, n_sample_pred);
     @test eltype(hp_stat[1]) == eltype(hp_stat[2]) == eltype(ϕ0c.ϕqP)
-    hp_stat.θsP[1,:]
+    hp_stat.θsP[1,:]  
     hp_stat.θsP[2,:]
     hi_agg_stat.θsM[1,:,1]
     hp = map(x -> x[:,Val(:mean)], hp_stat)
     hi_agg = map(x -> x[:,Val(:mean),:], hi_agg_stat)
     @test hp.θsP ≈ θP_true atol=0.2
     @test mean(abs.(hi_agg.θsM .- θMs_true)) < 0.05
+    hi_std = map(x -> x[:,Val(:std),:], hi_agg_stat)
+    hi_std.θsM[:,1]  # indiv_1
+    hi_std.θsM[:,2]  # indiv_2  same magnitude
+    hi_agg.θsM[:,1]  
+    hi_agg.θsM[:,2]  
     # TODO test changed uncertainty and correlation
     @test res_elbo.ϕc.ϕqP.logσ_ζP != ϕ0c.ϕqP.logσ_ζP
     hcat(exp.(res_elbo.ϕc.ϕqP.logσ_ζP),exp.(ϕ0c.ϕqP.logσ_ζP))

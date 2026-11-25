@@ -61,7 +61,7 @@ end
 end
 
 # provide a prior around true values
-@model function fsites(y, ::Type{T} = Float64; pbm, xP, σ_o, prior_ζP, prior_ζMs, helpers_channel) where {T}
+@model function fsitesζ_flat(y, ::Type{T} = Float64; pbm, xP, σ_o, prior_ζP, prior_ζMs, helpers_channel) where {T}
     n_obs, n_site = size(y)
     # ζP = rand(prior_ζP)
     # ζMs = rand(prior_ζMs)
@@ -83,4 +83,136 @@ end
         y_pred
     end
 end
+
+@model function fsitesζ(y, ::Type{T} = Float64; pbm, xP, σ_o, prior_ζP, prior_ζMs, helpers_channel) where {T}
+    n_obs, n_site = size(y)
+    # ζP = rand(prior_ζP)
+    # ζMs = rand(prior_ζMs)
+    ζP ~ prior_ζP 
+    ζMs ~ prior_ζMs
+    with_channel_element(helpers_channel) do el_dc
+        local el, θsP, θsMs, y_pred
+        el = map(x -> PAT.get_tmp(x, ζP), el_dc)
+        (; θsP, θsMs, y_pred) = el
+        @assert size(y_pred) == (n_obs, 1, n_site)
+        @view(θsP[:,1]) .= exp.(ζP)
+        @view(θsMs[:,1,:]) .= exp.(ζMs)
+        for j in 1:n_site
+            HVI.apply_model!(view(y_pred, :, :, j), pbm, θsP, @view(θsMs[:,:,j]), @view(xP[:, j]))
+        end
+        for i_obs in 1:n_obs
+            y[i_obs, :] ~ MvNormal(view(y_pred, i_obs, 1, :), σ_o[i_obs]) # single value σ instead of variance
+        end
+        # account for the exp
+        Turing.@addlogprob! (+sum(ζP) +sum(ζMs))
+        y_pred
+    end
+end
+
+@model function fsitesζ2(y, ::Type{T} = Float64; pbm, xP, σ_o, prior_ζP, prior_ζMs, helpers_channel) where {T}
+    n_obs, n_indiv = size(y)
+    # ζP = rand(prior_ζP)
+    # ζMs = rand(prior_ζMs)
+    ζP ~ prior_ζP 
+    ζMs ~ prior_ζMs
+    with_channel_element(helpers_channel) do el_dc
+        local el, θsP, θsMs, y_pred
+        el = map(x -> PAT.get_tmp(x, ζP), el_dc)
+        (; θsP, θsMs, y_pred) = el
+        @assert size(y_pred) == (n_obs, 1, n_indiv)
+        @view(θsP[:,1]) .= exp.(ζP)
+        @view(θsMs[:,1,:]) .= exp.(ζMs)
+        for j in 1:n_indiv
+            HVI.apply_model!(view(y_pred, :, :, j), pbm, θsP, @view(θsMs[:,:,j]), @view(xP[:, j]))
+        end
+        for i_obs in 1:n_obs
+            y[i_obs, :] ~ MvNormal(view(y_pred, i_obs, 1, :), σ_o[i_obs]) # single value σ instead of variance
+        end
+        # account for the exp
+        Turing.@addlogprob! (+sum(ζP) +sum(ζMs)/n_indiv)
+        y_pred
+    end
+end
+
+
+@model function fsitesθ(y, ::Type{T} = Float64; pbm, xP, σ_o, prior_θP, prior_θMs, helpers_channel) where {T}
+    n_obs, n_site = size(y)
+    θP ~ prior_θP 
+    θMs ~ prior_θMs
+    with_channel_element(helpers_channel) do el_dc
+        local el, θsP, θsMs, y_pred
+        el = map(x -> PAT.get_tmp(x, θP), el_dc)
+        (; θsP, θsMs, y_pred) = el
+        @assert size(y_pred) == (n_obs, 1, n_site)
+        @view(θsP[:,1]) .= θP
+        @view(θsMs[:,1,:]) .= θMs
+        for j in 1:n_site
+            HVI.apply_model!(view(y_pred, :, :, j), pbm, θsP, @view(θsMs[:,:,j]), @view(xP[:, j]))
+        end
+        for i_obs in 1:n_obs
+            y[i_obs, :] ~ MvNormal(view(y_pred, i_obs, 1, :), σ_o[i_obs]) # single value σ instead of variance
+        end
+        y_pred
+    end
+end
+
+
+
+
+
+
+function merge_chains(chn)
+    n_chain_ = FlexiChains.nchains(chn)
+    vcat((chn[chain=i] for i in 1:n_chain_)...)
+end
+
+function cut2Ms(chn)
+    n_θP = length(chn[@vn(θP), chain=1, iter=1])
+    n_θI = length(chn[@vn(θMs[:,1]), chain=1, iter=1])
+    keysP = [Symbol("θP[$i]") for i in 1:n_θP]
+    keysM = [Symbol("θP[$i,$j]") for i in 1:n_θI for j in 1:2]
+    cut2Ms(chn,keysP, keysM)
+end
+
+function cut2Ms(chn, keysP, keysM)
+    n_θP = length(chn[@vn(θP), chain=1, iter=1])
+    n_θI = length(chn[@vn(θMs[:,1]), chain=1, iter=1])
+    chn12 = if FlexiChains.Parameter(@vn(θP)) ∈ [keys(chn)...]
+        #chn[[@vn(θP), @vn(θMs[:,1]), @vn(θMs[:,2])]]
+        #chn[[@vn(θP[1]), @vn(θMs[1,1]), @vn(θMs[2,1]), @vn(θMs[1,2]), @vn(θMs[2,2])]]
+        chn12_θ = chn[vcat([@varname(θP[i]) for i in 1:n_θP], [@varname(θMs[i,1]) for i in 1:n_θI], [@varname(θMs[i,2]) for i in 1:n_θI])]
+        g(s) = Dict(
+            (@varname(θP[i]) => keysP[i] for i in 1:n_θP)...,
+            (@varname(θMs[i, j]) => Symbol("$(keysM[i])_$j") for i in 1:n_θI for j in 1:2)...,
+        )[s]    
+        FlexiChains.map_parameters(g, chn12_θ)
+    elseif FlexiChains.Parameter(@vn(rP)) ∈ [keys(chn)...]
+        chn[[@vn(rP), @vn(rMs[:,1]), @vn(rMs[:,2])]]
+        #chn[vcat([@varname(rP[i]) for i in 1:n_θP], [@varname(rMs[i,1]) for i in 1:n_θI], [@varname(rMs[i,2]) for i in 1:n_θI])]
+    elseif FlexiChains.Parameter(@vn(ζP)) ∈ [keys(chn)...]
+        chn[[@vn(ζP), @vn(ζMs[:,1]), @vn(ζMs[:,2])]]
+        #chn[vcat([@varname(ζP[i]) for i in 1:n_θP], [@varname(ζMs[i,1]) for i in 1:n_θI], [@varname(ζMs[i,2]) for i in 1:n_θI])]
+    else
+        error("neither rP, nor ζP, nor θP among chain parameters")
+    end
+end
+
+function compute_θchain(chn)
+    if FlexiChains.Parameter(@vn(rP)) ∈ keys(chn)
+        FlexiChains.transform_values(chn,
+            @vn(rP) => (rP -> θP_true .* rP) => @vn(θP),
+            @vn(rMs) => (rMs -> θMs_true .* rMs) => @vn(θMs),
+        )    
+    elseif FlexiChains.Parameter(@vn(ζP)) ∈ keys(chn)
+        FlexiChains.transform_values(chn,
+            @vn(ζP) => (x -> exp.(x)) => @vn(θP),
+            @vn(ζMs) => (x -> exp.(x)) => @vn(θMs),
+        )
+    elseif FlexiChains.Parameter(@vn(θP)) ∈ keys(chn)
+        chn
+    else
+        error("neither rP, nor ζP, nor θP among chain parameters")
+    end
+end
+
 
