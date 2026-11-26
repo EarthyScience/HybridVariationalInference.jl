@@ -124,9 +124,9 @@ function interactive_elbo(prob0::AbstractHybridProblem, args...; kwargs...)
     interactive_elbo(rng, prob0, args...; kwargs...)
 end
 function interactive_elbo(rng::AbstractRNG, prob0::AbstractHybridProblem; 
-    ϕ0c = res_point.ϕc, n_epoch=1200, η=0.0002, patience=50, 
+    ϕ0c = res_point.ϕc, n_epoch=1200, η=0.0002, patience=50,
     n_MC_val=Val(3), n_MC_test_val=Val(300),
-    loss_mode = NegElbo(),) 
+    loss_mode = NegElbo(), p_old = 0.9,)
     #----------- HVI without strong prior on θmean
     # lower learning rate
     solver_post =  HybridSolverSite(; alg = OptimizationOptimisers.Adam(η), n_MC_val, n_MC_test_val)
@@ -134,9 +134,10 @@ function interactive_elbo(rng::AbstractRNG, prob0::AbstractHybridProblem;
     #n_epoch = 1200
     #exp.(res_point.ϕc.ϕqP.μζP)
     res_elbo1 = solve(rng, prob0, solver_post, loss_mode; ϕ0c, scenario, 
-        epochs=n_epoch, patience,
+        epochs=n_epoch, patience, p_old,
         #show_train_loss = Val(true)
         );
+    @show res_elbo1.epoch_best, res_elbo1.epoch_old
     return res_elbo1
 
     () -> begin
@@ -442,7 +443,7 @@ function interactive_elbo(rng::AbstractRNG, prob0::AbstractHybridProblem;
     end
 end # interactive_elbo
 # res_elbo = interactive_elbo(prob0; n_epoch=8_000, patience = 1_000);
-res_elbo = interactive_elbo(prob0; n_epoch=8_000, patience = 1_000, loss_mode = NegElboFixϕgμI());
+# res_elbo = interactive_elbo(prob0; n_epoch=8_000, patience = 1_000, loss_mode = NegElboFixϕgμI());
 # @usingany UnicodePlots
 # UnicodePlots.scatterplot(1:length(res_elbo.loss_test_hist), last.(res_elbo.loss_test_hist))
 
@@ -907,9 +908,9 @@ function compare_ζcorrection(rng_seed = 118)
     #
     # together with HVI
     hvi_scenarios = (
-        hvi_batchall_covar = Val((:allsites, :covarK2)),
-        hvi_batchall = Val((:allsites,)),
-        hvi_batch10th_covar = Val((:covarK2,)),
+        #hvi_batchall_covar = Val((:allsites, :covarK2)),
+        #hvi_batchall = Val((:allsites,)),
+        #hvi_batch10th_covar = Val((:covarK2,)),
         hvi_batch10th = Val(()),
         )
     combine_scenarios = (scenario::Val{scen}, hvi_scenario::Val{hvi_scen}) where {scen, hvi_scen} = Val((scen..., hvi_scen...))
@@ -925,18 +926,18 @@ function compare_ζcorrection(rng_seed = 118)
         prob = create_problem(rng1; scenario = scenario_comb)[1]
         # first fit the location
         res_point = fit_pointwise(rng1, prob; n_epoch = 10_000, patience = 200);    
-        # UnicodePlots.scatterplot(Base.first.(res_point.loss_test_hist), Base.last.(res_point.loss_test_hist))
-        # next fit the uncertainty
-        res_elbo1 = interactive_elbo(rng1, prob; ϕ0c = res_point.ϕc, n_epoch=8_000, 
+        # UnicodePlots.scatterplot(Base.first.(res_point.loss_test_hist[3:end]), Base.last.(res_point.loss_test_hist[3:end]))
+        # next fit the uncertainty, starting from som e
+        res_elbo1 = interactive_elbo(rng1, prob; ϕ0c = res_point.ϕc_old, n_epoch=8_000, 
             patience = 200, η=0.0005,
             loss_mode = NegElboFixϕgμI(),
             );
         # UnicodePlots.scatterplot(Base.first.(res_elbo1.loss_test_hist), Base.last.(res_elbo1.loss_test_hist))
         #@assert res_elbo1.ϕc.ϕg == res_point.ϕc.ϕg
         # fit both together, with higher N_MC
-        res_elbo = interactive_elbo(rng1, prob; ϕ0c = res_elbo1.ϕc, n_epoch=8_000, 
+        res_elbo = interactive_elbo(rng1, prob; ϕ0c = res_elbo1.ϕc_old, n_epoch=8_000, 
             patience = 200, η=0.0005,
-            n_MC_val=Val(30)
+            n_MC_val=Val(60)
             );
         # UnicodePlots.scatterplot(Base.first.(res_elbo.loss_test_hist), Base.last.(res_elbo.loss_test_hist))
         # res_elbo.ϕc.ϕqP.μζP[1] = log.(2.0) # try setting to true value but goes back

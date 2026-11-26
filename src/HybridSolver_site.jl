@@ -35,6 +35,7 @@ function CommonSolve.solve(rng::AbstractRNG, prob::AbstractHybridProblem, solver
     epochs_eval = 1, # evaluate loss_test every epochs_eval epochs
     restore_best = true, # return parameters of best loss_test instead of last
     n_loss_smooth = loss_mode isa NegLogDensity ? 1 : 10, # number of recent loss_test evaluations averaged for early stopping
+    p_old = 0.9, # keep a parameter state at roughly p_old * epoch_best for restarting
 ) where {NMC_ELBO, NMCT_ELBO, TRAIN}
     NMC = loss_mode isa NegLogDensity ? 1 : NMC_ELBO
     NMCT = loss_mode isa NegLogDensity ? 1 : NMCT_ELBO
@@ -116,6 +117,10 @@ function CommonSolve.solve(rng::AbstractRNG, prob::AbstractHybridProblem, solver
     @show loss_test0
     loss_test = loss_test0
     ϕ_best = map(copy, ϕ)
+    # two snapshots, so that the older one is recorded at an epoch in
+    # [p_old^2, p_old] * epoch_best
+    ϕ_old1, ϕ_old2 = map(copy, ϕ), map(copy, ϕ)
+    epoch_old1, epoch_old2 = 0, 0
     # best moving mean of the last n_loss_smooth evaluations of loss_test
     loss_test_best = oftype(loss_test0, Inf)
     epoch_best = 0
@@ -159,6 +164,13 @@ function CommonSolve.solve(rng::AbstractRNG, prob::AbstractHybridProblem, solver
                 if loss_test_mean < loss_test_best - min_delta
                     loss_test_best, epoch_best, n_bad = loss_test_mean, epoch, 0
                     foreach(copyto!, ϕ_best, ϕ)
+                    if epoch_old2 <= p_old * epoch
+                        # newer snapshot becomes the older one, reuse its memory for current state
+                        ϕ_old1, ϕ_old2 = ϕ_old2, ϕ_old1
+                        epoch_old1 = epoch_old2
+                        foreach(copyto!, ϕ_old2, ϕ)
+                        epoch_old2 = epoch
+                    end
                 else
                     n_bad += 1
                 end
@@ -181,7 +193,8 @@ function CommonSolve.solve(rng::AbstractRNG, prob::AbstractHybridProblem, solver
     end
     # if the smoothing window was never filled, there is no best ϕ
     ϕ_ret = (restore_best && epoch_best > 0) ? ϕ_best : ϕ
-    (;ϕc = attach_axes(ϕ_ret, ϕc), h0, h0_test, loss_test_best, epoch_best, loss_test_hist)
+    (;ϕc = attach_axes(ϕ_ret, ϕc), h0, h0_test, loss_test_best, epoch_best, loss_test_hist,
+        ϕc_old = attach_axes(ϕ_old1, ϕc), epoch_old = epoch_old1)
 end
 
 function prepare_elbo_helpers(prob::AbstractHybridProblem; scenario=(), 
