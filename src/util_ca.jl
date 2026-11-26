@@ -23,6 +23,19 @@ function apply_preserve_axes(f, ca::AbstractArray)
     @assert isempty(ca)
     CA.ComponentVector()
 end
+# # 
+# function apply_preserve_axes(f, ca1::CA.ComponentArray, ca2::CA.ComponentArray; kwargs...)
+#     CA.ComponentArray(f(CA.getdata(ca1),CA.getdata(ca2); kwargs...), CA.getaxes(ca1))
+# end
+
+"""
+    hcat two ComponentMatrix with the same named axis of rows, and Shaped1DAxis of cols
+"""
+function hcat_cm(x::CA.ComponentMatrix{T, A, AxesX}, y::CA.ComponentMatrix{T, A, AxesY}
+) where {T, A, Ax1, TN1, TN2, AxesX<:Tuple{Ax1, CA.Shaped1DAxis{TN1}}, AxesY<:Tuple{Ax1, CA.Shaped1DAxis{TN2}}}
+    ny = first(TN1) + first(TN2)
+    CA.ComponentMatrix(hcat(CA.getdata(x),CA.getdata(y)), (Ax1(), CA.Shaped1DAxis{ny}()))
+end
 
 """
     compose_axes(axtuples::NamedTuple)

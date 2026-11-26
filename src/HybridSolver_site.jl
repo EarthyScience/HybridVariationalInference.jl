@@ -488,8 +488,8 @@ function compute_stat!(a, x; keys_stat = (:mean, :std, :q025, :q975, :mode, :med
     a
 end
 
-function sample_posterior(rng::AbstractRNG, prob::AbstractHybridProblem, ϕc; kwargs...) 
-    predict_stat(rng, prob::AbstractHybridProblem, ϕc; 
+function sample_posterior(rng::AbstractRNG, prob::AbstractHybridProblem, ϕc, args...; kwargs...) 
+    predict_stat(rng, prob::AbstractHybridProblem, ϕc, args...; 
          keys_stat = (),
          kwargs...,
     )    

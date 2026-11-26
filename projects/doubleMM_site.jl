@@ -46,13 +46,13 @@ function create_problem(rng::AbstractRNG=Random.default_rng(); scenario)
     ) = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); scenario);
     n_indiv = size(xM, 2)
     n_site_test = n_indiv ÷ 10    
-    i_indiv_test = sample(rng, 1:n_indiv, n_site_test, replace=false)
-    i_indiv_train = setdiff(1:n_indiv, i_indiv_test)
+    iall_indiv_test = sample(rng, 1:n_indiv, n_site_test, replace=false)
+    iall_indiv_train = setdiff(1:n_indiv, iall_indiv_test)
     _, n_batch = get_hybridproblem_n_indiv_train_and_batch(prob0_; scenario)
-    n_indiv_train = length(i_indiv_train)
+    n_indiv_train = length(iall_indiv_train)
     if :fewsites ∈ HVI._val_value(scenario) 
         n_indiv_train = 80
-        i_indiv_train = i_indiv_train[1:n_indiv_train]
+        iall_indiv_train = iall_indiv_train[1:n_indiv_train]
         n_batch = min(n_indiv_train, n_batch)
     end
     if :allsites ∈ HVI._val_value(scenario)
@@ -61,21 +61,26 @@ function create_problem(rng::AbstractRNG=Random.default_rng(); scenario)
     if :forthbatch ∈ HVI._val_value(scenario)
         n_batch = n_indiv_train ÷ 5
     end
-    test_data = (; xM = xM[:, i_indiv_test], xP = xP[:, i_indiv_test], y_o = y_o[:, i_indiv_test],
-        y_unc = y_unc[:, i_indiv_test], itrain_sites = zeros(length(i_indiv_test)))
-    θMs_true_train = θMs_true[:,i_indiv_train]
-    θMs_true_test = θMs_true[:,i_indiv_test]
-    # TODO rename _train
-    ζP_true, ζMs_true_train = log.(θP_true), log.(θMs_true_train)
+    itrain_sites = zeros(n_indiv)
+    itrain_sites[iall_indiv_test] .= 1:length(iall_indiv_test)
+    iall = vcat(iall_indiv_train, iall_indiv_test)
+    test_data = (; xM = xM[:, iall_indiv_test], xP = xP[:, iall_indiv_test], y_o = y_o[:, iall_indiv_test],
+        y_unc = y_unc[:, iall_indiv_test], itrain_sites = zeros(Int, length(iall_indiv_test)))
+    train_data = (; xM = xM[:, iall_indiv_train], xP = xP[:, iall_indiv_train], y_o = y_o[:, iall_indiv_train],
+        y_unc = y_unc[:, iall_indiv_train], itrain_sites = 1:length(iall_indiv_train))
     train_dataloader = MLUtils.DataLoader(
-        (xM[:,i_indiv_train], xP[:,i_indiv_train], y_o[:,i_indiv_train], y_unc[:,i_indiv_train], i_indiv_train);
+        (train_data.xM, train_data.xP, train_data.y_o, train_data.y_unc, train_data.itrain_sites),
         batchsize = n_batch, partial = false, shuffle=true)
     σ_o = exp.(y_unc[:, 1] / 2)
     # assign the train_loader, otherwise it each time creates another version of synthetic data
-    prob0 = HybridProblem(prob0_; train_dataloader, n_indiv_train = n_indiv_train, n_indiv_batch = n_batch)
-    (;prob0, θP_true, θMs_true_train, θMs_true_test)
+    prob0 = HybridProblem(prob0_; train_dataloader, test_data, n_indiv_train = n_indiv_train, n_indiv_batch = n_batch)
+    @assert get_hybridproblem_test_data(prob0) == test_data
+    # alldata and all_θMs_true may encompass more than iall_indiv_train, iall_indiv_test with fewsites
+    θMs_true_train = θMs_true[:,iall_indiv_train]
+    θMs_true_test = θMs_true[:,iall_indiv_test]
+    (;prob0, train_data, test_data, θP_true, θMs_true_train, θMs_true_test, σ_o)
 end 
-(;prob0, θP_true, θMs_true_train, θMs_true_test) = create_problem(;scenario);
+(;prob0, train_data, test_data, θP_true, θMs_true_train, θMs_true_test, σ_o) = create_problem(;scenario);
 
     #tmp = HVI.get_hybridproblem_ϕq(prob0; scenario)
     #prob0.covar
@@ -467,6 +472,22 @@ prob = HybridProblem(prob0);
 (; θM, θP) = get_hybridproblem_par_templates(prob; scenario)
 n_θP, n_θM  = length.((θP, θM))
 
+# invert for the training and test set together
+is_invert_train_only = false
+#is_invert_train_only = true
+if is_invert_train_only 
+    all_data = train_data
+    θMs_true = θMs_true_train
+else
+    # concatenate all components of test and train data preserving x-ComponentAxis
+    cat_comp(x::CA.ComponentMatrix, y::CA.ComponentMatrix) = HVI.hcat_cm(x,y)
+    cat_comp(x, y) = cat(x, y; dims = ndims(x))
+    all_data = NamedTuple{keys(train_data)}(map(cat_comp, train_data, test_data))
+    θMs_true = CA.ComponentArray(
+        hcat(CA.getdata(θMs_true_train), CA.getdata(θMs_true_test)), CA.getaxes(θMs_true_train))
+end
+n_indiv = size(θMs_true,2)
+
 # construct a prior on log scale that ranges roughly across 1e.3 to 10
 # Turing does not work well with Float32, switch all to Float64
 # prior_ζ = fit(Normal{Float32}, @qp_ll(log(1e-2)), @qp_uu(log(10)))
@@ -478,7 +499,7 @@ init_res = fit_mean_relerror(LogNormal, 1.0, 0.01)
 #prior_res = fit_mean_relerror(LogNormal, 1.0, 0.1)
 prior_res = Uniform(0.6, 1.4)
 prior_resP = filldist(prior_res, n_θP)
-prior_resMs = filldist(prior_res, n_θM, n_site)
+prior_resMs = filldist(prior_res, n_θM, n_indiv)
 prior_resM = filldist(prior_res, n_θM)
 rand(prior_resP)
 rand(prior_resMs)
@@ -487,31 +508,37 @@ rand(prior_resMs)
 
 #i = 1
 # uniform prior on log-scale causes problems, try using a very broad Normal
-prior_ζP = product_distribution(
-    #map(i -> fit_mean_relerror(LogNormal, θP_true[i], 0.5), 1:n_θP) 
-    map(i -> Normal(log(θP_true[i]), 5.0), 1:n_θP) 
-)
-prior_ζMs = product_distribution(
-    #[fit_mean_relerror(LogNormal, θMs_true_train[i,indiv], 0.5) for i in 1:n_θM, indiv in 1:n_site]
-    [Normal(log(θMs_true_train[i,indiv]), 5.0) for i in 1:n_θM, indiv in 1:n_site]
-)
-prior_θP = product_distribution(
-    #map(i -> fit_mean_relerror(LogNormal, θP_true[i], 0.5), 1:n_θP) 
-    map(i -> Normal(θP_true[i], 20.0), 1:n_θP) 
-)
-prior_θMs = product_distribution(
-    #[fit_mean_relerror(LogNormal, θMs_true_train[i,indiv], 0.5) for i in 1:n_θM, indiv in 1:n_site]
-    [Normal(θMs_true_train[i,indiv], 20.0) for i in 1:n_θM, indiv in 1:n_site]
-)
+function setup_priors(θMs_true)
+    local n_indiv
+    n_indiv = size(θMs_true,2)
+    prior_ζP = product_distribution(
+        #map(i -> fit_mean_relerror(LogNormal, θP_true[i], 0.5), 1:n_θP) 
+        map(i -> Normal(log(θP_true[i]), 5.0), 1:n_θP) 
+    )
+    prior_ζMs = product_distribution(
+        #[fit_mean_relerror(LogNormal, θMs_true[i,indiv], 0.5) for i in 1:n_θM, indiv in 1:n_indiv]
+        [Normal(log(θMs_true[i,indiv]), 5.0) for i in 1:n_θM, indiv in 1:n_indiv]
+    )
+    prior_θP = product_distribution(
+        #map(i -> fit_mean_relerror(LogNormal, θP_true[i], 0.5), 1:n_θP) 
+        map(i -> Normal(θP_true[i], 20.0), 1:n_θP) 
+    )
+    prior_θMs = product_distribution(
+        #[fit_mean_relerror(LogNormal, θMs_true[i,indiv], 0.5) for i in 1:n_θM, indiv in 1:n_indiv]
+        [Normal(θMs_true[i,indiv], 20.0) for i in 1:n_θM, indiv in 1:n_indiv]
+    )
 
-init_θP = product_distribution(
-    map(i -> fit_mean_relerror(LogNormal, θP_true[i], 0.01), 1:n_θP)
-)
-init_θMs = product_distribution(
-    [fit_mean_relerror(LogNormal, θMs_true_train[i,indiv], 0.01) for i in 1:n_θM, indiv in 1:n_site]
-)
-log.(rand(init_θMs))
-rand(prior_ζMs)
+    init_θP = product_distribution(
+        map(i -> fit_mean_relerror(LogNormal, θP_true[i], 0.01), 1:n_θP)
+    )
+    init_θMs = product_distribution(
+        [fit_mean_relerror(LogNormal, θMs_true[i,indiv], 0.01) for i in 1:n_θM, indiv in 1:n_indiv]
+    )
+    log.(rand(init_θMs))
+    rand(prior_ζMs)
+    (;prior_ζP, prior_ζMs, prior_θP, prior_θMs, init_θP, init_θMs)
+end
+(;prior_ζP, prior_ζMs, prior_θP, prior_θMs, init_θP, init_θMs) = setup_priors(θMs_true)
 
 pbm_spec = get_hybridproblem_PBModelSpec(prob; scenario)
 import ForwardDiff
@@ -519,8 +546,8 @@ import ForwardDiff
 f = get_PBModelApplicator(pbm_spec, zeros(0), Val(1), ForwardDiff.Chunk(12)) # single prediction
 # for Turing inversion cannot rely on loop across sites, use the older PBMPopulationApplicatorTr 
 θFix = pbm_spec.θFix
-f_sites_tr = PBMPopulationApplicatorTr(DoubleMM.f_doubleMM_sites, n_site; θP, θM, θFix, xPvec = xP[:,1])
-pred = HVI.apply_model(f_sites_tr, θP_true, θMs_true_train', xP)[1]
+f_sites_tr = PBMPopulationApplicatorTr(DoubleMM.f_doubleMM_sites, n_indiv; θP, θM, θFix, xPvec = all_data.xP[:,1])
+pred = HVI.apply_model(f_sites_tr, θP_true, θMs_true', all_data.xP)[1]
 # there is concurrent write to get_tmp(Fixm_dc) across threads
 #   but, all threads write the same value, so may use same pbm
 # pbm_channel = Channel{typeof(f)}(8)
@@ -531,13 +558,13 @@ pred = HVI.apply_model(f_sites_tr, θP_true, θMs_true_train', xP)[1]
 # end
 
 n_threads = min(16, Threads.nthreads())
-n_obs, n_indiv_train = size(y_o)
+n_obs, n_indiv_train = size(all_data.y_o)
 function create_helper(;
     diffchunk::ForwardDiff.Chunk{chunk} = ForwardDiff.Chunk(12),
     use_diff_cache::Val{use_dc} = Val(true)
 ) where {chunk, use_dc}
     θsP = Matrix{Float64}(undef, size(θP_true,1), 1)
-    θsMs = Array{Float64}(undef, size(θMs_true_train,1), 1, size(θMs_true_train,2))
+    θsMs = Array{Float64}(undef, size(θMs_true,1), 1, size(θMs_true,2))
     y_pred = Array{Float64}(undef, n_obs, 1, n_indiv_train)
     helpers_raw = (;θsP, θsMs, y_pred)
     helpers = use_dc ? map(x -> PAT.DiffCache(x, chunk), helpers_raw) : helpers_raw
@@ -658,7 +685,7 @@ end
 function sample_fsitesθ()
     @info "sample_fsitesθ"
     include("scratch_include.jl")
-    model = fsitesθ(y_o; pbm = f, xP, σ_o, prior_θP, prior_θMs, helpers_channel)
+    model = fsitesθ(all_data.y_o; pbm = f, all_data.xP, σ_o, prior_θP, prior_θMs, helpers_channel)
     sample_initial_params = (rng=StableRNG(1234)) -> InitFromParams((
         θP = rand(init_θP),
         θMs = (rand(init_θMs)),
@@ -674,7 +701,8 @@ function sample_fsitesθ()
     # chn = sample(model, NUTS(8, 0.65), MCMCThreads(), ceil(Integer,n_sample_NUTS/n_threads), 
     #     n_threads; initial_params=fill(initial_params, n_threads))
     #fname = "intermediate/doubleMM_chain_rPMs2_$(last(HVI._val_value(scenario))).jld2" # LogNormal prior
-    fname_theta = "intermediate/doubleMM_chain_theta_$(last(HVI._val_value(scenario))).jld2" # Uniform prior
+    train_suffix = is_invert_train_only ? "trainonly_" : ""
+    fname_theta = "intermediate/doubleMM_chain_theta_$(train_suffix)$(last(HVI._val_value(scenario))).jld2" # Uniform prior
     jldsave(fname_theta, false, IOStream; chn)
     @info "saved chn to $fname_theta"
 end
@@ -808,7 +836,7 @@ end
     n_sample_, n_chain_ = size(chn[:rMs]) # same as stack = false
     chnm = vcat((chn[chain=i] for i in 1:n_chain_)...)
     chnm[iter = 1:7]
-    chnm[@vn(rMs[1,:]), stack=true][:,1,:] # resid_θ[1]: n_sample x n_site 
+    chnm[@vn(rMs[1,:]), stack=true][:,1,:] # resid_θ[1]: n_sample x n_indiv 
     chnm[@vn(rMs[:,1]), stack=true][:,1,:] # site 1: θ: n_sample x θ
 
     x = DimArray(chn_s1)[:,1,:]
@@ -884,9 +912,10 @@ function compare_ζcorrection(rng_seed = 118)
     fname_chains = (
         #mc_ζ_uncor = "intermediate/doubleMM_chain_zeta_normal_$(last(HVI._val_value(scenario))).jld2",
         #mc_ζflat = "intermediate/doubleMM_chain_zeta_normal_$(last(HVI._val_value(scenario))).jld2",
-        mc_ζ = "intermediate/doubleMM_chain_zeta_$(last(HVI._val_value(scenario))).jld2",
+        #mc_ζ = "intermediate/doubleMM_chain_zeta_$(last(HVI._val_value(scenario))).jld2",
         #mc_ζ2 = "intermediate/doubleMM_chain_zeta2_$(last(HVI._val_value(scenario))).jld2",
-        mc_θ = "intermediate/doubleMM_chain_theta_$(last(HVI._val_value(scenario))).jld2",
+        mc_θ_all = "intermediate/doubleMM_chain_theta_$(last(HVI._val_value(scenario))).jld2",
+        mc_θ_train = "intermediate/doubleMM_chain_theta_trainonly_$(last(HVI._val_value(scenario))).jld2",
         #mc_θ = "intermediate/doubleMM_chain_thetac_$(last(HVI._val_value(scenario))).jld2",
         # from different starting conditions
         #mc_θ2 = "intermediate/doubleMM_chain_theta2_$(last(HVI._val_value(scenario))).jld2",
@@ -896,10 +925,13 @@ function compare_ζcorrection(rng_seed = 118)
     chnst12 = map(cut2Ms, chnst);
     # keysP = keys(hp_samp.θsP[:,1])
     # keysM = keys(hi_agg_samp.θsM[:,1,1])
-    chnst12 = map(chn -> cut2Ms(chn, keysP, keysM), chnst);
+    include("scratch_include.jl")
+    chnst12 = map(chn -> cut2Ms(chn, keysP, keysM; ichains = 1:2), chnst);
+    chnst12_test = map(chn -> cut2Ms(chn, keysP, keysM; ichains = (1:2), offset_chains = size(θMs_true_train,2)), chnst);
     # map(keys, chnst12)
     # (chn12, label) = first(zip(chnst12, keys(chnst12)))
     chn12 = first(chnst12)
+    chn12_test = first(chnst12_test)
     pairplot(( 
         PairPlots.Series(DataFrame(chn12)[:,3:end], label=string(label))
         for (chn12, label) in zip(chnst12, keys(chnst12)))...)
@@ -908,9 +940,9 @@ function compare_ζcorrection(rng_seed = 118)
     #
     # together with HVI
     hvi_scenarios = (
-        #hvi_batchall_covar = Val((:allsites, :covarK2)),
-        #hvi_batchall = Val((:allsites,)),
-        #hvi_batch10th_covar = Val((:covarK2,)),
+        # hvi_batchall_covar = Val((:allsites, :covarK2)),
+        # hvi_batchall = Val((:allsites,)),
+        # hvi_batch10th_covar = Val((:covarK2,)),
         hvi_batch10th = Val(()),
         )
     combine_scenarios = (scenario::Val{scen}, hvi_scenario::Val{hvi_scen}) where {scen, hvi_scen} = Val((scen..., hvi_scen...))
@@ -951,7 +983,17 @@ function compare_ζcorrection(rng_seed = 118)
             DataFrame(hi_agg_samp.θsM[:,:,1]', collect(string.(keys(CA.getaxes(hi_agg_samp.θsM)[1])) .* "_1")),
             DataFrame(hi_agg_samp.θsM[:,:,2]', collect(string.(keys(CA.getaxes(hi_agg_samp.θsM)[1])) .* "_2")),
         );
-        (; prob, res_elbo, df_hvi, res_point, res_elbo1)
+        _, batchsize = get_hybridproblem_n_indiv_train_and_batch(prob0)
+        test_dl = DataLoader(values(test_data); batchsize, partial=false)
+        hp_samp_t, hi_agg_samp_t = HVI.sample_posterior(rng1, prob, res_elbo.ϕc, test_dl;
+            n_sample_pred,
+            );
+        df_hvi_test = hcat(
+            DataFrame(hp_samp_t.θsP', collect(keys(CA.getaxes(hp_samp_t.θsP)[1]))),
+            DataFrame(hi_agg_samp_t.θsM[:,:,1]', collect(string.(keys(CA.getaxes(hi_agg_samp_t.θsM)[1])) .* "_1")),
+            DataFrame(hi_agg_samp_t.θsM[:,:,2]', collect(string.(keys(CA.getaxes(hi_agg_samp_t.θsM)[1])) .* "_2")),
+        );
+        (; prob, res_elbo, df_hvi, df_hvi_test, res_point, res_elbo1)
     end;
     probs = map(x -> x.prob, prob_elbo_dfs);
     res_elbos = map(x -> x.res_elbo, prob_elbo_dfs);
@@ -969,6 +1011,7 @@ function compare_ζcorrection(rng_seed = 118)
         end);
     end
     dfs_hvi = map(x -> x.df_hvi, prob_elbo_dfs);
+    dfs_hvi_test = map(x -> x.df_hvi_test, prob_elbo_dfs);
     # :hvi_batchall_covar 
     dfs_hvi_plot = dfs_hvi #dfs_hvi[(:hvi_batchall, :hvi_batch10th, :hvi_batch10th_covar)];
     fig = pairplot(
@@ -979,6 +1022,15 @@ function compare_ζcorrection(rng_seed = 118)
         )
     () -> begin
         save("intermediate/pairplots_omitr0.svg", fig)
+    end
+    fig_test = pairplot(
+        (PairPlots.Series(DataFrame(chn12)[:,3:end], label=string(label))
+        for (chn12, label) in zip(chnst12, keys(chnst12)))..., 
+        (PairPlots.Series(df_hvi, label=string(label))
+        for (df_hvi, label) in zip(dfs_hvi_test, keys(dfs_hvi_test)))..., 
+        )
+    () -> begin
+        save("intermediate/pairplots_test_omitr0.svg", fig_test)
     end
 end
 
