@@ -947,6 +947,9 @@ function compare_ζcorrection(rng_seed = 118)
         PairPlots.Series(DataFrame(chn12)[:,3:end], label=string(label))
         for (chn12, label) in zip(chnst12, keys(chnst12)))...)
     sms = map(chn -> summarystats(chn, split_varnames=false), chnst);
+    #sm = sms[1]
+    stdsP = map(sm -> sm[@vn(θP), stat=:std], sms)
+    values(stdsP) ./ vec(stdsP[2])
     meansM = map(sm -> sm[@vn(θMs), stat=:mean], sms)
     stdsM = map(sm -> sm[@vn(θMs), stat=:std], sms)
     i_test = n_indiv_train .+ (1:n_indiv_test)
@@ -963,16 +966,13 @@ function compare_ζcorrection(rng_seed = 118)
     #   with a few outliers of larger 
     fig = Makie.scatter(meansM.mc_θ_train[i_par,:], meansM.mc_θ_all[i_par,1:n_indiv_train];
         axis=(; xlabel="mean(" * mean_label * ") MC train sites", ylabel="mean(" * mean_label * ") MC all sites" ))
+    Makie.ablines!(fig.axis, 0,1)
+    fig
     #
     fig = Makie.scatter(stdsM.mc_θ_train[i_par,:], stdsM.mc_θ_all[i_par,1:n_indiv_train];
         axis=(; xlabel="std(" * mean_label * ") MC train sites", ylabel="std(" * mean_label * ") MC all sites" ))
     Makie.ablines!(fig.axis, 0,1)
     fig
-    fig = Makie.scatter(meansM.mc_θ_train[1,:], stdsM.mc_θ_train[1,:], xlabel=keys)
-    sms[1][FlexiChains.parameters(sms[1])[2:end]]
-    vec(Array(sms[1][stat=:mean]))
-    Makie.scatter()
-    # zeta_flat and zeta2 result in thetaP biased low
     #
     # together with HVI
     hvi_scenarios = (
