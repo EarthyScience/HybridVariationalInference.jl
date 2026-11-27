@@ -212,6 +212,15 @@ end
 #     return (CA.getdata(y)') # transform site-first -> site-last dimension
 # end
 
+# 
+function explore_synthetic_data()
+    rng = StableRNG(115)
+    prob0_ = HybridProblem(DoubleMM.DoubleMMCase(); scenario);
+    (; xM, θP_true, θMs_true, xP,  y_true, y_o, y_unc
+    ) = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); scenario);
+
+end
+
 function HVI.get_hybridproblem_par_templates(
         ::DoubleMMCase; scenario::Val{scen}) where {scen}
     if (:no_globals ∈ scen)
@@ -526,3 +535,5 @@ function HVI.get_hybridproblem_ranef(prob::DoubleMMCase; scenario::Val{scen}) wh
         NullRandomEffects()
     end
 end
+
+

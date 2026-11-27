@@ -174,16 +174,28 @@ function cut2Ms(chn)
     cut2Ms(chn,keysP, keysM)
 end
 
-function cut2Ms(chn, keysP, keysM)
+# offset_chains = n_train picks the ichains fater the chains of the training dataset
+#   but named still as ichains
+function cut2Ms(chn, keysP, keysM; ichains=1:2, offset_chains=0)
     n_θP = length(chn[@vn(θP), chain=1, iter=1])
     n_θI = length(chn[@vn(θMs[:,1]), chain=1, iter=1])
+    ich = offset_chains .+ ichains
     chn12 = if FlexiChains.Parameter(@vn(θP)) ∈ [keys(chn)...]
         #chn[[@vn(θP), @vn(θMs[:,1]), @vn(θMs[:,2])]]
         #chn[[@vn(θP[1]), @vn(θMs[1,1]), @vn(θMs[2,1]), @vn(θMs[1,2]), @vn(θMs[2,2])]]
-        chn12_θ = chn[vcat([@varname(θP[i]) for i in 1:n_θP], [@varname(θMs[i,1]) for i in 1:n_θI], [@varname(θMs[i,2]) for i in 1:n_θI])]
+        n_indiv_chn = size(chn[@vn(θMs), iter=1, chain=1],2)
+        if offset_chains >= n_indiv_chn
+            ich = 1:0
+            ichains = 1:0
+        end
+        chn12_θ = chn[vcat([@varname(θP[i]) for i in 1:n_θP],
+         ([@varname(θMs[i,j]) for i in 1:n_θI] for j in ich)...
+        #  [@varname(θMs[i,1]) for i in 1:n_θI], 
+        #  [@varname(θMs[i,2]) for i in 1:n_θI])
+         )]
         g(s) = Dict(
             (@varname(θP[i]) => keysP[i] for i in 1:n_θP)...,
-            (@varname(θMs[i, j]) => Symbol("$(keysM[i])_$j") for i in 1:n_θI for j in 1:2)...,
+            (@varname(θMs[i, j]) => Symbol("$(keysM[i])_$(j - offset_chains)") for i in 1:n_θI for j in ich)...,
         )[s]    
         FlexiChains.map_parameters(g, chn12_θ)
     elseif FlexiChains.Parameter(@vn(rP)) ∈ [keys(chn)...]
