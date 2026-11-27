@@ -40,7 +40,8 @@ scenario = Val((:use_Lux,:usePopPBM,:use_rangescaling,:omit_r0,))  # without omi
 
 
 #------ setup synthetic data and training data loader
-function create_problem(rng::AbstractRNG=Random.default_rng(); scenario)
+function create_problem(; scenario)
+    rng = StableRNG(115) # fix so that returns the same data for a given scenario
     prob0_ = HybridProblem(DoubleMM.DoubleMMCase(); scenario);
     (; xM, θP_true, θMs_true, xP,  y_true, y_o, y_unc
     ) = gen_hybridproblem_synthetic(rng, DoubleMM.DoubleMMCase(); scenario);
@@ -76,11 +77,16 @@ function create_problem(rng::AbstractRNG=Random.default_rng(); scenario)
     prob0 = HybridProblem(prob0_; train_dataloader, test_data, n_indiv_train = n_indiv_train, n_indiv_batch = n_batch)
     @assert get_hybridproblem_test_data(prob0) == test_data
     # alldata and all_θMs_true may encompass more than iall_indiv_train, iall_indiv_test with fewsites
+    θMs_true_orig = copy(θMs_true)  # original order
     θMs_true_train = θMs_true[:,iall_indiv_train]
     θMs_true_test = θMs_true[:,iall_indiv_test]
-    (;prob0, train_data, test_data, θP_true, θMs_true_train, θMs_true_test, σ_o)
+    (;prob0, train_data, test_data, θP_true, θMs_true_train, θMs_true_test, θMs_true_orig, σ_o)
 end 
-(;prob0, train_data, test_data, θP_true, θMs_true_train, θMs_true_test, σ_o) = create_problem(;scenario);
+# make sure to use the same data
+(;prob0, train_data, test_data, θP_true, θMs_true_train, θMs_true_test, θMs_true_orig, σ_o) = create_problem(; scenario);
+tmp = create_problem(; scenario = Val((HVI._val_value(scenario)..., :all_sites)));
+@assert tmp.train_data == train_data
+@assert tmp.θMs_true_train == θMs_true_train
 
     #tmp = HVI.get_hybridproblem_ϕq(prob0; scenario)
     #prob0.covar
@@ -474,7 +480,7 @@ n_θP, n_θM  = length.((θP, θM))
 
 # invert for the training and test set together
 is_invert_train_only = false
-#is_invert_train_only = true
+is_invert_train_only = true
 if is_invert_train_only 
     all_data = train_data
     θMs_true = θMs_true_train
@@ -487,6 +493,8 @@ else
         hcat(CA.getdata(θMs_true_train), CA.getdata(θMs_true_test)), CA.getaxes(θMs_true_train))
 end
 n_indiv = size(θMs_true,2)
+n_indiv_train = size(train_data.xM,2)
+UnicodePlots.scatterplot(θMs_true_train[1,:], θMs_true[1,1:n_indiv_train])
 
 # construct a prior on log scale that ranges roughly across 1e.3 to 10
 # Turing does not work well with Float32, switch all to Float64
@@ -912,7 +920,7 @@ function compare_ζcorrection(rng_seed = 118)
     fname_chains = (
         #mc_ζ_uncor = "intermediate/doubleMM_chain_zeta_normal_$(last(HVI._val_value(scenario))).jld2",
         #mc_ζflat = "intermediate/doubleMM_chain_zeta_normal_$(last(HVI._val_value(scenario))).jld2",
-        #mc_ζ = "intermediate/doubleMM_chain_zeta_$(last(HVI._val_value(scenario))).jld2",
+        mc_ζ = "intermediate/doubleMM_chain_zeta_$(last(HVI._val_value(scenario))).jld2",
         #mc_ζ2 = "intermediate/doubleMM_chain_zeta2_$(last(HVI._val_value(scenario))).jld2",
         mc_θ_all = "intermediate/doubleMM_chain_theta_$(last(HVI._val_value(scenario))).jld2",
         mc_θ_train = "intermediate/doubleMM_chain_theta_trainonly_$(last(HVI._val_value(scenario))).jld2",
@@ -927,7 +935,7 @@ function compare_ζcorrection(rng_seed = 118)
     # keysM = keys(hi_agg_samp.θsM[:,1,1])
     include("scratch_include.jl")
     chnst12 = map(chn -> cut2Ms(chn, keysP, keysM; ichains = 1:2), chnst);
-    chnst12_test = map(chn -> cut2Ms(chn, keysP, keysM; ichains = size(θMs_true_train,2) .+ (1:2)), chnst);
+    chnst12_test = map(chn -> cut2Ms(chn, keysP, keysM; ichains = (1:2), offset_chains = size(θMs_true_train,2)), chnst);
     # map(keys, chnst12)
     # (chn12, label) = first(zip(chnst12, keys(chnst12)))
     chn12 = first(chnst12)
@@ -935,7 +943,21 @@ function compare_ζcorrection(rng_seed = 118)
     pairplot(( 
         PairPlots.Series(DataFrame(chn12)[:,3:end], label=string(label))
         for (chn12, label) in zip(chnst12, keys(chnst12)))...)
-    # theta and theta2 go to the same optimium -> independent of initial conditions
+    sms = map(chn -> summarystats(chn, split_varnames=false), chnst)
+    meansM = map(sm -> sm[@vn(θMs), stat=:mean], sms)
+    fig = Makie.scatter(θMs_true_orig[1,:], meansM.mc_ζ[1,:])
+    
+    
+    smsM = map(sm ->sm[FlexiChains.parameters(sm)[(n_θP+1):end]], sms) # omit θP
+    
+    means = map(sm -> reshape(Array(sm[stat=:mean]), n_θM,:), smsM)
+    fig = Makie.scatter(θMs_true[1,:], means.mc_θ_all[1,:])
+    fig = Makie.scatter(θMs_true[1,1:n_indiv_train], means.mc_θ_all[1,1:n_indiv_train])
+    fig = Makie.scatter(θMs_true[1,1:n_indiv_train], means.mc_θ_train[1,:])
+    fig = Makie.scatter(means.mc_θ_train[1,:], means.mc_θ_all[1,1:n_indiv_train])
+    sms[1][FlexiChains.parameters(sms[1])[2:end]]
+    vec(Array(sms[1][stat=:mean]))
+    Makie.scatter()
     # zeta_flat and zeta2 result in thetaP biased low
     #
     # together with HVI
@@ -955,7 +977,7 @@ function compare_ζcorrection(rng_seed = 118)
         @info "-- scenario = $scenario_comb"
         local rng1, prob, res_point, res_elbo
         rng1 = StableRNG(rng_seed)
-        prob = create_problem(rng1; scenario = scenario_comb)[1]
+        prob = create_problem(;scenario = scenario_comb)[1]
         # first fit the location
         res_point = fit_pointwise(rng1, prob; n_epoch = 10_000, patience = 200);    
         # UnicodePlots.scatterplot(Base.first.(res_point.loss_test_hist[3:end]), Base.last.(res_point.loss_test_hist[3:end]))

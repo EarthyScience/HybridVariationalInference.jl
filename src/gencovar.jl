@@ -3,7 +3,7 @@ Generate correlated covariates and synthetic true parameters that
 are a linear combination of the uncorrelated underlying principal 
 factors and their binary combinations.
 
-In addition provide the true outputs θMs_true = f_true(x_o)
+In addition provide the true outputs ζMs_true = f_true(x_o)
 """
 function gen_cov_pred(rng::AbstractRNG, T::DataType,
     n_covar_pc, n_covar, n_site, ζM;

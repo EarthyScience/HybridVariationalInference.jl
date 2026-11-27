@@ -349,12 +349,13 @@ function predict_stat(rng, prob::AbstractHybridProblem, ϕc, dataloader; scenari
 )  
     is_ret_sample = (keys_stat == ())
     h0 = elbo_helpers
-    dataloader = get_hybridproblem_train_dataloader(prob; scenario)
+    #dataloader = get_hybridproblem_train_dataloader(prob; scenario)
     keys_indiv = (:xM, :xP, :y_o, :y_unc, :i_indiv_train)
     indiv_args1 = NamedTuple{keys_indiv}(first(dataloader))
-    # TODO replace n_site by n_indiv
-    n_indiv_train, n_indiv_batch  = get_hybridproblem_n_indiv_train_and_batch(prob; scenario)
     n_obs, n_site = size(indiv_args1.y_o)
+    # for sampling do not care about scaling the elbo by n_indiv_train/n_batch
+    # n_indiv_train, n_indiv_batch  = get_hybridproblem_n_indiv_train_and_batch(prob; scenario)
+    n_indiv_train = n_indiv_batch = size(indiv_args1.xM,2)
     #
     par_templates = get_hybridproblem_par_templates(prob; scenario)
     n_θP = length(par_templates.θP)
@@ -404,7 +405,6 @@ function predict_stat(rng, prob::AbstractHybridProblem, ϕc, dataloader; scenari
     else
         h0
     end
-    @assert n_indiv_batch == size(indiv_args1.xM,2)
     #
     ϕ = map(CA.getdata, ϕc)
     h1 = h0p.helpers_sites[1]
